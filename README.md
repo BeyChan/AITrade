@@ -4,6 +4,7 @@
 
 ```text
 选择国家 × 平台
+→ AI 推荐 5 个候选类目（可选）
 → 生成 5 个商品机会
 → 导入或录入竞品、差评、专利、物流与供应商数据
 → 得出 GO / HOLD / NO-GO
@@ -20,8 +21,10 @@
 
 ## 主要功能
 
-- 首页按“国家 × 平台”隔离商品机会、利润指标和导入入口。
+- 首页右上角可分别切换国家和平台，机会、研究记录和导入入口均按当前站点隔离。
+- 可按当前国家 × 平台生成 5 个候选类目；点击只回填类目，不自动提交研究。
 - AI 研究按当前站点生成 5 个不重复机会，并给出验证任务和找货线索。
+- 首页研究记录按“类目 + 研究条件”去重，按时间倒序仅展示最近 3 条。
 - 候选品、供应商、报价支持 CSV 或人工录入，保留来源、观察时间和原始快照。
 - 确定性计算到岸成本、净利率、压力利润、现金占用和 GO / HOLD / NO-GO。
 - 支持商品定义、主图检查、Listing 草稿、多国家多平台版本和本地预检。
@@ -70,6 +73,8 @@ CSV 不需要 API Key。每条记录会保留 `source_code`、`observed_at`、�
 
 配置优先级为“页面设置 → 环境变量 → 默认模板”。模型请求失败时自动回退模板。环境变量示例见 [.env.example](.env.example)。
 
+AI 类目推荐接口为 `POST /api/ai/category-recommendations`，请求体包含 `marketCode` 和 `platformCode`。服务端会重新校验国家与平台，并要求返回 5 个不同类目；推荐只表示待核验方向，不代表销量、竞争度或利润结论。
+
 ## 规则与边界
 
 - 所有市场事实、供应商和成本数据都必须有外部来源或人工录入记录。
@@ -93,8 +98,10 @@ npm run db:reset   # 清空本地数据库
 ```text
 src/app/                 页面、Server Actions 与 API
 src/app/ai-sourcing/     AI 选品批次与验证
+src/app/api/ai/          AI 类目推荐接口
 src/app/data-sources/    CSV 与人工数据导入
 src/app/connections/     平台只读连接检查
+src/components/          AI 类目推荐等交互组件
 src/lib/ai-provider.ts   模型调用与模板回退
 src/lib/ai-sourcing.ts   假设校验与确定性门禁
 src/lib/ingestion.ts     导入、去重、快照与运行记录
