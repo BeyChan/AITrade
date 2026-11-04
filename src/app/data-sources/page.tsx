@@ -36,8 +36,8 @@ export default async function DataSourcesPage() {
           <div className="eyebrow">P1.2 · Durable connector sync</div>
           <h1>真实数据先入库，<br />再让 AI 做判断。</h1>
           <p>
-            当前把选品、供应商和报价通过可追溯的 CSV 通道接入，并把 Keepa 升级为可重试的同步任务。
-            每条数据都有来源、观察时间、原始快照、API 调用记录和数据新鲜度，不用聊天里的“估算值”冒充事实。
+            当前把选品、供应商和报价通过可追溯的 CSV 通道接入，并支持 Keepa 与 Sorftime MCP 的只读同步任务。
+            Sorftime 用于 Amazon 类目/ASIN 研究；每条数据都有来源、观察时间、原始快照、API 调用记录和数据新鲜度，不用聊天里的“估算值”冒充事实。
           </p>
         </div>
         <Link className="button secondary" href="/import">快速导入候选品</Link>
@@ -190,15 +190,15 @@ export default async function DataSourcesPage() {
       <section className="source-bottom-grid">
         <article className="card">
           <h3>当前可以直接接入</h3>
-          <p>候选品 CSV、供应商 CSV、报价 CSV 已可立即使用。建议从平台后台、ERP、1688/Alibaba 导出或人工核验表开始，不需要等待 OAuth 审核。</p>
+          <p>候选品 CSV、供应商 CSV、报价 CSV 已可立即使用；配置 SORFTIME_API_KEY 后可对 Amazon 类目或最多 20 个 ASIN 做只读研究。建议从平台后台、ERP、1688/Alibaba 导出或人工核验表开始。</p>
         </article>
         <article className="card">
           <h3>下一步 API 顺序</h3>
-          <p>Keepa 用于竞品只读信号；Amazon SP-API、Shopify、TikTok Shop 和 eBay 只处理自有店铺。1688/Alibaba 必须走官方开放平台授权。</p>
+          <p>Sorftime 用于类目和商品研究，Keepa 用于竞品价格/销量信号；销量均为第三方估算。Amazon SP-API、Shopify、TikTok Shop 和 eBay 只处理自有店铺，1688/Alibaba 必须走官方开放平台授权。</p>
         </article>
         <article className="card">
           <h3>密钥放置</h3>
-          <p>写入本机 <code>.env.local</code> 或正式密钥管理系统，并重启服务。不要把 API Key、Token 或店铺凭证粘贴到聊天、CSV 或源码中。</p>
+          <p>写入本机 <code>.env.local</code> 或正式密钥管理系统，并重启服务。Sorftime 使用 <code>SORFTIME_API_KEY</code>；不要把 API Key、Token 或店铺凭证粘贴到聊天、CSV 或源码中。</p>
         </article>
       </section>
     </div>

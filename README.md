@@ -2,12 +2,12 @@
 
 面向跨境电商的 AI 运营工作台。目标不是替代 ERP，而是把选品、供应商、内容生产、上架和运营异常沉淀成可审计、可审批、可复用的工作流。
 
-当前仓库是一个**可运行的 P1.2 数据底座 + 纵向业务切片 + 只读连接诊断**。真实候选品、供应商和报价可以通过 CSV 或人工通道入库，保留来源、采集时间、运行记录和原始快照；Keepa 同步已升级为可重试、可审计、带数据新鲜度的持久化任务。已跑通：
+当前仓库是一个**可运行的 P1.2 数据底座 + 纵向业务切片 + 只读连接诊断**。真实候选品、供应商和报价可以通过 CSV 或人工通道入库，保留来源、采集时间、运行记录和原始快照；Keepa 与 Sorftime MCP 研究已接入可重试、可审计、带数据新鲜度的持久化任务。已跑通：
 
 ```text
 候选品 / 供应商 / 报价真实数据接入
 → CSV 导入、幂等去重、运行记录与证据快照
-→ 可选 Keepa 只读同步任务、自动重试、调用审计与数据新鲜度
+→ 可选 Keepa / Sorftime 只读研究任务、自动重试、调用审计与数据新鲜度
 → Amazon / Shopify / eBay 只读连接检查
 → 生成证据占位与单位经济模型
 → 商品机会看板
@@ -46,7 +46,7 @@
 ## 当前能力
 
 - 独立“数据源”工作台 `/data-sources`，统一展示数据源就绪度、真实数据量、最近 20 次导入和告警
-- CSV 导入 API `/api/ingestion` 支持候选品、供应商和报价；Keepa 使用独立的同步任务 API `/api/sync/jobs`
+- CSV 导入 API `/api/ingestion` 支持候选品、供应商和报价；Keepa 与 Sorftime 使用独立的同步任务 API `/api/sync/jobs`
 - CSV 文件上传或直接粘贴导入；候选品最多 200 行，供应商和报价最多 1,000 行，CSV 最大 2 MB
 - 中英文字段名兼容，重复 `asin + marketplace` 幂等跳过；供应商按平台 + 外部 ID、规范化链接或名称去重
 - 候选品导入显式绑定“国家 × 平台站点”；同一商品可关联多个站点，机会看板和指标严格按当前站点隔离
@@ -58,7 +58,9 @@
 - 每次 Keepa 同步生成持久化任务，记录状态、尝试次数、下次重试时间、API 调用耗时、响应摘要、失败原因和关联导入运行
 - 按 `source_code + 市场` 维护同步游标和数据新鲜度；24 小时内成功同步为 `fresh`，超时为 `stale`，从未成功为 `unknown`
 - 同一 ASIN 集合与市场的活跃任务幂等复用；失败任务可人工重试，默认最多尝试 3 次
-- 未配置 `KEEPA_API_KEY` 时返回 409，不发起外部请求，也不伪造商品、连接或成功状态
+- 未配置 `KEEPA_API_KEY` 或 `SORFTIME_API_KEY` 时返回 409，不发起外部请求，也不伪造商品、连接或成功状态
+- Sorftime MCP 只读连接器固定访问 `https://mcp.sorftime.com`，只开放类目搜索、类目报告和商品详情三个白名单工具
+- Sorftime 支持类目研究和 ASIN 研究；单次最多 20 个 ASIN，类目报告最多导入 50 个有价格商品，结果统一生成 `review_pending` 候选品和证据快照
 - 同步任务、API 调用和审计记录不保存 API Key、Authorization 或带密钥的请求 URL
 - 独立“连接中心” `/connections`：Amazon 验证 LWA + Seller API，Shopify 验证自有店铺只读访问，eBay 只验证应用凭证
 - 每次连接检查写入 `connector_health_checks` 和 `connector.health_checked` 审计；页面与数据库均不保存或回显 Token、Secret
@@ -89,11 +91,11 @@
 
 ## 明确边界
 
-P1.2 覆盖真实候选品、供应商和报价接入、Keepa 持久化同步任务、平台只读授权诊断，并继续贯通“候选品 → 成本模型 → 人审立项 → 供应商报价对比 → 人审定标 → 商品定义 → 主图人审 → 多国家/多平台 Listing 草稿与本地预检 → 人工内容批准 → 发布准备门禁 → 内部发布队列审批”。它是可运行的数据底座与业务原型，不是生产系统。
+P1.2 覆盖真实候选品、供应商和报价接入、Keepa / Sorftime 持久化只读研究任务、平台只读授权诊断，并继续贯通“候选品 → 成本模型 → 人审立项 → 供应商报价对比 → 人审定标 → 商品定义 → 主图人审 → 多国家/多平台 Listing 草稿与本地预检 → 人工内容批准 → 发布准备门禁 → 内部发布队列审批”。它是可运行的数据底座与业务原型，不是生产系统。
 
 当前真实接入状态：
 
-- **已实现**：候选品 CSV、供应商 CSV、报价 CSV、人工报价录入、Keepa ASIN 只读同步任务与人工重试
+- **已实现**：候选品 CSV、供应商 CSV、报价 CSV、人工报价录入、Keepa ASIN 与 Sorftime 类目 / ASIN 只读研究任务及人工重试
 - **已实现只读诊断**：Amazon SP-API 自有店铺、Shopify Admin API、eBay 应用凭证
 - **已实现内部审批**：渠道发布准备检查与人工发布队列审批；审批只进入内部队列，不产生平台发布
 - **只做本地适配预览**：Amazon、Shopify、TikTok Shop、eBay Listing 字段映射
@@ -107,9 +109,9 @@ P1.2 覆盖真实候选品、供应商和报价接入、Keepa 持久化同步任
 - AI 图片生成、A+ 自动排版、品牌授权自动核验和类目合规引擎
 - 平台密钥托管、eBay 卖家 OAuth、平台 dry-run、发布、改价、库存同步和广告操作
 - 登录、角色权限和多租户
-- 评论、关键词和竞品证据的规模化联网采集；Keepa 目前只覆盖商品层只读字段
+- 未授权平台爬虫和规模化联网抓取；Keepa / Sorftime 目前只覆盖其官方接口返回的商品与类目层只读字段
 
-系统不会自动生成或发送 RFQ、联系供应商、定标、签合同、下单或付款，也不会把本地 Listing 草稿发布到平台。CSV 导入只入库，所有真实导入默认记录 `externalActions: none`；Keepa 与已支持的连接诊断仅记录 `read_only`。连接验证成功只证明当前凭证可完成对应只读请求，不代表平台发布权限、类目合规或商品已上架。当前所有平台均为 `dryRunSupported=false`、`publishingSupported=false`；`approved_for_publish` 只表示批准进入内部发布队列，不等于平台发布，外部商品 ID 仍为空。演示数据只用于验证系统和计算逻辑，不代表真实市场结论或图片授权。
+系统不会自动生成或发送 RFQ、联系供应商、定标、签合同、下单或付款，也不会把本地 Listing 草稿发布到平台。CSV 导入只入库，所有真实导入默认记录 `externalActions: none`；Keepa、Sorftime 与已支持的连接诊断仅记录 `read_only`。连接验证成功只证明当前凭证可完成对应只读请求，不代表平台发布权限、类目合规或商品已上架。当前所有平台均为 `dryRunSupported=false`、`publishingSupported=false`；`approved_for_publish` 只表示批准进入内部发布队列，不等于平台发布，外部商品 ID 仍为空。演示数据只用于验证系统和计算逻辑，不代表真实市场结论或图片授权。
 
 ## 技术栈
 
@@ -159,7 +161,7 @@ npm start
 
 ## 接入真实数据（P1.2）
 
-进入“数据源”页面 `/data-sources`，可以分别导入候选品、供应商、报价，或同步 Keepa ASIN。旧的“导入候选品”页面 `/import` 仍保留兼容，但新字段和运行记录以数据源工作台为准。
+进入“数据源”页面 `/data-sources`，可以分别导入候选品、供应商、报价，或执行 Keepa / Sorftime 只读研究。旧的“导入候选品”页面 `/import` 仍保留兼容，但新字段和运行记录以数据源工作台为准。
 
 ### 候选品 CSV
 
@@ -232,7 +234,33 @@ KEEPA_API_KEY=
 
 API Secret 只能放在 `.env.local` 或密钥管理系统中，禁止写入数据库、源码、CSV、日志或聊天。
 
-### Keepa 同步任务 API
+### Sorftime MCP（可选）
+
+在 `.env.local` 或密钥管理系统中配置自己的 Key：
+
+```bash
+SORFTIME_API_KEY=
+```
+
+数据源工作台支持两种只读研究模式：
+
+- **类目研究**：先调用 `category_name_search` 定位类目，再调用 `category_report` 获取类目统计和 Top 产品；最多导入前 50 个有价格的商品
+- **ASIN 研究**：对单个 ASIN 调用 `product_detail`；单次最多 20 个 ASIN
+
+连接器固定访问 `https://mcp.sorftime.com`，使用白名单工具，不接受任意 URL、任意 MCP 工具或写入操作；兼容普通 JSON 与 SSE 响应，408、429、5xx 和网络错误会按指数退避重试。当前界面开放 Amazon `US / GB / DE / JP / AU` 五个市场，`SG / MY` 仍应通过 CSV 或人工通道接入。
+
+类目报告会额外写入 `evidence_snapshots`，保留类目统计、Top 产品数量、导入数量和来源市场。所有商品统一生成 `review_pending` 候选品，不会采购、询价、定标或发布。
+
+重要口径：
+
+- 月销量来自第三方估算，不是平台后台成交数据
+- 价格、评论、评分、BSR 等字段以 Sorftime 返回值和研究时间为准
+- 到岸成本、FBA、仓储和退货费用目前是研究占位值；进入报价对比或立项前，必须用真实供应商报价、物流报价和平台费用重新测算
+- Key、Authorization、带密钥的请求 URL 不会写入任务、API 调用、导入运行或审计记录
+
+本实现参考了 [amazon-sorftime-research-MCP-skill](https://github.com/liangdabiao/amazon-sorftime-research-MCP-skill) 的公开接口形态，但未复制其源码、提示词或其中出现的任何第三方凭证；该参考仓库的许可证状态不明确，正式商用前应自行完成许可和安全审查。
+
+### 同步任务 API（Keepa / Sorftime）
 
 同步请求会先创建 `connector_sync_jobs`，再原子抢占并执行。任务状态包括 `queued`、`running`、`completed`、`partial` 和 `failed`；失败不会伪装成导入成功。
 
@@ -245,11 +273,21 @@ curl -X POST http://localhost:3000/api/sync/jobs \
   -H 'Content-Type: application/json' \
   -d '{"sourceCode":"keepa","asins":["B08N5WRWNW"],"marketplace":"US","actor":"本地管理员"}'
 
+# Sorftime 类目研究：关键词和 Node ID 至少填一个
+curl -X POST http://localhost:3000/api/sync/jobs \
+  -H 'Content-Type: application/json' \
+  -d '{"sourceCode":"sorftime","mode":"category","marketplace":"US","categoryQuery":"Pet Supplies","actor":"本地管理员"}'
+
+# Sorftime ASIN 研究：单次最多 20 个 ASIN
+curl -X POST http://localhost:3000/api/sync/jobs \
+  -H 'Content-Type: application/json' \
+  -d '{"sourceCode":"sorftime","mode":"asin","marketplace":"US","asins":["B0XXXXXXXX"],"actor":"本地管理员"}'
+
 # 人工重试失败任务，最多执行到 max_attempts
 curl -X POST http://localhost:3000/api/sync/jobs/<jobId>/retry
 ```
 
-接口只接受 Keepa 和受限参数，不接受任意 URL。每次外部 HTTP 尝试写入 `connector_api_calls`，包括状态码、耗时、重试序号和非敏感请求/响应摘要。同步成功会更新 `connector_sync_cursors`，失败会记录脱敏错误、连续失败次数和下次建议重试时间；当前还没有后台定时调度器，人工重试和后续调度会复用同一任务执行器。
+接口只接受 Keepa、Sorftime 和受限参数，不接受任意 URL。每次外部 HTTP 尝试写入 `connector_api_calls`，包括状态码、耗时、重试序号和非敏感请求/响应摘要。同步成功会按 `source_code + marketplace` 更新 `connector_sync_cursors`，失败会记录脱敏错误、连续失败次数和下次建议重试时间；当前还没有后台定时调度器，人工重试和后续调度会复用同一任务执行器。
 
 本功能新增三张表：
 
@@ -404,7 +442,7 @@ published = false
 
 ```bash
 npm run typecheck  # TypeScript 检查
-npm test           # 成本、供应商、Listing、发布准备、CSV、连接诊断与导入审计测试
+npm test           # 成本、供应商、Listing、CSV、Keepa / Sorftime、同步任务、连接诊断与导入审计测试
 npm run build      # 生产构建
 npm run db:reset   # 删除本地数据库，下次启动重新初始化演示数据
 ```
@@ -414,6 +452,7 @@ npm run db:reset   # 删除本地数据库，下次启动重新初始化演示�
 ```bash
 PGLITE_DATA_DIR=/absolute/path/to/aitrade-data
 KEEPA_API_KEY=
+SORFTIME_API_KEY=
 ```
 
 `db:reset` 会删除整个本地数据库，仅在确认不需要现有数据时使用。
@@ -423,9 +462,10 @@ KEEPA_API_KEY=
 本轮已在生产模式下完成自动检查和真实浏览器验收：
 
 - `npm run typecheck`：通过
-- `npm test`：55 / 55 通过
+- `npm test`：64 / 64 通过
 - `npm run build`：通过
 - 浏览器逐页打开 `/`、`/approvals`、`/sourcing`、`/data-sources`、`/connections`：均返回 200，无 404
+- Sorftime 接入后再次进行 HTTP 端到端验收：`/` 与 `/data-sources` 均返回 200，数据源页可见 Sorftime 表单、就绪状态和 `SORFTIME_API_KEY` 配置提示
 - 浏览器验收了“已内容批准版本”和“草稿版本”两种发布准备状态：前者显示 `本地内容已就绪` 与 4 个阻断项，后者显示 `本地门禁未完成`
 - 两种状态均显示平台 dry-run 不支持、`externalActions=none`、`published=false`；发布队列审批按钮只在满足 `approval_pending` 时可用
 - 首页 `US × Amazon` 显示 7 个机会；切换 `US × TikTok Shop` 显示 0 个，并出现该站点的导入入口
@@ -433,8 +473,10 @@ KEEPA_API_KEY=
 - Shopify 未配置凭证时检查返回 `409 not_configured`，页面不显示“已连接”，也不写入成功记录
 - TikTok Shop / 1688 始终显示“尚未接入”；即使检查请求被调用，也只返回 `unsupported` 且 `externalRequestAttempted: false`
 - 连接中心固定显示“写连接 0”；没有新增发布、改价、库存、订单或付款写接口
-- Keepa 未配置时，`POST /api/sync/jobs` 返回 `409 not_configured`；任务落库为失败、`apiCallCount=0`、没有新增商品，也没有外部请求
+- Keepa / Sorftime 未配置时，`POST /api/sync/jobs` 均返回 `409 not_configured`；任务落库为失败、`apiCallCount=0`、没有新增候选品，也没有外部请求
 - Keepa 自动重试测试覆盖 429 后成功、3 次 5xx 后失败、人工重试、活跃任务幂等和 Key 脱敏
+- Sorftime 测试覆盖无 Key 零请求、普通 JSON / SSE、类目与 ASIN 字段映射、类目比例统计、429 / 5xx 重试、20 个 ASIN 上限、空类目不伪造商品、任务级重试、source-specific 游标、幂等候选品和密钥脱敏
+- 从 `SG / MY` 候选品导入切换到 Keepa / Sorftime 时，市场会自动归一到当前连接器支持的 `US`，避免把不支持的市场发送给研究接口
 
 本轮验收同时修复了一个界面状态缺陷：未实现的平台不再因为环境变量是否填写而显示“待验证”或“未配置”，而是始终显示“尚未接入”。上面的连接中心截图来自修复后的本地生产构建。
 
@@ -445,11 +487,11 @@ src/app/                 页面、Server Actions 和导入 API
 src/app/data-sources/    真实数据源工作台
 src/app/connections/     平台连接中心与只读授权诊断
 src/app/api/ingestion/   候选品、供应商与报价 CSV 导入 API
-src/app/api/sync/jobs/   Keepa 持久化同步任务、任务列表与人工重试 API
+src/app/api/sync/jobs/   Keepa / Sorftime 持久化同步任务、任务列表与人工重试 API
 src/app/api/connections/ 平台连接检查 API
 src/lib/ingestion.ts     导入编排、幂等、运行记录、快照与审计
 src/lib/connector-sync.ts 同步任务幂等、抢占、重试、游标、新鲜度与审计
-src/lib/connectors/      CSV / Keepa / 平台诊断 Connector 与就绪度注册表
+src/lib/connectors/      CSV / Keepa / Sorftime MCP / 平台诊断 Connector 与就绪度注册表
 src/lib/connection-diagnostics.ts 连接检查持久化与审计
 src/lib/economics.ts     确定性单位经济计算
 src/lib/sourcing.ts      到岸成本、供应商评分与风险规则
@@ -470,8 +512,8 @@ docs/                    实施蓝图和审批边界
 
 ## 下一步
 
-1. 增加后台定时调度、租约超时回收、任务并发上限和失败告警，让 `queued` 任务可自动执行
-2. 用真实 Keepa Key、候选品表、供应商表和报价表跑一轮业务验收，核对字段口径和 API 配额
+1. 增加后台定时调度、租约超时回收、任务并发上限和失败告警，让 Keepa / Sorftime 的 `queued` 任务可自动执行
+2. 用真实 Keepa / Sorftime Key、候选品表、供应商表和报价表跑一轮业务验收，核对字段口径、市场覆盖和 API 配额
 3. 用真实 Amazon / Shopify / eBay 凭证运行只读验收，确认权限范围、区域与店铺归属
 4. 在只读验收通过后实现真实平台 dry-run、官方写 Adapter、幂等写入与外部回执，并继续以人工审批控制任何外部发布
 5. 通过 TikTok Shop / 1688 官方开放平台完成应用审核、店铺授权和诊断；在此之前继续使用可追溯 CSV/人工通道

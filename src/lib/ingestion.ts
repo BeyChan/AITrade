@@ -13,6 +13,13 @@ import { readSupplierCsv } from "./connectors/csv-suppliers.ts";
 import { readQuoteCsv } from "./connectors/csv-quotes.ts";
 import { fetchKeepaCandidates, type KeepaFetchOptions } from "./connectors/keepa.ts";
 import { getConnectorReadiness } from "./connectors/registry.ts";
+import {
+  fetchSorftimeCandidates,
+  normalizeSorftimeRequest,
+  type SorftimeFetchOptions,
+  type SorftimeResearchRequest,
+} from "./connectors/sorftime.ts";
+import { sanitizeConnectorError } from "./connectors/security.ts";
 import type { ConnectorApiCall, ConnectorRecord, ConnectorResult } from "./connectors/types.ts";
 import type {
   DataSourcesDashboard,
@@ -134,6 +141,46 @@ export async function importKeepaByAsins(input: {
       const connector = await fetchKeepaCandidates({
         asins: input.asins,
         marketplace: input.marketplace,
+        fetchOptions: input.fetchOptions,
+      });
+      const result = await importCandidateConnector(connector, runId, { platformCode: "amazon" });
+      return {
+        ...result,
+        warnings: [...connector.warnings, ...result.warnings],
+        apiCalls: connector.apiCalls ?? [],
+      };
+    },
+  );
+}
+
+export async function importSorftimeResearch(input: SorftimeResearchRequest & {
+  actor?: string;
+  runId?: string;
+  maxProducts?: number;
+  fetchOptions?: SorftimeFetchOptions;
+}) {
+  const normalized = normalizeSorftimeRequest(input);
+  return withIngestionRun(
+    {
+      sourceCode: "sorftime",
+      importKind: normalized.mode === "category"
+        ? "sorftime_category_research"
+        : "sorftime_asin_research",
+      actor: input.actor ?? "运营人员",
+      query: {
+        mode: normalized.mode,
+        marketplace: normalized.marketplace,
+        ...(normalized.categoryQuery ? { categoryQuery: normalized.categoryQuery } : {}),
+        ...(normalized.nodeId ? { nodeId: normalized.nodeId } : {}),
+        ...(normalized.asins ? { asins: normalized.asins } : {}),
+        maxProducts: input.maxProducts ?? 50,
+      },
+      runId: input.runId,
+    },
+    async (runId) => {
+      const connector = await fetchSorftimeCandidates({
+        ...normalized,
+        maxProducts: input.maxProducts,
         fetchOptions: input.fetchOptions,
       });
       const result = await importCandidateConnector(connector, runId, { platformCode: "amazon" });
@@ -268,14 +315,14 @@ async function withIngestionRun(
             skipped: counts.skipped,
             errors: counts.errors,
             snapshots: counts.snapshots,
-            externalActions: "none",
+            externalActions: input.sourceCode === "keepa" || input.sourceCode === "sorftime" ? "read_only" : "none",
           }),
         ],
       );
     });
     return { runId, sourceCode: input.sourceCode, status, ...counts };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "导入失败";
+    const message = sanitizeConnectorError(error);
     await db.query(
       `UPDATE ingestion_runs
        SET status = 'failed', error_count = 1, error_message = $1, completed_at = NOW()
@@ -285,7 +332,16 @@ async function withIngestionRun(
     await db.query(
       `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
        VALUES ($1, $2, 'ingestion.failed', 'data_source', $3, $4::jsonb)`,
-      [randomUUID(), actor, input.sourceCode, JSON.stringify({ runId, error: message, externalActions: "none" })],
+      [
+        randomUUID(),
+        actor,
+        input.sourceCode,
+        JSON.stringify({
+          runId,
+          error: message,
+          externalActions: input.sourceCode === "keepa" || input.sourceCode === "sorftime" ? "read_only" : "none",
+        }),
+      ],
     );
     throw error;
   }
@@ -446,6 +502,22 @@ async function importCandidateConnector(
           caseId: targetCaseId,
           sourceCode: connector.sourceCode,
           evidenceType: "candidate_market",
+          item,
+        })
+      ) {
+        counts.snapshots += 1;
+      }
+    }
+
+    for (const item of connector.additionalEvidence ?? []) {
+      if (
+        await insertSnapshot(tx, {
+          runId,
+          caseId: null,
+          sourceCode: connector.sourceCode,
+          evidenceType: connector.sourceCode === "sorftime"
+            ? "sorftime_category_report"
+            : "connector_additional_evidence",
           item,
         })
       ) {

@@ -12,6 +12,7 @@ export type ConnectorResult<T> = {
   records: ConnectorRecord<T>[];
   warnings: string[];
   apiCalls?: ConnectorApiCall[];
+  additionalEvidence?: ConnectorRecord<unknown>[];
 };
 
 export type ConnectorApiCall = {

@@ -1,8 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
 import { getDb } from "./db.ts";
-import { ConnectorNotConfiguredError, type KeepaFetchOptions } from "./connectors/keepa.ts";
-import type { ConnectorApiCall } from "./connectors/types.ts";
-import { importKeepaByAsins, type IngestionSummary } from "./ingestion.ts";
+import type { KeepaFetchOptions } from "./connectors/keepa.ts";
+import { sanitizeConnectorError } from "./connectors/security.ts";
+import {
+  normalizeSorftimeRequest,
+  type SorftimeFetchOptions,
+  type SorftimeResearchRequest,
+} from "./connectors/sorftime.ts";
+import { ConnectorNotConfiguredError, type ConnectorApiCall } from "./connectors/types.ts";
+import { importKeepaByAsins, importSorftimeResearch, type IngestionSummary } from "./ingestion.ts";
 import type {
   ConnectorFreshness,
   ConnectorSyncDashboard,
@@ -13,9 +19,21 @@ const KEEPA_MARKETS = new Set(["US", "GB", "DE", "FR", "IT", "ES", "JP", "CA", "
 const FRESHNESS_WINDOW_MS = 24 * 60 * 60 * 1_000;
 const MAX_JOB_ERROR_LENGTH = 1_000;
 
+export type SupportedSyncSource = "keepa" | "sorftime";
+
 export type KeepaSyncInput = {
   asins: string[] | string;
   marketplace: string;
+  actor?: string;
+  triggerType?: "manual" | "scheduled";
+};
+
+export type SorftimeSyncInput = {
+  mode: "category" | "asin";
+  marketplace: string;
+  categoryQuery?: string;
+  nodeId?: string;
+  asins?: string[] | string;
   actor?: string;
   triggerType?: "manual" | "scheduled";
 };
@@ -29,76 +47,79 @@ export type ConnectorSyncRunResult = {
 
 type InternalRunOptions = {
   fetchOptions?: KeepaFetchOptions;
+  sorftimeFetchOptions?: SorftimeFetchOptions;
+};
+
+type EnqueueSyncJobInput = {
+  sourceCode: SupportedSyncSource;
+  marketplace: string;
+  requestHash: string;
+  requestPayload: Record<string, unknown>;
+  actor?: string;
+  triggerType?: "manual" | "scheduled";
+  auditDetails: Record<string, unknown>;
 };
 
 export async function enqueueKeepaSync(input: KeepaSyncInput): Promise<ConnectorSyncJobRow> {
   const normalized = normalizeKeepaInput(input);
-  const requestHash = hashPayload({
+  return enqueueSyncJob({
     sourceCode: "keepa",
     marketplace: normalized.marketplace,
-    asins: normalized.asins,
+    requestHash: hashPayload({
+      sourceCode: "keepa",
+      marketplace: normalized.marketplace,
+      asins: normalized.asins,
+    }),
+    requestPayload: {
+      asins: normalized.asins,
+      marketplace: normalized.marketplace,
+      requestSummary: { asinCount: normalized.asins.length },
+    },
+    actor: input.actor,
+    triggerType: input.triggerType,
+    auditDetails: {
+      sourceCode: "keepa",
+      marketplace: normalized.marketplace,
+      asinCount: normalized.asins.length,
+    },
   });
-  const db = await getDb();
-  const active = await db.query<ConnectorSyncJobRow>(
-    `SELECT * FROM connector_sync_jobs
-     WHERE source_code = 'keepa' AND request_hash = $1 AND status IN ('queued', 'running')
-     ORDER BY created_at DESC LIMIT 1`,
-    [requestHash],
-  );
-  if (active.rows[0]) return active.rows[0];
+}
 
-  const id = randomUUID();
-  const actor = input.actor?.trim() || "运营人员";
-  try {
-    const inserted = await db.query<ConnectorSyncJobRow>(
-      `INSERT INTO connector_sync_jobs
-        (id, source_code, marketplace, status, trigger_type, requested_by, attempt, max_attempts,
-         request_hash, request_payload)
-       VALUES ($1, 'keepa', $2, 'queued', $3, $4, 1, 3, $5, $6::jsonb)
-       RETURNING *`,
-      [
-        id,
-        normalized.marketplace,
-        input.triggerType ?? "manual",
-        actor,
-        requestHash,
-        JSON.stringify({
-          asins: normalized.asins,
-          marketplace: normalized.marketplace,
-          requestSummary: { asinCount: normalized.asins.length },
-        }),
-      ],
-    );
-    const job = inserted.rows[0];
-    if (!job) throw new Error("创建同步任务失败");
-    await db.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'connector_sync.queued', 'connector_sync_job', $3, $4::jsonb)`,
-      [
-        randomUUID(),
-        actor,
-        id,
-        JSON.stringify({
-          sourceCode: "keepa",
-          marketplace: normalized.marketplace,
-          asinCount: normalized.asins.length,
-          triggerType: input.triggerType ?? "manual",
-          externalActions: "read_only",
-        }),
-      ],
-    );
-    return job;
-  } catch (error) {
-    if (!isUniqueViolation(error)) throw error;
-    const existing = await db.query<ConnectorSyncJobRow>(
-      `SELECT * FROM connector_sync_jobs
-       WHERE source_code = 'keepa' AND request_hash = $1 AND status IN ('queued', 'running')
-       ORDER BY created_at DESC LIMIT 1`,
-      [requestHash],
-    );
-    if (existing.rows[0]) return existing.rows[0];
-    throw error;
-  }
+export async function enqueueSorftimeSync(input: SorftimeSyncInput): Promise<ConnectorSyncJobRow> {
+  const normalized = normalizeSorftimeRequest(input as SorftimeResearchRequest);
+  return enqueueSyncJob({
+    sourceCode: "sorftime",
+    marketplace: normalized.marketplace,
+    requestHash: hashPayload({
+      sourceCode: "sorftime",
+      mode: normalized.mode,
+      marketplace: normalized.marketplace,
+      categoryQuery: normalized.categoryQuery ?? null,
+      nodeId: normalized.nodeId ?? null,
+      asins: normalized.asins ?? null,
+    }),
+    requestPayload: {
+      mode: normalized.mode,
+      marketplace: normalized.marketplace,
+      ...(normalized.categoryQuery ? { categoryQuery: normalized.categoryQuery } : {}),
+      ...(normalized.nodeId ? { nodeId: normalized.nodeId } : {}),
+      ...(normalized.asins ? { asins: normalized.asins } : {}),
+      requestSummary: {
+        mode: normalized.mode,
+        asinCount: normalized.asins?.length ?? 0,
+      },
+    },
+    actor: input.actor,
+    triggerType: input.triggerType,
+    auditDetails: {
+      sourceCode: "sorftime",
+      mode: normalized.mode,
+      marketplace: normalized.marketplace,
+      asinCount: normalized.asins?.length ?? 0,
+      categoryQueryPresent: Boolean(normalized.categoryQuery),
+      nodeIdPresent: Boolean(normalized.nodeId),
+    },
+  });
 }
 
 export async function createAndRunKeepaSync(
@@ -106,6 +127,14 @@ export async function createAndRunKeepaSync(
   options: InternalRunOptions = {},
 ): Promise<ConnectorSyncRunResult> {
   const job = await enqueueKeepaSync(input);
+  return runConnectorSyncJob(job.id, options);
+}
+
+export async function createAndRunSorftimeSync(
+  input: SorftimeSyncInput,
+  options: InternalRunOptions = {},
+): Promise<ConnectorSyncRunResult> {
+  const job = await enqueueSorftimeSync(input);
   return runConnectorSyncJob(job.id, options);
 }
 
@@ -128,11 +157,17 @@ export async function runConnectorSyncJob(
     if (!current) throw new Error("同步任务不存在");
     return { job: current };
   }
-  if (job.source_code !== "keepa") {
-    const failed = await failJob(job, "当前只支持 Keepa 同步任务", "unsupported_source");
-    return { job: failed, error: failed.error_message ?? "不支持的同步任务", errorCode: "unsupported_source" };
-  }
+  if (job.source_code === "keepa") return runKeepaSync(job, options);
+  if (job.source_code === "sorftime") return runSorftimeSync(job, options);
 
+  const failed = await failJob(job, `不支持的同步数据源：${job.source_code}`, "unsupported_source");
+  return { job: failed, error: failed.error_message ?? "不支持的同步任务", errorCode: "unsupported_source" };
+}
+
+async function runKeepaSync(
+  job: ConnectorSyncJobRow,
+  options: InternalRunOptions,
+): Promise<ConnectorSyncRunResult> {
   const payload = job.request_payload as { asins?: unknown; marketplace?: unknown };
   let asins: string[];
   try {
@@ -140,9 +175,7 @@ export async function runConnectorSyncJob(
     if (asins.length === 0) throw new Error("同步任务缺少 ASIN");
     if (asins.length > 100) throw new Error("单次 Keepa 同步最多 100 个 ASIN");
   } catch (error) {
-    const message = sanitizeError(error);
-    const failed = await failJob(job, message, "invalid_request");
-    return { job: failed, error: message, errorCode: "invalid_request" };
+    return invalidRequestResult(job, error);
   }
 
   const runId = randomUUID();
@@ -152,7 +185,7 @@ export async function runConnectorSyncJob(
     ...options.fetchOptions,
     onAttempt: async (call) => {
       apiCallCount += 1;
-      await persistApiCall(job.id, call);
+      await persistApiCall(job.id, job.source_code, call);
       await options.fetchOptions?.onAttempt?.(call);
     },
   };
@@ -168,18 +201,78 @@ export async function runConnectorSyncJob(
     const completed = await succeedJob(job, ingestion, apiCallCount, Date.now() - startedAt);
     return { job: completed, ingestion };
   } catch (error) {
-    const message = sanitizeError(error);
-    const errorCode = error instanceof ConnectorNotConfiguredError ? error.code : "sync_failed";
-    const failed = await failJob(job, message, errorCode, {
-      apiCallCount,
-      durationMs: Date.now() - startedAt,
-      runId,
-    });
-    return { job: failed, error: message, errorCode };
+    return failedRunResult(job, error, apiCallCount, startedAt, runId);
   }
 }
 
-export async function retryConnectorSyncJob(jobId: string): Promise<ConnectorSyncRunResult> {
+async function runSorftimeSync(
+  job: ConnectorSyncJobRow,
+  options: InternalRunOptions,
+): Promise<ConnectorSyncRunResult> {
+  const payload = job.request_payload as SorftimeResearchRequest;
+  let normalized: ReturnType<typeof normalizeSorftimeRequest>;
+  try {
+    normalized = normalizeSorftimeRequest(payload);
+  } catch (error) {
+    return invalidRequestResult(job, error);
+  }
+
+  const runId = randomUUID();
+  const startedAt = Date.now();
+  let apiCallCount = 0;
+  const fetchOptions: SorftimeFetchOptions = {
+    ...options.sorftimeFetchOptions,
+    onAttempt: async (call) => {
+      apiCallCount += 1;
+      await persistApiCall(job.id, job.source_code, call);
+      await options.sorftimeFetchOptions?.onAttempt?.(call);
+    },
+  };
+
+  try {
+    const ingestion = await importSorftimeResearch({
+      ...normalized,
+      actor: job.requested_by,
+      runId,
+      fetchOptions,
+    });
+    const completed = await succeedJob(job, ingestion, apiCallCount, Date.now() - startedAt);
+    return { job: completed, ingestion };
+  } catch (error) {
+    return failedRunResult(job, error, apiCallCount, startedAt, runId);
+  }
+}
+
+async function invalidRequestResult(
+  job: ConnectorSyncJobRow,
+  error: unknown,
+): Promise<ConnectorSyncRunResult> {
+  const message = sanitizeError(error);
+  const failed = await failJob(job, message, "invalid_request");
+  return { job: failed, error: message, errorCode: "invalid_request" };
+}
+
+async function failedRunResult(
+  job: ConnectorSyncJobRow,
+  error: unknown,
+  apiCallCount: number,
+  startedAt: number,
+  runId: string,
+): Promise<ConnectorSyncRunResult> {
+  const message = sanitizeError(error);
+  const errorCode = error instanceof ConnectorNotConfiguredError ? error.code : "sync_failed";
+  const failed = await failJob(job, message, errorCode, {
+    apiCallCount,
+    durationMs: Date.now() - startedAt,
+    runId,
+  });
+  return { job: failed, error: message, errorCode };
+}
+
+export async function retryConnectorSyncJob(
+  jobId: string,
+  options: InternalRunOptions = {},
+): Promise<ConnectorSyncRunResult> {
   const db = await getDb();
   const current = await getJob(jobId);
   if (!current) throw new Error("同步任务不存在");
@@ -203,10 +296,15 @@ export async function retryConnectorSyncJob(jobId: string): Promise<ConnectorSyn
       randomUUID(),
       job.requested_by,
       job.id,
-      JSON.stringify({ attempt: job.attempt, maxAttempts: job.max_attempts, externalActions: "read_only" }),
+      JSON.stringify({
+        sourceCode: job.source_code,
+        attempt: job.attempt,
+        maxAttempts: job.max_attempts,
+        externalActions: "read_only",
+      }),
     ],
   );
-  return runConnectorSyncJob(job.id);
+  return runConnectorSyncJob(job.id, options);
 }
 
 export async function getConnectorSyncDashboard(now = new Date()): Promise<ConnectorSyncDashboard> {
@@ -241,6 +339,66 @@ export function getFreshness(lastSuccessAt: string | null, now = new Date()): Co
   return now.getTime() - timestamp <= FRESHNESS_WINDOW_MS ? "fresh" : "stale";
 }
 
+async function enqueueSyncJob(input: EnqueueSyncJobInput): Promise<ConnectorSyncJobRow> {
+  const db = await getDb();
+  const actor = input.actor?.trim() || "运营人员";
+  const triggerType = input.triggerType ?? "manual";
+  const active = await db.query<ConnectorSyncJobRow>(
+    `SELECT * FROM connector_sync_jobs
+     WHERE source_code = $1 AND request_hash = $2 AND status IN ('queued', 'running')
+     ORDER BY created_at DESC LIMIT 1`,
+    [input.sourceCode, input.requestHash],
+  );
+  if (active.rows[0]) return active.rows[0];
+
+  const id = randomUUID();
+  try {
+    const inserted = await db.query<ConnectorSyncJobRow>(
+      `INSERT INTO connector_sync_jobs
+        (id, source_code, marketplace, status, trigger_type, requested_by, attempt, max_attempts,
+         request_hash, request_payload)
+       VALUES ($1, $2, $3, 'queued', $4, $5, 1, 3, $6, $7::jsonb)
+       RETURNING *`,
+      [
+        id,
+        input.sourceCode,
+        input.marketplace,
+        triggerType,
+        actor,
+        input.requestHash,
+        JSON.stringify(input.requestPayload),
+      ],
+    );
+    const job = inserted.rows[0];
+    if (!job) throw new Error("创建同步任务失败");
+    await db.query(
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
+       VALUES ($1, $2, 'connector_sync.queued', 'connector_sync_job', $3, $4::jsonb)`,
+      [
+        randomUUID(),
+        actor,
+        id,
+        JSON.stringify({
+          ...input.auditDetails,
+          triggerType,
+          externalActions: "read_only",
+        }),
+      ],
+    );
+    return job;
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error;
+    const existing = await db.query<ConnectorSyncJobRow>(
+      `SELECT * FROM connector_sync_jobs
+       WHERE source_code = $1 AND request_hash = $2 AND status IN ('queued', 'running')
+       ORDER BY created_at DESC LIMIT 1`,
+      [input.sourceCode, input.requestHash],
+    );
+    if (existing.rows[0]) return existing.rows[0];
+    throw error;
+  }
+}
+
 function normalizeKeepaInput(input: KeepaSyncInput) {
   const marketplace = input.marketplace.trim().toUpperCase();
   if (!KEEPA_MARKETS.has(marketplace)) throw new Error(`Keepa 暂不支持市场 ${marketplace || "(空)"}`);
@@ -259,16 +417,17 @@ function normalizeAsins(value: unknown) {
   return [...new Set(source.map((asin) => String(asin).trim().toUpperCase()).filter(Boolean))];
 }
 
-async function persistApiCall(jobId: string, call: ConnectorApiCall) {
+async function persistApiCall(jobId: string, sourceCode: string, call: ConnectorApiCall) {
   const db = await getDb();
   await db.query(
     `INSERT INTO connector_api_calls
       (id, job_id, source_code, endpoint, method, status_code, duration_ms, retry_count,
        request_summary, response_summary, error_message)
-     VALUES ($1, $2, 'keepa', $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11)`,
     [
       randomUUID(),
       jobId,
+      sourceCode,
       call.endpoint,
       call.method,
       call.statusCode,
@@ -311,7 +470,7 @@ async function succeedJob(
     await tx.query(
       `INSERT INTO connector_sync_cursors
         (id, source_code, marketplace, cursor, last_success_at, last_attempt_at, consecutive_failures, updated_at)
-       VALUES ($1, 'keepa', $2, $3::jsonb, NOW(), NOW(), 0, NOW())
+       VALUES ($1, $2, $3, $4::jsonb, NOW(), NOW(), 0, NOW())
        ON CONFLICT (source_code, marketplace) DO UPDATE SET
          cursor = EXCLUDED.cursor,
          last_success_at = NOW(),
@@ -320,11 +479,13 @@ async function succeedJob(
          updated_at = NOW()`,
       [
         randomUUID(),
+        job.source_code,
         job.marketplace,
         JSON.stringify({
           lastRunId: ingestion.runId,
           lastImportedCount: ingestion.imported,
           lastSnapshotCount: ingestion.snapshots,
+          lastMode: typeof job.request_payload.mode === "string" ? job.request_payload.mode : null,
         }),
       ],
     );
@@ -336,6 +497,7 @@ async function succeedJob(
         job.requested_by,
         job.id,
         JSON.stringify({
+          sourceCode: job.source_code,
           runId: ingestion.runId,
           status,
           marketplace: job.marketplace,
@@ -387,12 +549,12 @@ async function failJob(
     await tx.query(
       `INSERT INTO connector_sync_cursors
         (id, source_code, marketplace, last_attempt_at, consecutive_failures, updated_at)
-       VALUES ($1, 'keepa', $2, NOW(), 1, NOW())
+       VALUES ($1, $2, $3, NOW(), 1, NOW())
        ON CONFLICT (source_code, marketplace) DO UPDATE SET
          last_attempt_at = NOW(),
          consecutive_failures = connector_sync_cursors.consecutive_failures + 1,
          updated_at = NOW()`,
-      [randomUUID(), job.marketplace],
+      [randomUUID(), job.source_code, job.marketplace],
     );
     await tx.query(
       `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
@@ -402,6 +564,7 @@ async function failJob(
         job.requested_by,
         job.id,
         JSON.stringify({
+          sourceCode: job.source_code,
           marketplace: job.marketplace,
           attempt: job.attempt,
           errorCode,
@@ -423,13 +586,7 @@ async function getJob(id: string) {
 }
 
 function sanitizeError(error: unknown) {
-  const apiKey = process.env.KEEPA_API_KEY?.trim() ?? "";
-  let message = error instanceof Error ? error.message : String(error || "同步失败");
-  if (apiKey) message = message.replaceAll(apiKey, "[REDACTED]");
-  return message
-    .replace(/([?&]key=)[^&\s]+/gi, "$1[REDACTED]")
-    .replace(/(authorization:\s*bearer\s+)\S+/gi, "$1[REDACTED]")
-    .slice(0, MAX_JOB_ERROR_LENGTH);
+  return sanitizeConnectorError(error, process.env, MAX_JOB_ERROR_LENGTH);
 }
 
 function hashPayload(value: unknown) {

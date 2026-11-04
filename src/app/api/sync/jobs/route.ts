@@ -1,4 +1,10 @@
-import { createAndRunKeepaSync, getConnectorSyncDashboard } from "@/lib/connector-sync";
+import {
+  createAndRunKeepaSync,
+  createAndRunSorftimeSync,
+  getConnectorSyncDashboard,
+  type SorftimeSyncInput,
+} from "@/lib/connector-sync";
+import { sanitizeConnectorError } from "@/lib/connectors/security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,15 +23,31 @@ export async function POST(request: Request) {
 
   try {
     const body = (await request.json()) as Record<string, unknown>;
-    if (body.sourceCode !== "keepa") {
-      return Response.json({ error: "当前只支持 Keepa 同步任务", code: "unsupported_source" }, { status: 400 });
+    const sourceCode = String(body.sourceCode ?? "");
+    if (sourceCode !== "keepa" && sourceCode !== "sorftime") {
+      return Response.json(
+        { error: "当前只支持 Keepa 与 Sorftime 同步任务", code: "unsupported_source" },
+        { status: 400 },
+      );
     }
-    const result = await createAndRunKeepaSync({
-      asins: Array.isArray(body.asins) ? body.asins.map(String) : String(body.asins ?? ""),
-      marketplace: String(body.marketplace ?? "US"),
-      actor: String(body.actor ?? "运营人员"),
-      triggerType: "manual",
-    });
+
+    const result = sourceCode === "keepa"
+      ? await createAndRunKeepaSync({
+          asins: Array.isArray(body.asins) ? body.asins.map(String) : String(body.asins ?? ""),
+          marketplace: String(body.marketplace ?? "US"),
+          actor: String(body.actor ?? "运营人员"),
+          triggerType: "manual",
+        })
+      : await createAndRunSorftimeSync({
+          mode: body.mode === "asin" ? "asin" : body.mode === "category" ? "category" : String(body.mode) as SorftimeSyncInput["mode"],
+          marketplace: String(body.marketplace ?? "US"),
+          categoryQuery: body.categoryQuery === undefined ? undefined : String(body.categoryQuery),
+          nodeId: body.nodeId === undefined ? undefined : String(body.nodeId),
+          asins: Array.isArray(body.asins) ? body.asins.map(String) : String(body.asins ?? ""),
+          actor: String(body.actor ?? "运营人员"),
+          triggerType: "manual",
+        });
+
     const status = result.job.status === "failed"
       ? result.errorCode === "not_configured" ? 409 : 502
       : 200;
@@ -42,7 +64,7 @@ export async function POST(request: Request) {
       warnings: result.ingestion?.warnings,
     }, { status });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "创建同步任务失败";
+    const message = sanitizeConnectorError(error);
     return Response.json({ error: message, code: "sync_job_failed" }, { status: 400 });
   }
 }

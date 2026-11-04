@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import type { ConnectorSyncDashboard } from "@/lib/types";
+import type { ConnectorSyncDashboard, ConnectorSyncJobRow } from "@/lib/types";
 
 const jobStatusLabels: Record<string, string> = {
   queued: "排队中",
@@ -23,15 +23,15 @@ export function ConnectorSyncJobs({ dashboard }: { dashboard: ConnectorSyncDashb
   const [pendingJobId, setPendingJobId] = useState<string | null>(null);
   const [error, setError] = useState("");
 
-  async function retry(jobId: string) {
-    setPendingJobId(jobId);
+  async function retry(job: ConnectorSyncJobRow) {
+    setPendingJobId(job.id);
     setError("");
     try {
-      const response = await fetch(`/api/sync/jobs/${encodeURIComponent(jobId)}/retry`, { method: "POST" });
+      const response = await fetch(`/api/sync/jobs/${encodeURIComponent(job.id)}/retry`, { method: "POST" });
       const payload = (await response.json()) as { error?: string; code?: string };
       if (!response.ok) {
         if (payload.code === "not_configured") {
-          throw new Error(`${payload.error || "连接器未配置"}。请先配置 KEEPA_API_KEY 并重启服务。`);
+          throw new Error(`${payload.error || "连接器未配置"}。请先配置 ${credentialName(job.source_code)} 并重启服务。`);
         }
         throw new Error(payload.error || "重试失败");
       }
@@ -47,9 +47,9 @@ export function ConnectorSyncJobs({ dashboard }: { dashboard: ConnectorSyncDashb
     <section className="panel source-panel sync-panel">
       <div className="panel-header">
         <div>
-          <h2>Keepa 同步任务与数据新鲜度</h2>
+          <h2>连接器同步任务与数据新鲜度</h2>
           <p>
-            每个任务记录请求、重试、API 调用耗时和导入结果。Adapter 会自动重试 408/429/5xx；任务级失败需要人工点击重试。
+            Keepa 与 Sorftime 共用可追溯任务队列。每个任务记录请求、重试、API 调用耗时和导入结果；Adapter 自动重试 408/429/5xx，任务级失败可人工重试。
           </p>
         </div>
         <div className="sync-summary-pills">
@@ -78,7 +78,7 @@ export function ConnectorSyncJobs({ dashboard }: { dashboard: ConnectorSyncDashb
       ) : (
         <div className="empty-state compact-empty">
           <h3>还没有成功同步记录</h3>
-          <p>配置 Key 后执行一次 Keepa 同步；成功后会显示新鲜度、连续失败次数和游标摘要。</p>
+          <p>配置 Key 后执行一次 Keepa 或 Sorftime 任务；成功后会按数据源和市场显示新鲜度、连续失败次数与游标摘要。</p>
         </div>
       )}
 
@@ -90,6 +90,8 @@ export function ConnectorSyncJobs({ dashboard }: { dashboard: ConnectorSyncDashb
             <thead>
               <tr>
                 <th>创建时间</th>
+                <th>数据源</th>
+                <th>研究方式</th>
                 <th>市场</th>
                 <th>状态</th>
                 <th>尝试</th>
@@ -107,6 +109,8 @@ export function ConnectorSyncJobs({ dashboard }: { dashboard: ConnectorSyncDashb
                     {formatDate(job.created_at)}
                     <div className="sync-job-id">{job.id.slice(0, 8)}</div>
                   </td>
+                  <td>{sourceLabel(job.source_code)}</td>
+                  <td>{modeLabel(job.request_payload.mode)}</td>
                   <td>{job.marketplace}</td>
                   <td><span className={`run-status ${job.status}`}>{jobStatusLabels[job.status] ?? job.status}</span></td>
                   <td>{job.attempt}/{job.max_attempts}</td>
@@ -127,7 +131,7 @@ export function ConnectorSyncJobs({ dashboard }: { dashboard: ConnectorSyncDashb
                         className="button ghost sync-retry-button"
                         type="button"
                         disabled={pendingJobId === job.id}
-                        onClick={() => retry(job.id)}
+                        onClick={() => retry(job)}
                       >
                         {pendingJobId === job.id ? "重试中…" : "重试"}
                       </button>
@@ -142,12 +146,29 @@ export function ConnectorSyncJobs({ dashboard }: { dashboard: ConnectorSyncDashb
         </div>
       ) : (
         <div className="empty-state compact-empty">
-          <h3>还没有同步任务</h3>
-          <p>在上方 Keepa 标签页输入 ASIN 后创建任务；失败任务会在这里保留并允许重试。</p>
+          <h3>还没有连接器任务</h3>
+          <p>在上方 Keepa 或 Sorftime 标签页创建任务；失败任务会在这里保留调用审计并允许重试。</p>
         </div>
       )}
     </section>
   );
+}
+
+function sourceLabel(sourceCode: string) {
+  if (sourceCode === "keepa") return "Keepa";
+  if (sourceCode === "sorftime") return "Sorftime";
+  return sourceCode;
+}
+
+function credentialName(sourceCode: string) {
+  if (sourceCode === "sorftime") return "SORFTIME_API_KEY";
+  return "KEEPA_API_KEY";
+}
+
+function modeLabel(mode: unknown) {
+  if (mode === "category") return "类目研究";
+  if (mode === "asin") return "ASIN 研究";
+  return "ASIN 同步";
 }
 
 function formatDate(value: string) {

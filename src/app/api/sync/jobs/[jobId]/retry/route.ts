@@ -1,4 +1,5 @@
 import { retryConnectorSyncJob } from "@/lib/connector-sync";
+import { sanitizeConnectorError } from "@/lib/connectors/security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,7 +21,7 @@ export async function POST(_request: Request, context: { params: Promise<{ jobId
       warnings: result.ingestion?.warnings,
     }, { status });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "重试同步任务失败";
+    const message = sanitizeConnectorError(error);
     return Response.json({ error: message, code: "sync_retry_failed" }, { status: 400 });
   }
 }
