@@ -27,7 +27,7 @@
 → 状态同步与审计时间线
 ```
 
-![商品机会看板](docs/assets/aitrade-dashboard.png)
+![AITrade 工作台：左侧统一导航、首页右上角站点切换与站点级商品机会](docs/assets/aitrade-workspace-sidebar.png)
 
 ![已立项商品与成本版本、审计记录](docs/assets/aitrade-case-approved.png)
 
@@ -43,8 +43,23 @@
 
 ![发布准备门禁：内容已就绪但平台 dry-run 与外部写入未开放](docs/assets/aitrade-launch-readiness.png)
 
+## 工作台导航
+
+桌面端采用固定左侧一级导航，把日常业务操作和治理能力分开；首页右上角继续保留“国家 / 市场 × 平台 / 站点”切换器。切换任一维度后，商品机会、利润指标、待审批数和导入入口会同步进入同一个站点上下文。
+
+| 导航分组 | 页面 | 主要用途 |
+|---|---|---|
+| 业务工作台 | 商品机会 `/` | 按国家 × 平台查看候选品、机会评分、利润模型和审批状态 |
+| 业务工作台 | 供应商询价 `/sourcing` | 管理报价、到岸成本、供应商评分和人工定标 |
+| 业务工作台 | 数据源 `/data-sources` | 导入候选品、供应商和报价 CSV，查看运行记录与数据告警 |
+| 协作与治理 | 审批中心 `/approvals` | 集中处理商品立项和内部发布队列审批 |
+| 协作与治理 | 连接中心 `/connections` | 执行 Amazon、Shopify、eBay 只读连接诊断，查看写入边界 |
+
+商品详情、内容工作台和 Listing 页面归属“商品机会”，导入页面归属“商品机会”，保证纵向工作流仍有一套稳定的导航入口。屏幕宽度低于 960px 时，侧边栏自动收拢为顶部横向导航，避免压缩内容区；手机端导航可横向滚动。
+
 ## 当前能力
 
+- 统一侧边导航：桌面端固定展示“业务工作台 / 协作与治理”，当前页面自动高亮，商品详情、内容与导入页面保持父级导航高亮
 - 独立“数据源”工作台 `/data-sources`，统一展示数据源就绪度、真实数据量、最近 20 次导入和告警
 - CSV 导入 API `/api/ingestion` 支持候选品、供应商和报价，不需要任何付费 API Key
 - CSV 文件上传或直接粘贴导入；候选品最多 200 行，供应商和报价最多 1,000 行，CSV 最大 2 MB
@@ -394,6 +409,8 @@ PGLITE_DATA_DIR=/absolute/path/to/aitrade-data
 - `npm run typecheck`：通过
 - `npm test`：55 / 55 通过
 - `npm run build`：通过
+- 新版工作台导航已在 1512px 桌面、900px 平板和 390px 手机宽度完成浏览器验收；桌面固定侧栏，窄屏自动切换为顶部横向导航，主内容无横向溢出
+- 侧边栏当前页高亮正常；商品详情、内容工作台和导入页均归属“商品机会”，审批中心与连接中心分别保持独立选中状态
 - 浏览器逐页打开 `/`、`/approvals`、`/sourcing`、`/data-sources`、`/connections`：均返回 200，无 404
 - 免费模式验收：`/data-sources` 只显示候选品、供应商、报价三个 CSV 通道和“0 付费 Key”，不显示收费数据源表单或 Key 地址
 - 浏览器验收了“已内容批准版本”和“草稿版本”两种发布准备状态：前者显示 `本地内容已就绪` 与 4 个阻断项，后者显示 `本地门禁未完成`
@@ -415,6 +432,8 @@ src/app/data-sources/    真实数据源工作台
 src/app/connections/     平台连接中心与只读授权诊断
 src/app/api/ingestion/   候选品、供应商与报价 CSV 导入 API
 src/app/api/connections/ 平台连接检查 API
+src/components/app-sidebar.tsx 工作台侧边导航与当前页高亮
+src/components/topbar-site-scope.tsx 顶部区块上下文与国家 × 平台切换
 src/lib/ingestion.ts     导入编排、幂等、运行记录、快照与审计
 src/lib/connectors/      CSV 与平台诊断 Connector 注册表
 src/lib/connection-diagnostics.ts 连接检查持久化与审计
