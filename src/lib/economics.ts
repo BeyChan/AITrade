@@ -34,6 +34,17 @@ export type EconomicsResults = {
   isProfitable: boolean;
 };
 
+export type TargetLandedCostInput = Omit<EconomicsAssumptions, "landedCostCents"> & {
+  targetMarginRate: number;
+};
+
+export type TargetLandedCostResult = {
+  maxLandedCostCents: number;
+  targetNetProfitCents: number;
+  targetMarginRate: number;
+  achievable: boolean;
+};
+
 const round = (value: number) => Math.round(value);
 
 export function calculateEconomics(input: EconomicsAssumptions): EconomicsResults {
@@ -95,6 +106,60 @@ export function calculateEconomics(input: EconomicsAssumptions): EconomicsResult
     stressMarginRate: stress.marginRate,
     isProfitable: netProfit > 0,
   };
+}
+
+/**
+ * Finds the highest landed cost that still meets the requested net margin.
+ * The search uses the same integer-cent economics function as the decision gate so
+ * the calculator and the formal gate cannot disagree because of rounding.
+ */
+export function calculateTargetLandedCost(input: TargetLandedCostInput): TargetLandedCostResult {
+  const salePriceCents = Math.max(1, round(input.salePriceCents));
+  const targetMarginRate = clamp(input.targetMarginRate, 0, 0.9);
+  const targetNetProfitCents = round(salePriceCents * targetMarginRate);
+
+  const meetsTarget = (landedCostCents: number) => {
+    const result = calculateEconomics({ ...input, salePriceCents, landedCostCents });
+    return result.marginRate + 1e-9 >= targetMarginRate;
+  };
+
+  if (!meetsTarget(0)) {
+    return { maxLandedCostCents: 0, targetNetProfitCents, targetMarginRate, achievable: false };
+  }
+
+  let low = 0;
+  let high = salePriceCents;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (meetsTarget(middle)) low = middle;
+    else high = middle - 1;
+  }
+
+  return { maxLandedCostCents: low, targetNetProfitCents, targetMarginRate, achievable: true };
+}
+
+/** Highest supplier unit price after the quoted freight and duty are paid. */
+export function calculateMaxPurchasePriceCents(
+  maxLandedCostCents: number,
+  freightPerUnitCents: number,
+  dutyRate: number,
+) {
+  const maxLanded = Math.max(0, round(maxLandedCostCents));
+  const freight = Math.max(0, round(freightPerUnitCents));
+  const duty = clamp(dutyRate, 0, 1);
+  const landedAt = (purchaseCents: number) => {
+    const taxable = purchaseCents + freight;
+    return taxable + round(taxable * duty);
+  };
+
+  let low = 0;
+  let high = maxLanded;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (landedAt(middle) <= maxLanded) low = middle;
+    else high = middle - 1;
+  }
+  return landedAt(low) <= maxLanded ? low : 0;
 }
 
 function calculateBase(input: EconomicsAssumptions) {

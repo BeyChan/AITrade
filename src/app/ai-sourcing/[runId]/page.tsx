@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { CSSProperties } from "react";
+import { CostBackCalculator } from "@/components/cost-back-calculator";
 import {
   confirmHypothesisPriceAction,
   promoteHypothesisAction,
@@ -212,7 +213,7 @@ function HypothesisCard({
         <div>
           <span>已确认售价</span>
           <strong>{hypothesis.confirmedPriceCents ? moneyIn(batch.currency, hypothesis.confirmedPriceCents) : "未确认"}</strong>
-          <small>AI 假设价 {moneyIn(batch.currency, hypothesis.recommendedPriceCents)}（未验证，不参与门禁）</small>
+          <small>AI 假设价 {hypothesis.recommendedPriceCents > 0 ? moneyIn(batch.currency, hypothesis.recommendedPriceCents) : "待补充"}（未验证，不参与门禁）</small>
         </div>
         <div><span>AI 假设净利率</span><strong>{percent(hypothesis.expectedMarginRate)}</strong></div>
         <div><span>AI 假设首单预算</span><strong>{moneyIn(batch.currency, hypothesis.firstOrderBudgetCents)}</strong></div>
@@ -281,6 +282,22 @@ function HypothesisCard({
       ) : (
         <>
           <DecisionPanel decision={decision} hypothesis={hypothesis} currency={batch.currency} />
+
+          <CostBackCalculator
+            platformCode={batch.platformCode}
+            platformName={batch.platformName}
+            currency={batch.currency}
+            recommendedPriceCents={hypothesis.recommendedPriceCents}
+            confirmedPriceCents={hypothesis.confirmedPriceCents}
+            suggestedMarginRate={hypothesis.expectedMarginRate}
+            quotes={hypothesis.quotes.map((quote) => ({
+              ...quote,
+              supplierName: supplierByShortlistId.get(quote.supplierShortlistId)?.supplierName,
+            }))}
+            priceEntryHref={`#confirm-price-${hypothesis.id}`}
+            quoteEntryHref={`#supplier-quote-${hypothesis.id}`}
+            fxRateToUsd={batch.fxRateToUsd}
+          />
 
           <div className="ai-validation-grid">
             <section className="ai-validation-summary">
@@ -643,7 +660,7 @@ function CompetitorEntryForm({
 
 function ConfirmPriceForm({ hypothesisId, runId, currency }: { hypothesisId: string; runId: string; currency: string }) {
   return (
-    <details className="entry-panel card ai-entry-panel">
+    <details className="entry-panel card ai-entry-panel" id={`confirm-price-${hypothesisId}`}>
       <summary><span><strong>确认售价</strong><small>依据真实竞品价格带；利润门禁只使用这里的价格</small></span><span>＋</span></summary>
       <form action={confirmHypothesisPriceAction} className="entry-form form-grid">
         <input type="hidden" name="runId" value={runId} />
@@ -669,7 +686,7 @@ function SupplierQuoteEntryForm({
   currency: string;
 }) {
   return (
-    <details className="entry-panel card ai-entry-panel">
+    <details className="entry-panel card ai-entry-panel" id={`supplier-quote-${hypothesisId}`}>
       <summary><span><strong>录入供应商真实报价</strong><small>采购价、运费、关税、MOQ、交期、样品分</small></span><span>＋</span></summary>
       <form action={recordAISupplierQuoteAction} className="entry-form form-grid">
         <input type="hidden" name="runId" value={runId} />

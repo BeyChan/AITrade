@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { calculateEconomics, opportunityScore, recommendationFor } from "./economics.ts";
+import {
+  calculateEconomics,
+  calculateMaxPurchasePriceCents,
+  calculateTargetLandedCost,
+  opportunityScore,
+  recommendationFor,
+} from "./economics.ts";
 
 const baseline = {
   salePriceCents: 3999,
@@ -37,6 +43,38 @@ test("higher returns reduce profit", () => {
 test("stress case is less optimistic than baseline", () => {
   const result = calculateEconomics(baseline);
   assert.ok(result.stressProfitCents < result.netProfitCents);
+});
+
+test("target landed cost is the highest integer-cent cost that still meets the target margin", () => {
+  const input = {
+    ...baseline,
+    targetMarginRate: 0.18,
+  };
+  const target = calculateTargetLandedCost(input);
+
+  assert.equal(target.achievable, true);
+  assert.ok(target.maxLandedCostCents > 0);
+  assert.ok(calculateEconomics({ ...input, landedCostCents: target.maxLandedCostCents }).marginRate >= 0.18);
+  assert.ok(calculateEconomics({ ...input, landedCostCents: target.maxLandedCostCents + 1 }).marginRate < 0.18);
+});
+
+test("target landed cost reports an unachievable plan instead of returning a fake budget", () => {
+  const target = calculateTargetLandedCost({
+    ...baseline,
+    salePriceCents: 700,
+    targetMarginRate: 0.6,
+  });
+
+  assert.equal(target.achievable, false);
+  assert.equal(target.maxLandedCostCents, 0);
+});
+
+test("maximum purchase price accounts for quoted freight and duty", () => {
+  const purchase = calculateMaxPurchasePriceCents(350, 50, 0.1);
+  const taxable = purchase + 50;
+
+  assert.equal(taxable + Math.round(taxable * 0.1), 350);
+  assert.equal(calculateMaxPurchasePriceCents(40, 50, 0.1), 0);
 });
 
 test("opportunity score and recommendation are deterministic", () => {
