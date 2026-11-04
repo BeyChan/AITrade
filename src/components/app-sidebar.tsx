@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 type NavItem = {
   href: string;
   label: string;
-  icon: "ai" | "sourcing" | "data" | "settings" | "connection";
+  icon: "ai" | "content" | "sourcing" | "data" | "settings" | "connection";
 };
 
 const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
@@ -14,6 +14,7 @@ const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
     label: "业务工作台",
     items: [
       { href: "/", label: "AI 选品", icon: "ai" },
+      { href: "/content", label: "内容工作台", icon: "content" },
       { href: "/data-sources", label: "数据源", icon: "data" },
     ],
   },
@@ -55,6 +56,16 @@ function NavIcon({ name }: { name: NavItem["icon"] }) {
         <path d="m4 8 8-4 8 4-8 4-8-4Z" />
         <path d="m4 8 8 4 8-4v8l-8 4-8-4V8Z" />
         <path d="M12 12v8" />
+      </svg>
+    );
+  }
+
+  if (name === "content") {
+    return (
+      <svg {...common}>
+        <path d="M5 3.5h9l5 5V20.5H5V3.5Z" />
+        <path d="M14 3.5v5h5" />
+        <path d="m8 16 1.1-3.1 4.7-4.7 2 2-4.7 4.7L8 16Z" />
       </svg>
     );
   }
@@ -101,7 +112,10 @@ function NavIcon({ name }: { name: NavItem["icon"] }) {
 
 function isActiveRoute(pathname: string, href: string) {
   if (href === "/") {
-    return pathname === "/" || pathname === "/import" || pathname.startsWith("/cases/");
+    return pathname === "/" || pathname === "/import" || (pathname.startsWith("/cases/") && !pathname.endsWith("/content"));
+  }
+  if (href === "/content") {
+    return pathname === "/content" || pathname.endsWith("/content");
   }
   return pathname === href || pathname.startsWith(`${href}/`);
 }

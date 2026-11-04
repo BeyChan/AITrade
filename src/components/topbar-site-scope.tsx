@@ -53,6 +53,7 @@ export function TopbarSiteScope({ markets, platforms }: TopbarSiteScopeProps) {
 
 function getSectionLabel(pathname: string) {
   if (pathname === "/") return "AI 选品";
+  if (pathname === "/content") return "内容工作台";
   if (pathname === "/import") return "导入数据";
   if (pathname.startsWith("/cases/")) return "商品工作台";
   if (pathname === "/ai-sourcing" || pathname.startsWith("/ai-sourcing/")) return "AI 选品验证";
