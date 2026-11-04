@@ -12,7 +12,6 @@ type MarketOption = {
 type PlatformOption = {
   code: string;
   name: string;
-  api_name: string | null;
 };
 
 type SiteScopeSwitcherProps = {
@@ -88,7 +87,7 @@ export function SiteScopeSwitcher({
           >
             {platforms.map((item) => (
               <option key={item.code} value={item.code}>
-                {item.name}{item.api_name ? ` · ${item.api_name}` : " · 人工导出"}
+                {item.name}
               </option>
             ))}
           </select>

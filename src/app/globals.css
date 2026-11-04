@@ -216,8 +216,8 @@ h3 {
 }
 
 .hero-site-switcher {
-  flex: 0 0 420px;
-  width: min(100%, 420px);
+  flex: 0 0 460px;
+  width: min(100%, 460px);
   padding: 18px;
   border: 1px solid rgba(185, 242, 108, 0.24);
   border-radius: 20px;

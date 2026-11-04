@@ -36,7 +36,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const siteLabel = `${selectedMarket.name}站 · ${selectedPlatform.name}`;
   const siteHref = `/?market=${encodeURIComponent(selectedMarket.code)}&platform=${encodeURIComponent(selectedPlatform.code)}#opportunities`;
   const marketOptions = options.markets.map(({ code, name, currency }) => ({ code, name, currency }));
-  const platformOptions = options.platforms.map(({ code, name, api_name }) => ({ code, name, api_name }));
+  const platformOptions = options.platforms.map(({ code, name }) => ({ code, name }));
 
   return (
     <div className="page">
