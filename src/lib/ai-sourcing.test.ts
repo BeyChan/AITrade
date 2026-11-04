@@ -1,14 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildTemplateCategoryRecommendations,
   buildTemplateHypotheses,
   evaluateSourcingDecision,
   normalizeObservedAt,
+  parseCategoryRecommendationsJson,
   parseHypothesesJson,
   platformEconomicDefaults,
   researchPriorityScore,
   validateEvidenceUrl,
   type AISourcingContext,
+  type CategoryRecommendationContext,
   type DecisionEvidenceInput,
   type HypothesisGenerationInput,
   type QuoteForDecision,
@@ -33,6 +36,26 @@ function generationInput(overrides: Partial<HypothesisGenerationInput> = {}): Hy
     category: "宠物用品",
     context: context(),
     ...overrides,
+  };
+}
+
+function categoryContext(overrides: Partial<CategoryRecommendationContext> = {}): CategoryRecommendationContext {
+  return {
+    marketCode: "US",
+    marketName: "美国",
+    platformCode: "amazon",
+    platformName: "Amazon",
+    ...overrides,
+  };
+}
+
+function categoryRecommendation(index: number) {
+  return {
+    category: `验证类目 ${index}`,
+    reason: "使用场景清楚，可以拆成尺寸、材质和使用流程进行人工核验。",
+    firstValidation: "记录前 10 个同类商品的价格、评价主题和规格。",
+    riskNote: "需要核对同质化、尺寸误差和退货原因。",
+    searchKeywords: [`category ${index}`, `category ${index} review`],
   };
 }
 
@@ -91,6 +114,68 @@ test("template hypotheses use market-local price bands and five distinct concept
   assert.equal(cny[0].recommendedPriceCents, 17993);
   assert.equal(new Set(us.map((item) => item.concept)).size, 5);
   assert.ok(us.every((item) => item.supplierKeywords.length > 0));
+});
+
+test("template category recommendations depend on the selected country and platform", () => {
+  const us = buildTemplateCategoryRecommendations(categoryContext());
+  const jp = buildTemplateCategoryRecommendations(
+    categoryContext({ marketCode: "JP", marketName: "日本", platformCode: "tiktok_shop", platformName: "TikTok Shop" }),
+  );
+
+  assert.equal(us.length, 5);
+  assert.equal(jp.length, 5);
+  assert.equal(new Set(us.map((item) => item.category)).size, 5);
+  assert.notDeepEqual(us.map((item) => item.category), jp.map((item) => item.category));
+  assert.ok(jp.every((item) => item.firstValidation.includes("日本")));
+  assert.ok(jp.every((item) => item.firstValidation.includes("TikTok Shop")));
+});
+
+test("structured category recommendations require five unique and fact-safe directions", () => {
+  const valid = parseCategoryRecommendationsJson(
+    JSON.stringify({ recommendations: Array.from({ length: 5 }, (_, index) => categoryRecommendation(index)) }),
+    categoryContext(),
+  );
+  assert.equal(valid.length, 5);
+  assert.equal(valid[0].searchKeywords.length, 2);
+
+  assert.throws(
+    () => parseCategoryRecommendationsJson(
+      JSON.stringify({ recommendations: Array.from({ length: 4 }, (_, index) => categoryRecommendation(index)) }),
+      categoryContext(),
+    ),
+    /至少 5 个/,
+  );
+  assert.throws(
+    () => parseCategoryRecommendationsJson(
+      JSON.stringify({ recommendations: Array.from({ length: 5 }, () => categoryRecommendation(1)) }),
+      categoryContext(),
+    ),
+    /类目重复/,
+  );
+  assert.throws(
+    () => parseCategoryRecommendationsJson(
+      JSON.stringify({
+        recommendations: Array.from({ length: 5 }, (_, index) => ({
+          ...categoryRecommendation(index),
+          reason: index === 0 ? "这是低竞争的蓝海类目。" : categoryRecommendation(index).reason,
+        })),
+      }),
+      categoryContext(),
+    ),
+    /未经验证的市场结论/,
+  );
+  assert.throws(
+    () => parseCategoryRecommendationsJson(
+      JSON.stringify({
+        recommendations: Array.from({ length: 5 }, (_, index) => ({
+          ...categoryRecommendation(index),
+          riskNote: index === 0 ? "" : categoryRecommendation(index).riskNote,
+        })),
+      }),
+      categoryContext(),
+    ),
+    /字段不完整/,
+  );
 });
 
 test("structured AI output requires five unique, valid hypotheses", () => {

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createAISourcingBatchAction } from "@/app/actions";
 import { RecommendationBadge, StatusBadge } from "@/components/badges";
+import { CategoryRecommender } from "@/components/category-recommender";
 import { getAIProviderStatus } from "@/lib/ai-provider";
 import { getBatchSiteLabel, listAISourcingBatches } from "@/lib/ai-sourcing-repository";
 import { compactNumber, money, percent, shortDate } from "@/lib/format";
@@ -39,6 +40,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const selectedCount = batches.reduce((sum, batch) => sum + batch.selectedCount, 0);
   const goCount = batches.reduce((sum, batch) => sum + batch.goCount, 0);
   const demoCount = cases.filter((item) => item.is_demo).length;
+  const recentBatches = recentDistinctBatches(batches, 3);
 
   return (
     <div className="page ai-sourcing-page">
@@ -105,13 +107,17 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         <form action={createAISourcingBatchAction} className="form-grid ai-research-form">
           <input type="hidden" name="marketCode" value={selectedMarket.code} />
           <input type="hidden" name="platformCode" value={selectedPlatform.code} />
-          <div className="field">
-            <label htmlFor="category">类目</label>
-            <input id="category" name="category" placeholder="例如：宠物清洁、家居收纳" required maxLength={80} />
-          </div>
-          <div className="field">
-            <label htmlFor="actor">创建人</label>
-            <input id="actor" name="actor" placeholder="例如：老板 / 采购" defaultValue="运营人员" maxLength={80} />
+          <div className="ai-research-basics">
+            <CategoryRecommender
+              marketCode={selectedMarket.code}
+              marketName={selectedMarket.name}
+              platformCode={selectedPlatform.code}
+              platformName={selectedPlatform.name}
+            />
+            <div className="field ai-research-actor">
+              <label htmlFor="actor">创建人</label>
+              <input id="actor" name="actor" placeholder="例如：老板 / 采购" defaultValue="运营人员" maxLength={80} />
+            </div>
           </div>
           <div className="field full">
             <label htmlFor="brief">研究条件</label>
@@ -149,10 +155,10 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           <div>
             <div className="eyebrow">Research pipeline</div>
             <h2>{siteLabel}的研究批次</h2>
-            <p>打开批次继续补充证据、录入报价并查看确定性决策。研究批次与商品立项共用当前国家 × 平台范围。</p>
+            <p>按类目和研究条件合并重复记录，仅显示最近 3 条。打开批次继续补充证据、录入报价并查看确定性决策。</p>
           </div>
         </div>
-        {batches.length === 0 ? (
+        {recentBatches.length === 0 ? (
           <div className="empty-state">
             <h3>还没有选品研究</h3>
             <p>在上方填写类目和研究条件即可开始，不需要准备任何 Key。</p>
@@ -163,7 +169,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           </div>
         ) : (
           <div className="ai-batch-list">
-            {batches.map((batch) => (
+            {recentBatches.map((batch) => (
               <Link
                 href={`/ai-sourcing/${batch.id}?market=${encodeURIComponent(selectedMarket.code)}&platform=${encodeURIComponent(selectedPlatform.code)}`}
                 className="ai-batch-card"
@@ -279,4 +285,21 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       </section>
     </div>
   );
+}
+
+function recentDistinctBatches<T extends { category: string; brief: string }>(batches: T[], limit: number): T[] {
+  const seen = new Set<string>();
+  const recent: T[] = [];
+  for (const batch of batches) {
+    const key = `${normalizeBatchText(batch.category)}\u0000${normalizeBatchText(batch.brief)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    recent.push(batch);
+    if (recent.length === limit) break;
+  }
+  return recent;
+}
+
+function normalizeBatchText(value: string) {
+  return value.trim().toLocaleLowerCase().replace(/\s+/g, "");
 }

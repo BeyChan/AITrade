@@ -1,8 +1,12 @@
 import {
+  buildTemplateCategoryRecommendations,
   buildTemplateHypotheses,
+  parseCategoryRecommendationsJson,
   parseHypothesesJson,
   researchPriorityScore,
   type AISourcingContext,
+  type CategoryRecommendationContext,
+  type CategoryRecommendationResult,
   type HypothesisDraft,
   type HypothesisGenerationInput,
   type HypothesisGenerationResult,
@@ -51,6 +55,19 @@ const SYSTEM_PROMPT = `你是跨境电商选品研究助理。你的任务不是
 输出结构：
 {"hypotheses":[{"concept":"商品概念","targetUser":"目标用户","painPoint":"核心痛点","differentiator":"差异化方向","recommendedPriceCents":2499,"expectedMarginRate":0.22,"firstOrderBudgetCents":120000,"mainRisks":["风险1","风险2"],"supplierKeywords":["关键词1"],"competitorQueries":["搜索词1"],"reviewQueries":["差评搜索词1"]}]}`;
 
+const CATEGORY_SYSTEM_PROMPT = `你是跨境电商选品研究的类目筛选助理。请根据指定国家和平台，给出 5 个适合小团队首轮人工核验的候选类目。
+
+硬性规则：
+1. 只输出 JSON，不输出 Markdown。
+2. 推荐必须同时考虑指定国家、语言/消费场景和平台形态，不得只给通用类目。
+3. 不得声称类目热销、需求高、竞争低、蓝海、利润高或保证盈利；这些结论只能来自后续真实证据。
+4. 每条推荐只解释为什么值得验证、第一步怎么核验、主要风险是什么。
+5. 类目名称用简洁中文；搜索关键词优先使用目标国家常用搜索语言。
+6. 必须返回 5 个互不重复的类目。
+
+输出结构：
+{"recommendations":[{"category":"类目名称","reason":"为什么这是值得验证的方向假设，不得写成市场事实","firstValidation":"在该国家与平台执行的第一步人工核验","riskNote":"首轮最需要核对的风险","searchKeywords":["搜索词1","搜索词2"]}]}`;
+
 export async function getAIProviderStatus(): Promise<AIProviderStatus> {
   return statusFromConfig(await loadAIProviderConfig());
 }
@@ -65,6 +82,29 @@ export async function generateHypotheses(input: HypothesisGenerationInput): Prom
     return await generateWithOpenAICompatible(input, config);
   } catch (error) {
     const fallback = templateResult(input);
+    return {
+      ...fallback,
+      responseSummary: {
+        ...fallback.responseSummary,
+        fallback: true,
+        providerError: safeProviderError(error),
+      },
+    };
+  }
+}
+
+export async function generateCategoryRecommendations(
+  context: CategoryRecommendationContext,
+): Promise<CategoryRecommendationResult> {
+  const config = await loadAIProviderConfig();
+  const status = statusFromConfig(config);
+  if (!status.configured || status.provider === "template") return templateCategoryResult(context);
+
+  try {
+    if (config.provider === "ollama") return await generateCategoryWithOllama(context, config);
+    return await generateCategoryWithOpenAICompatible(context, config);
+  } catch (error) {
+    const fallback = templateCategoryResult(context);
     return {
       ...fallback,
       responseSummary: {
@@ -216,6 +256,103 @@ function templateResult(input: HypothesisGenerationInput): HypothesisGenerationR
       note: "模板仅生成假设，不包含任何真实市场证据。",
     },
   };
+}
+
+function templateCategoryResult(context: CategoryRecommendationContext): CategoryRecommendationResult {
+  return {
+    provider: "template",
+    model: "deterministic-v1",
+    recommendations: buildTemplateCategoryRecommendations(context),
+    responseSummary: {
+      mode: "template",
+      evidenceCreated: 0,
+      note: "模板按国家与平台生成候选方向，不代表需求、销量、竞争度或利润事实。",
+    },
+  };
+}
+
+async function generateCategoryWithOllama(
+  context: CategoryRecommendationContext,
+  config: AIProviderConfig,
+): Promise<CategoryRecommendationResult> {
+  validateBaseUrl(config.baseUrl);
+  const response = await fetch(ollamaChatEndpoint(config.baseUrl), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: config.model,
+      stream: false,
+      format: "json",
+      messages: [
+        { role: "system", content: CATEGORY_SYSTEM_PROMPT },
+        { role: "user", content: buildCategoryUserPrompt(context) },
+      ],
+      options: { temperature: 0.35 },
+    }),
+    signal: AbortSignal.timeout(45_000),
+  });
+  if (!response.ok) throw new Error(`Ollama 请求失败：HTTP ${response.status}`);
+  const payload = await response.json() as { message?: { content?: string } };
+  const content = payload.message?.content;
+  if (!content) throw new Error("Ollama 未返回类目推荐内容");
+  return categoryProviderResult("ollama", config.model, content, context);
+}
+
+async function generateCategoryWithOpenAICompatible(
+  context: CategoryRecommendationContext,
+  config: AIProviderConfig,
+): Promise<CategoryRecommendationResult> {
+  validateBaseUrl(config.baseUrl);
+  const response = await fetch(openAIChatEndpoint(config.baseUrl), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: config.model,
+      temperature: 0.35,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: CATEGORY_SYSTEM_PROMPT },
+        { role: "user", content: buildCategoryUserPrompt(context) },
+      ],
+    }),
+    signal: AbortSignal.timeout(45_000),
+  });
+  if (!response.ok) throw new Error(`AI 接口请求失败：HTTP ${response.status}`);
+  const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+  const content = payload.choices?.[0]?.message?.content;
+  if (!content) throw new Error("AI 接口未返回类目推荐内容");
+  return categoryProviderResult("openai-compatible", config.model, content, context);
+}
+
+function categoryProviderResult(
+  provider: AIProviderId,
+  model: string,
+  content: string,
+  context: CategoryRecommendationContext,
+): CategoryRecommendationResult {
+  return {
+    provider,
+    model,
+    recommendations: parseCategoryRecommendationsJson(content, context),
+    responseSummary: {
+      mode: "model",
+      evidenceCreated: 0,
+      marketCode: context.marketCode,
+      platformCode: context.platformCode,
+      note: "推荐只是首轮验证方向；使用前仍需检索真实商品、评价、供应商与合规信息。",
+    },
+  };
+}
+
+function buildCategoryUserPrompt(context: CategoryRecommendationContext) {
+  return `请为以下站点推荐 5 个首轮人工核验类目：
+国家/市场：${context.marketName}（${context.marketCode}）
+平台：${context.platformName}（${context.platformCode}）
+
+类目要适合一人或两人的小团队验证，优先考虑轻小件、场景明确、能通过真实商品页面和差评核验的方向。不要把推荐写成销量或竞争度结论。输出仅限指定 JSON 结构。`;
 }
 
 async function generateWithOllama(input: HypothesisGenerationInput, config: AIProviderConfig): Promise<HypothesisGenerationResult> {

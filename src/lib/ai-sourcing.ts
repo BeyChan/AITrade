@@ -10,6 +10,26 @@ export type AISourcingContext = {
   fxSourceUrl: string | null;
 };
 
+export type CategoryRecommendationContext = Pick<
+  AISourcingContext,
+  "marketCode" | "marketName" | "platformCode" | "platformName"
+>;
+
+export type CategoryRecommendation = {
+  category: string;
+  reason: string;
+  firstValidation: string;
+  riskNote: string;
+  searchKeywords: string[];
+};
+
+export type CategoryRecommendationResult = {
+  provider: string;
+  model: string;
+  recommendations: CategoryRecommendation[];
+  responseSummary: Record<string, unknown>;
+};
+
 export type HypothesisDraft = {
   concept: string;
   targetUser: string;
@@ -107,6 +127,181 @@ export const DEFAULT_SOURCING_THRESHOLDS = {
 } as const;
 
 const MAX_TEXT = 500;
+
+const MARKET_CATEGORY_CANDIDATES: Record<string, string[]> = {
+  US: ["家居收纳", "宠物清洁", "厨房小工具", "汽车收纳", "户外轻量收纳"],
+  GB: ["家居收纳", "宠物清洁", "厨房小工具", "汽车收纳", "花园小工具"],
+  DE: ["家居收纳", "厨房烘焙", "宠物清洁", "花园小工具", "桌面整理"],
+  JP: ["窄空间收纳", "厨房清洁", "宠物护理", "通勤收纳", "防灾收纳"],
+  SG: ["防潮收纳", "厨房小工具", "宠物清洁", "通勤收纳", "旅行收纳"],
+  MY: ["防潮收纳", "厨房小工具", "宠物清洁", "通勤收纳", "旅行收纳"],
+  AU: ["户外轻量收纳", "家居收纳", "宠物清洁", "汽车收纳", "花园小工具"],
+};
+
+const CATEGORY_GUIDES: Record<string, Omit<CategoryRecommendation, "category" | "firstValidation">> = {
+  家居收纳: {
+    reason: "空间尺寸、材质、安装方式和套装组合都能拆成可核验卖点，适合先验证一个明确的收纳场景。",
+    riskNote: "重点核对同质化程度、尺寸误差、承重和退货原因。",
+    searchKeywords: ["home storage organizer", "closet organizer", "under sink storage", "storage box"],
+  },
+  宠物清洁: {
+    reason: "可以围绕掉毛、清洁死角、可拆洗和不同毛型做结构验证，首轮容易拆成单一使用场景。",
+    riskNote: "重点核对专利、结构耐用性、材质安全和清洁效果演示。",
+    searchKeywords: ["pet hair remover", "pet cleaning tool", "self cleaning brush", "pet grooming"],
+  },
+  厨房小工具: {
+    reason: "使用步骤和清洁难点相对具体，适合用结构改进、套装组合和台面尺寸做差异化。",
+    riskNote: "重点核对食品接触材料、锋利部件、清洁便利性和包装体积。",
+    searchKeywords: ["kitchen gadget", "kitchen organizer", "food prep tool", "small kitchen tool"],
+  },
+  汽车收纳: {
+    reason: "后备箱、座椅缝隙和车载清洁场景边界清楚，便于用尺寸、固定方式和兼容性做验证。",
+    riskNote: "重点核对车型兼容、固定牢靠度、耐温性和运输体积。",
+    searchKeywords: ["car storage organizer", "trunk organizer", "car seat gap organizer", "car cleaning"],
+  },
+  户外轻量收纳: {
+    reason: "适合围绕重量、折叠体积、防水和携带方式拆分验证，首发可聚焦一个户外场景。",
+    riskNote: "重点核对承重、防水等级、异味和跨境运输成本。",
+    searchKeywords: ["lightweight outdoor organizer", "camping storage", "travel organizer", "folding storage"],
+  },
+  花园小工具: {
+    reason: "适合从收纳、清洁、修剪和便携结构切入，先验证单一园艺动作而非泛化工具套装。",
+    riskNote: "重点核对刀口安全、户外耐用性、包装尺寸和季节性库存风险。",
+    searchKeywords: ["garden tool organizer", "garden cleaning tool", "plant care tool", "garden storage"],
+  },
+  厨房烘焙: {
+    reason: "模具、量具和收纳组合容易形成清晰套装，可通过尺寸、材质和清洁方式做验证。",
+    riskNote: "重点核对食品接触材料、耐温、尺寸标准和套装冗余。",
+    searchKeywords: ["baking tool set", "baking organizer", "kitchen measuring tool", "bakeware storage"],
+  },
+  桌面整理: {
+    reason: "桌面、线材和小物件的使用边界明确，适合从尺寸组合、模块化和安装方式做验证。",
+    riskNote: "重点核对兼容尺寸、桌面承重、胶粘牢度和同质化。",
+    searchKeywords: ["desk organizer", "cable management", "office desk storage", "drawer organizer"],
+  },
+  窄空间收纳: {
+    reason: "窄缝、门后和角落场景清楚，便于用精确尺寸、抽拉方式和空间适配做差异化。",
+    riskNote: "重点核对尺寸误差、安装方式、承重和不同户型的兼容性。",
+    searchKeywords: ["narrow storage", "gap organizer", "door storage", "small space organizer"],
+  },
+  厨房清洁: {
+    reason: "油污、缝隙和可拆洗结构容易转化为可演示的功能点，适合先验证一个高频清洁动作。",
+    riskNote: "重点核对刷毛耐用、清洁剂兼容、缝隙尺寸和材质安全。",
+    searchKeywords: ["kitchen cleaning brush", "sink cleaning tool", "gap cleaning brush", "kitchen scrubber"],
+  },
+  宠物护理: {
+    reason: "可以按梳理、喂食、清洁或出行拆成单一场景，首轮更容易验证目标用户和真实痛点。",
+    riskNote: "重点核对宠物安全、材质、清洁方式和尺寸适配。",
+    searchKeywords: ["pet care tool", "pet grooming", "pet feeding accessory", "pet travel"],
+  },
+  通勤收纳: {
+    reason: "通勤包、小物和线材场景具体，便于用内部结构、容量和取放方式做验证。",
+    riskNote: "重点核对尺寸兼容、拉链耐用、重量和通勤场景真实使用频率。",
+    searchKeywords: ["commuter organizer", "bag organizer", "travel cable organizer", "portable storage"],
+  },
+  防灾收纳: {
+    reason: "应急物品分类、便携和快速取用能形成清楚的结构需求，适合先验证单一储备场景。",
+    riskNote: "重点核对容量、防水、标签系统和当地合规要求。",
+    searchKeywords: ["emergency storage", "emergency kit organizer", "survival storage", "portable safety kit"],
+  },
+  防潮收纳: {
+    reason: "潮湿环境下的密封、通风和分区需求可拆成具体结构，适合先验证一种储藏物品。",
+    riskNote: "重点核对密封效果、霉变风险、材质气味和运输体积。",
+    searchKeywords: ["moisture proof storage", "sealed storage box", "humidity control storage", "wardrobe dehumidifier"],
+  },
+  旅行收纳: {
+    reason: "行李分区、压缩和随身取用场景明确，适合用组合、重量和尺寸做差异化验证。",
+    riskNote: "重点核对拉链强度、面料耐用、压缩效果和尺寸兼容。",
+    searchKeywords: ["travel organizer", "packing cube", "compression bag", "travel storage set"],
+  },
+};
+
+export function buildTemplateCategoryRecommendations(
+  context: CategoryRecommendationContext,
+): CategoryRecommendation[] {
+  const categories = MARKET_CATEGORY_CANDIDATES[context.marketCode] ?? [
+    "家居收纳",
+    "厨房小工具",
+    "宠物清洁",
+    "桌面整理",
+    "旅行收纳",
+  ];
+  return categories.map((category) => {
+    const guide = CATEGORY_GUIDES[category];
+    return {
+      category,
+      ...guide,
+      firstValidation: categoryValidationStep(context, guide.searchKeywords),
+    };
+  });
+}
+
+export function parseCategoryRecommendationsJson(
+  raw: string,
+  context: CategoryRecommendationContext,
+): CategoryRecommendation[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(extractJson(raw));
+  } catch {
+    throw new Error("AI 推荐类目返回内容不是有效 JSON，已拒绝使用");
+  }
+
+  const root = asRecord(parsed);
+  const candidates = Array.isArray(root.recommendations) ? root.recommendations : Array.isArray(parsed) ? parsed : null;
+  if (!candidates || candidates.length < 5) throw new Error("AI 必须返回至少 5 个推荐类目");
+
+  const recommendations = candidates.slice(0, 5).map((candidate, index) => {
+    const row = asRecord(candidate);
+    const category = text(row.category, 40);
+    const reason = text(row.reason, MAX_TEXT);
+    const firstValidation = text(row.firstValidation, MAX_TEXT);
+    const riskNote = text(row.riskNote, MAX_TEXT);
+    if (!category || !reason || !firstValidation || !riskNote) {
+      throw new Error(`AI 第 ${index + 1} 个推荐类目字段不完整`);
+    }
+    if (hasUnverifiedMarketClaim(`${category}${reason}${firstValidation}${riskNote}`)) {
+      throw new Error("AI 推荐包含未经验证的市场结论，已拒绝使用");
+    }
+    const fallbackKeywords = CATEGORY_GUIDES[category]?.searchKeywords ?? [category];
+    return {
+      category,
+      reason,
+      firstValidation,
+      riskNote,
+      searchKeywords: textList(row.searchKeywords, fallbackKeywords).slice(0, 6),
+    };
+  });
+
+  if (new Set(recommendations.map((item) => item.category)).size !== 5) {
+    throw new Error("AI 返回的推荐类目重复，已拒绝使用");
+  }
+  return recommendations.map((item) => ({
+    ...item,
+    firstValidation: item.firstValidation || categoryValidationStep(context, item.searchKeywords),
+  }));
+}
+
+function categoryValidationStep(context: CategoryRecommendationContext, keywords: string[]) {
+  const query = keywords.slice(0, 2).join("、");
+  if (context.platformCode === "amazon") {
+    return `在 ${context.marketName} Amazon 用“${query}”人工检索，记录前 10 个同类商品的价格带、Review 数量、差评主题和配送方式。`;
+  }
+  if (context.platformCode === "tiktok_shop") {
+    return `在 ${context.marketName} TikTok Shop 用“${query}”人工检索，记录短视频演示方式、价格带、评价主题和退货风险。`;
+  }
+  if (context.platformCode === "shopify") {
+    return `用“${query}”检索 ${context.marketName} 独立站与广告素材，记录落地页卖点、价格带、评价和履约承诺。`;
+  }
+  if (context.platformCode === "ebay") {
+    return `在 ${context.marketName} eBay 用“${query}”人工检索，记录成色、规格、成交价区间、运费和退货条款。`;
+  }
+  return `在 ${context.marketName} ${context.platformName} 用“${query}”人工检索，记录价格带、评价主题、竞品规格和配送限制。`;
+}
+
+function hasUnverifiedMarketClaim(value: string) {
+  return /(热销|爆款|高需求|需求旺盛|销量高|低竞争|竞争小|蓝海|稳赚|保证盈利)/i.test(value);
+}
 
 export function buildTemplateHypotheses(input: HypothesisGenerationInput): HypothesisDraft[] {
   const focus = normalizeFocus(input.brief);
