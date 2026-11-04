@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { CSSProperties } from "react";
 import {
+  confirmHypothesisPriceAction,
   promoteHypothesisAction,
   recordAISupplierQuoteAction,
   recordCompetitorAction,
@@ -68,6 +69,11 @@ export default async function AISourcingDetailPage({ params, searchParams }: Pag
 
       {query.notice ? <div className="notice"><strong>已完成：</strong>{query.notice}</div> : null}
       {query.error ? <div className="notice warn"><strong>未完成：</strong>{query.error}</div> : null}
+      {batch.templateFallback ? (
+        <div className="notice warn">
+          <strong>本批假设由内置模板生成：</strong>模型调用失败，已自动回退（{batch.providerError ?? "原因未记录"}）。这 5 个方向不是 {batch.provider} / {batch.model} 的输出。
+        </div>
+      ) : null}
 
       <section className="ai-batch-overview">
         <div>
@@ -203,9 +209,13 @@ function HypothesisCard({
       </div>
 
       <div className="ai-hypothesis-metrics">
-        <div><span>建议售价</span><strong>{moneyIn(batch.currency, hypothesis.recommendedPriceCents)}</strong></div>
-        <div><span>目标净利率</span><strong>{percent(hypothesis.expectedMarginRate)}</strong></div>
-        <div><span>首单预算</span><strong>{moneyIn(batch.currency, hypothesis.firstOrderBudgetCents)}</strong></div>
+        <div>
+          <span>已确认售价</span>
+          <strong>{hypothesis.confirmedPriceCents ? moneyIn(batch.currency, hypothesis.confirmedPriceCents) : "未确认"}</strong>
+          <small>AI 假设价 {moneyIn(batch.currency, hypothesis.recommendedPriceCents)}（未验证，不参与门禁）</small>
+        </div>
+        <div><span>AI 假设净利率</span><strong>{percent(hypothesis.expectedMarginRate)}</strong></div>
+        <div><span>AI 假设首单预算</span><strong>{moneyIn(batch.currency, hypothesis.firstOrderBudgetCents)}</strong></div>
         <div><span>证据完整度</span><strong>{decision?.evidenceCompleteness ?? 0}%</strong></div>
       </div>
 
@@ -324,6 +334,7 @@ function HypothesisCard({
 
           <div className="ai-entry-grid">
             <EvidenceEntryForms hypothesisId={hypothesis.id} runId={batch.id} observedAt={observedAt} />
+            <ConfirmPriceForm hypothesisId={hypothesis.id} runId={batch.id} currency={batch.currency} />
             <CompetitorEntryForm hypothesisId={hypothesis.id} runId={batch.id} observedAt={observedAt} currency={batch.currency} />
             <SupplierQuoteEntryForm hypothesisId={hypothesis.id} runId={batch.id} observedAt={observedAt} currency={batch.currency} />
           </div>
@@ -625,6 +636,22 @@ function CompetitorEntryForm({
         <div className="field"><label>观察时间</label><input name="observedAt" type="datetime-local" defaultValue={observedAt} required /></div>
         <div className="field full"><label>录入人</label><input name="actor" defaultValue="运营人员" required maxLength={80} /></div>
         <button className="button primary" type="submit">记录竞品快照</button>
+      </form>
+    </details>
+  );
+}
+
+function ConfirmPriceForm({ hypothesisId, runId, currency }: { hypothesisId: string; runId: string; currency: string }) {
+  return (
+    <details className="entry-panel card ai-entry-panel">
+      <summary><span><strong>确认售价</strong><small>依据真实竞品价格带；利润门禁只使用这里的价格</small></span><span>＋</span></summary>
+      <form action={confirmHypothesisPriceAction} className="entry-form form-grid">
+        <input type="hidden" name="runId" value={runId} />
+        <input type="hidden" name="hypothesisId" value={hypothesisId} />
+        <div className="field"><label>已确认售价（{currency}）</label><input name="price" type="number" min="0.01" step="0.01" required /></div>
+        <div className="field full"><label>依据链接（竞品页、价格带记录等）</label><input name="sourceUrl" type="url" required placeholder="https://..." /></div>
+        <div className="field full"><label>录入人</label><input name="actor" defaultValue="运营人员" required maxLength={80} /></div>
+        <button className="button primary" type="submit">记录已确认售价</button>
       </form>
     </details>
   );

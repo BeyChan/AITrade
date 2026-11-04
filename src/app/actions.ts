@@ -6,6 +6,7 @@ import type { EconomicsAssumptions } from "@/lib/economics";
 import { clearStoredAIProviderKey, saveAIProviderSettings } from "@/lib/app-settings";
 import { testAIProviderConnection } from "@/lib/ai-provider";
 import {
+  confirmHypothesisPrice,
   createAISourcingBatch,
   promoteHypothesisToProductCase,
   recordAISupplierQuote,
@@ -121,6 +122,22 @@ export async function recordCompetitorAction(formData: FormData) {
   }
   revalidateAISourcing(runId);
   redirect(aiSourcingDetailPath(runId, "notice", "真实竞品快照已记录并重新计算门禁"));
+}
+
+export async function confirmHypothesisPriceAction(formData: FormData) {
+  const runId = String(formData.get("runId") || "");
+  try {
+    await confirmHypothesisPrice({
+      hypothesisId: String(formData.get("hypothesisId") || ""),
+      priceCents: dollarsToCents(formData.get("price")),
+      sourceUrl: String(formData.get("sourceUrl") || ""),
+      actor: String(formData.get("actor") || ""),
+    });
+  } catch (error) {
+    redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
+  }
+  revalidateAISourcing(runId);
+  redirect(aiSourcingDetailPath(runId, "notice", "已确认售价已记录并重新计算门禁"));
 }
 
 export async function recordAISupplierQuoteAction(formData: FormData) {

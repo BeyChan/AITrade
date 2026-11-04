@@ -82,7 +82,8 @@ export type QuoteForDecision = {
 
 export type DecisionEvidenceInput = {
   opportunityScore: number;
-  recommendedPriceCents: number;
+  // Only a price the operator confirmed against real evidence may drive the profit gates; the AI's suggested price is never used here.
+  confirmedPriceCents: number | null;
   context: AISourcingContext;
   competitorCount: number;
   reviewSampleCount: number;
@@ -443,15 +444,16 @@ export function evaluateSourcingDecision(input: DecisionEvidenceInput): Decision
   const cashCents = bestQuote ? bestQuote.landedCostCents * bestQuote.moq + bestQuote.sampleFeeCents : null;
   const cashUsdCents = cashCents !== null && fxRate ? Math.round(cashCents / fxRate) : null;
 
-  const platformEconomics = platformEconomicDefaults(input.context.platformCode, input.recommendedPriceCents);
-  const economics = bestQuote
+  const confirmedPrice = input.confirmedPriceCents && input.confirmedPriceCents > 0 ? input.confirmedPriceCents : null;
+  const economics = bestQuote && confirmedPrice
     ? calculateEconomics({
         currency: input.context.currency,
-        salePriceCents: input.recommendedPriceCents,
+        salePriceCents: confirmedPrice,
         landedCostCents: bestQuote.landedCostCents,
-        ...platformEconomics,
+        ...platformEconomicDefaults(input.context.platformCode, confirmedPrice),
       })
     : null;
+  const missingEconomicsReason = !confirmedPrice ? "缺已确认售价" : "缺成本模型";
 
   const patentFound = input.latestPatentRisk === "found";
   const logisticsBlocked = input.latestLogisticsRisk === "found";
@@ -508,7 +510,7 @@ export function evaluateSourcingDecision(input: DecisionEvidenceInput): Decision
       "margin",
       "首报价净利率",
       "≥ 18.0%",
-      economics ? pct(economics.marginRate) : "缺成本模型",
+      economics ? pct(economics.marginRate) : missingEconomicsReason,
       Boolean(economics && economics.marginRate >= thresholds.minMarginRate),
       "economic",
     ),
@@ -516,7 +518,7 @@ export function evaluateSourcingDecision(input: DecisionEvidenceInput): Decision
       "stress",
       "压力情景盈利",
       "> $0",
-      economics ? usd(economics.stressProfitCents) : "缺成本模型",
+      economics ? usd(economics.stressProfitCents) : missingEconomicsReason,
       Boolean(economics && economics.stressProfitCents > 0),
       "economic",
     ),
@@ -614,6 +616,7 @@ export function evaluateSourcingDecision(input: DecisionEvidenceInput): Decision
   if (input.latestPatentRisk === "review") warnings.push("专利检索仍需人工复核，不能转为 GO。");
   if (input.latestLogisticsRisk === "review") warnings.push("物流或包装仍有待验证事项。");
   if (input.quotes.length > 0) warnings.push("最佳报价按最低到岸成本选取；样品评分仍需来自真实打样记录。");
+  if (economics) warnings.push("佣金、履约费、广告和退货率使用平台默认比例，尚未用真实费率表校准。");
 
   return {
     decision,

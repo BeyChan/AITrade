@@ -1,7 +1,20 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { CategoryRecommendationResult } from "@/lib/ai-sourcing";
+import type { CategoryRecommendation, CategoryRecommendationResult } from "@/lib/ai-sourcing";
+
+const BRIEF_FIELD_ID = "brief";
+
+// Built only from the recommendation's own verification and risk notes plus conservative solo-seller limits; no sales, price or budget figures are invented.
+function briefFor(item: CategoryRecommendation) {
+  return [
+    `围绕「${item.category}」做首轮选品验证。`,
+    `第一步核验：${item.firstValidation}`,
+    `主要风险：${item.riskNote}`,
+    `核验关键词：${item.searchKeywords.slice(0, 4).join("、")}`,
+    "限制：团队 1 到 2 人，小批量试单；优先轻小件、非电子、非液体，避开需要认证的品类。",
+  ].join("\n").slice(0, 1200); // the brief field allows 1200 characters; value set from code bypasses maxLength
+}
 
 type Props = {
   marketCode: string;
@@ -19,8 +32,12 @@ export function CategoryRecommender({ marketCode, marketName, platformCode, plat
   const [error, setError] = useState("");
   const [result, setResult] = useState<CategoryRecommendationResult | null>(null);
   const [open, setOpen] = useState(false);
+  const [briefNote, setBriefNote] = useState("");
+  const lastAutoBrief = useRef("");
 
   useEffect(() => {
+    setBriefNote("");
+    lastAutoBrief.current = "";
     setCategory("");
     setPending(false);
     setError("");
@@ -52,8 +69,21 @@ export function CategoryRecommender({ marketCode, marketName, platformCode, plat
     }
   }
 
-  function useCategory(value: string) {
-    setCategory(value);
+  function useCategory(item: CategoryRecommendation) {
+    setCategory(item.category);
+    const field = document.getElementById(BRIEF_FIELD_ID) as HTMLTextAreaElement | null;
+    if (field) {
+      // Overwrite only an empty box or text this component filled itself, never what the user typed.
+      const current = field.value.trim();
+      if (!current || current === lastAutoBrief.current) {
+        const next = briefFor(item);
+        field.value = next;
+        lastAutoBrief.current = next;
+        setBriefNote("已按该类目填入研究条件，可直接修改。");
+      } else {
+        setBriefNote("已保留你填写的研究条件，未被覆盖。");
+      }
+    }
     inputRef.current?.focus();
   }
 
@@ -89,7 +119,7 @@ export function CategoryRecommender({ marketCode, marketName, platformCode, plat
           required
           maxLength={80}
         />
-        <span className="help">按当前 {marketName}站 · {platformName} 推荐；也可以直接填写。</span>
+        <span className="help">按当前 {marketName}站 · {platformName} 推荐；也可以直接填写。{briefNote ? ` ${briefNote}` : ""}</span>
         {error ? <p className="ai-category-error" role="alert">{error}</p> : null}
       </div>
 
@@ -99,7 +129,7 @@ export function CategoryRecommender({ marketCode, marketName, platformCode, plat
             <div>
               <div className="eyebrow">Category shortlist</div>
               <h3>{pending ? `正在分析 ${marketName}站 · ${platformName}` : `${marketName}站 · ${platformName} 推荐方向`}</h3>
-              <p>这些只是首轮验证类目，不代表需求、销量、竞争度或利润结论。点击后只填入类目，不会自动提交。</p>
+              <p>这些只是首轮验证类目，不代表需求、销量、竞争度或利润结论。点击后会填入类目和研究条件，不会自动提交。</p>
             </div>
             {!pending && result ? (
               <div className="ai-category-result-meta">
@@ -131,7 +161,7 @@ export function CategoryRecommender({ marketCode, marketName, platformCode, plat
                   <article className={`ai-category-card ${selected ? "selected" : ""}`} key={item.category}>
                     <div className="ai-category-card-head">
                       <span>方向 {index + 1}</span>
-                      <button type="button" className="text-button" onClick={() => useCategory(item.category)}>
+                      <button type="button" className="text-button" onClick={() => useCategory(item)}>
                         {selected ? "已填入" : "使用该类目"}
                       </button>
                     </div>

@@ -22,6 +22,9 @@ export type AISourcingHypothesis = {
   painPoint: string;
   differentiator: string;
   recommendedPriceCents: number;
+  confirmedPriceCents: number | null;
+  confirmedPriceSourceUrl: string | null;
+  confirmedPriceAt: string | null;
   expectedMarginRate: number;
   firstOrderBudgetCents: number;
   mainRisks: string[];
@@ -157,6 +160,8 @@ export type AISourcingBatchSummary = {
   hypothesisCount: number;
   selectedCount: number;
   goCount: number;
+  templateFallback: boolean;
+  providerError: string | null;
 };
 
 export type AISourcingBatchDetail = AISourcingBatchSummary & {
@@ -184,6 +189,8 @@ type BatchJoinRow = {
   hypothesis_count: string | number;
   selected_count: string | number;
   go_count: string | number;
+  fallback: string | null;
+  provider_error: string | null;
 };
 
 type HypothesisRow = {
@@ -195,6 +202,9 @@ type HypothesisRow = {
   pain_point: string;
   differentiator: string;
   recommended_price_cents: number;
+  confirmed_price_cents: number | null;
+  confirmed_price_source_url: string | null;
+  confirmed_price_at: string | null;
   expected_margin_rate: string | number;
   first_order_budget_cents: number;
   main_risks: string[];
@@ -553,6 +563,33 @@ export async function selectHypothesisForValidation(hypothesisId: string, actor:
   await refreshAISelectionDecision(hypothesisId);
 }
 
+export async function confirmHypothesisPrice(input: {
+  hypothesisId: string;
+  priceCents: number;
+  sourceUrl: string;
+  actor: string;
+}) {
+  const db = await getDb();
+  await assertSelected(input.hypothesisId);
+  if (!Number.isInteger(input.priceCents) || input.priceCents <= 0) throw new Error("已确认售价必须大于 0");
+  const sourceUrl = validateEvidenceUrl(input.sourceUrl.trim());
+  const actor = input.actor.trim() || "运营人员";
+  await db.transaction(async (tx) => {
+    await tx.query(
+      `UPDATE opportunity_hypotheses
+       SET confirmed_price_cents = $2, confirmed_price_source_url = $3, confirmed_price_at = NOW()
+       WHERE id = $1`,
+      [input.hypothesisId, input.priceCents, sourceUrl],
+    );
+    await tx.query(
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
+       VALUES ($1, $2, 'ai_sourcing.price_confirmed', 'opportunity_hypothesis', $3, $4::jsonb)`,
+      [randomUUID(), actor, input.hypothesisId, JSON.stringify({ priceCents: input.priceCents, sourceUrl, externalActions: "none" })],
+    );
+  });
+  return refreshAISelectionDecision(input.hypothesisId);
+}
+
 export async function recordOpportunityEvidence(input: {
   hypothesisId: string;
   evidenceType: "review_insight" | "patent_check" | "logistics_check" | "supplier_discovery" | "other";
@@ -833,7 +870,7 @@ export async function refreshAISelectionDecision(hypothesisId: string): Promise<
   const count = counts.rows[0];
   const decision = evaluateSourcingDecision({
     opportunityScore: context.hypothesis.priorityScore,
-    recommendedPriceCents: context.hypothesis.recommendedPriceCents,
+    confirmedPriceCents: context.hypothesis.confirmedPriceCents,
     context: context.batch,
     competitorCount: Number(count?.competitors ?? 0),
     reviewSampleCount: Number(reviews.rows[0]?.sample_count ?? 0),
@@ -936,12 +973,13 @@ export async function promoteHypothesisToProductCase(hypothesisId: string, actor
   if (!bestQuote) throw new Error("缺少真实报价");
   const caseId = randomUUID();
   const asin = `AI-${hypothesisId.replace(/-/g, "").slice(0, 12).toUpperCase()}`;
-  const recommendedPrice = context.hypothesis.recommendedPriceCents;
+  const confirmedPrice = context.hypothesis.confirmedPriceCents;
+  if (!confirmedPrice) throw new Error("请先录入已确认售价，再转商品立项");
   const assumptions = {
     currency: context.batch.currency,
-    salePriceCents: recommendedPrice,
+    salePriceCents: confirmedPrice,
     landedCostCents: bestQuote.landed_cost_cents,
-    ...platformEconomicDefaults(context.batch.platformCode, recommendedPrice),
+    ...platformEconomicDefaults(context.batch.platformCode, confirmedPrice),
   };
   const economics = calculateEconomics(assumptions);
   const owner = actor.trim() || "运营人员";
@@ -965,7 +1003,7 @@ export async function promoteHypothesisToProductCase(hypothesisId: string, actor
         context.batch.marketCode,
         context.batch.category,
         context.hypothesis.concept,
-        recommendedPrice,
+        confirmedPrice,
         `由 AI 选品验证批次转入；真实竞品 ${context.counts.competitors} 个，差评样本 ${context.counts.reviewSamples} 条，供应商 ${context.counts.suppliers} 家，报价 ${context.counts.quotes} 份。决策证据完整度 ${decision.evidenceCompleteness}%。`,
         owner,
         decision.evidenceCompleteness,
@@ -1242,6 +1280,8 @@ const batchSelect = `
     r.model,
     r.status,
     r.created_at,
+    r.response_summary->>'fallback' AS fallback,
+    r.response_summary->>'providerError' AS provider_error,
     COUNT(h.id) AS hypothesis_count,
     COUNT(h.id) FILTER (WHERE h.selected_for_validation = TRUE) AS selected_count,
     COUNT(h.id) FILTER (WHERE d.decision = 'GO') AS go_count
@@ -1273,6 +1313,8 @@ function mapBatch(row: BatchJoinRow): AISourcingBatchSummary {
     hypothesisCount: Number(row.hypothesis_count),
     selectedCount: Number(row.selected_count),
     goCount: Number(row.go_count),
+    templateFallback: row.fallback === "true",
+    providerError: row.provider_error,
   };
 }
 
@@ -1286,6 +1328,9 @@ function mapHypothesis(row: HypothesisRow): AISourcingHypothesis {
     painPoint: row.pain_point,
     differentiator: row.differentiator,
     recommendedPriceCents: Number(row.recommended_price_cents),
+    confirmedPriceCents: row.confirmed_price_cents === null ? null : Number(row.confirmed_price_cents),
+    confirmedPriceSourceUrl: row.confirmed_price_source_url,
+    confirmedPriceAt: row.confirmed_price_at,
     expectedMarginRate: Number(row.expected_margin_rate),
     firstOrderBudgetCents: Number(row.first_order_budget_cents),
     mainRisks: Array.isArray(row.main_risks) ? row.main_risks : [],

@@ -838,6 +838,10 @@ CREATE TABLE IF NOT EXISTS opportunity_hypotheses (
   UNIQUE (run_id, position)
 );
 
+ALTER TABLE opportunity_hypotheses ADD COLUMN IF NOT EXISTS confirmed_price_cents INTEGER CHECK (confirmed_price_cents > 0);
+ALTER TABLE opportunity_hypotheses ADD COLUMN IF NOT EXISTS confirmed_price_source_url TEXT;
+ALTER TABLE opportunity_hypotheses ADD COLUMN IF NOT EXISTS confirmed_price_at TIMESTAMPTZ;
+
 CREATE TABLE IF NOT EXISTS opportunity_evidence (
   id TEXT PRIMARY KEY,
   hypothesis_id TEXT NOT NULL REFERENCES opportunity_hypotheses(id) ON DELETE CASCADE,
