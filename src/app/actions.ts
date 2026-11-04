@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { EconomicsAssumptions } from "@/lib/economics";
 import {
+  approveChannelLaunchQueue,
   approveChannelListing,
   approveListingContent,
   createAssetRecord,
@@ -12,6 +13,7 @@ import {
   createListingDraft,
   createSupplierAndQuote,
   decideCase,
+  recordChannelLaunchReadinessCheck,
   reviewMainImageAsset,
   saveChannelListingVersion,
   selectSupplierQuote,
@@ -295,6 +297,45 @@ export async function approveChannelListingAction(formData: FormData) {
   redirect(
     `/cases/${encodeURIComponent(caseId)}/channels/${encodeURIComponent(channelListingId)}?notice=${encodeURIComponent(
       "渠道内容已通过人工审核，仅限内部门禁；连接器未配置，平台未发布",
+    )}`,
+  );
+}
+
+export async function checkChannelLaunchReadinessAction(formData: FormData) {
+  const caseId = String(formData.get("caseId") || "");
+  const channelListingId = String(formData.get("channelListingId") || "");
+  const actor = String(formData.get("actor") || "").trim();
+  try {
+    const outcome = await recordChannelLaunchReadinessCheck(caseId, channelListingId, actor);
+    revalidateChannels(caseId, channelListingId);
+    redirect(
+      `/cases/${encodeURIComponent(caseId)}/channels/${encodeURIComponent(channelListingId)}?notice=${encodeURIComponent(
+        `发布准备检查已记录：${outcome.readiness.label}；外部写入仍为 none`,
+      )}`,
+    );
+  } catch (error) {
+    redirect(
+      `/cases/${encodeURIComponent(caseId)}/channels/${encodeURIComponent(channelListingId)}?error=${encodeURIComponent(errorMessage(error))}`,
+    );
+  }
+}
+
+export async function approveChannelLaunchQueueAction(formData: FormData) {
+  const caseId = String(formData.get("caseId") || "");
+  const channelListingId = String(formData.get("channelListingId") || "");
+  const reviewer = String(formData.get("reviewer") || "").trim();
+  const notes = String(formData.get("notes") || "").trim();
+  try {
+    await approveChannelLaunchQueue(caseId, channelListingId, reviewer, notes);
+  } catch (error) {
+    redirect(
+      `/cases/${encodeURIComponent(caseId)}/channels/${encodeURIComponent(channelListingId)}?error=${encodeURIComponent(errorMessage(error))}`,
+    );
+  }
+  revalidateChannels(caseId, channelListingId);
+  redirect(
+    `/cases/${encodeURIComponent(caseId)}/channels/${encodeURIComponent(channelListingId)}?notice=${encodeURIComponent(
+      "当前版本已人工批准进入内部发布队列；尚未调用平台，published=false",
     )}`,
   );
 }

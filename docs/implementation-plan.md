@@ -21,6 +21,8 @@
 → 多国家 × 多平台渠道目标
 → 平台字段映射与独立市场版本
 → 人工内容批准
+→ 确定性发布准备门禁（8 项检查）
+→ 人工发布队列审批（仅内部队列）
 → 审计时间线
 ```
 
@@ -46,10 +48,13 @@
 - `content_approved` 只表示某个国家 × 平台版本通过内部内容门禁，不是 `published`，不会调用平台 API 或产生任何外部发布动作。
 - 同一商品可以创建多个国家 × 平台目标；每个目标有独立的 locale、currency、Listing 版本、平台 payload 和预检结果。
 - 已内置 Amazon、Shopify、TikTok Shop、eBay、CSV / 人工的本地字段映射；渠道目标仍使用 `unconfigured` 的本地测试店铺，外部 ID 保持为空。
+- 渠道发布准备由确定性代码计算，状态包括 `blocked`、`local_ready`、`dry_run_unsupported`、`approval_pending`、`approved_for_publish`；检查覆盖最新版本、本地预检、内容批准、主图审核、正式店铺、官方写 Adapter、真实平台 dry-run 和当前版本发布队列审批。
+- `channel_launch_reviews` 绑定当前渠道 Listing 版本，并固化检查快照、审批人、说明与决策；只有 `approval_pending` 且无阻断项时才能写入。
+- 发布队列审批只表示批准进入内部队列，不是平台发布。当前所有平台的 `dryRunSupported` 和 `publishingSupported` 均为 `false`，所有检查和审批结果固定记录 `externalActions: none`、`published: false`，外部商品 ID 保持为空。
 
 为保持现有数据模型简单，商品主状态在立项后仍保持 `approved`。供应商定标由 `supplier_selections` 表达，内容审批状态由 `listings.status` 和 `listing_reviews` 表达；后续扩展完整状态机时再统一迁移。
 
-尚未实现：评论/关键词规模化采集、RFQ 自动生成与发送、询价回复解析、样品/质检、AI 图片生成、A+ 自动排版、品牌授权自动核验、密钥托管、eBay 卖家 OAuth、平台类目与必填字段校验、平台 dry-run、发布、改价、库存同步、广告操作和运营复盘。Amazon SP-API 与 Shopify 只完成只读授权诊断，eBay 只完成应用凭证诊断；TikTok Shop 和 1688 尚未接入。所有平台均没有真实外部写连接。当前版本没有登录、角色权限和多租户能力，不能直接作为生产系统使用。
+尚未实现：评论/关键词规模化采集、RFQ 自动生成与发送、询价回复解析、样品/质检、AI 图片生成、A+ 自动排版、品牌授权自动核验、密钥托管、eBay 卖家 OAuth、平台类目与必填字段校验、真实平台 dry-run、官方写 Adapter、发布、改价、库存同步、广告操作和运营复盘。Amazon SP-API 与 Shopify 只完成只读授权诊断，eBay 只完成应用凭证诊断；TikTok Shop 和 1688 尚未接入。所有平台均没有真实外部写连接。当前版本没有登录、角色权限和多租户能力，不能直接作为生产系统使用。
 
 ## 1. 落地原则
 
@@ -231,8 +236,9 @@ product_cases
 → connector_health_checks
 → connector.health_checked 审计
 → 人工验收
-→ 平台 dry-run（后续）
-→ 人工发布审批（后续）
+→ 本地内容门禁与发布准备检查
+→ 正式店铺 + 官方写 Adapter + 平台 dry-run（后续）
+→ [人审] 批准进入内部发布队列（P1.1 已实现）
 → 幂等写入与外部回执（后续）
 ```
 
@@ -250,6 +256,40 @@ product_cases
 - 健康记录只保存状态、验证层级、耗时、检查人和非敏感详情。
 - 审计记录 `connector.health_checked`，包含 `externalActions` 和 `credentialsExposed: false`。
 - 诊断成功不等于发布权限、类目合规或平台 dry-run 通过；当前写连接数量固定为 0。
+
+### 4.8 发布准备门禁与内部发布队列（P1.1 已实现）
+
+发布准备由确定性代码计算，不依赖模型自由判断。每次检查评估以下 8 项：
+
+```text
+LATEST_VERSION
+LOCAL_PREFLIGHT
+CONTENT_APPROVED
+MAIN_IMAGE_APPROVED
+PRODUCTION_ACCOUNT
+WRITE_ADAPTER
+PLATFORM_DRY_RUN
+VERSION_LAUNCH_APPROVAL
+```
+
+状态机按以下顺序收敛：
+
+| 状态 | 条件与含义 |
+|---|---|
+| `blocked` | 最新版本、本地预检、内容批准或主图审核仍有缺口 |
+| `local_ready` | 本地内容检查通过，但还没有连接非演示的正式平台店铺 |
+| `dry_run_unsupported` | 店铺条件满足，但官方写 Adapter 或真实平台 dry-run 不可用 |
+| `approval_pending` | 全部前置检查通过，等待人工批准进入内部发布队列 |
+| `approved_for_publish` | 当前版本已人工批准进入内部发布队列，仍未调用平台发布接口 |
+
+审批约束：
+
+- 审批动作必须在服务端重新计算最新状态，只接受 `approval_pending` 且阻断项为 0 的版本。
+- 审批记录写入 `channel_launch_reviews`，绑定 `channel_listing_id` 与 `channel_version_id`；旧版本审批不能复用于新版本。
+- 记录审批人、说明、检查快照与决策，并写入 `channel.launch_readiness_checked`、`channel.launch_queue_approved` 审计动作。
+- `WRITE_ADAPTER` 和 `PLATFORM_DRY_RUN` 必须分别验证。本地预检通过不能冒充平台 dry-run。
+- 当前所有平台均为 `dryRunSupported=false`、`publishingSupported=false`，所以真实路径最多到达 `dry_run_unsupported`；`approval_pending` 与 `approved_for_publish` 只是为后续官方能力预留的受控状态。
+- 所有发布准备结果和队列审批固定保持 `externalActions=none`、`published=false`。`approved_for_publish` 不生成平台 Listing ID，也不代表商品已上架。
 
 ## 5. 工作流实现方式
 
@@ -357,9 +397,10 @@ Dify 可用于：
 3. Amazon SP-API / Shopify 自有店铺只读诊断（P1.1 已实现，需真实凭证验收）
 4. eBay 应用凭证诊断（P1.1 已实现；卖家 OAuth 仍待实现）
 5. TikTok Shop / 1688 官方授权与诊断（规划中，需要应用审核和商家授权）
-6. 平台 dry-run、人工发布审批、幂等写入与外部回执（规划中）
-7. 物流商模板、评论/关键词数据、社媒与趋势数据
-8. 网页自动化兜底（仅在合法合规且无官方 API 时评估）
+6. 发布准备门禁与内部发布队列审批（P1.1 已实现；队列审批不等于平台发布）
+7. 真实平台 dry-run、官方写 Adapter、幂等写入与外部回执（规划中）
+8. 物流商模板、评论/关键词数据、社媒与趋势数据
+9. 网页自动化兜底（仅在合法合规且无官方 API 时评估）
 
 不要从爬虫开始。爬虫是最脆弱、最容易封号、最难维护的部分。
 
@@ -371,6 +412,9 @@ Dify 可用于：
 - 平台连接诊断只读；填写全部环境变量也不会自动开放写 Adapter 或发布能力。
 - TikTok Shop / 1688 在官方 Adapter 实现前必须保持 `unsupported`，不得伪造连接成功。
 - `content_approved` 只代表内部内容门禁通过，不等同于平台 `published`。
+- 发布准备必须分开验证正式店铺、官方写 Adapter 和真实平台 dry-run；本地预检不能替代平台 dry-run。
+- 当前所有平台均为 `dryRunSupported=false`、`publishingSupported=false`；发布队列审批只进入内部队列，固定记录 `externalActions: none`、`published: false`。
+- `approved_for_publish` 不是平台发布结果，不得生成或伪称外部商品 ID、回执或已上架状态。
 
 ## 8. 审批门与自动化边界
 
@@ -379,6 +423,7 @@ Dify 可用于：
 - 商品立项
 - 供应商定样
 - 商品合规声明
+- 进入内部发布队列
 - 新 Listing 发布
 - 超过阈值的价格调整
 - 超过预算的广告动作

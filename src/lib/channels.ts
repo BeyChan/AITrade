@@ -20,6 +20,7 @@ export type ChannelProfile = {
   adapterType: ChannelAdapterType;
   mappingSupported: boolean;
   publishingSupported: boolean;
+  dryRunSupported: boolean;
   connectionLabel: string;
   mapToPayload: (content: ListingDraftContent, context: ChannelContext) => Record<string, unknown>;
   preflight: (content: Partial<ListingDraftContent>, context: ChannelContext) => ListingPreflightResult;
@@ -42,6 +43,7 @@ const profiles: Record<string, ChannelProfile> = {
     adapterType: "api",
     mappingSupported: true,
     publishingSupported: false,
+    dryRunSupported: false,
     connectionLabel: "SP-API 未接入，仅本地映射预览",
     mapToPayload: (content, context) => ({
       marketplace_id: context.marketCode,
@@ -66,6 +68,7 @@ const profiles: Record<string, ChannelProfile> = {
     adapterType: "api",
     mappingSupported: true,
     publishingSupported: false,
+    dryRunSupported: false,
     connectionLabel: "Admin API 未接入，仅本地映射预览",
     mapToPayload: (content, context) => ({
       product: {
@@ -95,6 +98,7 @@ const profiles: Record<string, ChannelProfile> = {
     adapterType: "api",
     mappingSupported: true,
     publishingSupported: false,
+    dryRunSupported: false,
     connectionLabel: "Partner API 未接入，仅本地映射预览",
     mapToPayload: (content, context) => ({
       title: content.title,
@@ -123,6 +127,7 @@ const profiles: Record<string, ChannelProfile> = {
     adapterType: "api",
     mappingSupported: true,
     publishingSupported: false,
+    dryRunSupported: false,
     connectionLabel: "Sell API 未接入，当前仅保留目标与占位映射",
     mapToPayload: (content, context) => ({
       title: content.title,
@@ -156,6 +161,7 @@ const profiles: Record<string, ChannelProfile> = {
     adapterType: "manual",
     mappingSupported: true,
     publishingSupported: false,
+    dryRunSupported: false,
     connectionLabel: "仅生成人工核对字段，不执行导出或发布",
     mapToPayload: (content, context) => ({
       title: content.title,
@@ -194,6 +200,7 @@ export function getChannelProfile(platformCode: string): ChannelProfile {
     adapterType: "manual",
     mappingSupported: false,
     publishingSupported: false,
+    dryRunSupported: false,
     connectionLabel: "未知平台，不能生成字段映射",
     mapToPayload: (_content, context) => ({ market: context.marketCode, locale: context.locale, currency: context.currency }),
     preflight: (input, context) =>

@@ -4,6 +4,7 @@ import { calculateEconomics, opportunityScore, recommendationFor, type Economics
 import { analyzeSupplierQuotes } from "./sourcing";
 import { normalizeListingContent, preflightListing, type ListingDraftContent, type ListingPreflightResult } from "./listing";
 import { getChannelProfile, mapChannelPayload, preflightChannelContent, type ChannelContext } from "./channels";
+import { evaluateLaunchReadiness } from "./launch-readiness";
 import type {
   ApprovalRow,
   AuditRow,
@@ -11,6 +12,7 @@ import type {
   CaseDetail,
   ChannelAccountRow,
   ChannelListingRow,
+  ChannelLaunchReviewRow,
   ChannelListingVersionRow,
   ChannelMatrix,
   ChannelMatrixItem,
@@ -981,21 +983,52 @@ export async function getChannelTargetDetail(
   channelListingId: string,
 ): Promise<ChannelTargetDetail | null> {
   const db = await getDb();
-  const [targets, versions, audits] = await Promise.all([
+  const [caseResult, targets, versions, audits, launchReviews, approvedImages] = await Promise.all([
+    db.query<ProductCaseRow>("SELECT * FROM product_cases WHERE id = $1", [caseId]),
     listChannelTargets(db, caseId, channelListingId),
     listChannelVersions(db, caseId, channelListingId),
     db.query<AuditRow>(
       "SELECT * FROM audit_logs WHERE entity_type = 'product_case' AND entity_id = $1 ORDER BY created_at DESC LIMIT 100",
       [caseId],
     ),
+    db.query<ChannelLaunchReviewRow>(
+      "SELECT * FROM channel_launch_reviews WHERE channel_listing_id = $1 ORDER BY created_at DESC",
+      [channelListingId],
+    ),
+    db.query<{ count: string }>(
+      "SELECT COUNT(*)::text AS count FROM assets WHERE case_id = $1 AND asset_type = 'main_image' AND status = 'approved'",
+      [caseId],
+    ),
   ]);
-  if (!targets[0]) return null;
+  const productCase = caseResult.rows[0];
+  if (!productCase || !targets[0]) return null;
   const item = hydrateChannelTargets(targets, versions)[0];
   if (!item) return null;
+  const profile = getChannelProfile(item.platform.code);
+  const approvedLaunchReview = launchReviews.rows.find((review) => review.decision === "approved") ?? null;
+  const launchReadiness = evaluateLaunchReadiness({
+    latestVersion: item.latestVersion
+      ? {
+          id: item.latestVersion.id,
+          version: item.latestVersion.version,
+          status: item.latestVersion.status,
+          preflightPassed: Boolean((item.latestVersion.preflight_result as Partial<ListingPreflightResult>).passed),
+        }
+      : null,
+    approvedMainImageCount: Number(approvedImages.rows[0]?.count ?? 0),
+    account: { status: item.account.status, isDemo: item.account.is_demo },
+    writeAdapterAvailable: profile.publishingSupported,
+    dryRunSupported: profile.dryRunSupported,
+    approvedLaunchReview: approvedLaunchReview
+      ? { channelVersionId: approvedLaunchReview.channel_version_id, decision: approvedLaunchReview.decision }
+      : null,
+  });
   return {
     ...item,
     versions,
     auditLogs: audits.rows.filter((entry) => entry.details.channelListingId === channelListingId),
+    launchReviews: launchReviews.rows,
+    launchReadiness,
   };
 }
 
@@ -1350,6 +1383,173 @@ export async function approveChannelListing(
   return db.transaction(async (tx) => {
     const { productCase, target } = await getChannelTargetFoundation(tx, caseId, channelListingId);
     return approveChannelVersionWithExecutor(tx, productCase, target, reviewer.trim(), notes.trim());
+  });
+}
+
+async function readChannelLaunchReadiness(
+  executor: SqlExecutor,
+  productCase: ProductCaseRow,
+  target: ChannelFoundation,
+) {
+  const [latestResult, approvedImageResult, launchReviewResult] = await Promise.all([
+    executor.query<ChannelListingVersionRow>(
+      `SELECT * FROM channel_listing_versions
+       WHERE channel_listing_id = $1
+       ORDER BY version DESC
+       LIMIT 1`,
+      [target.channelListing.id],
+    ),
+    executor.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM assets
+       WHERE case_id = $1 AND asset_type = 'main_image' AND status = 'approved'`,
+      [productCase.id],
+    ),
+    executor.query<ChannelLaunchReviewRow>(
+      `SELECT * FROM channel_launch_reviews
+       WHERE channel_listing_id = $1 AND decision = 'approved'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [target.channelListing.id],
+    ),
+  ]);
+  const latest = latestResult.rows[0] ?? null;
+  const profile = getChannelProfile(target.platform.code);
+  const approvedReview = launchReviewResult.rows[0] ?? null;
+  const readiness = evaluateLaunchReadiness({
+    latestVersion: latest
+      ? {
+          id: latest.id,
+          version: latest.version,
+          status: latest.status,
+          preflightPassed: Boolean((latest.preflight_result as Partial<ListingPreflightResult>).passed),
+        }
+      : null,
+    approvedMainImageCount: Number(approvedImageResult.rows[0]?.count ?? 0),
+    account: { status: target.account.status, isDemo: target.account.is_demo },
+    writeAdapterAvailable: profile.publishingSupported,
+    dryRunSupported: profile.dryRunSupported,
+    approvedLaunchReview: approvedReview
+      ? { channelVersionId: approvedReview.channel_version_id, decision: approvedReview.decision }
+      : null,
+  });
+  return { latest, approvedReview, readiness };
+}
+
+export async function recordChannelLaunchReadinessCheck(
+  caseId: string,
+  channelListingId: string,
+  actor: string,
+) {
+  if (!actor.trim()) throw new Error("请输入检查人");
+  await assertContentUnlocked(caseId);
+  const db = await getDb();
+  return db.transaction(async (tx) => {
+    const { productCase, target } = await getChannelTargetFoundation(tx, caseId, channelListingId);
+    const { latest, readiness } = await readChannelLaunchReadiness(tx, productCase, target);
+    await tx.query(
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
+       VALUES ($1, $2, 'channel.launch_readiness_checked', 'product_case', $3, $4::jsonb)`,
+      [
+        randomUUID(),
+        actor.trim(),
+        productCase.id,
+        JSON.stringify({
+          channelListingId: target.channelListing.id,
+          channelVersionId: latest?.id ?? null,
+          version: latest?.version ?? null,
+          platformCode: target.platform.code,
+          marketCode: target.market.code,
+          readinessStatus: readiness.status,
+          blockerCount: readiness.blockers.length,
+          blockers: readiness.blockers,
+          externalActions: "none",
+          externalWriteAttempted: false,
+          published: false,
+        }),
+      ],
+    );
+    return { channelListingId: target.channelListing.id, readiness };
+  });
+}
+
+export async function approveChannelLaunchQueue(
+  caseId: string,
+  channelListingId: string,
+  reviewer: string,
+  notes: string,
+) {
+  if (!reviewer.trim()) throw new Error("请输入发布队列审批人");
+  if (!notes.trim()) throw new Error("请填写发布队列审批说明");
+  await assertContentUnlocked(caseId);
+  const db = await getDb();
+  return db.transaction(async (tx) => {
+    const { productCase, target } = await getChannelTargetFoundation(tx, caseId, channelListingId);
+    const { latest, readiness } = await readChannelLaunchReadiness(tx, productCase, target);
+    if (!latest) throw new Error("没有可审批的渠道 Listing 版本");
+    if (readiness.status !== "approval_pending") {
+      throw new Error(`当前发布准备状态为 ${readiness.status}，只有 approval_pending 才能记录发布队列审批`);
+    }
+    if (readiness.blockers.length > 0) throw new Error("发布准备仍有阻断项，不能记录发布队列审批");
+
+    const reviewId = randomUUID();
+    await tx.query(
+      `INSERT INTO channel_launch_reviews
+        (id, channel_listing_id, channel_version_id, readiness_status, readiness_snapshot,
+         blocker_count, reviewer, decision, notes, external_actions, published)
+       VALUES ($1, $2, $3, 'approval_pending', $4::jsonb, 0, $5, 'approved', $6, 'none', FALSE)`,
+      [
+        reviewId,
+        target.channelListing.id,
+        latest.id,
+        JSON.stringify(readiness),
+        reviewer.trim(),
+        notes.trim(),
+      ],
+    );
+    await tx.query(
+      `UPDATE channel_listings
+       SET status = 'approved_for_publish', updated_at = NOW(), metadata = metadata || $1::jsonb
+       WHERE id = $2`,
+      [
+        JSON.stringify({
+          launchQueueStatus: "approved",
+          launchQueueApprovedBy: reviewer.trim(),
+          launchQueueApprovedAt: new Date().toISOString(),
+          externalActions: "none",
+          published: false,
+        }),
+        target.channelListing.id,
+      ],
+    );
+    await tx.query(
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
+       VALUES ($1, $2, 'channel.launch_queue_approved', 'product_case', $3, $4::jsonb)`,
+      [
+        randomUUID(),
+        reviewer.trim(),
+        productCase.id,
+        JSON.stringify({
+          channelListingId: target.channelListing.id,
+          channelVersionId: latest.id,
+          launchReviewId: reviewId,
+          platformCode: target.platform.code,
+          marketCode: target.market.code,
+          version: latest.version,
+          readinessStatus: readiness.status,
+          notes: notes.trim(),
+          externalActions: "none",
+          externalWriteAttempted: false,
+          published: false,
+        }),
+      ],
+    );
+    return {
+      channelListingId: target.channelListing.id,
+      channelVersionId: latest.id,
+      launchReviewId: reviewId,
+      status: "approved_for_publish" as const,
+      published: false as const,
+    };
   });
 }
 

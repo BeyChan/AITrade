@@ -1751,6 +1751,65 @@ tbody tr:last-child td {
   border-color: var(--green);
 }
 
+.gate-list > div .gate-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.gate-list > div .gate-copy strong {
+  color: inherit;
+  font-size: 12px;
+}
+
+.gate-list > div .gate-copy small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.gate-list > div.failed {
+  color: var(--red);
+  background: var(--red-soft);
+}
+
+.gate-list > div.pending {
+  color: var(--amber);
+  background: var(--amber-soft);
+}
+
+.gate-list > div.unsupported {
+  color: var(--red);
+  background: var(--red-soft);
+}
+
+.gate-list > div.failed span,
+.gate-list > div.pending span,
+.gate-list > div.unsupported span {
+  color: #fff;
+}
+
+.gate-list > div.failed span {
+  background: var(--red);
+  border-color: var(--red);
+}
+
+.gate-list > div.pending span {
+  background: var(--amber);
+  border-color: var(--amber);
+}
+
+.gate-list > div.unsupported span {
+  background: var(--red);
+  border-color: var(--red);
+}
+
+.section-divider {
+  height: 1px;
+  margin: 18px 0;
+  background: var(--line);
+}
+
 .action-card .field input:disabled,
 .action-card .field textarea:disabled,
 .action-card .button:disabled {
@@ -1824,6 +1883,16 @@ tbody tr:last-child td {
   color: var(--deep);
   background: var(--lime);
   border-color: var(--lime);
+}
+
+.channel-boundary-card .gate-list > div.failed,
+.channel-boundary-card .gate-list > div.pending,
+.channel-boundary-card .gate-list > div.unsupported {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.channel-boundary-card .gate-list > div .gate-copy small {
+  color: rgba(255, 255, 255, 0.5);
 }
 
 .connector-line {

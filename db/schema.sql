@@ -326,6 +326,26 @@ CREATE TABLE IF NOT EXISTS channel_listing_versions (
   UNIQUE (channel_listing_id, version)
 );
 
+CREATE TABLE IF NOT EXISTS channel_launch_reviews (
+  id TEXT PRIMARY KEY,
+  channel_listing_id TEXT NOT NULL REFERENCES channel_listings(id) ON DELETE CASCADE,
+  channel_version_id TEXT NOT NULL REFERENCES channel_listing_versions(id) ON DELETE CASCADE,
+  readiness_status TEXT NOT NULL
+    CHECK (readiness_status IN ('approval_pending', 'approved_for_publish')),
+  readiness_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+  blocker_count INTEGER NOT NULL DEFAULT 0 CHECK (blocker_count = 0),
+  reviewer TEXT NOT NULL,
+  decision TEXT NOT NULL CHECK (decision IN ('approved', 'rejected')),
+  notes TEXT NOT NULL DEFAULT '',
+  external_actions TEXT NOT NULL DEFAULT 'none' CHECK (external_actions = 'none'),
+  published BOOLEAN NOT NULL DEFAULT FALSE CHECK (published = FALSE),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (channel_listing_id, channel_version_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_channel_launch_reviews_listing
+  ON channel_launch_reviews(channel_listing_id, created_at DESC);
+
 ALTER TABLE listings ADD COLUMN IF NOT EXISTS channel_listing_id TEXT REFERENCES channel_listings(id);
 ALTER TABLE listings ADD COLUMN IF NOT EXISTS platform_code TEXT NOT NULL DEFAULT 'amazon';
 ALTER TABLE listings ADD COLUMN IF NOT EXISTS country_code TEXT;

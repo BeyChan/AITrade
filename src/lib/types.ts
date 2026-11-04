@@ -1,5 +1,6 @@
 import type { EconomicsAssumptions, EconomicsResults } from "./economics";
 import type { ListingPreflightResult } from "./listing";
+import type { LaunchReadinessResult } from "./launch-readiness";
 import type { ScoredSupplierQuote } from "./sourcing";
 
 export type CaseStatus = "draft" | "researching" | "review_pending" | "approved" | "rejected" | "archived";
@@ -322,6 +323,21 @@ export type ChannelListingVersionRow = {
   created_at: string;
 };
 
+export type ChannelLaunchReviewRow = {
+  id: string;
+  channel_listing_id: string;
+  channel_version_id: string;
+  readiness_status: "approval_pending" | "approved_for_publish";
+  readiness_snapshot: Record<string, unknown>;
+  blocker_count: number;
+  reviewer: string;
+  decision: "approved" | "rejected";
+  notes: string;
+  external_actions: "none";
+  published: boolean;
+  created_at: string;
+};
+
 export type ChannelMatrixItem = {
   product: ProductRow;
   variant: ProductMarketVariantRow;
@@ -345,6 +361,8 @@ export type ChannelMatrix = {
 export type ChannelTargetDetail = ChannelMatrixItem & {
   versions: ChannelListingVersionRow[];
   auditLogs: AuditRow[];
+  launchReviews: ChannelLaunchReviewRow[];
+  launchReadiness: LaunchReadinessResult;
 };
 
 export type DataSourceRow = {

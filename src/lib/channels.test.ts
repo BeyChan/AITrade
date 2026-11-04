@@ -54,6 +54,7 @@ test("platform rules differ: empty search terms fail Amazon but not manual expor
 test("eBay profile is explicitly marked as an unconnected local preview", () => {
   const profile = getChannelProfile("ebay");
   assert.equal(profile.publishingSupported, false);
+  assert.equal(profile.dryRunSupported, false);
   assert.match(profile.connectionLabel, /未接入/);
   const result = preflightChannelContent("ebay", content, context);
   assert.ok(result.findings.some((finding) => finding.code === "CONNECTOR_NOT_CONNECTED"));

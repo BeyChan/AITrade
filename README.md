@@ -22,6 +22,8 @@
 → 多国家 × 多平台渠道目标
 → 平台字段映射与独立市场版本
 → 人工内容批准
+→ 确定性发布准备门禁（8 项检查）
+→ 人工发布队列审批
 → 状态同步与审计时间线
 ```
 
@@ -38,6 +40,8 @@
 ![Listing 发布预检与审计记录](docs/assets/aitrade-listing-preflight.png)
 
 ![店铺连接中心：只读验证、未接入状态与写连接边界](docs/assets/aitrade-connections.png)
+
+![发布准备门禁：内容已就绪但平台 dry-run 与外部写入未开放](docs/assets/aitrade-launch-readiness.png)
 
 ## 当前能力
 
@@ -72,19 +76,23 @@
 - 同一商品可创建多个国家 × 平台渠道目标，各自维护 locale、currency、Listing 版本和预检结果
 - 内置 Amazon、Shopify、TikTok Shop、eBay、CSV / 人工的本地字段映射预览；Amazon 保留 SP-API 形状，Shopify 默认 draft，TikTok Shop 保留 selling points
 - 平台渠道目标仍使用未配置的本地测试店铺，外部 ID 保持为空；内容批准审计写入 `externalActions: none`
+- 渠道级发布准备门禁按最新版本、本地预检、内容批准、主图审核、正式店铺、写 Adapter、平台 dry-run 和当前版本发布队列审批 8 项条件确定性计算
+- 发布准备状态为 `blocked`、`local_ready`、`dry_run_unsupported`、`approval_pending`、`approved_for_publish`；只有 `approval_pending` 无阻断项时，人工才能批准进入内部发布队列
+- `channel_launch_reviews` 固化审批时的检查快照、审批人、说明和版本 ID，并强制记录 `externalActions: none`、`published: false`
 - 4 个演示商品和真实数据导入模板；示例模板明确标注为示例，不冒充认证供应商或真实市场结论
 
 ## 明确边界
 
-P1.1 覆盖真实候选品、供应商和报价接入、平台只读授权诊断，并继续贯通“候选品 → 成本模型 → 人审立项 → 供应商报价对比 → 人审定标 → 商品定义 → 主图人审 → 多国家/多平台 Listing 草稿与本地预检 → 人工内容批准”。它是可运行的数据底座与业务原型，不是生产系统。
+P1.1 覆盖真实候选品、供应商和报价接入、平台只读授权诊断，并继续贯通“候选品 → 成本模型 → 人审立项 → 供应商报价对比 → 人审定标 → 商品定义 → 主图人审 → 多国家/多平台 Listing 草稿与本地预检 → 人工内容批准 → 发布准备门禁 → 内部发布队列审批”。它是可运行的数据底座与业务原型，不是生产系统。
 
 当前真实接入状态：
 
 - **已实现**：候选品 CSV、供应商 CSV、报价 CSV、人工报价录入、Keepa ASIN 只读同步
 - **已实现只读诊断**：Amazon SP-API 自有店铺、Shopify Admin API、eBay 应用凭证
+- **已实现内部审批**：渠道发布准备检查与人工发布队列审批；审批只进入内部队列，不产生平台发布
 - **只做本地适配预览**：Amazon、Shopify、TikTok Shop、eBay Listing 字段映射
 - **已注册但未接入**：TikTok Shop Partner API、1688 / Alibaba 官方授权接口
-- **尚未实现**：所有平台的写 Adapter、eBay 卖家 OAuth 完整链路、平台 dry-run、发布与外部回执
+- **尚未实现**：所有平台的真实平台 dry-run、写 Adapter、eBay 卖家 OAuth 完整链路、发布与外部回执
 
 以下能力尚未实现：
 
@@ -95,7 +103,7 @@ P1.1 覆盖真实候选品、供应商和报价接入、平台只读授权诊断
 - 登录、角色权限和多租户
 - 评论、关键词和竞品证据的规模化联网采集；Keepa 目前只覆盖商品层只读字段
 
-系统不会自动生成或发送 RFQ、联系供应商、定标、签合同、下单或付款，也不会把本地 Listing 草稿发布到平台。CSV 导入只入库，所有真实导入默认记录 `externalActions: none`；Keepa 与已支持的连接诊断仅记录 `read_only`。连接验证成功只证明当前凭证可完成对应只读请求，不代表平台发布权限、类目合规或商品已上架。演示数据只用于验证系统和计算逻辑，不代表真实市场结论或图片授权。
+系统不会自动生成或发送 RFQ、联系供应商、定标、签合同、下单或付款，也不会把本地 Listing 草稿发布到平台。CSV 导入只入库，所有真实导入默认记录 `externalActions: none`；Keepa 与已支持的连接诊断仅记录 `read_only`。连接验证成功只证明当前凭证可完成对应只读请求，不代表平台发布权限、类目合规或商品已上架。当前所有平台均为 `dryRunSupported=false`、`publishingSupported=false`；`approved_for_publish` 只表示批准进入内部发布队列，不等于平台发布，外部商品 ID 仍为空。演示数据只用于验证系统和计算逻辑，不代表真实市场结论或图片授权。
 
 ## 技术栈
 
@@ -307,11 +315,45 @@ EBAY_CLIENT_SECRET=
 
 ![渠道目标、独立版本、本地预检与未连接状态](docs/assets/aitrade-channel-targets.png)
 
+## 发布准备门禁与内部发布队列
+
+内容批准后，渠道目标还需要通过确定性的发布准备检查。系统会同时评估 8 项条件：
+
+```text
+LATEST_VERSION
+LOCAL_PREFLIGHT
+CONTENT_APPROVED
+MAIN_IMAGE_APPROVED
+PRODUCTION_ACCOUNT
+WRITE_ADAPTER
+PLATFORM_DRY_RUN
+VERSION_LAUNCH_APPROVAL
+```
+
+状态按门禁顺序收敛为：
+
+| 状态 | 含义 |
+|---|---|
+| `blocked` | 最新版本、本地预检、内容批准或主图审核仍有缺口 |
+| `local_ready` | 本地内容已就绪，但正式平台店铺尚未连接 |
+| `dry_run_unsupported` | 店铺条件已满足，但真实平台 dry-run 或官方写 Adapter 尚未实现 |
+| `approval_pending` | 全部前置检查通过，等待人工批准进入内部发布队列 |
+| `approved_for_publish` | 当前版本已批准进入内部发布队列，但尚未向平台发布 |
+
+只有 `approval_pending` 且无阻断项时，审批动作才会在服务端重新计算并写入 `channel_launch_reviews`。审批绑定当前 Listing 版本 ID，旧版本审批不能复用；检查与审批分别记录 `channel.launch_readiness_checked`、`channel.launch_queue_approved` 审计动作。
+
+当前所有平台的 `dryRunSupported` 和 `publishingSupported` 均为 `false`，Amazon、Shopify、TikTok Shop、eBay 与 CSV / 人工都不支持真实平台 dry-run 或外部发布。因此 `approved_for_publish` 不是 `published`，外部商品 ID 仍为空，两个字段始终保持：
+
+```text
+externalActions = none
+published = false
+```
+
 ## 常用命令
 
 ```bash
 npm run typecheck  # TypeScript 检查
-npm test           # 成本、供应商、Listing、CSV、连接诊断与导入审计测试
+npm test           # 成本、供应商、Listing、发布准备、CSV、连接诊断与导入审计测试
 npm run build      # 生产构建
 npm run db:reset   # 删除本地数据库，下次启动重新初始化演示数据
 ```
@@ -330,9 +372,11 @@ KEEPA_API_KEY=
 本轮已在生产模式下完成自动检查和真实浏览器验收：
 
 - `npm run typecheck`：通过
-- `npm test`：32 / 32 通过
+- `npm test`：39 / 39 通过
 - `npm run build`：通过
 - 浏览器逐页打开 `/`、`/approvals`、`/sourcing`、`/data-sources`、`/connections`：均返回 200，无 404
+- 浏览器验收了“已内容批准版本”和“草稿版本”两种发布准备状态：前者显示 `本地内容已就绪` 与 4 个阻断项，后者显示 `本地门禁未完成`
+- 两种状态均显示平台 dry-run 不支持、`externalActions=none`、`published=false`；发布队列审批按钮只在满足 `approval_pending` 时可用
 - 首页原有 7 个候选商品仍可正常读取，正式数据库未重置
 - Shopify 未配置凭证时检查返回 `409 not_configured`，页面不显示“已连接”，也不写入成功记录
 - TikTok Shop / 1688 始终显示“尚未接入”；即使检查请求被调用，也只返回 `unsupported` 且 `externalRequestAttempted: false`
@@ -355,6 +399,7 @@ src/lib/economics.ts     确定性单位经济计算
 src/lib/sourcing.ts      到岸成本、供应商评分与风险规则
 src/lib/listing.ts       Listing 结构、确定性发布预检与风险词提示
 src/lib/channels.ts      市场上下文与平台字段映射、平台差异化本地预检
+src/lib/launch-readiness.ts 确定性的发布准备状态机、8 项检查与阻断原因
 src/lib/storage.ts       主图格式校验与本地受控存储
 src/lib/csv.ts           CSV 解析、字段兼容和导入映射
 src/lib/repository.ts    数据访问、导入、审批、定标和内容门禁事务
@@ -371,7 +416,7 @@ docs/                    实施蓝图和审批边界
 
 1. 用真实 Keepa Key、候选品表、供应商表和报价表跑一轮业务验收
 2. 用真实 Amazon / Shopify / eBay 凭证运行只读验收，确认权限范围、区域与店铺归属
-3. 在只读验收通过后实现平台 dry-run、人工发布审批、幂等写入与外部回执
+3. 在只读验收通过后实现真实平台 dry-run、官方写 Adapter、幂等写入与外部回执，并继续以人工审批控制任何外部发布
 4. 通过 TikTok Shop / 1688 官方开放平台完成应用审核、店铺授权和诊断；在此之前继续使用可追溯 CSV/人工通道
 5. 样品、质检、供应商认证与合规文件归档
 6. A+ 布局、场景图脚本、主图生成和品牌素材授权记录
