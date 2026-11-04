@@ -1,6 +1,9 @@
 export const money = (cents: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 
+export const moneyIn = (currency: string, cents: number) =>
+  new Intl.NumberFormat("en-US", { style: "currency", currency: currency || "USD" }).format(cents / 100);
+
 export const percent = (value: number, digits = 1) =>
   `${(value * 100).toFixed(digits)}%`;
 

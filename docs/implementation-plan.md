@@ -1,11 +1,16 @@
 # AITrade 实施蓝图
 
-## 0. 当前实现状态（P1.1）
+## 0. 当前实现状态（P1.3）
 
 当前仓库已经实现一条可运行的本地纵向切片：
 
 ```text
-候选品 / 供应商 / 报价 CSV 或人工接入
+AI 选品假设（模板 / Ollama / OpenAI-compatible）
+→ 加入验证并生成竞品、差评、专利、物流、供应商和报价待办
+→ 真实证据、供应商短名单与报价
+→ 16 项确定性 GO / HOLD / NO-GO 门禁
+→ 仅 GO 可转商品立项并导入全部报价
+→ 候选品 / 供应商 / 报价 CSV 或人工接入
 → 导入运行、幂等去重与证据快照
 → 可选 Keepa ASIN 只读同步
 → Amazon / Shopify / eBay 只读连接诊断与审计
@@ -20,14 +25,19 @@
 → Listing 草稿版本化与确定性预检
 → 多国家 × 多平台渠道目标
 → 平台字段映射与独立市场版本
-→ 人工内容批准
+→ 人工内容确认
 → 确定性发布准备门禁（8 项检查）
-→ 人工发布队列审批（仅内部队列）
+→ 人工发布队列确认（仅内部队列）
 → 审计时间线
 ```
 
 已实现的能力边界：
 
+- `/ai-sourcing` 已实现按国家 × 平台生成 5 个不重复机会假设、研究优先级、加入验证与结果持久化。
+- AI Provider 默认使用免 Key 模板，也可配置 Ollama 或 OpenAI-compatible；模型失败自动回退模板，AI 不生成虚假市场事实。
+- 真实竞品、差评、专利、物流、供应商、报价和汇率依据均持久化来源 URL、观察时间、录入人和原始证据；非 USD 站点缺可追溯汇率时为 HOLD。
+- 16 项确定性门禁覆盖研究分、竞品、差评、供应商、报价、到岸成本、净利率、压力利润、证据完整度、MOQ、交期、样品评分、专利、物流、首单现金和汇率。
+- 只有确定性 GO 可转商品立项；转入会复制全部供应商、`quote_received` RFQ 占位、报价和证据，`sent_at` 保持为空并继续进入供应商比价与人工定标。
 - 统一数据源工作台和 `/api/ingestion` 已支持候选品、供应商、报价与 Keepa 通道。
 - CSV 导入会写入 `ingestion_runs`、`evidence_snapshots`，并保留来源、记录 ID 和采集时间。
 - 供应商按平台 + 外部 ID、规范化链接或名称归一化去重；报价按规范化哈希幂等去重。
@@ -42,19 +52,19 @@
 - 只有完成供应商人工定标的商品才能进入内容工作台。
 - 商品定义由人保存，内容包括商品名称、目标用户、核心差异点、规格、包装和禁用声明。
 - 主图仅接受真实 JPG / PNG / WebP，最大 8 MB；文件保存到本地受控目录，并通过应用接口读取。
-- 主图必须由人确认背景、商品完整性、无未经批准文字/水印以及分辨率与画质。
+- 主图必须由人确认背景、商品完整性、无未授权文字/水印以及分辨率与画质。
 - Listing 每次保存都会创建新版本；确定性预检检查长度、完整性、搜索词 UTF-8 字节和常见高风险声明。
-- 内容批准要求预检无错误，并至少有一张通过人工检查的主图；审批人、说明、预检结果和图片 ID 都会留痕。
+- 内容确认要求预检无错误，并至少有一张通过人工检查的主图；确认人、说明、预检结果和图片 ID 都会留痕。
 - `content_approved` 只表示某个国家 × 平台版本通过内部内容门禁，不是 `published`，不会调用平台 API 或产生任何外部发布动作。
 - 同一商品可以创建多个国家 × 平台目标；每个目标有独立的 locale、currency、Listing 版本、平台 payload 和预检结果。
 - 已内置 Amazon、Shopify、TikTok Shop、eBay、CSV / 人工的本地字段映射；渠道目标仍使用 `unconfigured` 的本地测试店铺，外部 ID 保持为空。
-- 渠道发布准备由确定性代码计算，状态包括 `blocked`、`local_ready`、`dry_run_unsupported`、`approval_pending`、`approved_for_publish`；检查覆盖最新版本、本地预检、内容批准、主图审核、正式店铺、官方写 Adapter、真实平台 dry-run 和当前版本发布队列审批。
-- `channel_launch_reviews` 绑定当前渠道 Listing 版本，并固化检查快照、审批人、说明与决策；只有 `approval_pending` 且无阻断项时才能写入。
-- 发布队列审批只表示批准进入内部队列，不是平台发布。当前所有平台的 `dryRunSupported` 和 `publishingSupported` 均为 `false`，所有检查和审批结果固定记录 `externalActions: none`、`published: false`，外部商品 ID 保持为空。
+- 渠道发布准备由确定性代码计算，状态包括 `blocked`、`local_ready`、`dry_run_unsupported`、`approval_pending`、`approved_for_publish`；检查覆盖最新版本、本地预检、内容确认、主图检查、正式店铺、官方写 Adapter、真实平台 dry-run 和当前版本发布队列确认。
+- `channel_launch_reviews` 绑定当前渠道 Listing 版本，并固化检查快照、确认人、说明与决策；只有 `approval_pending` 且无阻断项时才能写入。
+- 发布队列确认只表示确认进入内部队列，不是平台发布。当前所有平台的 `dryRunSupported` 和 `publishingSupported` 均为 `false`，所有检查和确认结果固定记录 `externalActions: none`、`published: false`，外部商品 ID 保持为空。
 
-为保持现有数据模型简单，商品主状态在立项后仍保持 `approved`。供应商定标由 `supplier_selections` 表达，内容审批状态由 `listings.status` 和 `listing_reviews` 表达；后续扩展完整状态机时再统一迁移。
+为保持现有数据模型简单，商品主状态在立项后仍保持 `approved`。供应商定标由 `supplier_selections` 表达，内容确认状态由 `listings.status` 和 `listing_reviews` 表达；后续扩展完整状态机时再统一迁移。
 
-尚未实现：评论/关键词规模化采集、RFQ 自动生成与发送、询价回复解析、样品/质检、AI 图片生成、A+ 自动排版、品牌授权自动核验、密钥托管、eBay 卖家 OAuth、平台类目与必填字段校验、真实平台 dry-run、官方写 Adapter、发布、改价、库存同步、广告操作和运营复盘。Amazon SP-API 与 Shopify 只完成只读授权诊断，eBay 只完成应用凭证诊断；TikTok Shop 和 1688 尚未接入。所有平台均没有真实外部写连接。当前版本没有登录、角色权限和多租户能力，不能直接作为生产系统使用。
+尚未实现：评论/关键词和竞品证据的规模化自动采集、RFQ 自动生成与发送、询价回复解析、样品/质检、AI 图片生成、A+ 自动排版、品牌授权自动核验、密钥托管、eBay 卖家 OAuth、平台类目与必填字段校验、真实平台 dry-run、官方写 Adapter、发布、改价、库存同步、广告操作和运营复盘。Amazon SP-API 与 Shopify 只完成只读授权诊断，eBay 只完成应用凭证诊断；TikTok Shop 和 1688 尚未接入。所有平台均没有真实外部写连接。当前版本没有登录、角色权限和多租户能力，不能直接作为生产系统使用。
 
 ## 1. 落地原则
 
@@ -62,7 +72,7 @@
 2. **先跑通一条纵向链路，不先做全链路大平台。**
 3. **确定性计算用代码，判断和生成用模型。**
 4. **所有 Agent 输出必须是结构化产物，不能只有聊天记录。**
-5. **有外部副作用的动作默认需要人工审批。**
+5. **有外部副作用的动作默认需要人工确认。**
 6. **优先官方 API；网页自动化只作为无 API 时的兜底。**
 7. **每个结论必须保留来源、时间、版本和置信度。**
 
@@ -93,13 +103,13 @@
 - 证据完整度
 - 未解决风险
 - 下一步动作
-- 最近一次审批记录
+- 最近一次确认记录
 
-### 3.2 任务与审批中心
+### 3.2 任务与操作记录
 
 - Agent 完成的分析和生成结果进入任务中心。
-- 人可以批准、驳回、要求补充证据。
-- 高风险动作单独形成审批单。
+- 人可以确认、驳回、要求补充证据。
+- 高风险动作单独形成确认单。
 - 所有状态变化写入审计日志。
 
 ### 3.3 资产库
@@ -130,9 +140,18 @@ return_recovery_rate, coupon, storage_cost, other_cost, notes
 
 供应商和报价也分别支持 CSV 导入；报价必须关联已人工立项的商品。没有官方 API 或尚未取得授权的渠道继续使用可追溯 CSV/人工通道，避免把项目卡在接口权限上，同时禁止用未授权爬虫或伪造数据绕过接入。
 
-### 4.2 选品与立项
+### 4.2 AI 辅助选品与立项（P1.3 已实现）
 
-系统执行：
+AI 负责扩大假设空间，确定性代码负责是否放行。当前可运行路径：
+
+1. 在当前国家 × 平台输入类目和简报，固定生成 5 个不同方向。
+2. 人工选择方向加入验证，系统生成竞品、差评、专利、物流、供应商和报价待办。
+3. 人工录入带来源 URL、观察时间、录入人和原始快照的真实证据。
+4. 人工录入供应商短名单和至少 3 家真实报价。
+5. 系统执行 16 项确定性门禁，输出 GO、HOLD 或 NO-GO。
+6. 只有 GO 可转商品立项；全部报价和证据随立项复制，继续进入人工比价与定标。
+
+目标态系统执行：
 
 1. 归一化候选品数据。
 2. 采集可获得的竞品、关键词、评论和社媒证据。
@@ -151,7 +170,7 @@ return_recovery_rate, coupon, storage_cost, other_cost, notes
 
 ### 4.3 供应商 RFQ 与人工定标
 
-用户批准立项后：
+用户确认立项后：
 
 1. 生成 RFQ 包：规格、目标成本、MOQ、认证、包装、交期要求。
 2. 从供应商库/人工导入名单中选择 3～5 家。
@@ -162,7 +181,7 @@ return_recovery_rate, coupon, storage_cost, other_cost, notes
 
 第一版不把“自动给阿里供应商打电话”作为必做项。
 
-当前 P1.0 已实现步骤 4～6 的 CSV/人工录入、幂等去重、来源快照、评分对比、人工定标和成本回写。步骤 1～3 的 RFQ 自动生成、名单管理和对外发送仍未实现；导入报价只创建 `quote_imported` RFQ 记录，`sent_at` 保持为空，审计记录 `externalActions: none`、`rfqSent: false`。
+当前 P1.3 已实现 AI 选品阶段的供应商短名单、真实报价、确定性门禁、GO 转立项，以及立项后的 CSV/人工报价、幂等去重、来源快照、评分对比、人工定标和成本回写。转立项时创建 `quote_received` RFQ 占位记录；人工录入同样使用 `quote_received`，CSV 导入使用 `quote_imported`，三者 `sent_at` 都保持为空，表示没有发送证据。RFQ 自动生成、导出和对外发送仍未实现，审计记录 `externalActions: none`、`rfqSent: false`。
 
 ### 4.4 商品定义、主图与 Listing 内容（P1.0 已实现）
 
@@ -172,12 +191,12 @@ return_recovery_rate, coupon, storage_cost, other_cost, notes
 
 1. 人工保存商品定义：商品名称、目标用户、核心差异点、规格材质、包装清单、禁用声明和编辑人。
 2. 上传一张主图。服务端校验文件头、MIME、扩展名和大小，只接受 JPG / PNG / WebP，最大 8 MB，并保存到本地受控目录。
-3. 人工确认白底或纯色背景、商品完整、无未经批准文字/水印、分辨率与画质；系统记录审核人、说明和审计日志。
+3. 人工确认白底或纯色背景、商品完整、无未授权文字/水印、分辨率与画质；系统记录检查人、说明和审计日志。
 4. 人工保存 Listing 草稿，包括品牌、标题、五点描述、商品描述和后台搜索词。
 5. 每次保存 Listing 都创建新版本，保留旧版本和对应的自动预检结果。
-6. 确定性预检通过且至少一张主图通过人工检查后，允许记录人工内容批准。
+6. 确定性预检通过且至少一张主图通过人工检查后，允许记录人工内容确认。
 
-当前不自动生成图片或 Listing 文案，不做 A+ 排版、品牌授权核验、知识产权判断、认证文件校验或平台类目必填字段校验。人工内容批准也不触发平台发布。
+当前不自动生成图片或 Listing 文案，不做 A+ 排版、品牌授权核验、知识产权判断、认证文件校验或平台类目必填字段校验。人工内容确认也不触发平台发布。
 
 ### 4.5 确定性发布预检（P1.0 已实现，非平台发布）
 
@@ -189,9 +208,9 @@ return_recovery_rate, coupon, storage_cost, other_cost, notes
 - 后台搜索词是否为空、UTF-8 字节上限和分隔符提示。
 - 品牌是否为空，以及品牌名是否出现在商品描述中。
 - “最佳、第一、保证、治愈、100%、零风险”等常见高风险或绝对化表述。
-- 内容批准前再次确认预检无错误，并确认存在已通过人工检查的主图。
+- 内容确认前再次确认预检无错误，并确认存在已通过人工检查的主图。
 
-预检评分用于展示和排序风险，不代替真实合规审核。以下仍未实现：
+预检评分用于展示和排序风险，不代替真实合规检查。以下仍未实现：
 
 - Amazon 类目必填字段、变体关系和属性映射
 - SP-API dry-run、与现有 Listing 的冲突检查
@@ -200,7 +219,7 @@ return_recovery_rate, coupon, storage_cost, other_cost, notes
 - 平台 payload 的最终合法性、价格与库存一致性和真实 dry-run
 - 平台发布、改价、库存同步、广告及任何外部写操作
 
-发布必须继续保留人工审批和审计记录；在当前版本中，系统只能把特定渠道版本标记为 `content_approved`，不能标记为 `published`。
+发布必须继续保留人工确认和审计记录；在当前版本中，系统只能把特定渠道版本标记为 `content_approved`，不能标记为 `published`。
 
 ### 4.6 多国家、多平台适配层（P1.0 已实现）
 
@@ -212,7 +231,7 @@ product_cases
 → product_market_variants（国家 / locale / currency）
 → channel_accounts（平台店铺，当前 unconfigured）
 → channel_listings（国家 × 平台目标）
-→ channel_listing_versions（独立版本、payload、预检、批准）
+→ channel_listing_versions（独立版本、payload、预检、确认）
 ```
 
 已实现的适配能力：
@@ -238,7 +257,7 @@ product_cases
 → 人工验收
 → 本地内容门禁与发布准备检查
 → 正式店铺 + 官方写 Adapter + 平台 dry-run（后续）
-→ [人审] 批准进入内部发布队列（P1.1 已实现）
+→ [人审] 确认进入内部发布队列（P1.1 已实现）
 → 幂等写入与外部回执（后续）
 ```
 
@@ -276,20 +295,20 @@ VERSION_LAUNCH_APPROVAL
 
 | 状态 | 条件与含义 |
 |---|---|
-| `blocked` | 最新版本、本地预检、内容批准或主图审核仍有缺口 |
+| `blocked` | 最新版本、本地预检、内容确认或主图检查仍有缺口 |
 | `local_ready` | 本地内容检查通过，但还没有连接非演示的正式平台店铺 |
 | `dry_run_unsupported` | 店铺条件满足，但官方写 Adapter 或真实平台 dry-run 不可用 |
-| `approval_pending` | 全部前置检查通过，等待人工批准进入内部发布队列 |
-| `approved_for_publish` | 当前版本已人工批准进入内部发布队列，仍未调用平台发布接口 |
+| `approval_pending` | 全部前置检查通过，等待人工确认进入内部发布队列 |
+| `approved_for_publish` | 当前版本已人工确认进入内部发布队列，仍未调用平台发布接口 |
 
-审批约束：
+确认约束：
 
-- 审批动作必须在服务端重新计算最新状态，只接受 `approval_pending` 且阻断项为 0 的版本。
-- 审批记录写入 `channel_launch_reviews`，绑定 `channel_listing_id` 与 `channel_version_id`；旧版本审批不能复用于新版本。
-- 记录审批人、说明、检查快照与决策，并写入 `channel.launch_readiness_checked`、`channel.launch_queue_approved` 审计动作。
+- 确认动作必须在服务端重新计算最新状态，只接受 `approval_pending` 且阻断项为 0 的版本。
+- 确认记录写入 `channel_launch_reviews`，绑定 `channel_listing_id` 与 `channel_version_id`；旧版本确认不能复用于新版本。
+- 记录确认人、说明、检查快照与决策，并写入 `channel.launch_readiness_checked`、`channel.launch_queue_approved` 审计动作。
 - `WRITE_ADAPTER` 和 `PLATFORM_DRY_RUN` 必须分别验证。本地预检通过不能冒充平台 dry-run。
 - 当前所有平台均为 `dryRunSupported=false`、`publishingSupported=false`，所以真实路径最多到达 `dry_run_unsupported`；`approval_pending` 与 `approved_for_publish` 只是为后续官方能力预留的受控状态。
-- 所有发布准备结果和队列审批固定保持 `externalActions=none`、`published=false`。`approved_for_publish` 不生成平台 Listing ID，也不代表商品已上架。
+- 所有发布准备结果和队列确认固定保持 `externalActions=none`、`published=false`。`approved_for_publish` 不生成平台 Listing ID，也不代表商品已上架。
 
 ## 5. 工作流实现方式
 
@@ -321,7 +340,7 @@ ops_watch
 - Worker 异步执行步骤。
 - 每一步写入 `workflow_steps`。
 - 失败可重试，重复执行保持幂等。
-- 人工审批通过 signal/API 恢复流程。
+- 人工确认通过 signal/API 恢复流程。
 
 后续如需跨天、跨周等待和复杂补偿，再引入 Temporal；不要一开始为了“架构感”增加复杂度。
 
@@ -333,7 +352,7 @@ Dify 可用于：
 - 知识库检索
 - Skill 原型验证
 
-但 Dify 不作为数据库、审批系统或最终业务状态的唯一来源。业务数据必须掌握在自己的 PostgreSQL 中。
+但 Dify 不作为数据库、确认系统或最终业务状态的唯一来源。业务数据必须掌握在自己的 PostgreSQL 中。
 
 ## 6. 核心数据模型
 
@@ -346,7 +365,7 @@ Dify 可用于：
 - `evidence_snapshots`：候选品、供应商、报价等导入原始内容的可追溯快照
 - `connector_health_checks`：平台只读授权检查的状态、验证层级、耗时、检查人和非敏感详情
 - `cost_models`：假设参数、计算结果、模型版本
-- `approvals`：审批门、决策、审批人、意见
+- `approvals`：确认门、决策、确认人、意见
 - `audit_logs`：所有关键状态与配置变化
 
 ### 6.2 供应与样品
@@ -396,8 +415,8 @@ Dify 可用于：
 2. Keepa ASIN 只读 Adapter（P1.0 已实现，需用户提供 Key 验收）
 3. Amazon SP-API / Shopify 自有店铺只读诊断（P1.1 已实现，需真实凭证验收）
 4. eBay 应用凭证诊断（P1.1 已实现；卖家 OAuth 仍待实现）
-5. TikTok Shop / 1688 官方授权与诊断（规划中，需要应用审核和商家授权）
-6. 发布准备门禁与内部发布队列审批（P1.1 已实现；队列审批不等于平台发布）
+5. TikTok Shop / 1688 官方授权与诊断（规划中，需要应用申请和商家授权）
+6. 发布准备门禁与内部发布队列确认（P1.1 已实现；队列确认不等于平台发布）
 7. 真实平台 dry-run、官方写 Adapter、幂等写入与外部回执（规划中）
 8. 物流商模板、评论/关键词数据、社媒与趋势数据
 9. 网页自动化兜底（仅在合法合规且无官方 API 时评估）
@@ -413,10 +432,10 @@ Dify 可用于：
 - TikTok Shop / 1688 在官方 Adapter 实现前必须保持 `unsupported`，不得伪造连接成功。
 - `content_approved` 只代表内部内容门禁通过，不等同于平台 `published`。
 - 发布准备必须分开验证正式店铺、官方写 Adapter 和真实平台 dry-run；本地预检不能替代平台 dry-run。
-- 当前所有平台均为 `dryRunSupported=false`、`publishingSupported=false`；发布队列审批只进入内部队列，固定记录 `externalActions: none`、`published: false`。
+- 当前所有平台均为 `dryRunSupported=false`、`publishingSupported=false`；发布队列确认只进入内部队列，固定记录 `externalActions: none`、`published: false`。
 - `approved_for_publish` 不是平台发布结果，不得生成或伪称外部商品 ID、回执或已上架状态。
 
-## 8. 审批门与自动化边界
+## 8. 确认门与自动化边界
 
 ### 必审
 
@@ -439,7 +458,7 @@ Dify 可用于：
 - 主图/文案草稿
 - 字段校验
 - 异常检测
-- 生成审批单和索赔材料
+- 生成确认单和索赔材料
 
 ## 9. 验收指标
 
@@ -450,9 +469,9 @@ Dify 可用于：
 - 每个选品结论 100% 有来源和数据时间
 - RFQ 生成时间小于 10 分钟
 - Listing 初稿人工重写率低于 30%
-- 所有发布动作 100% 有审批和审计记录
+- 所有发布动作 100% 有确认和审计记录
 - 预测毛利与实际毛利偏差持续跟踪
-- 不发生无审批的价格、广告、退款和付款动作
+- 不发生无确认的价格、广告、退款和付款动作
 
 ## 10. 交付节奏
 
@@ -461,7 +480,7 @@ Dify 可用于：
 - 项目脚手架
 - 数据库迁移
 - 商品机会看板
-- 审批与审计
+- 确认与审计
 - CSV 导入
 
 ### 第 2 周：选品纵向切片
@@ -478,7 +497,7 @@ Dify 可用于：
 - RFQ
 - 报价录入与对比
 - 样品记录
-- 定样审批
+- 定样确认
 
 ### 第 4 周：内容纵向切片
 

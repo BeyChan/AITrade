@@ -189,7 +189,7 @@ async function seedDemoData(db: PGlite) {
         `INSERT INTO product_cases
           (id, asin, marketplace, category, title, status, competitor_price_cents,
            monthly_sales_estimate, review_count, rating, notes, owner, evidence_score, is_demo)
-         VALUES ($1, $2, 'US', $3, $4, 'review_pending', $5, $6, $7, $8, $9, 'AI 运营组', $10, TRUE)`,
+         VALUES ($1, $2, 'US', $3, $4, 'approved', $5, $6, $7, $8, $9, 'AI 运营组', $10, TRUE)`,
         [
           id,
           demo.asin,
@@ -230,11 +230,6 @@ async function seedDemoData(db: PGlite) {
          VALUES ($1, 'US', 'amazon', 'demo_seed')
          ON CONFLICT (case_id, market_code, platform_code) DO NOTHING`,
         [id],
-      );
-      await tx.query(
-        `INSERT INTO approvals (id, case_id, gate, status)
-         VALUES ($1, $2, 'case_selection', 'pending')`,
-        [randomUUID(), id],
       );
       await tx.query(
         `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)

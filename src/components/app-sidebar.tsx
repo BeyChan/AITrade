@@ -6,23 +6,23 @@ import { usePathname } from "next/navigation";
 type NavItem = {
   href: string;
   label: string;
-  icon: "opportunity" | "sourcing" | "data" | "approval" | "connection";
+  icon: "ai" | "sourcing" | "data" | "settings" | "connection";
 };
 
 const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
   {
     label: "业务工作台",
     items: [
-      { href: "/", label: "商品机会", icon: "opportunity" },
+      { href: "/", label: "AI 选品", icon: "ai" },
       { href: "/sourcing", label: "供应商询价", icon: "sourcing" },
       { href: "/data-sources", label: "数据源", icon: "data" },
     ],
   },
   {
-    label: "协作与治理",
+    label: "系统",
     items: [
-      { href: "/approvals", label: "审批中心", icon: "approval" },
       { href: "/connections", label: "连接中心", icon: "connection" },
+      { href: "/settings", label: "系统设置", icon: "settings" },
     ],
   },
 ];
@@ -39,6 +39,16 @@ function NavIcon({ name }: { name: NavItem["icon"] }) {
     strokeLinejoin: "round" as const,
     "aria-hidden": true,
   };
+
+  if (name === "ai") {
+    return (
+      <svg {...common}>
+        <path d="m12 3 1.1 3.2a4.2 4.2 0 0 0 2.7 2.7L19 10l-3.2 1.1a4.2 4.2 0 0 0-2.7 2.7L12 17l-1.1-3.2a4.2 4.2 0 0 0-2.7-2.7L5 10l3.2-1.1a4.2 4.2 0 0 0 2.7-2.7L12 3Z" />
+        <path d="m18.5 16 .6 1.9a2 2 0 0 0 1.3 1.3l1.6.8-1.6.8a2 2 0 0 0-1.3 1.3l-.6 1.9-.6-1.9a2 2 0 0 0-1.3-1.3l-1.6-.8 1.6-.8a2 2 0 0 0 1.3-1.3l.6-1.9Z" />
+        <path d="M4 17.5h3M5.5 16v3" />
+      </svg>
+    );
+  }
 
   if (name === "sourcing") {
     return (
@@ -60,11 +70,11 @@ function NavIcon({ name }: { name: NavItem["icon"] }) {
     );
   }
 
-  if (name === "approval") {
+  if (name === "settings") {
     return (
       <svg {...common}>
-        <path d="M9 11.5 11 14l4-5" />
-        <path d="M6 3h9l3 3v15H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" />
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.86 2.86-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.09A1.7 1.7 0 0 0 8.5 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.86-2.86.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.09A1.7 1.7 0 0 0 4.6 8.5a1.7 1.7 0 0 0-.34-1.88l-.06-.06L7.06 3.7l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.09A1.7 1.7 0 0 0 15.5 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.86 2.86-.06.06A1.7 1.7 0 0 0 19.4 9c.13.36.34.69.6 1 .3.27.68.42 1.1.4H21v4h-.09A1.7 1.7 0 0 0 19.4 15Z" />
       </svg>
     );
   }

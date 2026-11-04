@@ -12,7 +12,6 @@ import {
   resolveValidationAdapterConfiguration,
 } from "./platform-capabilities";
 import type {
-  ApprovalRow,
   AuditRow,
   AssetRow,
   CaseDetail,
@@ -28,7 +27,6 @@ import type {
   ContentProfileRow,
   ConnectorHealthCheckRow,
   CostModelRow,
-  Decision,
   EnrichedCase,
   EvidenceRow,
   MarketRow,
@@ -54,11 +52,7 @@ export async function listCases(): Promise<EnrichedCase[]> {
   const costs = await db.query<CostModelRow>(
     "SELECT DISTINCT ON (case_id) * FROM cost_models ORDER BY case_id, version DESC",
   );
-  const pending = await db.query<{ case_id: string; id: string }>(
-    "SELECT id, case_id FROM approvals WHERE status = 'pending' ORDER BY created_at DESC",
-  );
   const costByCase = new Map(costs.rows.map((cost) => [cost.case_id, cost]));
-  const approvalByCase = new Map(pending.rows.map((approval) => [approval.case_id, approval.id]));
 
   return cases.rows
     .map((productCase) => {
@@ -72,37 +66,9 @@ export async function listCases(): Promise<EnrichedCase[]> {
         costModel,
         opportunityScore: score,
         recommendation: results ? recommendationFor(results, score) : ("HOLD" as const),
-        pendingApprovalId: approvalByCase.get(productCase.id) ?? null,
       };
     })
     .sort((a, b) => b.opportunityScore - a.opportunityScore);
-}
-
-export async function getDashboardStats() {
-  const db = await getDb();
-  const result = await db.query<{
-    total: string;
-    pending: string;
-    approved: string;
-    rejected: string;
-    demo: string;
-  }>(`
-    SELECT
-      COUNT(*)::text AS total,
-      COUNT(*) FILTER (WHERE status = 'review_pending')::text AS pending,
-      COUNT(*) FILTER (WHERE status = 'approved')::text AS approved,
-      COUNT(*) FILTER (WHERE status = 'rejected')::text AS rejected,
-      COUNT(*) FILTER (WHERE is_demo = TRUE)::text AS demo
-    FROM product_cases
-  `);
-  const row = result.rows[0];
-  return {
-    total: Number(row?.total ?? 0),
-    pending: Number(row?.pending ?? 0),
-    approved: Number(row?.approved ?? 0),
-    rejected: Number(row?.rejected ?? 0),
-    demo: Number(row?.demo ?? 0),
-  };
 }
 
 export async function getSiteOptions() {
@@ -148,10 +114,9 @@ export async function getCaseDetail(caseId: string): Promise<CaseDetail | null> 
   const productCase = productCases.rows[0];
   if (!productCase) return null;
 
-  const [costs, evidence, approvals, selections, audits] = await Promise.all([
+  const [costs, evidence, selections, audits] = await Promise.all([
     db.query<CostModelRow>("SELECT * FROM cost_models WHERE case_id = $1 ORDER BY version DESC LIMIT 1", [caseId]),
     db.query<EvidenceRow>("SELECT * FROM case_evidence WHERE case_id = $1 ORDER BY captured_at DESC", [caseId]),
-    db.query<ApprovalRow>("SELECT * FROM approvals WHERE case_id = $1 AND gate = 'case_selection' ORDER BY created_at DESC LIMIT 1", [caseId]),
     db.query<{ id: string }>("SELECT id FROM supplier_selections WHERE case_id = $1 LIMIT 1", [caseId]),
     db.query<AuditRow>("SELECT * FROM audit_logs WHERE entity_type = 'product_case' AND entity_id = $1 ORDER BY created_at DESC LIMIT 12", [
       caseId,
@@ -163,7 +128,6 @@ export async function getCaseDetail(caseId: string): Promise<CaseDetail | null> 
     costModel: costs.rows[0] ?? null,
     hasSupplierSelection: Boolean(selections.rows[0]),
     evidence: evidence.rows,
-    approval: approvals.rows[0] ?? null,
     auditLogs: audits.rows,
   };
 }
@@ -181,7 +145,7 @@ export async function importCandidates(rows: CandidateImportRow[], actor = "运�
         `INSERT INTO product_cases
           (id, asin, marketplace, category, title, url, status, competitor_price_cents,
            monthly_sales_estimate, review_count, rating, notes, owner, evidence_score, is_demo)
-         VALUES ($1, $2, $3, $4, $5, $6, 'review_pending', $7, $8, $9, $10, $11, $12, 0, FALSE)
+         VALUES ($1, $2, $3, $4, $5, $6, 'approved', $7, $8, $9, $10, $11, $12, 0, FALSE)
          ON CONFLICT (asin, marketplace) DO NOTHING
          RETURNING id`,
         [
@@ -208,11 +172,6 @@ export async function importCandidates(rows: CandidateImportRow[], actor = "运�
         `INSERT INTO cost_models (id, case_id, version, assumptions, results, created_by)
          VALUES ($1, $2, 1, $3::jsonb, $4::jsonb, $5)`,
         [randomUUID(), caseId, JSON.stringify(row.assumptions), JSON.stringify(results), actor],
-      );
-      await tx.query(
-        `INSERT INTO approvals (id, case_id, gate, status)
-         VALUES ($1, $2, 'case_selection', 'pending')`,
-        [randomUUID(), caseId],
       );
       await tx.query(
         `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
@@ -257,50 +216,6 @@ export async function createCostModelVersion(caseId: string, assumptions: Econom
   });
 
   return { modelId, version, results };
-}
-
-export async function decideCase(caseId: string, decision: Decision, reviewer: string, notes: string) {
-  if (!reviewer.trim()) throw new Error("请输入审批人");
-  const db = await getDb();
-  const product = await db.query<ProductCaseRow>("SELECT * FROM product_cases WHERE id = $1", [caseId]);
-  if (!product.rows[0]) throw new Error("商品机会不存在");
-  if (!["review_pending", "approved", "rejected"].includes(product.rows[0].status)) {
-    throw new Error("当前状态不能审批");
-  }
-
-  await db.transaction(async (tx) => {
-    await tx.query("UPDATE product_cases SET status = $1, updated_at = NOW() WHERE id = $2", [decision, caseId]);
-    const latest = await tx.query<ApprovalRow>(
-      "SELECT * FROM approvals WHERE case_id = $1 ORDER BY created_at DESC LIMIT 1",
-      [caseId],
-    );
-    if (latest.rows[0]) {
-      await tx.query(
-        `UPDATE approvals
-         SET status = $1, decision = $1, reviewer = $2, notes = $3, decided_at = NOW()
-         WHERE id = $4`,
-        [decision, reviewer.trim(), notes.trim(), latest.rows[0].id],
-      );
-    } else {
-      await tx.query(
-        `INSERT INTO approvals
-          (id, case_id, gate, status, decision, reviewer, notes, decided_at)
-         VALUES ($1, $2, 'case_selection', $3, $3, $4, $5, NOW())`,
-        [randomUUID(), caseId, decision, reviewer.trim(), notes.trim()],
-      );
-    }
-    await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, $3, 'product_case', $4, $5::jsonb)`,
-      [
-        randomUUID(),
-        reviewer.trim(),
-        decision === "approved" ? "case.approved" : "case.rejected",
-        caseId,
-        JSON.stringify({ notes: notes.trim(), previousStatus: product.rows[0].status }),
-      ],
-    );
-  });
 }
 
 export type SupplierQuoteInput = {
@@ -534,6 +449,7 @@ export async function createSupplierAndQuote(caseId: string, input: SupplierQuot
     incoterm: input.incoterm.trim() || null,
     paymentTerms: input.paymentTerms.trim() || null,
     requestedCertifications: input.certifications.trim() || null,
+    quoteObservedAt: new Date().toISOString(),
     note: "报价由人工录入；系统未自动联系供应商或下单。",
   };
 
@@ -553,7 +469,7 @@ export async function createSupplierAndQuote(caseId: string, input: SupplierQuot
     );
     await tx.query(
       `INSERT INTO rfqs (id, case_id, supplier_id, status, requirements, sent_at)
-       VALUES ($1, $2, $3, 'quoted', $4::jsonb, NOW())`,
+       VALUES ($1, $2, $3, 'quote_received', $4::jsonb, NULL)`,
       [rfqId, caseId, supplierId, JSON.stringify(requirements)],
     );
     await tx.query(
@@ -579,7 +495,7 @@ export async function createSupplierAndQuote(caseId: string, input: SupplierQuot
     );
     const auditRows = [
       ["supplier.created", { supplierId, supplierName: input.supplierName.trim(), platform: input.supplierPlatform.trim() }],
-      ["rfq.created", { rfqId, supplierId, status: "quoted" }],
+      ["rfq.created", { rfqId, supplierId, status: "quote_received", sentAt: null, externalActions: "none" }],
       ["quote.created", { quoteId, rfqId, unitPriceCents: input.unitPriceCents, freightPerUnitCents: input.freightPerUnitCents, dutyRate: input.dutyRate }],
     ] as const;
     for (const [action, details] of auditRows) {
@@ -1329,9 +1245,9 @@ async function approveChannelVersionWithExecutor(
   );
   const latest = latestResult.rows[0];
   if (!latest) throw new Error("请先保存该渠道的 Listing 草稿");
-  if (latest.status === "content_approved") throw new Error("当前渠道 Listing 版本已经通过内容审核");
+  if (latest.status === "content_approved") throw new Error("当前渠道 Listing 版本已经通过内容确认");
   const preflight = latest.preflight_result as Partial<ListingPreflightResult>;
-  if (!preflight.passed) throw new Error("渠道预检未通过，不能进行人工内容批准");
+  if (!preflight.passed) throw new Error("渠道预检未通过，不能进行人工内容确认");
 
   const approvedAsset = await tx.query<{ id: string }>(
     `SELECT id FROM assets
@@ -1339,7 +1255,7 @@ async function approveChannelVersionWithExecutor(
      ORDER BY created_at DESC LIMIT 1`,
     [productCase.id],
   );
-  if (!approvedAsset.rows[0]) throw new Error("请先上传并通过人工主图审核");
+  if (!approvedAsset.rows[0]) throw new Error("请先上传并通过人工主图检查");
 
   const approvedAt = new Date().toISOString();
   await tx.query(
@@ -1428,8 +1344,8 @@ export async function approveChannelListing(
   reviewer: string,
   notes: string,
 ) {
-  if (!reviewer.trim()) throw new Error("请输入内容审核人");
-  if (!notes.trim()) throw new Error("请填写内容审核说明，记录声明核验依据");
+  if (!reviewer.trim()) throw new Error("请输入内容确认人");
+  if (!notes.trim()) throw new Error("请填写内容确认说明，记录声明核验依据");
   await assertContentUnlocked(caseId);
   const db = await getDb();
   return db.transaction(async (tx) => {
@@ -1588,18 +1504,18 @@ export async function approveChannelLaunchQueue(
   reviewer: string,
   notes: string,
 ) {
-  if (!reviewer.trim()) throw new Error("请输入发布队列审批人");
-  if (!notes.trim()) throw new Error("请填写发布队列审批说明");
+  if (!reviewer.trim()) throw new Error("请输入发布队列确认人");
+  if (!notes.trim()) throw new Error("请填写发布队列确认说明");
   await assertContentUnlocked(caseId);
   const db = await getDb();
   return db.transaction(async (tx) => {
     const { productCase, target } = await getChannelTargetFoundation(tx, caseId, channelListingId);
     const { latest, readiness } = await readChannelLaunchReadiness(tx, productCase, target);
-    if (!latest) throw new Error("没有可审批的渠道 Listing 版本");
+    if (!latest) throw new Error("没有可确认的渠道 Listing 版本");
     if (readiness.status !== "approval_pending") {
-      throw new Error(`当前发布准备状态为 ${readiness.status}，只有 approval_pending 才能记录发布队列审批`);
+      throw new Error(`当前发布准备状态为 ${readiness.status}，只有 approval_pending 才能记录发布队列确认`);
     }
-    if (readiness.blockers.length > 0) throw new Error("发布准备仍有阻断项，不能记录发布队列审批");
+    if (readiness.blockers.length > 0) throw new Error("发布准备仍有阻断项，不能记录发布队列确认");
 
     const reviewId = randomUUID();
     await tx.query(
@@ -1828,8 +1744,8 @@ export async function reviewMainImageAsset(
   notes: string,
   checks: MainImageReviewChecks,
 ) {
-  if (!reviewer.trim()) throw new Error("请输入图片审核人");
-  if (!notes.trim()) throw new Error("请填写主图审核说明");
+  if (!reviewer.trim()) throw new Error("请输入图片检查人");
+  if (!notes.trim()) throw new Error("请填写主图检查说明");
   if (!Object.values(checks).every(Boolean)) throw new Error("请逐项确认主图检查项");
   await assertContentUnlocked(caseId);
 
@@ -1873,8 +1789,8 @@ export async function createListingDraft(caseId: string, input: Partial<ListingD
 }
 
 export async function approveListingContent(caseId: string, reviewer: string, notes: string) {
-  if (!reviewer.trim()) throw new Error("请输入内容审核人");
-  if (!notes.trim()) throw new Error("请填写内容审核说明，记录声明核验依据");
+  if (!reviewer.trim()) throw new Error("请输入内容确认人");
+  if (!notes.trim()) throw new Error("请填写内容确认说明，记录声明核验依据");
   const { product } = await assertContentUnlocked(caseId);
   const db = await getDb();
   const result = await db.transaction(async (tx) => {

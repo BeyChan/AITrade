@@ -26,7 +26,7 @@ export default async function DataSourcesPage() {
 
   return (
     <div className="page">
-      <div className="breadcrumb"><Link href="/">商品机会</Link> / 数据源</div>
+      <div className="breadcrumb"><Link href="/">AI 选品</Link> / 数据源</div>
       <section className="hero source-hero">
         <div>
           <div className="eyebrow">FREE DATA WORKFLOW · NO SUBSCRIPTION</div>

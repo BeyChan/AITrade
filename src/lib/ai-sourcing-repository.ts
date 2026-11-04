@@ -1,0 +1,1473 @@
+import { randomUUID } from "node:crypto";
+import { getDb } from "./db.ts";
+import { generateHypotheses, attachResearchPriority, type AIProviderStatus } from "./ai-provider.ts";
+import {
+  DEFAULT_SOURCING_THRESHOLDS,
+  evaluateSourcingDecision,
+  normalizeObservedAt,
+  platformEconomicDefaults,
+  validateEvidenceUrl,
+  type AISourcingContext,
+  type DecisionEvaluation,
+  type QuoteForDecision,
+} from "./ai-sourcing.ts";
+import { calculateEconomics } from "./economics.ts";
+
+export type AISourcingHypothesis = {
+  id: string;
+  runId: string;
+  position: number;
+  concept: string;
+  targetUser: string;
+  painPoint: string;
+  differentiator: string;
+  recommendedPriceCents: number;
+  expectedMarginRate: number;
+  firstOrderBudgetCents: number;
+  mainRisks: string[];
+  supplierKeywords: string[];
+  competitorQueries: string[];
+  reviewQueries: string[];
+  priorityScore: number;
+  selectedForValidation: boolean;
+  productCaseId: string | null;
+  createdAt: string;
+};
+
+export type AIOpportunityEvidence = {
+  id: string;
+  hypothesisId: string;
+  evidenceType: string;
+  sourceType: string;
+  sourceUrl: string;
+  title: string;
+  summary: string;
+  observedAt: string;
+  rawSnapshot: Record<string, unknown>;
+  confidence: number;
+  createdBy: string;
+  createdAt: string;
+};
+
+export type AICompetitorSnapshot = {
+  id: string;
+  hypothesisId: string;
+  asin: string | null;
+  title: string;
+  sourceUrl: string;
+  priceCents: number;
+  rating: number | null;
+  reviewCount: number;
+  bsr: number | null;
+  monthlySalesMin: number | null;
+  monthlySalesMax: number | null;
+  sellerCount: number | null;
+  variationCount: number | null;
+  observedAt: string;
+};
+
+export type AISupplierShortlist = {
+  id: string;
+  hypothesisId: string;
+  supplierName: string;
+  platform: string;
+  supplierUrl: string;
+  contact: string | null;
+  country: string | null;
+  productMatch: string;
+  sourceType: string;
+  observedAt: string;
+  createdBy: string;
+  createdAt: string;
+};
+
+export type AISupplierQuote = {
+  id: string;
+  hypothesisId: string;
+  supplierShortlistId: string;
+  unitPriceCents: number;
+  freightPerUnitCents: number;
+  dutyRate: number;
+  landedCostCents: number;
+  currency: string;
+  moq: number;
+  leadTimeDays: number;
+  sampleScore: number | null;
+  sampleFeeCents: number;
+  certifications: string;
+  paymentTerms: string;
+  incoterm: string;
+  quoteUrl: string;
+  observedAt: string;
+  createdBy: string;
+  createdAt: string;
+};
+
+export type AIValidationTask = {
+  id: string;
+  hypothesisId: string;
+  taskType: string;
+  title: string;
+  description: string;
+  targetCount: number;
+  status: "todo" | "in_progress" | "done" | "blocked";
+  owner: string;
+  dueAt: string | null;
+};
+
+export type AISelectionDecision = DecisionEvaluation & {
+  id: string;
+  hypothesisId: string;
+  evaluatedAt: string;
+};
+
+export type AISourcingHypothesisDetail = AISourcingHypothesis & {
+  evidence: AIOpportunityEvidence[];
+  competitors: AICompetitorSnapshot[];
+  shortlist: AISupplierShortlist[];
+  quotes: AISupplierQuote[];
+  tasks: AIValidationTask[];
+  decision: AISelectionDecision | null;
+  counts: {
+    competitors: number;
+    reviewSamples: number;
+    suppliers: number;
+    quotes: number;
+    completedTasks: number;
+    totalTasks: number;
+  };
+};
+
+export type AISourcingBatchSummary = {
+  id: string;
+  briefId: string;
+  marketCode: string;
+  marketName: string;
+  platformCode: string;
+  platformName: string;
+  category: string;
+  brief: string;
+  currency: string;
+  fxRateToUsd: number | null;
+  fxSourceUrl: string | null;
+  provider: string;
+  model: string;
+  status: string;
+  createdAt: string;
+  hypothesisCount: number;
+  selectedCount: number;
+  goCount: number;
+};
+
+export type AISourcingBatchDetail = AISourcingBatchSummary & {
+  createdBy: string;
+  hypotheses: AISourcingHypothesisDetail[];
+};
+
+type BatchJoinRow = {
+  id: string;
+  brief_id: string;
+  market_code: string;
+  market_name: string;
+  platform_code: string;
+  platform_name: string;
+  category: string;
+  brief: string;
+  currency: string;
+  fx_rate_to_usd: string | number | null;
+  fx_source_url: string | null;
+  created_by: string;
+  provider: string;
+  model: string;
+  status: string;
+  created_at: string;
+  hypothesis_count: string | number;
+  selected_count: string | number;
+  go_count: string | number;
+};
+
+type HypothesisRow = {
+  id: string;
+  run_id: string;
+  position: number;
+  concept: string;
+  target_user: string;
+  pain_point: string;
+  differentiator: string;
+  recommended_price_cents: number;
+  expected_margin_rate: string | number;
+  first_order_budget_cents: number;
+  main_risks: string[];
+  supplier_keywords: string[];
+  competitor_queries: string[];
+  review_queries: string[];
+  priority_score: number;
+  selected_for_validation: boolean;
+  product_case_id: string | null;
+  created_at: string;
+};
+
+type EvidenceRow = {
+  id: string;
+  hypothesis_id: string;
+  evidence_type: string;
+  source_type: string;
+  source_url: string;
+  title: string;
+  summary: string;
+  observed_at: string;
+  raw_snapshot: Record<string, unknown>;
+  confidence: string | number;
+  created_by: string;
+  created_at: string;
+};
+
+type CompetitorRow = {
+  id: string;
+  hypothesis_id: string;
+  asin: string | null;
+  title: string;
+  source_url: string;
+  price_cents: number;
+  rating: string | number | null;
+  review_count: number;
+  bsr: number | null;
+  monthly_sales_min: number | null;
+  monthly_sales_max: number | null;
+  seller_count: number | null;
+  variation_count: number | null;
+  observed_at: string;
+};
+
+type ShortlistRow = {
+  id: string;
+  hypothesis_id: string;
+  supplier_name: string;
+  platform: string;
+  supplier_url: string;
+  contact: string | null;
+  country: string | null;
+  product_match: string;
+  source_type: string;
+  observed_at: string;
+  created_by: string;
+  created_at: string;
+};
+
+type QuoteRow = {
+  id: string;
+  hypothesis_id: string;
+  supplier_shortlist_id: string;
+  unit_price_cents: number;
+  freight_per_unit_cents: number;
+  duty_rate: string | number;
+  landed_cost_cents: number;
+  currency: string;
+  moq: number;
+  lead_time_days: number;
+  sample_score: number | null;
+  sample_fee_cents: number;
+  certifications: string;
+  payment_terms: string;
+  incoterm: string;
+  quote_url: string;
+  observed_at: string;
+  created_by: string;
+  created_at: string;
+};
+
+type PromotableQuoteRow = QuoteRow & {
+  supplier_name: string;
+  supplier_platform: string;
+  supplier_url: string;
+  supplier_contact: string | null;
+  supplier_country: string | null;
+  product_match: string;
+};
+
+type TaskRow = {
+  id: string;
+  hypothesis_id: string;
+  task_type: string;
+  title: string;
+  description: string;
+  target_count: number;
+  status: AIValidationTask["status"];
+  owner: string;
+  due_at: string | null;
+};
+
+type DecisionRow = {
+  id: string;
+  hypothesis_id: string;
+  decision: DecisionEvaluation["decision"];
+  decision_score: number;
+  opportunity_score: number;
+  evidence_completeness: number;
+  landed_cost_cents: number | null;
+  landed_cost_usd_cents: number | null;
+  margin_rate: string | number | null;
+  stress_margin_rate: string | number | null;
+  best_quote_id: string | null;
+  gates: DecisionEvaluation["gates"];
+  blockers: string[];
+  metrics: Record<string, unknown>;
+  evaluated_at: string;
+};
+
+export async function createAISourcingBatch(input: {
+  marketCode: string;
+  platformCode: string;
+  category: string;
+  brief: string;
+  actor: string;
+  fxRateToUsd?: number | null;
+  fxSourceUrl?: string | null;
+}) {
+  const db = await getDb();
+  const site = await db.query<{ market_name: string; currency: string; platform_name: string }>(
+    `SELECT m.name AS market_name, m.currency, p.name AS platform_name
+     FROM markets m, platforms p
+     WHERE m.code = $1 AND p.code = $2 AND m.status = 'active' AND p.status <> 'disabled'`,
+    [input.marketCode, input.platformCode],
+  );
+  const row = site.rows[0];
+  if (!row) throw new Error("当前国家或平台站点不可用");
+
+  const fxRate = row.currency === "USD" ? 1 : validFxRate(input.fxRateToUsd);
+  const fxSourceUrl = input.fxSourceUrl?.trim() ? validateEvidenceUrl(input.fxSourceUrl.trim()) : null;
+  if (fxRate && row.currency !== "USD" && !fxSourceUrl) {
+    throw new Error("非 USD 市场录入汇率时必须同时填写汇率来源 URL");
+  }
+  const context: AISourcingContext = {
+    marketCode: input.marketCode,
+    marketName: row.market_name,
+    platformCode: input.platformCode,
+    platformName: row.platform_name,
+    currency: row.currency,
+    fxRateToUsd: fxRate,
+    fxSourceUrl,
+  };
+  const briefId = randomUUID();
+  const runId = randomUUID();
+  const actor = input.actor.trim() || "运营人员";
+  const category = input.category.trim().slice(0, 80) || "待分类";
+  const brief = input.brief.trim().slice(0, 1200);
+  if (brief.length < 3) throw new Error("请描述你想验证的商品或场景");
+
+  const generated = await generateHypotheses({ brief, category, context });
+  const scored = attachResearchPriority(generated.hypotheses, category, context);
+
+  await db.transaction(async (tx) => {
+    await tx.query(
+      `INSERT INTO sourcing_briefs
+        (id, market_code, platform_code, category, brief, currency, fx_rate_to_usd, fx_source_url, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [briefId, input.marketCode, input.platformCode, category, brief, row.currency, fxRate, fxSourceUrl, actor],
+    );
+    await tx.query(
+      `INSERT INTO ai_sourcing_runs
+        (id, brief_id, provider, model, status, response_summary, completed_at)
+       VALUES ($1, $2, $3, $4, 'completed', $5::jsonb, NOW())`,
+      [runId, briefId, generated.provider, generated.model, JSON.stringify(generated.responseSummary)],
+    );
+    for (const [index, item] of scored.entries()) {
+      const hypothesis = item.hypothesis;
+      await tx.query(
+        `INSERT INTO opportunity_hypotheses
+          (id, run_id, position, concept, target_user, pain_point, differentiator,
+           recommended_price_cents, expected_margin_rate, first_order_budget_cents,
+           main_risks, supplier_keywords, competitor_queries, review_queries, priority_score)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb, $15)`,
+        [
+          randomUUID(),
+          runId,
+          index + 1,
+          hypothesis.concept,
+          hypothesis.targetUser,
+          hypothesis.painPoint,
+          hypothesis.differentiator,
+          hypothesis.recommendedPriceCents,
+          hypothesis.expectedMarginRate,
+          hypothesis.firstOrderBudgetCents,
+          JSON.stringify(hypothesis.mainRisks),
+          JSON.stringify(hypothesis.supplierKeywords),
+          JSON.stringify(hypothesis.competitorQueries),
+          JSON.stringify(hypothesis.reviewQueries),
+          item.priorityScore,
+        ],
+      );
+    }
+    await tx.query(
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
+       VALUES ($1, $2, 'ai_sourcing.batch_created', 'ai_sourcing_run', $3, $4::jsonb)`,
+      [
+        randomUUID(),
+        actor,
+        runId,
+        JSON.stringify({
+          provider: generated.provider,
+          model: generated.model,
+          hypothesisCount: generated.hypotheses.length,
+          marketCode: input.marketCode,
+          platformCode: input.platformCode,
+          evidenceCreated: 0,
+        }),
+      ],
+    );
+  });
+
+  return { runId, briefId, provider: generated.provider, fallback: Boolean(generated.responseSummary.fallback) };
+}
+
+export async function listAISourcingBatches(marketCode: string, platformCode: string): Promise<AISourcingBatchSummary[]> {
+  const db = await getDb();
+  const result = await db.query<BatchJoinRow>(`${batchSelect}
+    WHERE b.market_code = $1 AND b.platform_code = $2
+    GROUP BY r.id, b.id, m.name, p.name
+    ORDER BY r.created_at DESC
+    LIMIT 30`, [marketCode, platformCode]);
+  return result.rows.map(mapBatch);
+}
+
+export async function getAISourcingBatch(runId: string): Promise<AISourcingBatchDetail | null> {
+  const db = await getDb();
+  const batchResult = await db.query<BatchJoinRow>(`${batchSelect}
+    WHERE r.id = $1
+    GROUP BY r.id, b.id, m.name, p.name`, [runId]);
+  const batch = batchResult.rows[0];
+  if (!batch) return null;
+
+  const [hypothesisRows, evidenceRows, competitorRows, shortlistRows, quoteRows, taskRows, decisionRows] = await Promise.all([
+    db.query<HypothesisRow>(
+      "SELECT * FROM opportunity_hypotheses WHERE run_id = $1 ORDER BY position ASC",
+      [runId],
+    ),
+    db.query<EvidenceRow>(
+      `SELECT e.* FROM opportunity_evidence e
+       JOIN opportunity_hypotheses h ON h.id = e.hypothesis_id
+       WHERE h.run_id = $1 ORDER BY e.observed_at DESC`,
+      [runId],
+    ),
+    db.query<CompetitorRow>(
+      `SELECT c.* FROM competitor_snapshots c
+       JOIN opportunity_hypotheses h ON h.id = c.hypothesis_id
+       WHERE h.run_id = $1 ORDER BY c.observed_at DESC`,
+      [runId],
+    ),
+    db.query<ShortlistRow>(
+      `SELECT s.* FROM supplier_shortlists s
+       JOIN opportunity_hypotheses h ON h.id = s.hypothesis_id
+       WHERE h.run_id = $1 ORDER BY s.created_at DESC`,
+      [runId],
+    ),
+    db.query<QuoteRow>(
+      `SELECT q.* FROM sourcing_supplier_quotes q
+       JOIN opportunity_hypotheses h ON h.id = q.hypothesis_id
+       WHERE h.run_id = $1 ORDER BY q.landed_cost_cents ASC`,
+      [runId],
+    ),
+    db.query<TaskRow>(
+      `SELECT t.* FROM validation_tasks t
+       JOIN opportunity_hypotheses h ON h.id = t.hypothesis_id
+       WHERE h.run_id = $1 ORDER BY t.created_at ASC`,
+      [runId],
+    ),
+    db.query<DecisionRow>(
+      `SELECT d.* FROM selection_decisions d
+       JOIN opportunity_hypotheses h ON h.id = d.hypothesis_id
+       WHERE h.run_id = $1`,
+      [runId],
+    ),
+  ]);
+
+  const evidenceByHypothesis = groupBy(evidenceRows.rows, (row) => row.hypothesis_id);
+  const competitorByHypothesis = groupBy(competitorRows.rows, (row) => row.hypothesis_id);
+  const shortlistByHypothesis = groupBy(shortlistRows.rows, (row) => row.hypothesis_id);
+  const quotesByHypothesis = groupBy(quoteRows.rows, (row) => row.hypothesis_id);
+  const tasksByHypothesis = groupBy(taskRows.rows, (row) => row.hypothesis_id);
+  const decisionByHypothesis = new Map(decisionRows.rows.map((row) => [row.hypothesis_id, mapDecision(row)]));
+
+  const hypotheses = hypothesisRows.rows.map((row) => {
+    const evidence = (evidenceByHypothesis.get(row.id) ?? []).map(mapEvidence);
+    const competitors = (competitorByHypothesis.get(row.id) ?? []).map(mapCompetitor);
+    const shortlist = (shortlistByHypothesis.get(row.id) ?? []).map(mapShortlist);
+    const quotes = (quotesByHypothesis.get(row.id) ?? []).map(mapQuote);
+    const tasks = (tasksByHypothesis.get(row.id) ?? []).map(mapTask);
+    return {
+      ...mapHypothesis(row),
+      evidence,
+      competitors,
+      shortlist,
+      quotes,
+      tasks,
+      decision: decisionByHypothesis.get(row.id) ?? null,
+      counts: {
+        competitors: competitors.length,
+        reviewSamples: evidence.reduce((sum, item) => {
+          if (item.evidenceType !== "review_insight") return sum;
+          const value = Number(item.rawSnapshot.reviewSampleSize ?? item.rawSnapshot.sampleSize ?? 0);
+          return sum + (Number.isFinite(value) ? value : 0);
+        }, 0),
+        suppliers: shortlist.length,
+        quotes: quotes.length,
+        completedTasks: tasks.filter((task) => task.status === "done").length,
+        totalTasks: tasks.length,
+      },
+    };
+  });
+
+  return { ...mapBatch(batch), createdBy: batch.created_by, hypotheses };
+}
+
+export async function selectHypothesisForValidation(hypothesisId: string, actor: string) {
+  const db = await getDb();
+  const context = await loadHypothesisContext(hypothesisId);
+  if (!context) throw new Error("机会假设不存在");
+  const owner = actor.trim() || "运营人员";
+
+  await db.transaction(async (tx) => {
+    await tx.query(
+      "UPDATE opportunity_hypotheses SET selected_for_validation = TRUE WHERE id = $1",
+      [hypothesisId],
+    );
+    for (const task of buildValidationTasks(context.hypothesis, context.batch)) {
+      await tx.query(
+        `INSERT INTO validation_tasks
+          (id, hypothesis_id, task_type, title, description, target_count, owner)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (hypothesis_id, task_type) DO UPDATE SET
+           description = EXCLUDED.description,
+           target_count = EXCLUDED.target_count,
+           owner = CASE WHEN validation_tasks.owner = '未分配' THEN EXCLUDED.owner ELSE validation_tasks.owner END,
+           updated_at = NOW()`,
+        [randomUUID(), hypothesisId, task.taskType, task.title, task.description, task.targetCount, owner],
+      );
+    }
+    await tx.query(
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
+       VALUES ($1, $2, 'ai_sourcing.hypothesis_selected', 'opportunity_hypothesis', $3, $4::jsonb)`,
+      [randomUUID(), owner, hypothesisId, JSON.stringify({ taskCount: 8, externalActions: "none" })],
+    );
+  });
+  await refreshAISelectionDecision(hypothesisId);
+}
+
+export async function recordOpportunityEvidence(input: {
+  hypothesisId: string;
+  evidenceType: "review_insight" | "patent_check" | "logistics_check" | "supplier_discovery" | "other";
+  sourceType: string;
+  sourceUrl: string;
+  title: string;
+  summary: string;
+  observedAt: string;
+  reviewSampleSize?: number;
+  representativeQuote?: string;
+  sentiment?: "negative" | "neutral" | "positive";
+  riskLevel?: "clear" | "review" | "found";
+  actor: string;
+}) {
+  const db = await getDb();
+  await assertSelected(input.hypothesisId);
+  const evidenceId = randomUUID();
+  const observedAt = normalizeObservedAt(input.observedAt);
+  const sourceUrl = validateEvidenceUrl(input.sourceUrl.trim());
+  const sampleSize = Math.max(1, Math.round(input.reviewSampleSize || 1));
+  const riskLevel = input.riskLevel ?? (input.evidenceType === "patent_check" || input.evidenceType === "logistics_check" ? "review" : undefined);
+
+  await db.transaction(async (tx) => {
+    await tx.query(
+      `INSERT INTO opportunity_evidence
+        (id, hypothesis_id, evidence_type, source_type, source_url, title, summary, observed_at, raw_snapshot, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)`,
+      [
+        evidenceId,
+        input.hypothesisId,
+        input.evidenceType,
+        input.sourceType.trim().slice(0, 60) || "manual",
+        sourceUrl,
+        input.title.trim().slice(0, 240),
+        input.summary.trim().slice(0, 1500),
+        observedAt,
+        JSON.stringify({
+          reviewSampleSize: input.evidenceType === "review_insight" ? sampleSize : undefined,
+          representativeQuote: input.representativeQuote?.trim().slice(0, 500) || undefined,
+          riskLevel,
+        }),
+        input.actor.trim() || "运营人员",
+      ],
+    );
+    if (input.evidenceType === "review_insight") {
+      await tx.query(
+        `INSERT INTO review_insights
+          (id, hypothesis_id, evidence_id, theme, sentiment, sample_size, representative_quote)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          randomUUID(),
+          input.hypothesisId,
+          evidenceId,
+          input.title.trim().slice(0, 180),
+          input.sentiment ?? "negative",
+          sampleSize,
+          input.representativeQuote?.trim().slice(0, 500) || "",
+        ],
+      );
+    }
+  });
+  return refreshAISelectionDecision(input.hypothesisId);
+}
+
+export async function recordCompetitorEvidence(input: {
+  hypothesisId: string;
+  asin?: string;
+  title: string;
+  sourceUrl: string;
+  priceCents: number;
+  rating?: number | null;
+  reviewCount: number;
+  bsr?: number | null;
+  monthlySalesMin?: number | null;
+  monthlySalesMax?: number | null;
+  sellerCount?: number | null;
+  variationCount?: number | null;
+  observedAt: string;
+  actor: string;
+}) {
+  const db = await getDb();
+  await assertSelected(input.hypothesisId);
+  const evidenceId = randomUUID();
+  const sourceUrl = validateEvidenceUrl(input.sourceUrl.trim());
+  const observedAt = normalizeObservedAt(input.observedAt);
+  if (!input.title.trim()) throw new Error("请填写竞品标题");
+  if (input.priceCents <= 0) throw new Error("竞品价格必须大于 0");
+
+  await db.transaction(async (tx) => {
+    await tx.query(
+      `INSERT INTO opportunity_evidence
+        (id, hypothesis_id, evidence_type, source_type, source_url, title, summary, observed_at, raw_snapshot, created_by)
+       VALUES ($1, $2, 'competitor_snapshot', 'marketplace', $3, $4, $5, $6, $7::jsonb, $8)`,
+      [
+        evidenceId,
+        input.hypothesisId,
+        sourceUrl,
+        input.title.trim().slice(0, 240),
+        `竞品快照：${input.title.trim()}`.slice(0, 1500),
+        observedAt,
+        JSON.stringify({
+          asin: input.asin?.trim() || null,
+          priceCents: input.priceCents,
+          rating: input.rating ?? null,
+          reviewCount: input.reviewCount,
+          bsr: input.bsr ?? null,
+        }),
+        input.actor.trim() || "运营人员",
+      ],
+    );
+    await tx.query(
+      `INSERT INTO competitor_snapshots
+        (id, hypothesis_id, evidence_id, asin, title, source_url, price_cents, rating, review_count,
+         bsr, monthly_sales_min, monthly_sales_max, seller_count, variation_count, observed_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+      [
+        randomUUID(),
+        input.hypothesisId,
+        evidenceId,
+        input.asin?.trim() || null,
+        input.title.trim().slice(0, 240),
+        sourceUrl,
+        input.priceCents,
+        input.rating ?? null,
+        input.reviewCount,
+        input.bsr ?? null,
+        input.monthlySalesMin ?? null,
+        input.monthlySalesMax ?? null,
+        input.sellerCount ?? null,
+        input.variationCount ?? null,
+        observedAt,
+      ],
+    );
+  });
+  return refreshAISelectionDecision(input.hypothesisId);
+}
+
+export async function recordAISupplierQuote(input: {
+  hypothesisId: string;
+  supplierName: string;
+  supplierPlatform: string;
+  supplierUrl: string;
+  contact?: string;
+  country?: string;
+  productMatch: string;
+  unitPriceCents: number;
+  freightPerUnitCents: number;
+  dutyRate: number;
+  moq: number;
+  leadTimeDays: number;
+  sampleScore?: number | null;
+  sampleFeeCents: number;
+  certifications: string;
+  paymentTerms: string;
+  incoterm: string;
+  quoteUrl: string;
+  observedAt: string;
+  actor: string;
+}) {
+  const db = await getDb();
+  const context = await loadHypothesisContext(input.hypothesisId);
+  if (!context) throw new Error("机会假设不存在");
+  if (!context.hypothesis.selectedForValidation) throw new Error("请先把机会加入验证");
+  const supplierUrl = validateEvidenceUrl(input.supplierUrl.trim());
+  const quoteUrl = validateEvidenceUrl(input.quoteUrl.trim());
+  const observedAt = normalizeObservedAt(input.observedAt);
+  const unitPriceCents = Math.round(input.unitPriceCents);
+  const freightPerUnitCents = Math.round(input.freightPerUnitCents);
+  const dutyRate = clamp(input.dutyRate, 0, 1);
+  const landedCostCents = unitPriceCents + freightPerUnitCents + Math.round((unitPriceCents + freightPerUnitCents) * dutyRate);
+  if (unitPriceCents <= 0) throw new Error("采购单价必须大于 0");
+  if (input.moq <= 0 || input.leadTimeDays <= 0) throw new Error("MOQ 和交期必须大于 0");
+  if (!input.supplierName.trim()) throw new Error("请填写供应商名称");
+
+  await db.transaction(async (tx) => {
+    const shortlistId = randomUUID();
+    const quoteId = randomUUID();
+    await tx.query(
+      `INSERT INTO supplier_shortlists
+        (id, hypothesis_id, supplier_name, platform, supplier_url, contact, country, product_match, observed_at, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [
+        shortlistId,
+        input.hypothesisId,
+        input.supplierName.trim().slice(0, 180),
+        input.supplierPlatform.trim().slice(0, 60) || "1688",
+        supplierUrl,
+        input.contact?.trim().slice(0, 180) || null,
+        input.country?.trim().slice(0, 60) || null,
+        input.productMatch.trim().slice(0, 500),
+        observedAt,
+        input.actor.trim() || "采购人员",
+      ],
+    );
+    await tx.query(
+      `INSERT INTO sourcing_supplier_quotes
+        (id, hypothesis_id, supplier_shortlist_id, unit_price_cents, freight_per_unit_cents,
+         duty_rate, landed_cost_cents, currency, moq, lead_time_days, sample_score, sample_fee_cents,
+         certifications, payment_terms, incoterm, quote_url, observed_at, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+      [
+        quoteId,
+        input.hypothesisId,
+        shortlistId,
+        unitPriceCents,
+        freightPerUnitCents,
+        dutyRate,
+        landedCostCents,
+        context.batch.currency,
+        Math.round(input.moq),
+        Math.round(input.leadTimeDays),
+        input.sampleScore == null ? null : clamp(Math.round(input.sampleScore), 0, 100),
+        Math.max(0, Math.round(input.sampleFeeCents)),
+        input.certifications.trim().slice(0, 500),
+        input.paymentTerms.trim().slice(0, 200),
+        input.incoterm.trim().slice(0, 80),
+        quoteUrl,
+        observedAt,
+        input.actor.trim() || "采购人员",
+      ],
+    );
+    await tx.query(
+      `INSERT INTO opportunity_evidence
+        (id, hypothesis_id, evidence_type, source_type, source_url, title, summary, observed_at, raw_snapshot, created_by)
+       VALUES ($1, $2, 'supplier_quote', 'supplier', $3, $4, $5, $6, $7::jsonb, $8)`,
+      [
+        randomUUID(),
+        input.hypothesisId,
+        quoteUrl,
+        `${input.supplierName.trim()} 真实报价`,
+        `含税到岸 ${(landedCostCents / 100).toFixed(2)} ${context.batch.currency}；MOQ ${input.moq}；交期 ${input.leadTimeDays} 天`,
+        observedAt,
+        JSON.stringify({ quoteId, supplierShortlistId: shortlistId, landedCostCents, dutyRate }),
+        input.actor.trim() || "采购人员",
+      ],
+    );
+  });
+  return refreshAISelectionDecision(input.hypothesisId);
+}
+
+export async function refreshAISelectionDecision(hypothesisId: string): Promise<AISelectionDecision> {
+  const db = await getDb();
+  const context = await loadHypothesisContext(hypothesisId);
+  if (!context) throw new Error("机会假设不存在");
+  const [counts, reviews, quotes, patent, logistics] = await Promise.all([
+    db.query<{ competitors: string | number; suppliers: string | number; quotes: string | number }>(
+      `SELECT
+        (SELECT COUNT(*) FROM competitor_snapshots WHERE hypothesis_id = $1) AS competitors,
+        (SELECT COUNT(*) FROM supplier_shortlists WHERE hypothesis_id = $1) AS suppliers,
+        (SELECT COUNT(*) FROM sourcing_supplier_quotes WHERE hypothesis_id = $1) AS quotes`,
+      [hypothesisId],
+    ),
+    db.query<{ sample_count: string | number }>(
+      `SELECT COALESCE(SUM(sample_size), 0) AS sample_count
+       FROM review_insights WHERE hypothesis_id = $1`,
+      [hypothesisId],
+    ),
+    db.query<QuoteRow>(
+      "SELECT * FROM sourcing_supplier_quotes WHERE hypothesis_id = $1 ORDER BY landed_cost_cents ASC",
+      [hypothesisId],
+    ),
+    db.query<{ risk_level: string | null }>(
+      `SELECT raw_snapshot->>'riskLevel' AS risk_level
+       FROM opportunity_evidence
+       WHERE hypothesis_id = $1 AND evidence_type = 'patent_check'
+       ORDER BY observed_at DESC LIMIT 1`,
+      [hypothesisId],
+    ),
+    db.query<{ risk_level: string | null }>(
+      `SELECT raw_snapshot->>'riskLevel' AS risk_level
+       FROM opportunity_evidence
+       WHERE hypothesis_id = $1 AND evidence_type = 'logistics_check'
+       ORDER BY observed_at DESC LIMIT 1`,
+      [hypothesisId],
+    ),
+  ]);
+
+  const count = counts.rows[0];
+  const decision = evaluateSourcingDecision({
+    opportunityScore: context.hypothesis.priorityScore,
+    recommendedPriceCents: context.hypothesis.recommendedPriceCents,
+    context: context.batch,
+    competitorCount: Number(count?.competitors ?? 0),
+    reviewSampleCount: Number(reviews.rows[0]?.sample_count ?? 0),
+    supplierCount: Number(count?.suppliers ?? 0),
+    quotes: quotes.rows.map(mapDecisionQuote),
+    latestPatentRisk: riskLevel(patent.rows[0]?.risk_level, "missing"),
+    latestLogisticsRisk: riskLevel(logistics.rows[0]?.risk_level, "missing"),
+  });
+
+  const decisionId = randomUUID();
+  await db.transaction(async (tx) => {
+    await tx.query(
+      `INSERT INTO selection_decisions
+        (id, hypothesis_id, decision, decision_score, opportunity_score, evidence_completeness,
+         landed_cost_cents, landed_cost_usd_cents, margin_rate, stress_margin_rate, best_quote_id,
+         gates, blockers, metrics, evaluated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb, $14::jsonb, NOW())
+       ON CONFLICT (hypothesis_id) DO UPDATE SET
+         decision = EXCLUDED.decision,
+         decision_score = EXCLUDED.decision_score,
+         opportunity_score = EXCLUDED.opportunity_score,
+         evidence_completeness = EXCLUDED.evidence_completeness,
+         landed_cost_cents = EXCLUDED.landed_cost_cents,
+         landed_cost_usd_cents = EXCLUDED.landed_cost_usd_cents,
+         margin_rate = EXCLUDED.margin_rate,
+         stress_margin_rate = EXCLUDED.stress_margin_rate,
+         best_quote_id = EXCLUDED.best_quote_id,
+         gates = EXCLUDED.gates,
+         blockers = EXCLUDED.blockers,
+         metrics = EXCLUDED.metrics,
+         evaluated_at = NOW()`,
+      [
+        decisionId,
+        hypothesisId,
+        decision.decision,
+        decision.decisionScore,
+        decision.opportunityScore,
+        decision.evidenceCompleteness,
+        decision.landedCostCents,
+        decision.landedCostUsdCents,
+        decision.marginRate,
+        decision.stressMarginRate,
+        decision.bestQuoteId,
+        JSON.stringify(decision.gates),
+        JSON.stringify(decision.blockers),
+        JSON.stringify(decision.metrics),
+      ],
+    );
+    await tx.query(
+      `UPDATE validation_tasks SET status = 'done', updated_at = NOW()
+       WHERE hypothesis_id = $1 AND (
+         (task_type = 'competitor_scan' AND $2 >= target_count) OR
+         (task_type = 'review_research' AND $3 >= target_count) OR
+         (task_type = 'supplier_shortlist' AND $4 >= target_count) OR
+         (task_type = 'quote_collection' AND $5 >= target_count)
+       )`,
+      [
+        hypothesisId,
+        Number(count?.competitors ?? 0),
+        Number(reviews.rows[0]?.sample_count ?? 0),
+        Number(count?.suppliers ?? 0),
+        Number(count?.quotes ?? 0),
+      ],
+    );
+    await tx.query(
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
+       VALUES ($1, 'system', 'ai_sourcing.decision_evaluated', 'opportunity_hypothesis', $2, $3::jsonb)`,
+      [randomUUID(), hypothesisId, JSON.stringify({ decision: decision.decision, evidenceCompleteness: decision.evidenceCompleteness })],
+    );
+  });
+
+  return {
+    ...decision,
+    id: decisionId,
+    hypothesisId,
+    evaluatedAt: new Date().toISOString(),
+  };
+}
+
+export async function promoteHypothesisToProductCase(hypothesisId: string, actor: string) {
+  const db = await getDb();
+  const context = await loadHypothesisContext(hypothesisId);
+  if (!context) throw new Error("机会假设不存在");
+  if (!context.hypothesis.selectedForValidation) throw new Error("请先把机会加入验证");
+  if (context.hypothesis.productCaseId) return { caseId: context.hypothesis.productCaseId, created: false };
+
+  const decision = await refreshAISelectionDecision(hypothesisId);
+  if (decision.decision !== "GO") throw new Error("确定性门禁尚未给出 GO，不能转入商品立项");
+
+  const quotes = await db.query<PromotableQuoteRow>(
+    `SELECT q.*, s.supplier_name, s.platform AS supplier_platform, s.supplier_url,
+            s.contact AS supplier_contact, s.country AS supplier_country, s.product_match
+     FROM sourcing_supplier_quotes q
+     JOIN supplier_shortlists s ON s.id = q.supplier_shortlist_id
+     WHERE q.hypothesis_id = $1
+     ORDER BY q.landed_cost_cents ASC, q.moq ASC`,
+    [hypothesisId],
+  );
+  const bestQuote = quotes.rows[0];
+  if (!bestQuote) throw new Error("缺少真实报价");
+  const caseId = randomUUID();
+  const asin = `AI-${hypothesisId.replace(/-/g, "").slice(0, 12).toUpperCase()}`;
+  const recommendedPrice = context.hypothesis.recommendedPriceCents;
+  const assumptions = {
+    currency: context.batch.currency,
+    salePriceCents: recommendedPrice,
+    landedCostCents: bestQuote.landed_cost_cents,
+    ...platformEconomicDefaults(context.batch.platformCode, recommendedPrice),
+  };
+  const economics = calculateEconomics(assumptions);
+  const owner = actor.trim() || "运营人员";
+
+  await db.transaction(async (tx) => {
+    const guard = await tx.query<{ product_case_id: string | null }>(
+      "SELECT product_case_id FROM opportunity_hypotheses WHERE id = $1 FOR UPDATE",
+      [hypothesisId],
+    );
+    if (guard.rows[0]?.product_case_id) return;
+    await tx.query(
+      `INSERT INTO product_cases
+        (id, asin, marketplace, category, title, status, competitor_price_cents, monthly_sales_estimate,
+         review_count, rating, notes, owner, evidence_score, is_demo, source_code, source_record_id,
+         source_observed_at, currency)
+       VALUES ($1, $2, $3, $4, $5, 'approved', $6, 0, 0, NULL, $7, $8, $9, FALSE,
+               'ai_sourcing', $10, NOW(), $11)`,
+      [
+        caseId,
+        asin,
+        context.batch.marketCode,
+        context.batch.category,
+        context.hypothesis.concept,
+        recommendedPrice,
+        `由 AI 选品验证批次转入；真实竞品 ${context.counts.competitors} 个，差评样本 ${context.counts.reviewSamples} 条，供应商 ${context.counts.suppliers} 家，报价 ${context.counts.quotes} 份。决策证据完整度 ${decision.evidenceCompleteness}%。`,
+        owner,
+        decision.evidenceCompleteness,
+        hypothesisId,
+        context.batch.currency,
+      ],
+    );
+    await tx.query(
+      `INSERT INTO cost_models (id, case_id, version, assumptions, results, created_by)
+       VALUES ($1, $2, 1, $3::jsonb, $4::jsonb, $5)`,
+      [randomUUID(), caseId, JSON.stringify(assumptions), JSON.stringify(economics), owner],
+    );
+    await tx.query(
+      `INSERT INTO product_case_sites (case_id, market_code, platform_code, discovery_source)
+       VALUES ($1, $2, $3, 'ai_sourcing')
+       ON CONFLICT (case_id, market_code, platform_code) DO NOTHING`,
+      [caseId, context.batch.marketCode, context.batch.platformCode],
+    );
+    for (const quote of quotes.rows) {
+      const supplierId = randomUUID();
+      const rfqId = randomUUID();
+      const quoteId = randomUUID();
+      const requirements = {
+        source: "ai_sourcing_quote",
+        hypothesisId,
+        productMatch: quote.product_match,
+        incoterm: quote.incoterm || null,
+        paymentTerms: quote.payment_terms || null,
+        requestedCertifications: quote.certifications || null,
+        quoteObservedAt: quote.observed_at,
+        note: "由 AI 选品验证阶段录入的真实报价转入；系统未自动联系供应商、未发送 RFQ、未下单。",
+      };
+      await tx.query(
+        `INSERT INTO suppliers
+          (id, name, platform, url, contact, country, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          supplierId,
+          quote.supplier_name,
+          quote.supplier_platform,
+          quote.supplier_url,
+          quote.supplier_contact,
+          quote.supplier_country,
+          `AI 选品转立项；产品匹配：${quote.product_match}`,
+        ],
+      );
+      await tx.query(
+        `INSERT INTO rfqs (id, case_id, supplier_id, status, requirements, sent_at)
+         VALUES ($1, $2, $3, 'quote_received', $4::jsonb, NULL)`,
+        [rfqId, caseId, supplierId, JSON.stringify(requirements)],
+      );
+      await tx.query(
+        `INSERT INTO quotes
+          (id, rfq_id, unit_price_cents, freight_per_unit_cents, duty_rate, quality_score,
+           moq, lead_time_days, payment_terms, incoterm, certifications, sample_fee_cents,
+           raw_payload, currency, observed_at, source_code)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15, 'ai_sourcing')`,
+        [
+          quoteId,
+          rfqId,
+          quote.unit_price_cents,
+          quote.freight_per_unit_cents,
+          quote.duty_rate,
+          quote.sample_score ?? 60,
+          quote.moq,
+          quote.lead_time_days,
+          quote.payment_terms || null,
+          quote.incoterm || null,
+          quote.certifications || null,
+          quote.sample_fee_cents,
+          JSON.stringify({
+            sourceQuoteId: quote.id,
+            sourceHypothesisId: hypothesisId,
+            sourceShortlistId: quote.supplier_shortlist_id,
+            landedCostCents: quote.landed_cost_cents,
+            quoteUrl: quote.quote_url,
+            observedAt: quote.observed_at,
+            enteredBy: quote.created_by,
+            importedByPromotion: true,
+          }),
+          quote.currency,
+          quote.observed_at,
+        ],
+      );
+    }
+    const evidence = await tx.query<EvidenceRow>(
+      "SELECT * FROM opportunity_evidence WHERE hypothesis_id = $1 ORDER BY observed_at DESC",
+      [hypothesisId],
+    );
+    for (const item of evidence.rows) {
+      await tx.query(
+        `INSERT INTO case_evidence
+          (id, case_id, evidence_type, source_type, source_url, title, summary, payload, confidence, captured_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)`,
+        [
+          randomUUID(),
+          caseId,
+          item.evidence_type,
+          item.source_type,
+          item.source_url,
+          item.title,
+          item.summary,
+          JSON.stringify(item.raw_snapshot),
+          item.confidence,
+          item.observed_at,
+        ],
+      );
+    }
+    await tx.query(
+      "UPDATE opportunity_hypotheses SET product_case_id = $1 WHERE id = $2",
+      [caseId, hypothesisId],
+    );
+    await tx.query(
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
+       VALUES ($1, $2, 'ai_sourcing.promoted_to_case', 'product_case', $3, $4::jsonb)`,
+      [
+        randomUUID(),
+        owner,
+        caseId,
+        JSON.stringify({
+          hypothesisId,
+          decision: decision.decision,
+          evidenceCompleteness: decision.evidenceCompleteness,
+          landedCostCents: decision.landedCostCents,
+          marginRate: decision.marginRate,
+          externalActions: "none",
+        }),
+      ],
+    );
+  });
+
+  return { caseId, created: true };
+}
+
+export function getBatchSiteLabel(batch: Pick<AISourcingBatchSummary, "marketName" | "platformName">) {
+  return `${batch.marketName}站 · ${batch.platformName}`;
+}
+
+async function loadHypothesisContext(hypothesisId: string) {
+  const db = await getDb();
+  const result = await db.query<HypothesisRow & {
+    market_code: string;
+    market_name: string;
+    platform_code: string;
+    platform_name: string;
+    currency: string;
+    fx_rate_to_usd: string | number | null;
+    fx_source_url: string | null;
+    brief: string;
+    category: string;
+    provider: string;
+    model: string;
+    run_created_at: string;
+  }>(
+    `SELECT h.*, b.market_code, m.name AS market_name, b.platform_code, p.name AS platform_name,
+            b.currency, b.fx_rate_to_usd, b.fx_source_url, b.brief, b.category,
+            r.provider, r.model, r.created_at AS run_created_at
+     FROM opportunity_hypotheses h
+     JOIN ai_sourcing_runs r ON r.id = h.run_id
+     JOIN sourcing_briefs b ON b.id = r.brief_id
+     JOIN markets m ON m.code = b.market_code
+     JOIN platforms p ON p.code = b.platform_code
+     WHERE h.id = $1`,
+    [hypothesisId],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  const hypothesis = mapHypothesis(row);
+  const counts = await db.query<{ competitors: string | number; review_samples: string | number; suppliers: string | number; quotes: string | number }>(
+    `SELECT
+       (SELECT COUNT(*) FROM competitor_snapshots WHERE hypothesis_id = $1) AS competitors,
+       (SELECT COALESCE(SUM(sample_size), 0) FROM review_insights WHERE hypothesis_id = $1) AS review_samples,
+       (SELECT COUNT(*) FROM supplier_shortlists WHERE hypothesis_id = $1) AS suppliers,
+       (SELECT COUNT(*) FROM sourcing_supplier_quotes WHERE hypothesis_id = $1) AS quotes`,
+    [hypothesisId],
+  );
+  const count = counts.rows[0];
+  const batch: AISourcingContext & { brief: string; category: string } = {
+    marketCode: row.market_code,
+    marketName: row.market_name,
+    platformCode: row.platform_code,
+    platformName: row.platform_name,
+    currency: row.currency,
+    fxRateToUsd: row.fx_rate_to_usd === null ? null : Number(row.fx_rate_to_usd),
+    fxSourceUrl: row.fx_source_url,
+    brief: row.brief,
+    category: row.category,
+  };
+  return {
+    hypothesis,
+    batch,
+    counts: {
+      competitors: Number(count?.competitors ?? 0),
+      reviewSamples: Number(count?.review_samples ?? 0),
+      suppliers: Number(count?.suppliers ?? 0),
+      quotes: Number(count?.quotes ?? 0),
+    },
+  };
+}
+
+function buildValidationTasks(
+  hypothesis: AISourcingHypothesis,
+  batch: AISourcingContext & { brief: string; category: string },
+) {
+  const query = hypothesis.competitorQueries[0] ?? hypothesis.concept;
+  const supplierQuery = hypothesis.supplierKeywords[0] ?? hypothesis.concept;
+  return [
+    {
+      taskType: "competitor_scan",
+      title: `采集 ${DEFAULT_SOURCING_THRESHOLDS.minCompetitors} 个真实竞品`,
+      description: `在 ${batch.platformName} ${batch.marketCode} 站搜索「${query}」，记录链接、价格、评分、评论数和观察时间。只录你实际看到的数据。`,
+      targetCount: DEFAULT_SOURCING_THRESHOLDS.minCompetitors,
+    },
+    {
+      taskType: "review_research",
+      title: `整理 ${DEFAULT_SOURCING_THRESHOLDS.minReviewSamples} 条差评样本`,
+      description: `优先看 1–3 星评论，按“卡毛、难清理、耐用性、尺寸、退货”等主题归类，记录样本数与原文摘录。`,
+      targetCount: DEFAULT_SOURCING_THRESHOLDS.minReviewSamples,
+    },
+    {
+      taskType: "supplier_shortlist",
+      title: "建立 10 家供应商短名单",
+      description: `在 1688 / Alibaba 搜索「${supplierQuery}」，核验工厂链接、主营类目、起订量、认证和最近更新时间。`,
+      targetCount: 10,
+    },
+    {
+      taskType: "rfq_draft",
+      title: "生成并人工确认询盘",
+      description: `询盘应说明目标市场 ${batch.marketCode}、预计首单、MOQ、包装、认证、样品和交期要求。系统不会自动发送。`,
+      targetCount: 1,
+    },
+    {
+      taskType: "quote_collection",
+      title: `收集 ${DEFAULT_SOURCING_THRESHOLDS.minQuotes} 份真实报价`,
+      description: "记录采购价、单件运费、关税、MOQ、交期、样品费、付款条件、贸易条款、报价链接和有效期。",
+      targetCount: DEFAULT_SOURCING_THRESHOLDS.minQuotes,
+    },
+    {
+      taskType: "sample_order",
+      title: "完成 2 家样品测试",
+      description: "按统一测试表检查结构、清洁难度、耐用性、包装、重量与使用说明；样品评分低于 80 不进入 GO。",
+      targetCount: 2,
+    },
+    {
+      taskType: "patent_check",
+      title: "完成专利与合规初筛",
+      description: "由人检索目标国家专利、商标和平台合规要求，并在证据中明确记录 clear / review / found；AI 不提供法律结论。",
+      targetCount: 1,
+    },
+    {
+      taskType: "logistics_check",
+      title: "确认包装与物流可执行",
+      description: "测量真实包装尺寸和重量，确认体积重、关税、平台限制、退货处理与首单现金占用。",
+      targetCount: 1,
+    },
+  ];
+}
+
+const batchSelect = `
+  SELECT
+    r.id,
+    b.id AS brief_id,
+    b.market_code,
+    m.name AS market_name,
+    b.platform_code,
+    p.name AS platform_name,
+    b.category,
+    b.brief,
+    b.currency,
+    b.fx_rate_to_usd,
+    b.fx_source_url,
+    b.created_by,
+    r.provider,
+    r.model,
+    r.status,
+    r.created_at,
+    COUNT(h.id) AS hypothesis_count,
+    COUNT(h.id) FILTER (WHERE h.selected_for_validation = TRUE) AS selected_count,
+    COUNT(h.id) FILTER (WHERE d.decision = 'GO') AS go_count
+  FROM ai_sourcing_runs r
+  JOIN sourcing_briefs b ON b.id = r.brief_id
+  JOIN markets m ON m.code = b.market_code
+  JOIN platforms p ON p.code = b.platform_code
+  LEFT JOIN opportunity_hypotheses h ON h.run_id = r.id
+  LEFT JOIN selection_decisions d ON d.hypothesis_id = h.id
+`;
+
+function mapBatch(row: BatchJoinRow): AISourcingBatchSummary {
+  return {
+    id: row.id,
+    briefId: row.brief_id,
+    marketCode: row.market_code,
+    marketName: row.market_name,
+    platformCode: row.platform_code,
+    platformName: row.platform_name,
+    category: row.category,
+    brief: row.brief,
+    currency: row.currency,
+    fxRateToUsd: row.fx_rate_to_usd === null ? null : Number(row.fx_rate_to_usd),
+    fxSourceUrl: row.fx_source_url,
+    provider: row.provider,
+    model: row.model,
+    status: row.status,
+    createdAt: row.created_at,
+    hypothesisCount: Number(row.hypothesis_count),
+    selectedCount: Number(row.selected_count),
+    goCount: Number(row.go_count),
+  };
+}
+
+function mapHypothesis(row: HypothesisRow): AISourcingHypothesis {
+  return {
+    id: row.id,
+    runId: row.run_id,
+    position: Number(row.position),
+    concept: row.concept,
+    targetUser: row.target_user,
+    painPoint: row.pain_point,
+    differentiator: row.differentiator,
+    recommendedPriceCents: Number(row.recommended_price_cents),
+    expectedMarginRate: Number(row.expected_margin_rate),
+    firstOrderBudgetCents: Number(row.first_order_budget_cents),
+    mainRisks: Array.isArray(row.main_risks) ? row.main_risks : [],
+    supplierKeywords: Array.isArray(row.supplier_keywords) ? row.supplier_keywords : [],
+    competitorQueries: Array.isArray(row.competitor_queries) ? row.competitor_queries : [],
+    reviewQueries: Array.isArray(row.review_queries) ? row.review_queries : [],
+    priorityScore: Number(row.priority_score),
+    selectedForValidation: Boolean(row.selected_for_validation),
+    productCaseId: row.product_case_id,
+    createdAt: row.created_at,
+  };
+}
+
+function mapEvidence(row: EvidenceRow): AIOpportunityEvidence {
+  return {
+    id: row.id,
+    hypothesisId: row.hypothesis_id,
+    evidenceType: row.evidence_type,
+    sourceType: row.source_type,
+    sourceUrl: row.source_url,
+    title: row.title,
+    summary: row.summary,
+    observedAt: row.observed_at,
+    rawSnapshot: row.raw_snapshot ?? {},
+    confidence: Number(row.confidence),
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+  };
+}
+
+function mapCompetitor(row: CompetitorRow): AICompetitorSnapshot {
+  return {
+    id: row.id,
+    hypothesisId: row.hypothesis_id,
+    asin: row.asin,
+    title: row.title,
+    sourceUrl: row.source_url,
+    priceCents: Number(row.price_cents),
+    rating: row.rating === null ? null : Number(row.rating),
+    reviewCount: Number(row.review_count),
+    bsr: row.bsr === null ? null : Number(row.bsr),
+    monthlySalesMin: row.monthly_sales_min === null ? null : Number(row.monthly_sales_min),
+    monthlySalesMax: row.monthly_sales_max === null ? null : Number(row.monthly_sales_max),
+    sellerCount: row.seller_count === null ? null : Number(row.seller_count),
+    variationCount: row.variation_count === null ? null : Number(row.variation_count),
+    observedAt: row.observed_at,
+  };
+}
+
+function mapShortlist(row: ShortlistRow): AISupplierShortlist {
+  return {
+    id: row.id,
+    hypothesisId: row.hypothesis_id,
+    supplierName: row.supplier_name,
+    platform: row.platform,
+    supplierUrl: row.supplier_url,
+    contact: row.contact,
+    country: row.country,
+    productMatch: row.product_match,
+    sourceType: row.source_type,
+    observedAt: row.observed_at,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+  };
+}
+
+function mapQuote(row: QuoteRow): AISupplierQuote {
+  return {
+    id: row.id,
+    hypothesisId: row.hypothesis_id,
+    supplierShortlistId: row.supplier_shortlist_id,
+    unitPriceCents: Number(row.unit_price_cents),
+    freightPerUnitCents: Number(row.freight_per_unit_cents),
+    dutyRate: Number(row.duty_rate),
+    landedCostCents: Number(row.landed_cost_cents),
+    currency: row.currency,
+    moq: Number(row.moq),
+    leadTimeDays: Number(row.lead_time_days),
+    sampleScore: row.sample_score === null ? null : Number(row.sample_score),
+    sampleFeeCents: Number(row.sample_fee_cents),
+    certifications: row.certifications,
+    paymentTerms: row.payment_terms,
+    incoterm: row.incoterm,
+    quoteUrl: row.quote_url,
+    observedAt: row.observed_at,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+  };
+}
+
+function mapTask(row: TaskRow): AIValidationTask {
+  return {
+    id: row.id,
+    hypothesisId: row.hypothesis_id,
+    taskType: row.task_type,
+    title: row.title,
+    description: row.description,
+    targetCount: Number(row.target_count),
+    status: row.status,
+    owner: row.owner,
+    dueAt: row.due_at,
+  };
+}
+
+function mapDecisionQuote(row: QuoteRow): QuoteForDecision {
+  return {
+    id: row.id,
+    unitPriceCents: Number(row.unit_price_cents),
+    freightPerUnitCents: Number(row.freight_per_unit_cents),
+    dutyRate: Number(row.duty_rate),
+    landedCostCents: Number(row.landed_cost_cents),
+    currency: row.currency,
+    moq: Number(row.moq),
+    leadTimeDays: Number(row.lead_time_days),
+    sampleScore: row.sample_score === null ? null : Number(row.sample_score),
+    sampleFeeCents: Number(row.sample_fee_cents),
+    observedAt: row.observed_at,
+  };
+}
+
+function mapDecision(row: DecisionRow): AISelectionDecision {
+  return {
+    id: row.id,
+    hypothesisId: row.hypothesis_id,
+    decision: row.decision,
+    decisionScore: Number(row.decision_score),
+    opportunityScore: Number(row.opportunity_score),
+    evidenceCompleteness: Number(row.evidence_completeness),
+    gates: Array.isArray(row.gates) ? row.gates : [],
+    blockers: Array.isArray(row.blockers) ? row.blockers : [],
+    warnings: Array.isArray(row.metrics?.warnings) ? (row.metrics.warnings as string[]) : [],
+    bestQuoteId: row.best_quote_id,
+    landedCostCents: row.landed_cost_cents === null ? null : Number(row.landed_cost_cents),
+    landedCostUsdCents: row.landed_cost_usd_cents === null ? null : Number(row.landed_cost_usd_cents),
+    marginRate: row.margin_rate === null ? null : Number(row.margin_rate),
+    stressMarginRate: row.stress_margin_rate === null ? null : Number(row.stress_margin_rate),
+    netProfitCents: metricNumber(row.metrics?.netProfitCents),
+    firstOrderCashCents: metricNumber(row.metrics?.firstOrderCashCents),
+    firstOrderCashUsdCents: metricNumber(row.metrics?.firstOrderCashUsdCents),
+    metrics: row.metrics ?? {},
+    evaluatedAt: row.evaluated_at,
+  };
+}
+
+function groupBy<T>(rows: T[], key: (row: T) => string) {
+  const map = new Map<string, T[]>();
+  for (const row of rows) {
+    const group = map.get(key(row)) ?? [];
+    group.push(row);
+    map.set(key(row), group);
+  }
+  return map;
+}
+
+async function assertSelected(hypothesisId: string) {
+  const db = await getDb();
+  const result = await db.query<{ selected_for_validation: boolean }>(
+    "SELECT selected_for_validation FROM opportunity_hypotheses WHERE id = $1",
+    [hypothesisId],
+  );
+  if (!result.rows[0]) throw new Error("机会假设不存在");
+  if (!result.rows[0].selected_for_validation) throw new Error("请先把机会加入验证，再录入证据");
+}
+
+function riskLevel(value: string | null | undefined, fallback: "clear" | "review" | "found" | "missing") {
+  return value === "clear" || value === "review" || value === "found" ? value : fallback;
+}
+
+function metricNumber(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function validFxRate(value: number | null | undefined) {
+  if (value == null) return null;
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) throw new Error("汇率必须大于 0");
+  return number;
+}
+
+function clamp(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, value));
+}

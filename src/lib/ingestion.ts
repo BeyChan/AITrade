@@ -327,7 +327,7 @@ async function importCandidateConnector(
            monthly_sales_estimate, review_count, rating, notes, owner, evidence_score, is_demo,
            source_code, source_record_id, source_observed_at, currency, monthly_sales_min,
            monthly_sales_max, bsr, keyword, keyword_search_volume, seller_count, variation_count)
-         VALUES ($1, $2, $3, $4, $5, $6, 'review_pending', $7, $8, $9, $10, $11, $12, $13, FALSE,
+         VALUES ($1, $2, $3, $4, $5, $6, 'approved', $7, $8, $9, $10, $11, $12, $13, FALSE,
                  $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
          ON CONFLICT (asin, marketplace) DO NOTHING
          RETURNING id`,
@@ -390,11 +390,6 @@ async function importCandidateConnector(
           `INSERT INTO cost_models (id, case_id, version, assumptions, results, created_by)
            VALUES ($1, $2, 1, $3::jsonb, $4::jsonb, $5)`,
           [randomUUID(), targetCaseId, JSON.stringify(row.assumptions), JSON.stringify(results), connector.sourceCode],
-        );
-        await tx.query(
-          `INSERT INTO approvals (id, case_id, gate, status)
-           VALUES ($1, $2, 'case_selection', 'pending')`,
-          [randomUUID(), targetCaseId],
         );
         await tx.query(
           `INSERT INTO case_evidence

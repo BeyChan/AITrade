@@ -1,0 +1,194 @@
+import Link from "next/link";
+import {
+  clearAIProviderKeyAction,
+  saveAISettingsAction,
+  testAISettingsAction,
+} from "@/app/actions";
+import { getAIProviderStatus } from "@/lib/ai-provider";
+
+export const dynamic = "force-dynamic";
+
+type PageProps = {
+  searchParams: Promise<{ notice?: string; error?: string }>;
+};
+
+const providerLabels = {
+  template: "免 Key 模板模式",
+  ollama: "本地 Ollama",
+  "openai-compatible": "OpenAI 兼容接口",
+} as const;
+
+const keySourceLabels = {
+  database: "页面保存（服务端加密）",
+  environment: "环境变量 AI_API_KEY",
+  none: "未配置",
+  unreadable: "配置无法解密",
+} as const;
+
+export default async function SettingsPage({ searchParams }: PageProps) {
+  const [query, provider] = await Promise.all([searchParams, getAIProviderStatus()]);
+  const keyPlaceholder = provider.apiKeyConfigured
+    ? `已配置 ${provider.apiKeyHint}，留空则保留现有 Key`
+    : "粘贴 API Key；保存后只显示脱敏尾号";
+
+  return (
+    <div className="page settings-page">
+      <div className="breadcrumb"><Link href="/">AI 选品</Link> / 系统设置</div>
+
+      <section className="hero settings-hero">
+        <div>
+          <div className="eyebrow">System settings · AI model</div>
+          <h1>大模型设置</h1>
+          <p>
+            默认模板模式不需要任何 Key。需要更高质量的选品假设时，可以接入本地 Ollama 或任意 OpenAI 兼容接口；
+            页面配置优先于环境变量。模型只负责生成假设，不会替代真实证据或确定性决策。
+          </p>
+        </div>
+        <div className={`settings-status-card${provider.configured ? " is-ready" : ""}`}>
+          <span className={`badge ${provider.configured ? "badge-success" : "badge-neutral"}`}>
+            {provider.configured ? "可用" : "自动回退模板"}
+          </span>
+          <strong>{provider.label}</strong>
+          <span>{provider.model}</span>
+          <small>{provider.usingSavedSettings ? "页面配置已生效" : "当前使用环境变量或默认值"}</small>
+        </div>
+      </section>
+
+      {query.notice ? <div className="notice"><strong>已完成：</strong>{query.notice}</div> : null}
+      {query.error ? <div className="notice warn"><strong>未完成：</strong>{query.error}</div> : null}
+
+      <section className="metrics-grid settings-metrics" aria-label="大模型配置概览">
+        <article className="metric-card">
+          <div className="metric-label">当前模式</div>
+          <div className="metric-value settings-metric-text">{providerLabels[provider.provider]}</div>
+          <div className="metric-note">{provider.detail}</div>
+        </article>
+        <article className="metric-card">
+          <div className="metric-label">模型</div>
+          <div className="metric-value settings-metric-text">{provider.model}</div>
+          <div className="metric-note">生成失败时自动回退模板，不阻断主流程</div>
+        </article>
+        <article className="metric-card">
+          <div className="metric-label">API Key</div>
+          <div className="metric-value settings-metric-text">{provider.apiKeyConfigured ? provider.apiKeyHint : "未配置"}</div>
+          <div className="metric-note">{keySourceLabels[provider.apiKeySource]}</div>
+        </article>
+        <article className="metric-card">
+          <div className="metric-label">配置优先级</div>
+          <div className="metric-value settings-metric-text">页面 → 环境变量</div>
+          <div className="metric-note">保存后首页与研究批次会立即使用该配置</div>
+        </article>
+      </section>
+
+      <div className="settings-layout">
+        <form action={saveAISettingsAction} className="panel settings-form">
+          <div className="panel-header">
+            <div>
+              <div className="eyebrow">Connection</div>
+              <h2>模型连接</h2>
+              <p>填写后先点“测试连接”确认可用，再保存。测试不会保存表单内容，也不会把 Key 回显到页面。</p>
+            </div>
+          </div>
+
+          <div className="form-grid">
+            <div className="field full">
+              <label htmlFor="provider">模型服务商</label>
+              <select id="provider" name="provider" defaultValue={provider.provider}>
+                <option value="template">免 Key 模板模式（默认，无外部请求）</option>
+                <option value="ollama">本地 Ollama（数据不出本机）</option>
+                <option value="openai-compatible">OpenAI 兼容接口（OpenAI / DeepSeek / 自建服务）</option>
+              </select>
+              <small className="field-hint">切换服务商后，请同步填写对应的 Base URL 与模型名称。</small>
+            </div>
+
+            <div className="field full">
+              <label htmlFor="baseUrl">Base URL</label>
+              <input
+                id="baseUrl"
+                name="baseUrl"
+                type="url"
+                defaultValue={provider.baseUrl}
+                placeholder="例如 https://api.openai.com/v1 或 http://127.0.0.1:11434"
+                spellCheck={false}
+              />
+              <small className="field-hint">兼容接口会自动补全 `/v1/chat/completions`；如果填入完整 endpoint，则按原样使用。</small>
+            </div>
+
+            <div className="field">
+              <label htmlFor="model">模型名称</label>
+              <input
+                id="model"
+                name="model"
+                type="text"
+                defaultValue={provider.provider === "template" ? "" : provider.model}
+                placeholder="例如 gpt-4.1-mini、deepseek-chat、qwen3"
+                spellCheck={false}
+              />
+            </div>
+
+            <div className="field">
+              <label htmlFor="apiKey">API Key</label>
+              <input
+                id="apiKey"
+                name="apiKey"
+                type="password"
+                autoComplete="new-password"
+                placeholder={keyPlaceholder}
+                spellCheck={false}
+              />
+              <small className="field-hint">只在服务端读取并加密保存在本机数据目录；不会进入 URL、页面 HTML 或审计日志。</small>
+            </div>
+
+            <div className="field full">
+              <label htmlFor="actor">操作人</label>
+              <input id="actor" name="actor" type="text" defaultValue="本机管理员" maxLength={80} />
+              <small className="field-hint">保存设置与清除 Key 都会写入本地操作记录，但不会记录密钥内容。</small>
+            </div>
+          </div>
+
+          <div className="settings-actions">
+            <div className="button-row">
+              <button type="submit" formAction={testAISettingsAction} formNoValidate className="button secondary">测试连接</button>
+              <button type="submit" className="button primary">保存设置</button>
+            </div>
+            <span className="muted">密钥不会返回到浏览器；留空保存会保留已有 Key。</span>
+          </div>
+        </form>
+
+        <aside className="settings-side">
+          <section className="panel settings-info-card">
+            <div className="eyebrow">Current state</div>
+            <h2>当前连接</h2>
+            <dl className="settings-detail-list">
+              <div><dt>服务商</dt><dd>{providerLabels[provider.provider]}</dd></div>
+              <div><dt>模型</dt><dd>{provider.model}</dd></div>
+              <div><dt>Base URL</dt><dd>{provider.baseUrl || "不需要"}</dd></div>
+              <div><dt>Key 来源</dt><dd>{keySourceLabels[provider.apiKeySource]}</dd></div>
+              <div><dt>Key 状态</dt><dd>{provider.apiKeyConfigured ? provider.apiKeyHint : "未配置"}</dd></div>
+            </dl>
+          </section>
+
+          <section className="panel settings-info-card">
+            <h2>清除 API Key</h2>
+            <p className="muted">只清除页面保存的 Key。环境变量中的 Key 需要在 `.env.local` 中手动删除。清除后模型生成会自动回退模板模式。</p>
+            <form action={clearAIProviderKeyAction}>
+              <input type="hidden" name="actor" value="本机管理员" />
+              <button type="submit" className="button danger" disabled={provider.apiKeySource !== "database"}>清除已保存的 Key</button>
+            </form>
+          </section>
+
+          <section className="panel settings-info-card settings-security">
+            <div className="eyebrow">Security</div>
+            <h2>安全边界</h2>
+            <ul>
+              <li>Key 使用 AES-256-GCM 加密后写入本机 `.data`，页面只显示末四位。</li>
+              <li>测试和生成均由服务端发起；浏览器不接触完整 Key。</li>
+              <li>模型输出仍是假设，不得伪造销量、评论、供应商、报价或利润。</li>
+              <li>本系统不会自动联系供应商、下单、付款或发布平台。</li>
+            </ul>
+          </section>
+        </aside>
+      </div>
+    </div>
+  );
+}

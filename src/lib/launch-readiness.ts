@@ -74,7 +74,7 @@ export type LaunchReadinessResult = {
 const statusCopy: Record<LaunchReadinessStatus, { label: string; description: string }> = {
   blocked: {
     label: "本地门禁未完成",
-    description: "最新版本、预检、内容批准或主图审核仍有缺口，不能进入发布队列。",
+    description: "最新版本、预检、内容确认或主图检查仍有缺口，不能进入发布队列。",
   },
   local_ready: {
     label: "本地内容已就绪",
@@ -85,12 +85,12 @@ const statusCopy: Record<LaunchReadinessStatus, { label: string; description: st
     description: "本地和店铺条件已满足，但当前版本尚无有效的平台 Validation Preview 回执，或官方写 Adapter 尚未接入。",
   },
   approval_pending: {
-    label: "等待发布队列审批",
-    description: "全部前置检查通过，等待人工批准进入内部发布队列；审批仍不代表平台发布。",
+    label: "等待发布队列确认",
+    description: "全部前置检查通过，等待人工确认进入内部发布队列；确认仍不代表平台发布。",
   },
   approved_for_publish: {
-    label: "已批准进入发布队列",
-    description: "当前版本已人工批准进入内部发布队列；尚未向平台发布。",
+    label: "已确认进入发布队列",
+    description: "当前版本已人工确认进入内部发布队列；尚未向平台发布。",
   },
 };
 
@@ -134,14 +134,14 @@ export function evaluateLaunchReadiness(input: LaunchReadinessInput): LaunchRead
     },
     {
       code: "CONTENT_APPROVED",
-      label: "人工内容批准",
+      label: "人工内容确认",
       state: contentApproved ? "pass" : "fail",
       detail: contentApproved ? "最新版本已通过人工内容门禁" : "最新版本尚未通过人工内容门禁",
       scope: "local",
     },
     {
       code: "MAIN_IMAGE_APPROVED",
-      label: "主图人工审核",
+      label: "主图人工检查",
       state: mainImageApproved ? "pass" : "fail",
       detail: mainImageApproved ? `${input.approvedMainImageCount} 张主图已通过人工检查` : "没有已通过人工检查的主图",
       scope: "local",
@@ -173,9 +173,9 @@ export function evaluateLaunchReadiness(input: LaunchReadinessInput): LaunchRead
     },
     {
       code: "VERSION_LAUNCH_APPROVAL",
-      label: "当前版本发布队列审批",
+      label: "当前版本发布队列确认",
       state: currentVersionApproved ? "pass" : "pending",
-      detail: currentVersionApproved ? "当前版本已人工批准进入发布队列，仍未发布" : "当前版本尚无发布队列人工批准",
+      detail: currentVersionApproved ? "当前版本已人工确认进入发布队列，仍未发布" : "当前版本尚无发布队列人工确认",
       scope: "approval",
     },
   ];

@@ -1,4 +1,5 @@
 export type EconomicsAssumptions = {
+  currency?: string;
   salePriceCents: number;
   landedCostCents: number;
   fbaFeeCents: number;
@@ -13,7 +14,7 @@ export type EconomicsAssumptions = {
 };
 
 export type EconomicsResults = {
-  currency: "USD";
+  currency: string;
   netRevenueCents: number;
   landedCostCents: number;
   fbaFeeCents: number;
@@ -75,7 +76,7 @@ export function calculateEconomics(input: EconomicsAssumptions): EconomicsResult
   });
 
   return {
-    currency: "USD",
+    currency: input.currency ?? "USD",
     netRevenueCents: keptRevenue,
     landedCostCents: Math.max(0, input.landedCostCents),
     fbaFeeCents: Math.max(0, input.fbaFeeCents),

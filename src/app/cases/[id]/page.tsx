@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { decideCaseAction, updateCostModelAction } from "@/app/actions";
-import { DecisionBadge, RecommendationBadge, StatusBadge } from "@/components/badges";
+import { updateCostModelAction } from "@/app/actions";
+import { RecommendationBadge, StatusBadge } from "@/components/badges";
 import { money, percent, shortDate } from "@/lib/format";
 import { opportunityScore, recommendationFor } from "@/lib/economics";
 import { getCaseDetail } from "@/lib/repository";
@@ -15,7 +15,7 @@ export default async function CaseDetailPage({ params }: PageProps) {
   const detail = await getCaseDetail(id);
   if (!detail) notFound();
 
-  const { productCase, costModel, hasSupplierSelection, evidence, approval, auditLogs } = detail;
+  const { productCase, costModel, hasSupplierSelection, evidence, auditLogs } = detail;
   const result = costModel?.results;
   const score = result
     ? opportunityScore(result, productCase.monthly_sales_estimate, productCase.review_count, productCase.evidence_score)
@@ -31,7 +31,7 @@ export default async function CaseDetailPage({ params }: PageProps) {
 
   return (
     <div className="page">
-      <div className="breadcrumb"><Link href="/">商品机会</Link> / {productCase.asin}</div>
+      <div className="breadcrumb"><Link href="/">AI 选品</Link> / {productCase.asin}</div>
 
       <div className="title-row">
         <div>
@@ -166,26 +166,13 @@ export default async function CaseDetailPage({ params }: PageProps) {
 
         <aside className="stack">
           <section className="action-card">
-            <div className="eyebrow" style={{ color: "var(--lime)" }}>Human approval</div>
-            <h2>立项审批</h2>
-            <p>审批不会自动创建供应商或 Listing。它只确认该候选品可以进入下一阶段，并向审计日志写入决策人和意见。</p>
-            <div style={{ marginBottom: 16 }}><DecisionBadge value={approval?.status === "pending" ? null : approval?.decision ?? null} /></div>
-            {approval?.reviewer ? <p>审批人：{approval.reviewer}<br />意见：{approval.notes || "无"}</p> : null}
-            <form action={decideCaseAction} className="stack">
-              <input type="hidden" name="caseId" value={productCase.id} />
-              <div className="field">
-                <label htmlFor="reviewer">审批人</label>
-                <input id="reviewer" name="reviewer" type="text" placeholder="输入姓名" required />
-              </div>
-              <div className="field">
-                <label htmlFor="notes">审批意见</label>
-                <textarea id="notes" name="notes" placeholder="记录关键假设、待补充证据或否决原因" />
-              </div>
-              <div className="button-row">
-                <button className="button primary" type="submit" name="decision" value="approved">批准立项</button>
-                <button className="button danger" type="submit" name="decision" value="rejected">否决</button>
-              </div>
-            </form>
+            <div className="eyebrow" style={{ color: "var(--lime)" }}>Next action</div>
+            <h2>下一步</h2>
+            <p>候选品已直接进入立项，不再经过人工确认。先补齐真实证据和供应商报价，再根据确定性门禁决定是否继续备货。</p>
+            <div className="button-row">
+              <Link href={`/cases/${productCase.id}/sourcing`} className="button primary">进入供应商询价 →</Link>
+              <Link href="/ai-sourcing" className="button secondary">查看选品证据</Link>
+            </div>
           </section>
 
           <section className="section">
@@ -221,11 +208,11 @@ export default async function CaseDetailPage({ params }: PageProps) {
 
 function auditLabel(action: string) {
   const labels: Record<string, string> = {
-    "case.seeded": "创建演示商品机会",
+    "case.seeded": "创建演示商品",
     "case.imported": "导入候选品并生成成本模型",
     "cost_model.created": "保存新的成本模型版本",
-    "case.approved": "批准商品立项",
-    "case.rejected": "否决商品立项",
+    "case.approved": "已进入商品立项（历史记录）",
+    "case.rejected": "已归档历史商品记录",
   };
   return labels[action] ?? action;
 }

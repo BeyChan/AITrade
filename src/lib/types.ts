@@ -4,7 +4,6 @@ import type { LaunchReadinessResult } from "./launch-readiness";
 import type { ScoredSupplierQuote } from "./sourcing";
 
 export type CaseStatus = "draft" | "researching" | "review_pending" | "approved" | "rejected" | "archived";
-export type Decision = "approved" | "rejected";
 
 export type ProductCaseRow = {
   id: string;
@@ -60,18 +59,6 @@ export type EvidenceRow = {
   captured_at: string;
 };
 
-export type ApprovalRow = {
-  id: string;
-  case_id: string;
-  gate: string;
-  status: "pending" | "approved" | "rejected" | "cancelled";
-  decision: string | null;
-  reviewer: string | null;
-  notes: string;
-  created_at: string;
-  decided_at: string | null;
-};
-
 export type AuditRow = {
   id: string;
   actor: string;
@@ -86,7 +73,6 @@ export type EnrichedCase = ProductCaseRow & {
   costModel: CostModelRow | null;
   opportunityScore: number;
   recommendation: "GO" | "HOLD" | "NO-GO";
-  pendingApprovalId: string | null;
 };
 
 export type CaseDetail = {
@@ -94,7 +80,6 @@ export type CaseDetail = {
   costModel: CostModelRow | null;
   hasSupplierSelection: boolean;
   evidence: EvidenceRow[];
-  approval: ApprovalRow | null;
   auditLogs: AuditRow[];
 };
 

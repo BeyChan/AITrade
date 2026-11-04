@@ -85,16 +85,11 @@ test("ingestion is traceable, guarded and idempotent", async () => {
   assert.equal(updatedSupplier.updated, 1);
   assert.equal(updatedSupplier.snapshots, 1);
 
-  const beforeApproval = await importQuotesCsv(quoteCsv, { fileName: "quotes.csv" });
-  assert.equal(beforeApproval.errors, 1);
-  assert.equal(beforeApproval.status, "partial");
-  assert.match(beforeApproval.warnings[0], /尚未立项/);
-
-  const product = await db.query<{ id: string }>(
-    "SELECT id FROM product_cases WHERE asin = 'B0INGEST001' AND marketplace = 'US'",
+  const product = await db.query<{ id: string; status: string }>(
+    "SELECT id, status FROM product_cases WHERE asin = 'B0INGEST001' AND marketplace = 'US'",
   );
   assert.ok(product.rows[0]?.id);
-  await db.query("UPDATE product_cases SET status = 'approved' WHERE id = $1", [product.rows[0].id]);
+  assert.equal(product.rows[0]?.status, "approved");
 
   const firstQuote = await importQuotesCsv(quoteCsv, { fileName: "quotes.csv" });
   assert.equal(firstQuote.imported, 1);

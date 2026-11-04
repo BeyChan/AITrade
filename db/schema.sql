@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS product_cases (
   category TEXT NOT NULL DEFAULT '未分类',
   title TEXT NOT NULL,
   url TEXT,
-  status TEXT NOT NULL DEFAULT 'review_pending'
+  status TEXT NOT NULL DEFAULT 'approved'
     CHECK (status IN ('draft', 'researching', 'review_pending', 'approved', 'rejected', 'archived')),
   competitor_price_cents INTEGER NOT NULL CHECK (competitor_price_cents > 0),
   monthly_sales_estimate INTEGER NOT NULL DEFAULT 0,
@@ -56,6 +56,13 @@ CREATE TABLE IF NOT EXISTS approvals (
   notes TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   decided_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_by TEXT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS audit_logs (
@@ -780,3 +787,189 @@ CREATE TABLE IF NOT EXISTS connector_api_calls (
 
 CREATE INDEX IF NOT EXISTS idx_connector_api_calls_job
   ON connector_api_calls(job_id, created_at ASC);
+
+-- P1.3 AI sourcing research room. This layer keeps generated hypotheses separate
+-- from verified market evidence and the existing approved-case sourcing flow.
+CREATE TABLE IF NOT EXISTS sourcing_briefs (
+  id TEXT PRIMARY KEY,
+  market_code TEXT NOT NULL REFERENCES markets(code),
+  platform_code TEXT NOT NULL REFERENCES platforms(code),
+  category TEXT NOT NULL,
+  brief TEXT NOT NULL,
+  currency TEXT NOT NULL,
+  fx_rate_to_usd NUMERIC(14, 6),
+  fx_source_url TEXT,
+  created_by TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS ai_sourcing_runs (
+  id TEXT PRIMARY KEY,
+  brief_id TEXT NOT NULL REFERENCES sourcing_briefs(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'completed'
+    CHECK (status IN ('running', 'completed', 'failed')),
+  response_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+  error_message TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  completed_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS opportunity_hypotheses (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES ai_sourcing_runs(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL,
+  concept TEXT NOT NULL,
+  target_user TEXT NOT NULL,
+  pain_point TEXT NOT NULL,
+  differentiator TEXT NOT NULL,
+  recommended_price_cents INTEGER NOT NULL CHECK (recommended_price_cents > 0),
+  expected_margin_rate NUMERIC(6, 4) NOT NULL,
+  first_order_budget_cents INTEGER NOT NULL CHECK (first_order_budget_cents >= 0),
+  main_risks JSONB NOT NULL DEFAULT '[]'::jsonb,
+  supplier_keywords JSONB NOT NULL DEFAULT '[]'::jsonb,
+  competitor_queries JSONB NOT NULL DEFAULT '[]'::jsonb,
+  review_queries JSONB NOT NULL DEFAULT '[]'::jsonb,
+  priority_score INTEGER NOT NULL CHECK (priority_score BETWEEN 0 AND 100),
+  selected_for_validation BOOLEAN NOT NULL DEFAULT FALSE,
+  product_case_id TEXT REFERENCES product_cases(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (run_id, position)
+);
+
+CREATE TABLE IF NOT EXISTS opportunity_evidence (
+  id TEXT PRIMARY KEY,
+  hypothesis_id TEXT NOT NULL REFERENCES opportunity_hypotheses(id) ON DELETE CASCADE,
+  evidence_type TEXT NOT NULL,
+  source_type TEXT NOT NULL,
+  source_url TEXT NOT NULL,
+  title TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  observed_at TIMESTAMPTZ NOT NULL,
+  raw_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+  confidence NUMERIC(4, 3) NOT NULL DEFAULT 0.800,
+  created_by TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS competitor_snapshots (
+  id TEXT PRIMARY KEY,
+  hypothesis_id TEXT NOT NULL REFERENCES opportunity_hypotheses(id) ON DELETE CASCADE,
+  evidence_id TEXT NOT NULL REFERENCES opportunity_evidence(id) ON DELETE CASCADE,
+  asin TEXT,
+  title TEXT NOT NULL,
+  source_url TEXT NOT NULL,
+  price_cents INTEGER NOT NULL CHECK (price_cents > 0),
+  rating NUMERIC(3, 2),
+  review_count INTEGER NOT NULL DEFAULT 0 CHECK (review_count >= 0),
+  bsr INTEGER,
+  monthly_sales_min INTEGER,
+  monthly_sales_max INTEGER,
+  seller_count INTEGER,
+  variation_count INTEGER,
+  observed_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS review_insights (
+  id TEXT PRIMARY KEY,
+  hypothesis_id TEXT NOT NULL REFERENCES opportunity_hypotheses(id) ON DELETE CASCADE,
+  competitor_snapshot_id TEXT REFERENCES competitor_snapshots(id) ON DELETE SET NULL,
+  evidence_id TEXT NOT NULL REFERENCES opportunity_evidence(id) ON DELETE CASCADE,
+  theme TEXT NOT NULL,
+  sentiment TEXT NOT NULL DEFAULT 'negative'
+    CHECK (sentiment IN ('negative', 'neutral', 'positive')),
+  sample_size INTEGER NOT NULL DEFAULT 1 CHECK (sample_size > 0),
+  representative_quote TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS supplier_shortlists (
+  id TEXT PRIMARY KEY,
+  hypothesis_id TEXT NOT NULL REFERENCES opportunity_hypotheses(id) ON DELETE CASCADE,
+  supplier_name TEXT NOT NULL,
+  platform TEXT NOT NULL DEFAULT '1688',
+  supplier_url TEXT NOT NULL,
+  contact TEXT,
+  country TEXT,
+  product_match TEXT NOT NULL DEFAULT '',
+  source_type TEXT NOT NULL DEFAULT 'manual_verified',
+  observed_at TIMESTAMPTZ NOT NULL,
+  created_by TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS sourcing_supplier_quotes (
+  id TEXT PRIMARY KEY,
+  hypothesis_id TEXT NOT NULL REFERENCES opportunity_hypotheses(id) ON DELETE CASCADE,
+  supplier_shortlist_id TEXT NOT NULL REFERENCES supplier_shortlists(id) ON DELETE CASCADE,
+  unit_price_cents INTEGER NOT NULL CHECK (unit_price_cents > 0),
+  freight_per_unit_cents INTEGER NOT NULL DEFAULT 0 CHECK (freight_per_unit_cents >= 0),
+  duty_rate NUMERIC(6, 4) NOT NULL DEFAULT 0 CHECK (duty_rate >= 0 AND duty_rate <= 1),
+  landed_cost_cents INTEGER NOT NULL CHECK (landed_cost_cents > 0),
+  currency TEXT NOT NULL,
+  moq INTEGER NOT NULL CHECK (moq > 0),
+  lead_time_days INTEGER NOT NULL CHECK (lead_time_days > 0),
+  sample_score INTEGER CHECK (sample_score BETWEEN 0 AND 100),
+  sample_fee_cents INTEGER NOT NULL DEFAULT 0 CHECK (sample_fee_cents >= 0),
+  certifications TEXT NOT NULL DEFAULT '',
+  payment_terms TEXT NOT NULL DEFAULT '',
+  incoterm TEXT NOT NULL DEFAULT '',
+  quote_url TEXT NOT NULL,
+  observed_at TIMESTAMPTZ NOT NULL,
+  created_by TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS validation_tasks (
+  id TEXT PRIMARY KEY,
+  hypothesis_id TEXT NOT NULL REFERENCES opportunity_hypotheses(id) ON DELETE CASCADE,
+  task_type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  target_count INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'todo'
+    CHECK (status IN ('todo', 'in_progress', 'done', 'blocked')),
+  owner TEXT NOT NULL DEFAULT '未分配',
+  due_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (hypothesis_id, task_type)
+);
+
+CREATE TABLE IF NOT EXISTS selection_decisions (
+  id TEXT PRIMARY KEY,
+  hypothesis_id TEXT NOT NULL UNIQUE REFERENCES opportunity_hypotheses(id) ON DELETE CASCADE,
+  decision TEXT NOT NULL CHECK (decision IN ('GO', 'HOLD', 'NO-GO')),
+  decision_score INTEGER NOT NULL CHECK (decision_score BETWEEN 0 AND 100),
+  opportunity_score INTEGER NOT NULL CHECK (opportunity_score BETWEEN 0 AND 100),
+  evidence_completeness INTEGER NOT NULL CHECK (evidence_completeness BETWEEN 0 AND 100),
+  landed_cost_cents INTEGER,
+  landed_cost_usd_cents INTEGER,
+  margin_rate NUMERIC(8, 6),
+  stress_margin_rate NUMERIC(8, 6),
+  best_quote_id TEXT REFERENCES sourcing_supplier_quotes(id) ON DELETE SET NULL,
+  gates JSONB NOT NULL DEFAULT '[]'::jsonb,
+  blockers JSONB NOT NULL DEFAULT '[]'::jsonb,
+  metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
+  evaluated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sourcing_briefs_site ON sourcing_briefs(market_code, platform_code, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_sourcing_runs_brief ON ai_sourcing_runs(brief_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_opportunity_hypotheses_run ON opportunity_hypotheses(run_id, position);
+CREATE INDEX IF NOT EXISTS idx_opportunity_evidence_hypothesis ON opportunity_evidence(hypothesis_id, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_competitor_snapshots_hypothesis ON competitor_snapshots(hypothesis_id, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_review_insights_hypothesis ON review_insights(hypothesis_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_supplier_shortlists_hypothesis ON supplier_shortlists(hypothesis_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sourcing_supplier_quotes_hypothesis ON sourcing_supplier_quotes(hypothesis_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_validation_tasks_hypothesis ON validation_tasks(hypothesis_id, status, created_at);
+
+-- Item selection no longer uses a human approval queue. Keep the legacy status
+-- in the CHECK constraint for historical rows, but migrate every pending item
+-- into the actionable state idempotently on startup.
+UPDATE product_cases
+SET status = 'approved',
+    updated_at = NOW()
+WHERE status = 'review_pending';

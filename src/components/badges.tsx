@@ -18,6 +18,6 @@ export function RecommendationBadge({ value }: { value: "GO" | "HOLD" | "NO-GO" 
 }
 
 export function DecisionBadge({ value }: { value: string | null }) {
-  if (!value) return <span className="badge badge-neutral">待审批</span>;
+  if (!value) return <span className="badge badge-neutral">待验证</span>;
   return <span className={`badge ${value === "approved" ? "badge-success" : "badge-danger"}`}>{value === "approved" ? "通过" : "否决"}</span>;
 }

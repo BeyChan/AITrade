@@ -42,7 +42,7 @@ export default async function ChannelTargetPage({ params, searchParams }: PagePr
   return (
     <div className="page">
       <div className="breadcrumb">
-        <Link href="/">商品机会</Link> / <Link href={`/cases/${id}`}>{contentDetail?.productCase.asin ?? id}</Link> / <Link href={`/cases/${id}/channels`}>上市矩阵</Link> / {target.market.code} × {target.platform.name}
+        <Link href="/">AI 选品</Link> / <Link href={`/cases/${id}`}>{contentDetail?.productCase.asin ?? id}</Link> / <Link href={`/cases/${id}/channels`}>上市矩阵</Link> / {target.market.code} × {target.platform.name}
       </div>
 
       <div className="title-row">
@@ -55,7 +55,7 @@ export default async function ChannelTargetPage({ params, searchParams }: PagePr
             <span className={`badge ${target.account.status === "connected" ? "badge-success" : "status-review_pending"}`}>
               店铺 {target.account.status}
             </span>
-            {latest ? <span className={`badge ${approved ? "badge-success" : "status-researching"}`}>Listing v{latest.version} · {approved ? "内容已批准" : "草稿"}</span> : null}
+            {latest ? <span className={`badge ${approved ? "badge-success" : "status-researching"}`}>Listing v{latest.version} · {approved ? "内容已确认" : "草稿"}</span> : null}
             <span className={`badge ${launchStatusClass(launch.status)}`}>发布准备 · {launch.label}</span>
           </div>
         </div>
@@ -70,7 +70,7 @@ export default async function ChannelTargetPage({ params, searchParams }: PagePr
 
       <div className="notice warn">
         <span className="badge status-review_pending">NO EXTERNAL ACTION</span>
-        <span><strong>{profile.connectionLabel}。</strong> 页面中的 payload 只是本地映射预览；content_approved 不等于 published，发布队列审批也不等于平台发布，external ID 保持为空。</span>
+        <span><strong>{profile.connectionLabel}。</strong> 页面中的 payload 只是本地映射预览；content_approved 不等于 published，发布队列确认也不等于平台发布，external ID 保持为空。</span>
       </div>
 
       <div className="detail-grid">
@@ -183,7 +183,7 @@ export default async function ChannelTargetPage({ params, searchParams }: PagePr
             <div className="section-header">
               <div>
                 <h2>4. 发布准备检查</h2>
-                <p>按当前渠道版本重新计算门禁。本地预检、内容批准、主图、正式店铺、官方写 Adapter 和真实 dry-run 分开判断。</p>
+                <p>按当前渠道版本重新计算门禁。本地预检、内容确认、主图、正式店铺、官方写 Adapter 和真实 dry-run 分开判断。</p>
               </div>
               <span className={`badge ${launchStatusClass(launch.status)}`}>{launch.label}</span>
             </div>
@@ -208,7 +208,7 @@ export default async function ChannelTargetPage({ params, searchParams }: PagePr
             </div>
             <div className={launch.blockers.length ? "action-warning" : "empty-inline success"} style={{ marginTop: 14 }}>
               {launch.blockers.length
-                ? `剩余阻断项：${launch.blockers.map((blocker) => blocker.label).join("、")}。当前不能记录发布队列审批。`
+                ? `剩余阻断项：${launch.blockers.map((blocker) => blocker.label).join("、")}。当前不能记录发布队列确认。`
                 : "所有发布准备检查均已通过；仍需单独执行平台写入并保存外部回执。"}
             </div>
           </section>
@@ -223,14 +223,14 @@ export default async function ChannelTargetPage({ params, searchParams }: PagePr
             {target.versions.length ? (
               <div className="table-wrap">
                 <table>
-                  <thead><tr><th>版本</th><th>状态</th><th>预检</th><th>审核人</th><th>创建时间</th></tr></thead>
+                  <thead><tr><th>版本</th><th>状态</th><th>预检</th><th>检查人</th><th>创建时间</th></tr></thead>
                   <tbody>
                     {target.versions.map((version) => {
                       const result = version.preflight_result as Partial<ListingPreflightResult>;
                       return (
                         <tr key={version.id}>
                           <td><strong>v{version.version}</strong></td>
-                          <td><span className={`badge ${version.status === "content_approved" ? "badge-success" : "status-researching"}`}>{version.status === "content_approved" ? "内容已批准" : "草稿"}</span></td>
+                          <td><span className={`badge ${version.status === "content_approved" ? "badge-success" : "status-researching"}`}>{version.status === "content_approved" ? "内容已确认" : "草稿"}</span></td>
                           <td>{result.score ?? "—"} 分 · {result.errorCount ?? 0} 错误</td>
                           <td>{version.approved_by ?? "—"}</td>
                           <td>{shortDate(version.created_at)}</td>
@@ -246,22 +246,22 @@ export default async function ChannelTargetPage({ params, searchParams }: PagePr
           <section className="section">
             <div className="section-header">
               <div>
-                <h2>发布队列审批记录</h2>
-                <p>审批只针对具体 channel version；不会复用旧版本记录，也不会调用平台接口。</p>
+                <h2>发布队列确认记录</h2>
+                <p>确认只针对具体 channel version；不会复用旧版本记录，也不会调用平台接口。</p>
               </div>
               <span className="badge badge-neutral">{target.launchReviews.length} 条</span>
             </div>
             {target.launchReviews.length ? (
               <div className="table-wrap">
                 <table>
-                  <thead><tr><th>版本</th><th>结论</th><th>检查状态</th><th>审批人</th><th>外部动作</th><th>时间</th></tr></thead>
+                  <thead><tr><th>版本</th><th>结论</th><th>检查状态</th><th>确认人</th><th>外部动作</th><th>时间</th></tr></thead>
                   <tbody>
                     {target.launchReviews.map((review) => {
                       const reviewedVersion = target.versions.find((version) => version.id === review.channel_version_id);
                       return (
                         <tr key={review.id}>
                           <td><strong>v{reviewedVersion?.version ?? "—"}</strong></td>
-                          <td><span className="badge badge-success">{review.decision === "approved" ? "批准进入队列" : "已否决"}</span></td>
+                          <td><span className="badge badge-success">{review.decision === "approved" ? "确认进入队列" : "已否决"}</span></td>
                           <td>{review.readiness_status} · {review.blocker_count} 阻断</td>
                           <td>{review.reviewer}</td>
                           <td>{review.external_actions} · published={String(review.published)}</td>
@@ -272,44 +272,44 @@ export default async function ChannelTargetPage({ params, searchParams }: PagePr
                   </tbody>
                 </table>
               </div>
-            ) : <p className="muted">尚无发布队列审批记录。</p>}
+            ) : <p className="muted">尚无发布队列确认记录。</p>}
           </section>
         </div>
 
         <aside className="stack">
           <section className={approved ? "action-card" : "action-card"}>
             <div className="eyebrow" style={{ color: "var(--lime)" }}>Human content gate</div>
-            <h2>{approved ? "该版本已内容批准" : "人工批准本地内容"}</h2>
+            <h2>{approved ? "该版本已内容确认" : "人工确认本地内容"}</h2>
             {approved ? (
               <>
-                <p>v{latest?.version} 已通过人工内容审核。该状态仅表示内部内容门禁完成；发布准备、平台 dry-run 和外部写入仍需单独通过。</p>
+                <p>v{latest?.version} 已通过人工内容检查。该状态仅表示内部内容门禁完成；发布准备、平台 dry-run 和外部写入仍需单独通过。</p>
                 <div className="selection-side-meta">
-                  <span>审核人</span><strong>{latest?.approved_by ?? "—"}</strong>
-                  <span>审核时间</span><strong>{latest?.approved_at ? shortDate(latest.approved_at) : "—"}</strong>
+                  <span>检查人</span><strong>{latest?.approved_by ?? "—"}</strong>
+                  <span>检查时间</span><strong>{latest?.approved_at ? shortDate(latest.approved_at) : "—"}</strong>
                   <span>预检分</span><strong>{preflight?.score ?? "—"}</strong>
                 </div>
                 <Link href={`/cases/${id}/channels`} className="button primary" style={{ width: "100%", marginTop: 16 }}>返回上市矩阵</Link>
               </>
             ) : (
               <>
-                <p>批准要求本地预检通过、至少一张主图通过人工检查，并填写声明核验依据。系统不会调用平台接口。</p>
+                <p>确认要求本地预检通过、至少一张主图通过人工检查，并填写声明核验依据。系统不会调用平台接口。</p>
                 <form action={approveChannelListingAction} className="stack">
                   <input type="hidden" name="caseId" value={id} />
                   <input type="hidden" name="channelListingId" value={channelListingId} />
                   <div className="field">
-                    <label htmlFor="reviewer">审核人</label>
+                    <label htmlFor="reviewer">检查人</label>
                     <input id="reviewer" name="reviewer" required disabled={!canApprove} />
                   </div>
                   <div className="field">
-                    <label htmlFor="notes">审核说明</label>
+                    <label htmlFor="notes">检查说明</label>
                     <textarea id="notes" name="notes" required disabled={!canApprove} placeholder="记录品牌、商标、认证、图片授权和当地合规依据。" />
                   </div>
                   {!canApprove ? (
                     <div className="action-warning">
-                      {!latest ? "先保存 Listing 版本。" : !preflight?.passed ? "预检未通过，请修正后保存新版本。" : !approvedImages.length ? "请先在内容工作台通过主图人工检查。" : "当前版本不可重复批准。"}
+                      {!latest ? "先保存 Listing 版本。" : !preflight?.passed ? "预检未通过，请修正后保存新版本。" : !approvedImages.length ? "请先在内容工作台通过主图人工检查。" : "当前版本不可重复确认。"}
                     </div>
                   ) : null}
-                  <button className="button primary" type="submit" disabled={!canApprove}>确认内容批准</button>
+                  <button className="button primary" type="submit" disabled={!canApprove}>确认内容</button>
                 </form>
               </>
             )}
@@ -339,26 +339,26 @@ export default async function ChannelTargetPage({ params, searchParams }: PagePr
 
             {launch.status === "approved_for_publish" ? (
               <div className="empty-inline success">
-                当前版本已人工批准进入内部发布队列；仍未调用平台，published=false。
+                当前版本已人工确认进入内部发布队列；仍未调用平台，published=false。
               </div>
             ) : (
               <form action={approveChannelLaunchQueueAction} className="stack">
                 <input type="hidden" name="caseId" value={id} />
                 <input type="hidden" name="channelListingId" value={channelListingId} />
                 <div className="field">
-                  <label htmlFor="launch-reviewer">发布队列审批人</label>
+                  <label htmlFor="launch-reviewer">发布队列确认人</label>
                   <input id="launch-reviewer" name="reviewer" required disabled={!canApproveLaunch} />
                 </div>
                 <div className="field">
-                  <label htmlFor="launch-notes">审批说明</label>
+                  <label htmlFor="launch-notes">确认说明</label>
                   <textarea id="launch-notes" name="notes" required disabled={!canApproveLaunch} placeholder="记录 dry-run 回执、平台类目、价格库存和放量范围。" />
                 </div>
                 {!canApproveLaunch ? (
                   <div className="action-warning">
-                    {launch.blockers[0]?.detail ?? "当前状态不允许记录发布队列审批。"} 当前不会调用任何平台 API。
+                    {launch.blockers[0]?.detail ?? "当前状态不允许记录发布队列确认。"} 当前不会调用任何平台 API。
                   </div>
                 ) : null}
-                <button className="button primary" type="submit" disabled={!canApproveLaunch}>批准进入内部发布队列</button>
+                <button className="button primary" type="submit" disabled={!canApproveLaunch}>确认进入内部发布队列</button>
               </form>
             )}
           </section>
@@ -386,10 +386,10 @@ export default async function ChannelTargetPage({ params, searchParams }: PagePr
             <div className="gate-list">
               <div className="done"><span>✓</span>字段映射与本地预览</div>
               <div className={preflight?.passed ? "done" : ""}><span>{preflight?.passed ? "✓" : "2"}</span>本地预检</div>
-              <div className={approved ? "done" : ""}><span>{approved ? "✓" : "3"}</span>人工内容批准</div>
+              <div className={approved ? "done" : ""}><span>{approved ? "✓" : "3"}</span>人工内容确认</div>
               <div className={launchCheckClass(launch.checks.find((check) => check.code === "VERSION_LAUNCH_APPROVAL")?.state ?? "pending")}>
                 <span>{launchCheckIcon(launch.checks.find((check) => check.code === "VERSION_LAUNCH_APPROVAL")?.state ?? "pending")}</span>
-                当前版本发布队列审批
+                当前版本发布队列确认
               </div>
               <div className="unsupported"><span>×</span>真实平台 dry-run / 外部写入未开放</div>
             </div>
@@ -425,11 +425,11 @@ function auditLabel(action: string) {
   const labels: Record<string, string> = {
     "channel.target_created": "创建渠道目标",
     "channel.listing_version_saved": "保存渠道版本并预检",
-    "channel.content_approved": "人工批准渠道内容",
+    "channel.content_approved": "人工确认渠道内容",
     "channel.launch_readiness_checked": "运行发布准备检查",
-    "channel.launch_queue_approved": "批准进入内部发布队列",
+    "channel.launch_queue_approved": "确认进入内部发布队列",
     "listing.draft_saved": "保存 Amazon 本地版本并预检",
-    "listing.content_approved": "人工批准 Amazon 本地内容",
+    "listing.content_approved": "人工确认 Amazon 本地内容",
   };
   return labels[action] ?? action;
 }

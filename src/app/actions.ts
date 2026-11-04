@@ -3,6 +3,16 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { EconomicsAssumptions } from "@/lib/economics";
+import { clearStoredAIProviderKey, saveAIProviderSettings } from "@/lib/app-settings";
+import { testAIProviderConnection } from "@/lib/ai-provider";
+import {
+  createAISourcingBatch,
+  promoteHypothesisToProductCase,
+  recordAISupplierQuote,
+  recordCompetitorEvidence,
+  recordOpportunityEvidence,
+  selectHypothesisForValidation,
+} from "@/lib/ai-sourcing-repository";
 import {
   approveChannelLaunchQueue,
   approveChannelListing,
@@ -12,7 +22,6 @@ import {
   createCostModelVersion,
   createListingDraft,
   createSupplierAndQuote,
-  decideCase,
   recordChannelLaunchReadinessCheck,
   reviewMainImageAsset,
   saveChannelListingVersion,
@@ -21,17 +30,167 @@ import {
 } from "@/lib/repository";
 import { deleteStoredImage, saveImageUpload } from "@/lib/storage";
 
-export async function decideCaseAction(formData: FormData) {
-  const caseId = String(formData.get("caseId") || "");
-  const decision = String(formData.get("decision") || "");
-  const reviewer = String(formData.get("reviewer") || "").trim();
-  const notes = String(formData.get("notes") || "").trim();
-  if (decision !== "approved" && decision !== "rejected") throw new Error("无效审批结论");
-  await decideCase(caseId, decision, reviewer, notes);
+export async function createAISourcingBatchAction(formData: FormData) {
+  const marketCode = String(formData.get("marketCode") || "").trim().toUpperCase();
+  const platformCode = String(formData.get("platformCode") || "").trim().toLowerCase();
+  const returnPath = `/?market=${encodeURIComponent(marketCode)}&platform=${encodeURIComponent(platformCode)}`;
+  try {
+    const outcome = await createAISourcingBatch({
+      marketCode,
+      platformCode,
+      category: String(formData.get("category") || ""),
+      brief: String(formData.get("brief") || ""),
+      actor: String(formData.get("actor") || ""),
+      fxRateToUsd: numberOrNull(formData.get("fxRateToUsd")),
+      fxSourceUrl: String(formData.get("fxSourceUrl") || "") || null,
+    });
+    revalidateAISourcing(outcome.runId);
+    redirect(`/ai-sourcing/${encodeURIComponent(outcome.runId)}?notice=${encodeURIComponent("已生成 5 个选品假设；下一步请用真实竞品、评论和供应商报价验证")}`);
+  } catch (error) {
+    redirect(`${returnPath}&error=${encodeURIComponent(errorMessage(error))}`);
+  }
+}
+
+export async function selectHypothesisAction(formData: FormData) {
+  const runId = String(formData.get("runId") || "");
+  const hypothesisId = String(formData.get("hypothesisId") || "");
+  try {
+    await selectHypothesisForValidation(hypothesisId, String(formData.get("actor") || ""));
+  } catch (error) {
+    redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
+  }
+  revalidateAISourcing(runId);
+  redirect(aiSourcingDetailPath(runId, "notice", "已加入验证并生成 8 项证据任务；系统不会自动联系供应商"));
+}
+
+export async function recordOpportunityEvidenceAction(formData: FormData) {
+  const runId = String(formData.get("runId") || "");
+  const hypothesisId = String(formData.get("hypothesisId") || "");
+  const requestedType = String(formData.get("evidenceType") || "review_insight");
+  const evidenceType = requestedType === "patent_check" || requestedType === "logistics_check"
+    ? requestedType
+    : "review_insight";
+  const requestedRisk = String(formData.get("riskLevel") || "review");
+  const riskLevel = requestedRisk === "clear" || requestedRisk === "found" ? requestedRisk : "review";
+  try {
+    await recordOpportunityEvidence({
+      hypothesisId,
+      evidenceType,
+      sourceType: String(formData.get("sourceType") || "manual_verified"),
+      sourceUrl: String(formData.get("sourceUrl") || ""),
+      title: String(formData.get("title") || ""),
+      summary: String(formData.get("summary") || ""),
+      observedAt: String(formData.get("observedAt") || ""),
+      reviewSampleSize: evidenceType === "review_insight" ? integerFrom(formData.get("reviewSampleSize")) : undefined,
+      representativeQuote: String(formData.get("representativeQuote") || ""),
+      sentiment: "negative",
+      riskLevel: evidenceType === "review_insight" ? undefined : riskLevel,
+      actor: String(formData.get("actor") || ""),
+    });
+  } catch (error) {
+    redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
+  }
+  revalidateAISourcing(runId);
+  redirect(aiSourcingDetailPath(runId, "notice", evidenceType === "review_insight" ? "差评证据已记录并重新计算门禁" : "风险证据已记录并重新计算门禁"));
+}
+
+export async function recordCompetitorAction(formData: FormData) {
+  const runId = String(formData.get("runId") || "");
+  const hypothesisId = String(formData.get("hypothesisId") || "");
+  const ratingValue = numberOrNull(formData.get("rating"));
+  try {
+    await recordCompetitorEvidence({
+      hypothesisId,
+      asin: String(formData.get("asin") || ""),
+      title: String(formData.get("title") || ""),
+      sourceUrl: String(formData.get("sourceUrl") || ""),
+      priceCents: dollarsToCents(formData.get("price")),
+      rating: ratingValue === null ? null : Math.min(5, Math.max(0, ratingValue)),
+      reviewCount: Math.max(0, integerFrom(formData.get("reviewCount"))),
+      bsr: positiveIntegerOrNull(formData.get("bsr")),
+      monthlySalesMin: positiveIntegerOrNull(formData.get("monthlySalesMin")),
+      monthlySalesMax: positiveIntegerOrNull(formData.get("monthlySalesMax")),
+      sellerCount: positiveIntegerOrNull(formData.get("sellerCount")),
+      variationCount: positiveIntegerOrNull(formData.get("variationCount")),
+      observedAt: String(formData.get("observedAt") || ""),
+      actor: String(formData.get("actor") || ""),
+    });
+  } catch (error) {
+    redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
+  }
+  revalidateAISourcing(runId);
+  redirect(aiSourcingDetailPath(runId, "notice", "真实竞品快照已记录并重新计算门禁"));
+}
+
+export async function recordAISupplierQuoteAction(formData: FormData) {
+  const runId = String(formData.get("runId") || "");
+  const hypothesisId = String(formData.get("hypothesisId") || "");
+  const score = numberOrNull(formData.get("sampleScore"));
+  try {
+    await recordAISupplierQuote({
+      hypothesisId,
+      supplierName: String(formData.get("supplierName") || ""),
+      supplierPlatform: String(formData.get("supplierPlatform") || ""),
+      supplierUrl: String(formData.get("supplierUrl") || ""),
+      contact: String(formData.get("contact") || ""),
+      country: String(formData.get("country") || ""),
+      productMatch: String(formData.get("productMatch") || ""),
+      unitPriceCents: dollarsToCents(formData.get("unitPrice")),
+      freightPerUnitCents: dollarsToCents(formData.get("freightPerUnit")),
+      dutyRate: percentToRate(formData.get("dutyRate")),
+      moq: integerFrom(formData.get("moq")),
+      leadTimeDays: integerFrom(formData.get("leadTimeDays")),
+      sampleScore: score === null ? null : Math.min(100, Math.max(0, score)),
+      sampleFeeCents: dollarsToCents(formData.get("sampleFee")),
+      certifications: String(formData.get("certifications") || ""),
+      paymentTerms: String(formData.get("paymentTerms") || ""),
+      incoterm: String(formData.get("incoterm") || ""),
+      quoteUrl: String(formData.get("quoteUrl") || ""),
+      observedAt: String(formData.get("observedAt") || ""),
+      actor: String(formData.get("actor") || ""),
+    });
+  } catch (error) {
+    redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
+  }
+  revalidateAISourcing(runId);
+  redirect(aiSourcingDetailPath(runId, "notice", "供应商真实报价已记录并重新计算到岸成本、利润和门禁"));
+}
+
+export async function promoteHypothesisAction(formData: FormData) {
+  const runId = String(formData.get("runId") || "");
+  const hypothesisId = String(formData.get("hypothesisId") || "");
+  try {
+    const outcome = await promoteHypothesisToProductCase(hypothesisId, String(formData.get("actor") || ""));
+    revalidateAISourcing(runId);
+    revalidatePath("/");
+    revalidatePath(`/cases/${outcome.caseId}`);
+    revalidatePath(`/cases/${outcome.caseId}/sourcing`);
+    redirect(`/cases/${encodeURIComponent(outcome.caseId)}/sourcing?notice=${encodeURIComponent("GO 机会已转入商品立项，全部真实报价已带入供应商比价与定标")}`);
+  } catch (error) {
+    redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
+  }
+}
+
+function revalidateAISourcing(runId: string) {
   revalidatePath("/");
-  revalidatePath("/approvals");
-  revalidatePath(`/cases/${caseId}`);
-  redirect(`/cases/${caseId}`);
+  revalidatePath("/ai-sourcing");
+  revalidatePath(`/ai-sourcing/${runId}`);
+}
+
+function aiSourcingDetailPath(runId: string, key: "notice" | "error", message: string) {
+  return `/ai-sourcing/${encodeURIComponent(runId)}?${key}=${encodeURIComponent(message)}`;
+}
+
+function numberOrNull(value: FormDataEntryValue | null) {
+  const raw = String(value ?? "").replace(/[$,%\s]/g, "");
+  if (!raw) return null;
+  const number = Number(raw);
+  return Number.isFinite(number) ? number : null;
+}
+
+function positiveIntegerOrNull(value: FormDataEntryValue | null) {
+  const number = integerFrom(value);
+  return number > 0 ? number : null;
 }
 
 export async function updateCostModelAction(formData: FormData) {
@@ -114,7 +273,6 @@ export async function selectSupplierQuoteAction(formData: FormData) {
     redirect(`/cases/${encodeURIComponent(caseId)}/sourcing?error=${encodeURIComponent(errorMessage(error))}`);
   }
   revalidatePath("/");
-  revalidatePath("/approvals");
   revalidatePath("/sourcing");
   revalidatePath(`/cases/${caseId}`);
   revalidatePath(`/cases/${caseId}/sourcing`);
@@ -223,7 +381,7 @@ export async function approveListingContentAction(formData: FormData) {
     redirect(`/cases/${encodeURIComponent(caseId)}/content?error=${encodeURIComponent(errorMessage(error))}`);
   }
   revalidateContent(caseId);
-  redirect(`/cases/${encodeURIComponent(caseId)}/content?notice=${encodeURIComponent("内容草稿已通过人工审核；系统不会自动发布到平台")}`);
+  redirect(`/cases/${encodeURIComponent(caseId)}/content?notice=${encodeURIComponent("内容草稿已通过人工检查；系统不会自动发布到平台")}`);
 }
 
 function revalidateContent(caseId: string) {
@@ -296,7 +454,7 @@ export async function approveChannelListingAction(formData: FormData) {
   revalidateChannels(caseId, channelListingId);
   redirect(
     `/cases/${encodeURIComponent(caseId)}/channels/${encodeURIComponent(channelListingId)}?notice=${encodeURIComponent(
-      "渠道内容已通过人工审核，仅限内部门禁；连接器未配置，平台未发布",
+      "渠道内容已通过人工检查，仅限内部门禁；连接器未配置，平台未发布",
     )}`,
   );
 }
@@ -335,14 +493,84 @@ export async function approveChannelLaunchQueueAction(formData: FormData) {
   revalidateChannels(caseId, channelListingId);
   redirect(
     `/cases/${encodeURIComponent(caseId)}/channels/${encodeURIComponent(channelListingId)}?notice=${encodeURIComponent(
-      "当前版本已人工批准进入内部发布队列；尚未调用平台，published=false",
+      "当前版本已人工确认进入内部发布队列；尚未调用平台，published=false",
     )}`,
   );
 }
 
+export async function saveAISettingsAction(formData: FormData) {
+  const actor = String(formData.get("actor") || "").trim() || "本机管理员";
+  const apiKey = String(formData.get("apiKey") || "").trim();
+  let failure: string | null = null;
+  let savedProvider = "";
+
+  try {
+    const saved = await saveAIProviderSettings({
+      provider: String(formData.get("provider") || "template"),
+      baseUrl: String(formData.get("baseUrl") || ""),
+      model: String(formData.get("model") || ""),
+      apiKey,
+      actor,
+    });
+    savedProvider = saved.provider;
+  } catch (error) {
+    failure = settingsErrorMessage(error, apiKey);
+  }
+
+  if (failure) redirect(`/settings?error=${encodeURIComponent(failure)}`);
+  revalidatePath("/");
+  revalidatePath("/settings");
+  redirect(`/settings?notice=${encodeURIComponent(`大模型设置已保存：${savedProvider}。API Key 未回显到页面。`)}`);
+}
+
+export async function testAISettingsAction(formData: FormData) {
+  const apiKey = String(formData.get("apiKey") || "").trim();
+  let failure: string | null = null;
+  let result: Awaited<ReturnType<typeof testAIProviderConnection>> | null = null;
+
+  try {
+    result = await testAIProviderConnection({
+      provider: String(formData.get("provider") || "template"),
+      baseUrl: String(formData.get("baseUrl") || ""),
+      model: String(formData.get("model") || ""),
+      apiKey,
+    });
+  } catch (error) {
+    failure = settingsErrorMessage(error, apiKey);
+  }
+
+  if (failure) redirect(`/settings?error=${encodeURIComponent(failure)}`);
+  if (!result) redirect(`/settings?error=${encodeURIComponent("连接测试没有返回结果")}`);
+  redirect(
+    `/settings?notice=${encodeURIComponent(
+      `${result.message} ${result.model} · ${result.latencyMs} ms。测试使用当前表单值，不保存配置。`,
+    )}`,
+  );
+}
+
+export async function clearAIProviderKeyAction(formData: FormData) {
+  const actor = String(formData.get("actor") || "").trim() || "本机管理员";
+  let failure: string | null = null;
+  try {
+    await clearStoredAIProviderKey(actor);
+  } catch (error) {
+    failure = settingsErrorMessage(error, "");
+  }
+
+  if (failure) redirect(`/settings?error=${encodeURIComponent(failure)}`);
+  revalidatePath("/");
+  revalidatePath("/settings");
+  redirect(`/settings?notice=${encodeURIComponent("已清除页面保存的 API Key；模型生成会自动回退模板模式。")}`);
+}
+
+function settingsErrorMessage(error: unknown, apiKey: string) {
+  let message = errorMessage(error);
+  if (apiKey) message = message.replaceAll(apiKey, "[REDACTED]");
+  return message.replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]").slice(0, 300);
+}
+
 function revalidateChannels(caseId: string, channelListingId?: string) {
   revalidatePath("/");
-  revalidatePath("/approvals");
   revalidatePath(`/cases/${caseId}`);
   revalidatePath(`/cases/${caseId}/content`);
   revalidatePath(`/cases/${caseId}/channels`);

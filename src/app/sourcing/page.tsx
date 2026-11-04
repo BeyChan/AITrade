@@ -19,7 +19,7 @@ export default async function SourcingPage() {
           <h1>供应商询价</h1>
           <p>已立项商品进入供应商报价阶段。系统统一计算到岸成本和综合分，推荐方案只作为建议；最终定标、定样、下单和付款必须由人确认。</p>
         </div>
-        <Link href="/approvals" className="button secondary">查看立项审批</Link>
+        <Link href="/#opportunities" className="button secondary">查看商品机会</Link>
       </section>
 
       <section className="metrics-grid">
@@ -54,8 +54,8 @@ export default async function SourcingPage() {
         <section className="panel">
           <div className="empty-state">
             <h3>还没有已立项商品</h3>
-            <p>先在商品机会中完成人工立项，项目才会进入供应商询价。</p>
-            <Link href="/approvals" className="button primary">前往审批中心</Link>
+            <p>先在 AI 选品工作台完成验证并转入商品立项，项目才会进入供应商询价。</p>
+            <Link href="/#opportunities" className="button primary">前往 AI 选品工作台</Link>
           </div>
         </section>
       ) : (

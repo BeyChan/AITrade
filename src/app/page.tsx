@@ -1,16 +1,19 @@
 import Link from "next/link";
+import { createAISourcingBatchAction } from "@/app/actions";
 import { RecommendationBadge, StatusBadge } from "@/components/badges";
-import { compactNumber, money, percent } from "@/lib/format";
-import { getDashboardStats, getSiteOptions, listCasesForSite } from "@/lib/repository";
+import { getAIProviderStatus } from "@/lib/ai-provider";
+import { getBatchSiteLabel, listAISourcingBatches } from "@/lib/ai-sourcing-repository";
+import { compactNumber, money, percent, shortDate } from "@/lib/format";
+import { getSiteOptions, listCasesForSite } from "@/lib/repository";
 
 export const dynamic = "force-dynamic";
 
 type PageProps = {
-  searchParams: Promise<{ market?: string; platform?: string }>;
+  searchParams: Promise<{ market?: string; platform?: string; notice?: string; error?: string }>;
 };
 
 export default async function DashboardPage({ searchParams }: PageProps) {
-  const [query, options, stats] = await Promise.all([searchParams, getSiteOptions(), getDashboardStats()]);
+  const [query, options] = await Promise.all([searchParams, getSiteOptions()]);
   const requestedMarket = query.market?.trim().toUpperCase();
   const requestedPlatform = query.platform?.trim().toLowerCase();
   const selectedMarket =
@@ -26,75 +29,192 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     throw new Error("缺少可用的国家或平台配置");
   }
 
-  const cases = await listCasesForSite(selectedMarket.code, selectedPlatform.code);
-  const margins = cases.flatMap((item) => (item.costModel ? [item.costModel.results.marginRate] : []));
-  const averageMargin = margins.length ? margins.reduce((sum, value) => sum + value, 0) / margins.length : 0;
-  const goCount = cases.filter((item) => item.recommendation === "GO").length;
-  const pendingCount = cases.filter((item) => item.pendingApprovalId !== null).length;
-  const demoCount = cases.filter((item) => item.is_demo).length;
+  const [cases, batches] = await Promise.all([
+    listCasesForSite(selectedMarket.code, selectedPlatform.code),
+    listAISourcingBatches(selectedMarket.code, selectedPlatform.code),
+  ]);
+  const provider = await getAIProviderStatus();
   const siteLabel = `${selectedMarket.name}站 · ${selectedPlatform.name}`;
+  const hypothesisCount = batches.reduce((sum, batch) => sum + batch.hypothesisCount, 0);
+  const selectedCount = batches.reduce((sum, batch) => sum + batch.selectedCount, 0);
+  const goCount = batches.reduce((sum, batch) => sum + batch.goCount, 0);
+  const demoCount = cases.filter((item) => item.is_demo).length;
+
   return (
-    <div className="page">
-      <section className="hero">
+    <div className="page ai-sourcing-page">
+      <section className="hero ai-sourcing-hero">
         <div className="hero-copy">
-          <div className="eyebrow">Opportunity workspace</div>
-          <h1>选对国家站点，<br />再判断商品机会。</h1>
+          <div className="eyebrow">AI sourcing · {siteLabel}</div>
+          <h1>AI 选品工作台</h1>
           <p>
-            候选品证据、单位经济模型、供应商定标和内容门禁集中在一个工作台。
-            在右上角切换国家与平台站点，机会列表、利润指标和后续 Listing 工作流都会从同一个站点上下文开始。
+            输入品类和研究条件，系统生成 5 个候选方向；再录入真实竞品、差评、供应商报价与风险结论，
+            按固定门槛得到 GO、HOLD 或 NO-GO。只有 GO 可以转商品立项。
           </p>
+          <div className="button-row ai-hero-actions">
+            <a href="#new-research" className="button primary">新建选品研究</a>
+            <a href="#research-history" className="button secondary">查看研究批次</a>
+            <Link href="/settings" className="button secondary">大模型设置</Link>
+          </div>
+        </div>
+        <div className="ai-provider-card">
+          <span className={`badge ${provider.configured ? "badge-success" : "badge-neutral"}`}>
+            {provider.provider === "template" ? "无需 Key" : provider.configured ? "已配置" : "自动回退模板"}
+          </span>
+          <strong>{provider.label}</strong>
+          <span>{provider.model}</span>
+          <p>{provider.detail}</p>
+          <Link href="/settings" className="text-link">配置模型与 API Key →</Link>
         </div>
       </section>
 
-      <section className="metrics-grid" aria-label="核心指标">
+      {query.notice ? <div className="notice"><strong>已完成：</strong>{query.notice}</div> : null}
+      {query.error ? <div className="notice warn"><strong>未完成：</strong>{query.error}</div> : null}
+
+      <section className="metrics-grid ai-metrics" aria-label="AI 选品概览">
         <article className="metric-card">
-          <div className="metric-label">候选商品</div>
-          <div className="metric-value">{cases.length}</div>
-          <div className="metric-note">当前站点范围{stats.total > cases.length ? ` · 工作台共 ${stats.total} 个` : ""}</div>
+          <div className="metric-label">机会方向</div>
+          <div className="metric-value">{hypothesisCount}</div>
+          <div className="metric-note">来自 {batches.length} 个当前站点研究批次</div>
         </article>
         <article className="metric-card">
-          <div className="metric-label">待立项审批</div>
-          <div className="metric-value">{pendingCount}</div>
-          <div className="metric-note">仅统计当前站点{siteLabel}的机会</div>
+          <div className="metric-label">已加入验证</div>
+          <div className="metric-value">{selectedCount}</div>
+          <div className="metric-note">正在补齐证据、供应商与报价</div>
         </article>
         <article className="metric-card">
-          <div className="metric-label">建议 GO</div>
+          <div className="metric-label">确定性 GO</div>
           <div className="metric-value">{goCount}</div>
-          <div className="metric-note">净利润和压力测试共同满足门槛</div>
+          <div className="metric-note">证据、利润、风险与现金门禁全部通过</div>
         </article>
         <article className="metric-card">
-          <div className="metric-label">平均净利率</div>
-          <div className="metric-value">{percent(averageMargin)}</div>
-          <div className="metric-note">按售价计算的预计净利率</div>
+          <div className="metric-label">已立项商品</div>
+          <div className="metric-value">{cases.length}</div>
+          <div className="metric-note">可继续供应商定标、内容和 Listing</div>
         </article>
+      </section>
+
+      <section className="panel" id="new-research">
+        <div className="panel-header">
+          <div>
+            <div className="eyebrow">New research</div>
+            <h2>为 {siteLabel} 新建选品研究</h2>
+            <p>模型只负责拆分可验证方向，不填写销量、评论、供应商或报价。所有市场事实由你录入，并保留来源、观察时间和录入人。</p>
+          </div>
+          <span className="info-pill">{selectedMarket.currency} 口径</span>
+        </div>
+        <form action={createAISourcingBatchAction} className="form-grid ai-research-form">
+          <input type="hidden" name="marketCode" value={selectedMarket.code} />
+          <input type="hidden" name="platformCode" value={selectedPlatform.code} />
+          <div className="field">
+            <label htmlFor="category">类目</label>
+            <input id="category" name="category" placeholder="例如：宠物清洁、家居收纳" required maxLength={80} />
+          </div>
+          <div className="field">
+            <label htmlFor="actor">创建人</label>
+            <input id="actor" name="actor" placeholder="例如：老板 / 采购" defaultValue="运营人员" maxLength={80} />
+          </div>
+          <div className="field full">
+            <label htmlFor="brief">研究条件</label>
+            <textarea
+              id="brief"
+              name="brief"
+              placeholder="写清目标用户、使用场景、价格带、首单预算和硬性限制。例如：面向长毛猫狗家庭，优先轻小件，首单预算 1 万人民币以内。"
+              required
+              minLength={3}
+              maxLength={1200}
+              rows={5}
+            />
+          </div>
+          {selectedMarket.currency !== "USD" ? (
+            <>
+              <div className="field">
+                <label htmlFor="fxRateToUsd">汇率（1 USD = ? {selectedMarket.currency}）</label>
+                <input id="fxRateToUsd" name="fxRateToUsd" type="number" min="0.000001" step="any" placeholder="例如：7.18" required />
+              </div>
+              <div className="field">
+                <label htmlFor="fxSourceUrl">汇率来源 URL</label>
+                <input id="fxSourceUrl" name="fxSourceUrl" type="url" placeholder="https://..." required />
+              </div>
+            </>
+          ) : null}
+          <div className="field full ai-form-footer">
+            <p className="muted">默认模板模式不需要模型 Key。生成后请先筛选方向，再逐项录入真实竞品、差评、专利、物流、供应商和报价证据。</p>
+            <button type="submit" className="button primary">生成 5 个候选方向</button>
+          </div>
+        </form>
+      </section>
+
+      <section className="panel ai-research-history" id="research-history">
+        <div className="panel-header">
+          <div>
+            <div className="eyebrow">Research pipeline</div>
+            <h2>{siteLabel}的研究批次</h2>
+            <p>打开批次继续补充证据、录入报价并查看确定性决策。研究批次与商品立项共用当前国家 × 平台范围。</p>
+          </div>
+        </div>
+        {batches.length === 0 ? (
+          <div className="empty-state">
+            <h3>还没有选品研究</h3>
+            <p>在上方填写类目和研究条件即可开始，不需要准备任何 Key。</p>
+            <div className="button-row" style={{ justifyContent: "center" }}>
+              <a href="#new-research" className="button primary">新建第一个研究</a>
+              <Link href="/data-sources" className="button secondary">查看数据源</Link>
+            </div>
+          </div>
+        ) : (
+          <div className="ai-batch-list">
+            {batches.map((batch) => (
+              <Link
+                href={`/ai-sourcing/${batch.id}?market=${encodeURIComponent(selectedMarket.code)}&platform=${encodeURIComponent(selectedPlatform.code)}`}
+                className="ai-batch-card"
+                key={batch.id}
+              >
+                <div className="ai-batch-main">
+                  <div className="button-row">
+                    <span className="badge badge-neutral">{batch.category}</span>
+                    <span className="badge badge-success">{batch.goCount} 个 GO</span>
+                  </div>
+                  <h3>{batch.brief}</h3>
+                  <p>{getBatchSiteLabel(batch)} · {shortDate(batch.createdAt)} · {batch.provider} / {batch.model}</p>
+                </div>
+                <div className="ai-batch-counts">
+                  <span><strong>{batch.hypothesisCount}</strong> 候选方向</span>
+                  <span><strong>{batch.selectedCount}</strong> 已加入验证</span>
+                  <span className="arrow-link">→</span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
       </section>
 
       {demoCount > 0 ? (
         <div className="notice">
           <span className="badge demo-badge">DEMO</span>
-          <span><strong>当前站点包含 {demoCount} 个演示机会。</strong> 它们只用于验证系统和计算逻辑，不代表真实市场结论；导入自己的 CSV 后可直接替换。</span>
+          <span><strong>当前站点包含 {demoCount} 个演示商品。</strong> 它们只用于验证系统和计算逻辑，不代表真实市场结论；导入自己的 CSV 后可直接替换。</span>
         </div>
       ) : null}
 
       <section className="panel" id="opportunities">
         <div className="panel-header">
           <div>
-            <div className="eyebrow">Current site opportunities</div>
-            <h2>{siteLabel}的商品机会</h2>
-            <p>只展示当前国家站点相关机会。机会分综合利润、需求、证据完整度和竞争强度，不替代人工判断。</p>
+            <div className="eyebrow">Promoted products</div>
+            <h2>{siteLabel}已立项商品</h2>
+            <p>这里只展示已完成立项的商品。选品分综合利润、需求、证据完整度和竞争强度，仍需人工复核。</p>
           </div>
           <div className="button-row">
-            <Link href={`/import?market=${encodeURIComponent(selectedMarket.code)}&platform=${encodeURIComponent(selectedPlatform.code)}`} className="button secondary">导入该站点候选品</Link>
-            <Link href="/approvals" className="button secondary">查看审批中心</Link>
+            <Link href={`/import?market=${encodeURIComponent(selectedMarket.code)}&platform=${encodeURIComponent(selectedPlatform.code)}`} className="button secondary">导入候选品</Link>
+            <Link href="/settings" className="button secondary">大模型设置</Link>
           </div>
         </div>
 
         {cases.length === 0 ? (
           <div className="empty-state">
-            <h3>{siteLabel}还没有候选商品</h3>
-            <p>可导入该站点的候选品；如果商品已在其他站点立项，也可进入商品详情，在渠道矩阵中新增当前国家 × 平台目标。</p>
+            <h3>{siteLabel}还没有已立项商品</h3>
+            <p>先在新研究中完成证据与报价验证；只有确定性 GO 才能转入商品立项。也可以导入已有候选品继续现有流程。</p>
             <div className="button-row" style={{ justifyContent: "center" }}>
-              <Link href={`/import?market=${encodeURIComponent(selectedMarket.code)}&platform=${encodeURIComponent(selectedPlatform.code)}`} className="button primary">导入候选品</Link>
+              <a href="#new-research" className="button primary">新建选品研究</a>
+              <Link href={`/import?market=${encodeURIComponent(selectedMarket.code)}&platform=${encodeURIComponent(selectedPlatform.code)}`} className="button secondary">导入候选品</Link>
               <Link href="/data-sources" className="button secondary">接入真实数据</Link>
             </div>
           </div>
@@ -104,7 +224,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
               <thead>
                 <tr>
                   <th>商品</th>
-                  <th>机会分</th>
+                  <th>选品分</th>
                   <th>单件净利</th>
                   <th>需求</th>
                   <th>建议</th>
@@ -157,7 +277,6 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           </div>
         )}
       </section>
-
     </div>
   );
 }

@@ -32,7 +32,7 @@ export default async function ConnectionsPage() {
 
   return (
     <div className="page">
-      <div className="breadcrumb"><Link href="/">商品机会</Link> / 连接中心</div>
+      <div className="breadcrumb"><Link href="/">AI 选品</Link> / 连接中心</div>
 
       <section className="hero connection-hero">
         <div>
@@ -72,7 +72,7 @@ export default async function ConnectionsPage() {
       <div className="notice source-notice">
         <span className="badge badge-success">CONNECTION GUARD</span>
         <span>
-          <strong>“验证通过”不等于“允许发布”。</strong> 当前只确认凭证和只读权限；Amazon、Shopify、eBay 的写 Adapter、平台 dry-run、发布审批和回执仍未实现。
+          <strong>“验证通过”不等于“允许发布”。</strong> 当前只确认凭证和只读权限；Amazon、Shopify、eBay 的写 Adapter、平台 dry-run、发布确认和回执仍未实现。
         </span>
       </div>
 
@@ -136,7 +136,7 @@ export default async function ConnectionsPage() {
           <span><b>01</b> 在官方开发者平台创建应用，完成店铺或卖家授权。</span>
           <span><b>02</b> 把凭证写入 `.env.local`，补齐区域、店铺域名或 API 版本等非敏感配置。</span>
           <span><b>03</b> 重启服务，在本页运行只读检查；失败时只检查 HTTP 状态、权限范围和官方后台。</span>
-          <span><b>04</b> 只读验证通过后，再实现平台 dry-run、人工发布审批和外部回执，不能跳步开放写动作。</span>
+          <span><b>04</b> 只读验证通过后，再实现平台 dry-run、人工发布确认和外部回执，不能跳步开放写动作。</span>
         </div>
       </section>
     </div>

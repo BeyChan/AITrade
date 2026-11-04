@@ -59,7 +59,7 @@ export default function ImportPage() {
 
   return (
     <div className="page page-narrow">
-      <div className="breadcrumb"><Link href="/">商品机会</Link> / 导入候选品</div>
+      <div className="breadcrumb"><Link href="/">AI 选品</Link> / 导入候选品</div>
       <section className="hero">
         <div>
           <div className="eyebrow">CSV intake · {site.market} × {site.platform}</div>
@@ -98,7 +98,7 @@ export default function ImportPage() {
             {result ? (
               <div className="result-box success">
                 导入完成：新增 {result.imported ?? 0} 个，更新 {result.updated ?? 0} 个，跳过重复 {result.skipped ?? 0} 个，保存快照 {result.snapshots ?? 0} 条。{" "}
-                <Link href={`/?market=${encodeURIComponent(site.market)}&platform=${encodeURIComponent(site.platform)}#opportunities`} style={{ fontWeight: 800, textDecoration: "underline" }}>查看 {site.market} 站点商品机会</Link>
+                <Link href={`/?market=${encodeURIComponent(site.market)}&platform=${encodeURIComponent(site.platform)}#opportunities`} style={{ fontWeight: 800, textDecoration: "underline" }}>查看 {site.market} 站点已立项商品</Link>
               </div>
             ) : null}
             {error ? <div className="result-box error">{error}</div> : null}
@@ -123,7 +123,7 @@ export default function ImportPage() {
           </section>
           <section className="card">
             <h3>导入护栏</h3>
-            <p>当前成本模型不盈利的候选品会被拒绝导入，避免把明显亏损的项目带入审批队列。</p>
+            <p>当前成本模型不盈利的候选品会被拒绝导入，避免把明显亏损的项目带入商品工作台。</p>
           </section>
         </aside>
       </div>

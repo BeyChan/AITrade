@@ -27,7 +27,7 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
   return (
     <div className="page">
       <div className="breadcrumb">
-        <Link href="/">商品机会</Link> / <Link href={`/cases/${productCase.id}`}>{productCase.asin}</Link> / 供应商询价
+        <Link href="/">AI 选品</Link> / <Link href={`/cases/${productCase.id}`}>{productCase.asin}</Link> / 供应商询价
       </div>
 
       <div className="title-row">
@@ -349,10 +349,10 @@ function ScoreBar({ label, value }: { label: string; value: number }) {
 
 function auditLabel(action: string) {
   const labels: Record<string, string> = {
-    "case.seeded": "创建演示商品机会",
+    "case.seeded": "创建演示商品",
     "case.imported": "导入候选品并生成成本模型",
     "cost_model.created": "保存新的成本模型版本",
-    "case.approved": "批准商品立项",
+    "case.approved": "确认商品立项",
     "case.rejected": "否决商品立项",
     "supplier.created": "创建供应商记录",
     "rfq.created": "创建询价记录",

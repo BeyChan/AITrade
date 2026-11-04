@@ -52,12 +52,13 @@ export function TopbarSiteScope({ markets, platforms }: TopbarSiteScopeProps) {
 }
 
 function getSectionLabel(pathname: string) {
-  if (pathname === "/") return "商品机会";
+  if (pathname === "/") return "AI 选品";
   if (pathname === "/import") return "导入数据";
   if (pathname.startsWith("/cases/")) return "商品工作台";
+  if (pathname === "/ai-sourcing" || pathname.startsWith("/ai-sourcing/")) return "AI 选品验证";
   if (pathname === "/sourcing") return "供应商询价";
   if (pathname === "/data-sources") return "数据源";
-  if (pathname === "/approvals") return "审批中心";
   if (pathname === "/connections") return "连接中心";
+  if (pathname === "/settings") return "系统设置";
   return "AITrade";
 }

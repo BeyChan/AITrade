@@ -26,7 +26,7 @@ export default async function ChannelMatrixPage({ params, searchParams }: PagePr
   return (
     <div className="page">
       <div className="breadcrumb">
-        <Link href="/">商品机会</Link> / <Link href={`/cases/${productCase.id}`}>{productCase.asin}</Link> / 上市矩阵
+        <Link href="/">AI 选品</Link> / <Link href={`/cases/${productCase.id}`}>{productCase.asin}</Link> / 上市矩阵
       </div>
 
       <div className="title-row">
@@ -78,7 +78,7 @@ export default async function ChannelMatrixPage({ params, searchParams }: PagePr
           <div className="metric-note">预检不是平台 dry-run</div>
         </article>
         <article className="metric-card">
-          <div className="metric-label">内容已批准</div>
+          <div className="metric-label">内容已确认</div>
           <div className="metric-value">{approvedTargets}</div>
           <div className="metric-note">仅内部门禁，未发布</div>
         </article>
@@ -128,7 +128,7 @@ export default async function ChannelMatrixPage({ params, searchParams }: PagePr
         <aside className="section channel-boundary-card">
           <div className="eyebrow">Connector boundary</div>
           <h3>什么是“已经上架”？</h3>
-          <p>本页不产生平台上架。只有真实连接店铺、平台 dry-run、发布审批和外部回执都完成后，才应出现 external ID。</p>
+          <p>本页不产生平台上架。只有真实连接店铺、平台 dry-run、发布确认和外部回执都完成后，才应出现 external ID。</p>
           <div className="gate-list">
             <div className="done"><span>✓</span>国家/市场版本独立</div>
             <div className="done"><span>✓</span>平台 payload 可预览</div>
@@ -189,7 +189,7 @@ export default async function ChannelMatrixPage({ params, searchParams }: PagePr
                         {version ? (
                           <>
                             <span className={`badge ${version.status === "content_approved" ? "badge-success" : "status-researching"}`}>v{version.version}</span>
-                            <div className="subvalue">{version.status === "content_approved" ? "内容已批准" : "草稿"} · 共 {target.versionCount} 版</div>
+                            <div className="subvalue">{version.status === "content_approved" ? "内容已确认" : "草稿"} · 共 {target.versionCount} 版</div>
                           </>
                         ) : <span className="badge badge-neutral">尚无版本</span>}
                       </td>
@@ -221,7 +221,7 @@ export default async function ChannelMatrixPage({ params, searchParams }: PagePr
         <div className="section-header">
           <div>
             <h2>渠道审计时间线</h2>
-            <p>目标创建、版本保存、人工批准全部记录 platform、market、version 和 externalActions=none。</p>
+            <p>目标创建、版本保存、人工确认全部记录 platform、market、version 和 externalActions=none。</p>
           </div>
         </div>
         {auditLogs.filter((entry) => String(entry.action).startsWith("channel.") || String(entry.action).startsWith("listing.")).length ? (
@@ -253,9 +253,9 @@ function auditLabel(action: string) {
   const labels: Record<string, string> = {
     "channel.target_created": "创建国家 × 平台目标",
     "channel.listing_version_saved": "保存渠道 Listing 版本并预检",
-    "channel.content_approved": "人工批准渠道内容",
+    "channel.content_approved": "人工确认渠道内容",
     "listing.draft_saved": "保存 Amazon 本地版本并预检",
-    "listing.content_approved": "人工批准 Amazon 本地内容",
+    "listing.content_approved": "人工确认 Amazon 本地内容",
   };
   return labels[action] ?? action;
 }

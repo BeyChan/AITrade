@@ -37,7 +37,7 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
   return (
     <div className="page">
       <div className="breadcrumb">
-        <Link href="/">商品机会</Link> / <Link href={`/cases/${productCase.id}`}>{productCase.asin}</Link> / <Link href={`/cases/${productCase.id}/channels`}>上市矩阵</Link> / 默认内容工作台
+        <Link href="/">AI 选品</Link> / <Link href={`/cases/${productCase.id}`}>{productCase.asin}</Link> / <Link href={`/cases/${productCase.id}/channels`}>上市矩阵</Link> / 默认内容工作台
       </div>
 
       <div className="title-row">
@@ -92,7 +92,7 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
               <span>当前成本模型</span><strong>{costModel ? `v${costModel.version}` : "—"}</strong>
               <span>到岸成本</span><strong>{costModel ? money(costModel.assumptions.landedCostCents) : "—"}</strong>
               <span>定标人</span><strong>{selection.selected_by}</strong>
-              <span>内容批准</span><strong>{contentApproved ? "已通过" : "未通过"}</strong>
+              <span>内容确认</span><strong>{contentApproved ? "已通过" : "未通过"}</strong>
             </div>
           </section>
 
@@ -115,7 +115,7 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
             <article className="metric-card">
               <div className="metric-label">Listing 版本</div>
               <div className="metric-value content-metric-text">{listing ? `v${listing.version}` : "—"}</div>
-              <div className="metric-note">{contentApproved ? "内容已人工批准，未发布" : listing ? "草稿，等待人工审核" : "尚未创建草稿"}</div>
+              <div className="metric-note">{contentApproved ? "内容已人工确认，未发布" : listing ? "草稿，等待人工检查" : "尚未创建草稿"}</div>
             </article>
           </section>
 
@@ -202,7 +202,7 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
                             <div className="asset-top">
                               <strong>{originalName}</strong>
                               <span className={`badge ${asset.status === "approved" ? "badge-success" : "status-review_pending"}`}>
-                                {asset.status === "approved" ? "已审核" : "待审核"}
+                                {asset.status === "approved" ? "已检查" : "待检查"}
                               </span>
                             </div>
                             <div className="subvalue">{(size / 1024).toFixed(0)} KB · {shortDate(asset.created_at)}</div>
@@ -214,14 +214,14 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
                                   <input type="hidden" name="assetId" value={asset.id} />
                                   <label className="check-row"><input type="checkbox" name="whiteBackground" /> 白底或平台允许的纯色背景</label>
                                   <label className="check-row"><input type="checkbox" name="productComplete" /> 商品完整、比例清楚、未被裁切</label>
-                                  <label className="check-row"><input type="checkbox" name="noTextWatermark" /> 无未经批准的文字、Logo、水印或促销角标</label>
+                                  <label className="check-row"><input type="checkbox" name="noTextWatermark" /> 无未授权文字、Logo、水印或促销角标</label>
                                   <label className="check-row"><input type="checkbox" name="resolutionConfirmed" /> 已人工确认分辨率和画质满足目标平台要求</label>
                                   <div className="field">
-                                    <label htmlFor={`imageReviewer-${asset.id}`}>审核人</label>
+                                    <label htmlFor={`imageReviewer-${asset.id}`}>检查人</label>
                                     <input id={`imageReviewer-${asset.id}`} name="reviewer" required placeholder="输入姓名" />
                                   </div>
                                   <div className="field">
-                                    <label htmlFor={`imageNotes-${asset.id}`}>审核说明</label>
+                                    <label htmlFor={`imageNotes-${asset.id}`}>检查说明</label>
                                     <textarea id={`imageNotes-${asset.id}`} name="notes" required placeholder="记录版本、来源和仍需修正的问题。" />
                                   </div>
                                   <button className="button primary" type="submit">确认主图检查通过</button>
@@ -246,7 +246,7 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
                   </div>
                   {listing ? (
                     <span className={`badge ${contentApproved ? "badge-success" : "status-researching"}`}>
-                      {contentApproved ? `v${listing.version} 已批准` : `v${listing.version} 草稿`}
+                      {contentApproved ? `v${listing.version} 已确认` : `v${listing.version} 草稿`}
                     </span>
                   ) : null}
                 </div>
@@ -333,7 +333,7 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
                 <div className="section-header">
                   <div>
                     <h2>审计时间线</h2>
-                    <p>商品定义、图片审核、Listing 版本和内容批准均写入审计日志。</p>
+                    <p>商品定义、图片检查、Listing 版本和内容确认均写入审计日志。</p>
                   </div>
                 </div>
                 {auditLogs.length ? (
@@ -368,28 +368,28 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
 
               <section className="action-card">
                 <div className="eyebrow" style={{ color: "var(--lime)" }}>Human content gate</div>
-                <h2>{contentApproved ? "内容已人工批准" : "人工内容批准"}</h2>
+                <h2>{contentApproved ? "内容已人工确认" : "人工内容确认"}</h2>
                 {contentApproved ? (
                   <>
-                    <p>当前 Listing v{listing?.version} 已通过内容审核。系统仍未发布到平台，也没有调用 SP-API。</p>
+                    <p>当前 Listing v{listing?.version} 已通过内容检查。系统仍未发布到平台，也没有调用 SP-API。</p>
                     <div className="selection-side-meta">
-                      <span>审核人</span><strong>{latestHumanReview?.reviewer ?? "—"}</strong>
+                      <span>检查人</span><strong>{latestHumanReview?.reviewer ?? "—"}</strong>
                       <span>预检分</span><strong>{preflight?.score ?? "—"}</strong>
-                      <span>审核时间</span><strong>{latestHumanReview ? shortDate(latestHumanReview.created_at) : "—"}</strong>
+                      <span>检查时间</span><strong>{latestHumanReview ? shortDate(latestHumanReview.created_at) : "—"}</strong>
                     </div>
                     <Link href={`/cases/${productCase.id}`} className="button primary" style={{ width: "100%", marginTop: 16 }}>返回商品详情</Link>
                   </>
                 ) : (
                   <>
-                    <p>只有预检通过且至少一张主图通过人工检查后，才允许记录内容批准。提醒项仍需在审核说明中解释。</p>
+                    <p>只有预检通过且至少一张主图通过人工检查后，才允许记录内容确认。提醒项仍需在检查说明中解释。</p>
                     <form action={approveListingContentAction} className="stack">
                       <input type="hidden" name="caseId" value={productCase.id} />
                       <div className="field">
-                        <label htmlFor="contentReviewer">审核人</label>
+                        <label htmlFor="contentReviewer">检查人</label>
                         <input id="contentReviewer" name="reviewer" required placeholder="输入姓名" disabled={!canApprove} />
                       </div>
                       <div className="field">
-                        <label htmlFor="contentNotes">审核说明</label>
+                        <label htmlFor="contentNotes">检查说明</label>
                         <textarea
                           id="contentNotes"
                           name="notes"
@@ -400,10 +400,10 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
                       </div>
                       {!canApprove ? (
                         <div className="action-warning">
-                          {!listing ? "先保存 Listing 草稿。" : !preflight?.passed ? "预检尚未通过，请修正错误后保存新版本。" : !approvedImages.length ? "请先上传并通过至少一张主图。" : "当前版本不可再次批准。"}
+                          {!listing ? "先保存 Listing 草稿。" : !preflight?.passed ? "预检尚未通过，请修正错误后保存新版本。" : !approvedImages.length ? "请先上传并通过至少一张主图。" : "当前版本不可再次确认。"}
                         </div>
                       ) : null}
-                      <button className="button primary" type="submit" disabled={!canApprove}>确认内容批准</button>
+                      <button className="button primary" type="submit" disabled={!canApprove}>确认内容</button>
                     </form>
                   </>
                 )}
@@ -415,10 +415,10 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
                   <div className={profile ? "done" : ""}><span>{profile ? "✓" : "1"}</span>商品定义已保存</div>
                   <div className={approvedImages.length ? "done" : ""}><span>{approvedImages.length ? "✓" : "2"}</span>主图通过人工检查</div>
                   <div className={preflight?.passed ? "done" : ""}><span>{preflight?.passed ? "✓" : "3"}</span>确定性发布预检通过</div>
-                  <div className={contentApproved ? "done" : ""}><span>{contentApproved ? "✓" : "4"}</span>人工内容批准</div>
+                  <div className={contentApproved ? "done" : ""}><span>{contentApproved ? "✓" : "4"}</span>人工内容确认</div>
                 </div>
                 <p className="muted" style={{ fontSize: 12, marginTop: 14, marginBottom: 0 }}>
-                  这是内容批准，不是平台上架。SP-API dry-run、品牌授权、类目合规和最终发布仍需单独实现与人工审批。
+                  这是内容确认，不是平台上架。SP-API dry-run、品牌授权、类目合规和最终发布仍需单独实现与人工确认。
                 </p>
               </section>
             </aside>
@@ -431,10 +431,10 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
 
 function auditLabel(action: string) {
   const labels: Record<string, string> = {
-    "case.seeded": "创建演示商品机会",
+    "case.seeded": "创建演示商品",
     "case.imported": "导入候选品并生成成本模型",
     "cost_model.created": "保存新的成本模型版本",
-    "case.approved": "批准商品立项",
+    "case.approved": "确认商品立项",
     "case.rejected": "否决商品立项",
     "supplier.created": "创建供应商记录",
     "rfq.created": "创建询价记录",
@@ -444,10 +444,10 @@ function auditLabel(action: string) {
     "asset.main_image_uploaded": "上传主图",
     "asset.main_image_reviewed": "通过主图人工检查",
     "listing.draft_saved": "保存 Listing 版本并运行预检",
-    "listing.content_approved": "人工批准 Listing 内容",
+    "listing.content_approved": "人工确认 Listing 内容",
     "channel.target_created": "创建渠道目标",
     "channel.listing_version_saved": "保存渠道版本并预检",
-    "channel.content_approved": "人工批准渠道内容",
+    "channel.content_approved": "人工确认渠道内容",
   };
   return labels[action] ?? action;
 }
