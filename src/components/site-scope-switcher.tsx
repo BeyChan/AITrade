@@ -56,12 +56,13 @@ export function SiteScopeSwitcher({
       aria-label="国家与平台站点"
       aria-busy={isPending}
     >
-      <span className="site-switcher-kicker">{isTopbar ? "站点" : "当前站点"}</span>
+      {isTopbar ? null : <span className="site-switcher-kicker">当前站点</span>}
       <div className="site-switcher-fields">
         <label className="site-switcher-field" htmlFor="marketCode">
-          <span>{isTopbar ? "国家" : "国家 / 市场"}</span>
+          {isTopbar ? null : <span>国家 / 市场</span>}
           <select
             id="marketCode"
+            aria-label="国家与市场"
             value={market}
             disabled={isPending}
             onChange={(event) => {
@@ -78,9 +79,10 @@ export function SiteScopeSwitcher({
           </select>
         </label>
         <label className="site-switcher-field" htmlFor="platformCode">
-          <span>{isTopbar ? "平台" : "平台 / 站点"}</span>
+          {isTopbar ? null : <span>平台 / 站点</span>}
           <select
             id="platformCode"
+            aria-label="平台与站点"
             value={platform}
             disabled={isPending}
             onChange={(event) => {
@@ -97,7 +99,9 @@ export function SiteScopeSwitcher({
           </select>
         </label>
       </div>
-      <span className="site-switcher-status">{isPending ? "切换中…" : isTopbar ? "即时生效" : "选择后自动更新"}</span>
+      {isTopbar ? null : (
+        <span className="site-switcher-status">{isPending ? "切换中…" : "选择后自动更新"}</span>
+      )}
     </div>
   );
 }

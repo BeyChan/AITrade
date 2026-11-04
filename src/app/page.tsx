@@ -33,7 +33,6 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const pendingCount = cases.filter((item) => item.pendingApprovalId !== null).length;
   const demoCount = cases.filter((item) => item.is_demo).length;
   const siteLabel = `${selectedMarket.name}站 · ${selectedPlatform.name}`;
-  const siteHref = `/?market=${encodeURIComponent(selectedMarket.code)}&platform=${encodeURIComponent(selectedPlatform.code)}#opportunities`;
   return (
     <div className="page">
       <section className="hero">
@@ -159,10 +158,6 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         )}
       </section>
 
-      <div className="notice" style={{ marginTop: 18, marginBottom: 0 }}>
-        <span className="badge status-researching">SCOPE</span>
-        <span><strong>当前站点：{siteLabel}。</strong> 站点选择只改变工作范围，不代表平台已经授权或允许发布；连接检查、内容批准和内部发布队列都不等于平台已上架。 <Link className="text-link" href={siteHref}>固定此站点链接 →</Link></span>
-      </div>
     </div>
   );
 }
