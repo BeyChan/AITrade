@@ -246,7 +246,7 @@ const quoteHeaderAliases: Record<string, string> = {
   报价时间: "observed_at",
 };
 
-export function parseCandidateCsv(csv: string): CandidateImportRow[] {
+export function parseCandidateCsv(csv: string, defaults: { marketplace?: string } = {}): CandidateImportRow[] {
   const parsed = parseNamedCsv(csv, candidateHeaderAliases);
   if (!parsed.headers.includes("title") || !parsed.headers.includes("competitor_price")) {
     throw new Error("候选品 CSV 必须包含 title 和 competitor_price（标题、竞品价格）");
@@ -293,7 +293,7 @@ export function parseCandidateCsv(csv: string): CandidateImportRow[] {
 
     return {
       asin,
-      marketplace: (raw.marketplace || "US").toUpperCase(),
+      marketplace: (defaults.marketplace || raw.marketplace || "US").toUpperCase(),
       category: raw.category || "未分类",
       title,
       url: raw.url || "",

@@ -51,6 +51,32 @@ test("ingestion is traceable, guarded and idempotent", async () => {
   assert.equal(duplicateCandidate.skipped, 1);
   assert.equal(duplicateCandidate.snapshots, 0);
 
+  const sameProductOnTikTok = await importCandidatesCsv(candidateCsv, {
+    fileName: "candidates-tiktok.csv",
+    marketOverride: "US",
+    platformCode: "tiktok_shop",
+  });
+  assert.equal(sameProductOnTikTok.updated, 1);
+  assert.equal(sameProductOnTikTok.imported, 0);
+
+  const candidateId = (await db.query<{ id: string }>(
+    "SELECT id FROM product_cases WHERE asin = 'B0INGEST001' AND marketplace = 'US'",
+  )).rows[0]?.id;
+  assert.ok(candidateId);
+  const siteLinks = await db.query<{ market_code: string; platform_code: string }>(
+    "SELECT market_code, platform_code FROM product_case_sites WHERE case_id = $1 ORDER BY platform_code",
+    [candidateId],
+  );
+  assert.deepEqual(
+    siteLinks.rows.map((row) => `${row.market_code}:${row.platform_code}`),
+    ["US:amazon", "US:tiktok_shop"],
+  );
+  const tiktokGbScope = await db.query<{ case_id: string }>(
+    "SELECT case_id FROM product_case_sites WHERE market_code = 'GB' AND platform_code = 'tiktok_shop' AND case_id = $1",
+    [candidateId],
+  );
+  assert.equal(tiktokGbScope.rows.length, 0);
+
   const firstSupplier = await importSuppliersCsv(supplierCsv, { fileName: "suppliers.csv" });
   assert.equal(firstSupplier.imported, 1);
   assert.equal(firstSupplier.snapshots, 1);

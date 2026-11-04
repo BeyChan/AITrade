@@ -43,6 +43,8 @@ type IngestionOptions = {
   actor?: string;
   fileName?: string;
   query?: Record<string, unknown>;
+  marketOverride?: string;
+  platformCode?: string;
 };
 
 type SupplierIdentity = {
@@ -72,8 +74,10 @@ export async function importCandidatesCsv(csv: string, options: IngestionOptions
       query: options.query,
     },
     async (runId) => {
-      const connector = readCandidateCsv(csv);
-      return importCandidateConnector(connector, runId);
+      const connector = readCandidateCsv(csv, { marketplace: options.marketOverride });
+      return importCandidateConnector(connector, runId, {
+        platformCode: options.platformCode || "amazon",
+      });
     },
   );
 }
@@ -124,7 +128,7 @@ export async function importKeepaByAsins(input: {
     },
     async (runId) => {
       const connector = await fetchKeepaCandidates({ asins: input.asins, marketplace: input.marketplace });
-      const result = await importCandidateConnector(connector, runId);
+      const result = await importCandidateConnector(connector, runId, { platformCode: "amazon" });
       return { ...result, warnings: [...connector.warnings, ...result.warnings] };
     },
   );
@@ -277,11 +281,19 @@ async function withIngestionRun(
 async function importCandidateConnector(
   connector: ConnectorResult<CandidateImportRow>,
   runId: string,
+  siteScope: { platformCode: string },
 ): Promise<ImportCounts> {
   const db = await getDb();
   const counts = emptyCounts(connector.warnings);
+  const platformCode = siteScope.platformCode.trim().toLowerCase();
 
   await db.transaction(async (tx) => {
+    const platform = await tx.query<{ code: string }>(
+      "SELECT code FROM platforms WHERE code = $1 AND status <> 'disabled' LIMIT 1",
+      [platformCode],
+    );
+    if (!platform.rows[0]) throw new Error(`平台不存在或已停用：${platformCode}`);
+
     for (const item of connector.records) {
       const row = item.record;
       const caseId = randomUUID();
@@ -334,6 +346,21 @@ async function importCandidateConnector(
       }
       if (!targetCaseId) throw new Error(`无法保存候选品 ${row.asin}`);
 
+      const market = await tx.query<{ code: string }>(
+        "SELECT code FROM markets WHERE code = $1 AND status = 'active' LIMIT 1",
+        [row.marketplace],
+      );
+      if (!market.rows[0]) throw new Error(`目标市场不存在或已停用：${row.marketplace}`);
+
+      const siteLink = await tx.query<{ case_id: string }>(
+        `INSERT INTO product_case_sites
+          (case_id, market_code, platform_code, discovery_source)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (case_id, market_code, platform_code) DO NOTHING
+         RETURNING case_id`,
+        [targetCaseId, row.marketplace, platformCode, connector.sourceCode],
+      );
+
       if (inserted.rows[0]) {
         const results = await calculateEconomicsSafe(row);
         await tx.query(
@@ -370,12 +397,32 @@ async function importCandidateConnector(
               runId,
               sourceCode: connector.sourceCode,
               sourceRecordId: item.sourceRecordId,
+              marketCode: row.marketplace,
+              platformCode,
               observedAt: row.observedAt,
               externalActions: "none",
             }),
           ],
         );
         counts.imported += 1;
+      } else if (siteLink.rows[0]) {
+        counts.updated += 1;
+        await tx.query(
+          `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
+           VALUES ($1, 'connector', 'case.site_linked', 'product_case', $2, $3::jsonb)`,
+          [
+            randomUUID(),
+            targetCaseId,
+            JSON.stringify({
+              runId,
+              sourceCode: connector.sourceCode,
+              sourceRecordId: item.sourceRecordId,
+              marketCode: row.marketplace,
+              platformCode,
+              externalActions: "none",
+            }),
+          ],
+        );
       } else {
         counts.skipped += 1;
       }

@@ -60,6 +60,22 @@ const modes: Array<{
 ];
 
 const keepaMarkets = ["US", "GB", "DE", "FR", "IT", "ES", "JP", "CA", "IN", "MX", "BR", "AU"];
+const importMarkets = [
+  ["US", "美国"],
+  ["GB", "英国"],
+  ["DE", "德国"],
+  ["JP", "日本"],
+  ["SG", "新加坡"],
+  ["MY", "马来西亚"],
+  ["AU", "澳大利亚"],
+] as const;
+const importPlatforms = [
+  ["amazon", "Amazon"],
+  ["shopify", "Shopify"],
+  ["tiktok_shop", "TikTok Shop"],
+  ["ebay", "eBay"],
+  ["manual", "CSV / 人工"],
+] as const;
 
 export function DataSourceImport() {
   const router = useRouter();
@@ -68,6 +84,7 @@ export function DataSourceImport() {
   const [csvText, setCsvText] = useState("");
   const [asins, setAsins] = useState("");
   const [marketplace, setMarketplace] = useState("US");
+  const [platformCode, setPlatformCode] = useState("amazon");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<IngestionResult | null>(null);
@@ -105,6 +122,10 @@ export function DataSourceImport() {
     } else {
       if (file) formData.set("file", file);
       if (csvText.trim()) formData.set("csvText", csvText);
+      if (kind === "candidates") {
+        formData.set("market", marketplace);
+        formData.set("platform", platformCode);
+      }
     }
 
     try {
@@ -180,6 +201,24 @@ export function DataSourceImport() {
                 </a>
               </div>
 
+              {mode.kind === "candidates" ? (
+                <div className="form-grid">
+                  <div className="field">
+                    <label htmlFor="candidate-market">候选品归属国家 / 市场</label>
+                    <select id="candidate-market" value={marketplace} onChange={(event) => setMarketplace(event.target.value)}>
+                      {importMarkets.map(([code, name]) => <option key={code} value={code}>{name} · {code}</option>)}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="candidate-platform">候选品归属平台站</label>
+                    <select id="candidate-platform" value={platformCode} onChange={(event) => setPlatformCode(event.target.value)}>
+                      {importPlatforms.map(([code, name]) => <option key={code} value={code}>{name} · {code}</option>)}
+                    </select>
+                  </div>
+                  <span className="help full">CSV 内的 marketplace 会以这里选择的国家覆盖；平台归属会持久化，机会只显示在对应国家 × 平台站点。</span>
+                </div>
+              ) : null}
+
               <div className="dropzone">
                 <h3>选择 CSV 文件</h3>
                 <p className="muted">UTF-8，最大 2 MB；候选品单次最多 200 行，供应商和报价最多 1,000 行。</p>
@@ -252,6 +291,11 @@ export function DataSourceImport() {
                 <span>快照 {result.snapshots ?? 0}</span>
               </div>
               {result.runId ? <div className="run-id">runId: {result.runId}</div> : null}
+              {kind === "candidates" ? (
+                <a className="text-link" href={`/?market=${encodeURIComponent(marketplace)}&platform=${encodeURIComponent(platformCode)}#opportunities`}>
+                  查看该国家 × 平台站点的商品机会 →
+                </a>
+              ) : null}
               {result.warnings?.length ? (
                 <ul className="result-warnings">
                   {result.warnings.slice(0, 8).map((warning) => <li key={warning}>{warning}</li>)}

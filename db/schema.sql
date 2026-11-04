@@ -258,6 +258,31 @@ INSERT INTO markets (code, name, locale, currency, region, measurement_system, d
   ('AU', '澳大利亚', 'en-AU', 'AUD', 'Asia Pacific', 'metric', 'marketplace')
 ON CONFLICT (code) DO NOTHING;
 
+-- An opportunity is visible only inside an explicit country × platform site.
+-- A product case can be linked to multiple sites; channel setup remains separate.
+CREATE TABLE IF NOT EXISTS product_case_sites (
+  case_id TEXT NOT NULL REFERENCES product_cases(id) ON DELETE CASCADE,
+  market_code TEXT NOT NULL REFERENCES markets(code),
+  platform_code TEXT NOT NULL REFERENCES platforms(code),
+  discovery_source TEXT NOT NULL DEFAULT 'manual',
+  first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (case_id, market_code, platform_code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_product_case_sites_site
+  ON product_case_sites(market_code, platform_code);
+
+-- Existing cases predate explicit site scoping and were Amazon-first.
+INSERT INTO product_case_sites (case_id, market_code, platform_code, discovery_source)
+SELECT pc.id, pc.marketplace, 'amazon', 'legacy_backfill'
+FROM product_cases pc
+JOIN markets m ON m.code = pc.marketplace
+WHERE NOT EXISTS (
+  SELECT 1 FROM product_case_sites pcs WHERE pcs.case_id = pc.id
+)
+ON CONFLICT (case_id, market_code, platform_code) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS channel_accounts (
   id TEXT PRIMARY KEY,
   platform_code TEXT NOT NULL REFERENCES platforms(code),
@@ -346,6 +371,35 @@ CREATE TABLE IF NOT EXISTS channel_launch_reviews (
 CREATE INDEX IF NOT EXISTS idx_channel_launch_reviews_listing
   ON channel_launch_reviews(channel_listing_id, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS channel_launch_validations (
+  id TEXT PRIMARY KEY,
+  channel_listing_id TEXT NOT NULL REFERENCES channel_listings(id) ON DELETE CASCADE,
+  channel_version_id TEXT NOT NULL REFERENCES channel_listing_versions(id) ON DELETE CASCADE,
+  channel_account_id TEXT NOT NULL REFERENCES channel_accounts(id),
+  platform_code TEXT NOT NULL REFERENCES platforms(code),
+  market_code TEXT NOT NULL REFERENCES markets(code),
+  operation TEXT NOT NULL DEFAULT 'validation_preview'
+    CHECK (operation = 'validation_preview'),
+  status TEXT NOT NULL CHECK (status IN ('failed', 'passed', 'unsupported')),
+  platform_request_id TEXT,
+  platform_submission_id TEXT,
+  response_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+  error_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+  executed_by TEXT NOT NULL,
+  executed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ,
+  external_actions TEXT NOT NULL DEFAULT 'validation_only'
+    CHECK (external_actions = 'validation_only'),
+  published BOOLEAN NOT NULL DEFAULT FALSE CHECK (published = FALSE),
+  UNIQUE (channel_listing_id, channel_version_id, operation)
+);
+
+CREATE INDEX IF NOT EXISTS idx_channel_launch_validations_listing
+  ON channel_launch_validations(channel_listing_id, executed_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_channel_launch_validations_version
+  ON channel_launch_validations(channel_version_id, executed_at DESC);
+
 ALTER TABLE listings ADD COLUMN IF NOT EXISTS channel_listing_id TEXT REFERENCES channel_listings(id);
 ALTER TABLE listings ADD COLUMN IF NOT EXISTS platform_code TEXT NOT NULL DEFAULT 'amazon';
 ALTER TABLE listings ADD COLUMN IF NOT EXISTS country_code TEXT;
@@ -392,7 +446,13 @@ SELECT
   TRUE
 FROM product_cases pc
 LEFT JOIN markets m ON m.code = pc.marketplace
-WHERE NOT EXISTS (
+WHERE EXISTS (
+  SELECT 1 FROM product_case_sites pcs
+  WHERE pcs.case_id = pc.id
+    AND pcs.market_code = COALESCE(m.code, 'US')
+    AND pcs.platform_code = 'amazon'
+)
+AND NOT EXISTS (
   SELECT 1 FROM channel_accounts ca
   WHERE ca.id = 'account-' || pc.id || '-amazon-' || lower(CASE WHEN m.code IS NULL THEN 'US' ELSE m.code END)
 );
@@ -416,7 +476,13 @@ LEFT JOIN LATERAL (
   ORDER BY version DESC
   LIMIT 1
 ) latest ON TRUE
-WHERE NOT EXISTS (
+WHERE EXISTS (
+  SELECT 1 FROM product_case_sites pcs
+  WHERE pcs.case_id = pc.id
+    AND pcs.market_code = COALESCE(m.code, 'US')
+    AND pcs.platform_code = 'amazon'
+)
+AND NOT EXISTS (
   SELECT 1 FROM channel_listings cl
   WHERE cl.id = 'channel-' || pc.id || '-amazon-' || lower(CASE WHEN m.code IS NULL THEN 'US' ELSE m.code END)
 );

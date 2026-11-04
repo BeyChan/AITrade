@@ -225,6 +225,13 @@ async function seedDemoData(db: PGlite) {
         );
       }
       await tx.query(
+        `INSERT INTO product_case_sites
+          (case_id, market_code, platform_code, discovery_source)
+         VALUES ($1, 'US', 'amazon', 'demo_seed')
+         ON CONFLICT (case_id, market_code, platform_code) DO NOTHING`,
+        [id],
+      );
+      await tx.query(
         `INSERT INTO approvals (id, case_id, gate, status)
          VALUES ($1, $2, 'case_selection', 'pending')`,
         [randomUUID(), id],

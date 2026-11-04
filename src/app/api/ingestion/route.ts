@@ -72,7 +72,14 @@ export async function POST(request: Request) {
 
     const options = {
       fileName: fileName || undefined,
-      query: { entryMode, rowCount },
+      query: {
+        entryMode,
+        rowCount,
+        market: String(formData.get("market") || "").trim().toUpperCase() || undefined,
+        platform: String(formData.get("platform") || "").trim().toLowerCase() || undefined,
+      },
+      marketOverride: String(formData.get("market") || "").trim().toUpperCase() || undefined,
+      platformCode: String(formData.get("platform") || "").trim().toLowerCase() || undefined,
     };
     const result =
       kind === "candidates"

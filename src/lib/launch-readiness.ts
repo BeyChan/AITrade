@@ -42,8 +42,18 @@ export type LaunchReadinessInput = {
     status: string;
     isDemo: boolean;
   };
-  writeAdapterAvailable: boolean;
-  dryRunSupported: boolean;
+  writeAdapter: {
+    implemented: boolean;
+  };
+  validationPreview: {
+    adapterImplemented: boolean;
+    status: "passed" | "failed" | "unsupported" | null;
+    currentVersionBound: boolean;
+    expired: boolean;
+    requestId: string | null;
+    submissionId: string | null;
+    executedAt: string | null;
+  };
   approvedLaunchReview: {
     channelVersionId: string;
     decision: string;
@@ -71,8 +81,8 @@ const statusCopy: Record<LaunchReadinessStatus, { label: string; description: st
     description: "本地内容门禁已完成；正式店铺或外部发布能力仍未满足。",
   },
   dry_run_unsupported: {
-    label: "平台 dry-run 不支持",
-    description: "本地和店铺条件已满足，但官方写 Adapter 或真实平台 dry-run 尚未接入。",
+    label: "平台校验或写入未完成",
+    description: "本地和店铺条件已满足，但当前版本尚无有效的平台 Validation Preview 回执，或官方写 Adapter 尚未接入。",
   },
   approval_pending: {
     label: "等待发布队列审批",
@@ -94,6 +104,13 @@ export function evaluateLaunchReadiness(input: LaunchReadinessInput): LaunchRead
     latestVersion &&
       input.approvedLaunchReview?.decision === "approved" &&
       input.approvedLaunchReview.channelVersionId === latestVersion.id,
+  );
+  const validationStatus = input.validationPreview.expired ? "expired" : input.validationPreview.status;
+  const validationPassed = Boolean(
+    input.validationPreview.adapterImplemented &&
+      input.validationPreview.currentVersionBound &&
+      !input.validationPreview.expired &&
+      input.validationPreview.status === "passed",
   );
 
   const checks: LaunchReadinessCheck[] = [
@@ -143,15 +160,15 @@ export function evaluateLaunchReadiness(input: LaunchReadinessInput): LaunchRead
     {
       code: "WRITE_ADAPTER",
       label: "官方写 Adapter",
-      state: input.writeAdapterAvailable ? "pass" : "unsupported",
-      detail: input.writeAdapterAvailable ? "官方写 Adapter 已实现" : "没有官方写 Adapter，外部写入保持关闭",
+      state: input.writeAdapter.implemented ? "pass" : "unsupported",
+      detail: input.writeAdapter.implemented ? "官方写 Adapter 已实现，仍需单独执行并保存外部回执" : "没有官方写 Adapter，外部写入保持关闭",
       scope: "connector",
     },
     {
       code: "PLATFORM_DRY_RUN",
-      label: "真实平台 dry-run",
-      state: input.dryRunSupported ? "pass" : "unsupported",
-      detail: input.dryRunSupported ? "平台 dry-run 能力可用" : "真实平台 dry-run 未实现，不能用本地预检代替",
+      label: "当前版本平台校验",
+      state: validationPassed ? "pass" : validationState(validationStatus, input.validationPreview.adapterImplemented),
+      detail: validationDetail(input, validationStatus),
       scope: "connector",
     },
     {
@@ -171,7 +188,7 @@ export function evaluateLaunchReadiness(input: LaunchReadinessInput): LaunchRead
     status = "blocked";
   } else if (!productionAccountReady) {
     status = "local_ready";
-  } else if (!input.writeAdapterAvailable || !input.dryRunSupported) {
+  } else if (!input.writeAdapter.implemented || !validationPassed) {
     status = "dry_run_unsupported";
   } else if (!currentVersionApproved) {
     status = "approval_pending";
@@ -197,4 +214,40 @@ export function evaluateLaunchReadiness(input: LaunchReadinessInput): LaunchRead
     externalActions: "none",
     published: false,
   };
+}
+
+function validationState(
+  status: "passed" | "failed" | "unsupported" | "expired" | null,
+  adapterImplemented: boolean,
+): Exclude<LaunchCheckState, "pass"> {
+  if (!adapterImplemented) return "unsupported";
+  if (status === "failed" || status === "unsupported" || status === "expired") return "fail";
+  return "pending";
+}
+
+function validationDetail(input: LaunchReadinessInput, status: "passed" | "failed" | "unsupported" | "expired" | null) {
+  if (!input.validationPreview.adapterImplemented) {
+    return "该平台尚无已实现的 Validation Preview Adapter，不能用本地预检代替。";
+  }
+  if (!input.validationPreview.currentVersionBound) {
+    return "当前 Listing 版本尚无平台 Validation Preview 回执。";
+  }
+  if (status === "expired") {
+    return "平台 Validation Preview 回执已过期，必须针对当前版本重新校验。";
+  }
+  if (status === "failed") {
+    return "当前版本最近一次平台 Validation Preview 未通过，修正后需重新校验。";
+  }
+  if (status === "unsupported") {
+    return "平台未提供可用的 Validation Preview，当前不能进入发布队列。";
+  }
+  if (status === "passed") {
+    const receipt = [
+      input.validationPreview.requestId ? `请求 ${input.validationPreview.requestId}` : null,
+      input.validationPreview.submissionId ? `提交 ${input.validationPreview.submissionId}` : null,
+      input.validationPreview.executedAt ? `执行 ${input.validationPreview.executedAt}` : null,
+    ].filter(Boolean);
+    return receipt.length ? `当前版本平台校验通过；${receipt.join("；")}` : "当前版本平台校验通过。";
+  }
+  return "当前版本尚未执行平台 Validation Preview。";
 }

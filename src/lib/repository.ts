@@ -5,6 +5,12 @@ import { analyzeSupplierQuotes } from "./sourcing";
 import { normalizeListingContent, preflightListing, type ListingDraftContent, type ListingPreflightResult } from "./listing";
 import { getChannelProfile, mapChannelPayload, preflightChannelContent, type ChannelContext } from "./channels";
 import { evaluateLaunchReadiness } from "./launch-readiness";
+import {
+  findCurrentVersionValidation,
+  getConnectorCodeForPlatform,
+  resolvePlatformCapabilities,
+  resolveValidationAdapterConfiguration,
+} from "./platform-capabilities";
 import type {
   ApprovalRow,
   AuditRow,
@@ -13,12 +19,14 @@ import type {
   ChannelAccountRow,
   ChannelListingRow,
   ChannelLaunchReviewRow,
+  ChannelLaunchValidationRow,
   ChannelListingVersionRow,
   ChannelMatrix,
   ChannelMatrixItem,
   ChannelTargetDetail,
   ContentDetail,
   ContentProfileRow,
+  ConnectorHealthCheckRow,
   CostModelRow,
   Decision,
   EnrichedCase,
@@ -95,6 +103,43 @@ export async function getDashboardStats() {
     rejected: Number(row?.rejected ?? 0),
     demo: Number(row?.demo ?? 0),
   };
+}
+
+export async function getSiteOptions() {
+  const db = await getDb();
+  const [markets, platforms] = await Promise.all([
+    db.query<MarketRow>("SELECT * FROM markets WHERE status = 'active' ORDER BY region, name"),
+    db.query<PlatformRow>("SELECT * FROM platforms WHERE status <> 'disabled' ORDER BY name"),
+  ]);
+  return { markets: markets.rows, platforms: platforms.rows };
+}
+
+export async function listCasesForSite(marketCode: string, platformCode: string): Promise<EnrichedCase[]> {
+  const db = await getDb();
+  const [cases, discovered, targeted] = await Promise.all([
+    listCases(),
+    db.query<{ case_id: string }>(
+      `SELECT case_id
+       FROM product_case_sites
+       WHERE market_code = $1 AND platform_code = $2`,
+      [marketCode, platformCode],
+    ),
+    db.query<{ case_id: string }>(
+      `SELECT DISTINCT p.case_id
+       FROM channel_listings cl
+       JOIN product_market_variants pmv ON pmv.id = cl.product_market_variant_id
+       JOIN products p ON p.id = pmv.product_id
+       JOIN channel_accounts ca ON ca.id = cl.channel_account_id
+       WHERE pmv.country_code = $1 AND ca.platform_code = $2`,
+      [marketCode, platformCode],
+    ),
+  ]);
+  const scopedCaseIds = new Set([
+    ...discovered.rows.map((row) => row.case_id),
+    ...targeted.rows.map((row) => row.case_id),
+  ]);
+
+  return cases.filter((item) => scopedCaseIds.has(item.id));
 }
 
 export async function getCaseDetail(caseId: string): Promise<CaseDetail | null> {
@@ -983,7 +1028,7 @@ export async function getChannelTargetDetail(
   channelListingId: string,
 ): Promise<ChannelTargetDetail | null> {
   const db = await getDb();
-  const [caseResult, targets, versions, audits, launchReviews, approvedImages] = await Promise.all([
+  const [caseResult, targets, versions, audits, launchReviews, launchValidations, approvedImages] = await Promise.all([
     db.query<ProductCaseRow>("SELECT * FROM product_cases WHERE id = $1", [caseId]),
     listChannelTargets(db, caseId, channelListingId),
     listChannelVersions(db, caseId, channelListingId),
@@ -995,6 +1040,10 @@ export async function getChannelTargetDetail(
       "SELECT * FROM channel_launch_reviews WHERE channel_listing_id = $1 ORDER BY created_at DESC",
       [channelListingId],
     ),
+    db.query<ChannelLaunchValidationRow>(
+      "SELECT * FROM channel_launch_validations WHERE channel_listing_id = $1 ORDER BY executed_at DESC",
+      [channelListingId],
+    ),
     db.query<{ count: string }>(
       "SELECT COUNT(*)::text AS count FROM assets WHERE case_id = $1 AND asset_type = 'main_image' AND status = 'approved'",
       [caseId],
@@ -1004,31 +1053,34 @@ export async function getChannelTargetDetail(
   if (!productCase || !targets[0]) return null;
   const item = hydrateChannelTargets(targets, versions)[0];
   if (!item) return null;
-  const profile = getChannelProfile(item.platform.code);
+  const connectorCode = getConnectorCodeForPlatform(item.platform.code);
+  const connectorCheck = connectorCode
+    ? await db.query<ConnectorHealthCheckRow>(
+        `SELECT * FROM connector_health_checks
+         WHERE source_code = $1
+         ORDER BY checked_at DESC
+         LIMIT 1`,
+        [connectorCode],
+      )
+    : { rows: [] as ConnectorHealthCheckRow[] };
   const approvedLaunchReview = launchReviews.rows.find((review) => review.decision === "approved") ?? null;
-  const launchReadiness = evaluateLaunchReadiness({
-    latestVersion: item.latestVersion
-      ? {
-          id: item.latestVersion.id,
-          version: item.latestVersion.version,
-          status: item.latestVersion.status,
-          preflightPassed: Boolean((item.latestVersion.preflight_result as Partial<ListingPreflightResult>).passed),
-        }
-      : null,
+  const launchContext = buildChannelLaunchContext({
+    target: item,
+    latest: item.latestVersion,
     approvedMainImageCount: Number(approvedImages.rows[0]?.count ?? 0),
-    account: { status: item.account.status, isDemo: item.account.is_demo },
-    writeAdapterAvailable: profile.publishingSupported,
-    dryRunSupported: profile.dryRunSupported,
-    approvedLaunchReview: approvedLaunchReview
-      ? { channelVersionId: approvedLaunchReview.channel_version_id, decision: approvedLaunchReview.decision }
-      : null,
+    approvedReview: approvedLaunchReview,
+    validations: launchValidations.rows,
+    latestConnectorCheck: connectorCheck.rows[0] ?? null,
   });
   return {
     ...item,
     versions,
     auditLogs: audits.rows.filter((entry) => entry.details.channelListingId === channelListingId),
     launchReviews: launchReviews.rows,
-    launchReadiness,
+    launchValidations: launchValidations.rows,
+    currentValidation: launchContext.currentValidation,
+    platformCapabilities: launchContext.platformCapabilities,
+    launchReadiness: launchContext.readiness,
   };
 }
 
@@ -1386,12 +1438,73 @@ export async function approveChannelListing(
   });
 }
 
+function buildChannelLaunchContext(input: {
+  target: ChannelFoundation;
+  latest: ChannelListingVersionRow | null;
+  approvedMainImageCount: number;
+  approvedReview: ChannelLaunchReviewRow | null;
+  validations: ChannelLaunchValidationRow[];
+  latestConnectorCheck: ConnectorHealthCheckRow | null;
+}) {
+  const adapterConfiguration = resolveValidationAdapterConfiguration(input.target.platform.code);
+  const currentValidation = findCurrentVersionValidation(input.validations, input.latest?.id ?? null);
+  const platformCapabilities = resolvePlatformCapabilities({
+    platformCode: input.target.platform.code,
+    account: { status: input.target.account.status, is_demo: input.target.account.is_demo },
+    latestConnectorCheck: input.latestConnectorCheck,
+    currentVersionId: input.latest?.id ?? null,
+    validation: currentValidation,
+    adapterConfigured: adapterConfiguration.configured,
+    adapterConfigurationDetail: adapterConfiguration.detail,
+  });
+  const currentVersionBound = Boolean(
+    currentValidation && input.latest && currentValidation.channel_version_id === input.latest.id,
+  );
+  const readiness = evaluateLaunchReadiness({
+    latestVersion: input.latest
+      ? {
+          id: input.latest.id,
+          version: input.latest.version,
+          status: input.latest.status,
+          preflightPassed: Boolean((input.latest.preflight_result as Partial<ListingPreflightResult>).passed),
+        }
+      : null,
+    approvedMainImageCount: input.approvedMainImageCount,
+    account: { status: input.target.account.status, isDemo: input.target.account.is_demo },
+    writeAdapter: { implemented: platformCapabilities.draftWrite.state === "available" },
+    validationPreview: {
+      adapterImplemented: platformCapabilities.validationPreview.adapterSupported,
+      status: currentVersionBound ? currentValidation?.status ?? null : null,
+      currentVersionBound,
+      expired: platformCapabilities.validationPreview.evidenceState === "expired",
+      requestId: currentVersionBound ? currentValidation?.platform_request_id ?? null : null,
+      submissionId: currentVersionBound ? currentValidation?.platform_submission_id ?? null : null,
+      executedAt: currentVersionBound ? currentValidation?.executed_at ?? null : null,
+    },
+    approvedLaunchReview: input.approvedReview
+      ? { channelVersionId: input.approvedReview.channel_version_id, decision: input.approvedReview.decision }
+      : null,
+  });
+
+  return { currentValidation, platformCapabilities, readiness };
+}
+
 async function readChannelLaunchReadiness(
   executor: SqlExecutor,
   productCase: ProductCaseRow,
   target: ChannelFoundation,
 ) {
-  const [latestResult, approvedImageResult, launchReviewResult] = await Promise.all([
+  const connectorCode = getConnectorCodeForPlatform(target.platform.code);
+  const connectorCheck: Promise<{ rows: ConnectorHealthCheckRow[] }> = connectorCode
+    ? executor.query<ConnectorHealthCheckRow>(
+        `SELECT * FROM connector_health_checks
+         WHERE source_code = $1
+         ORDER BY checked_at DESC
+         LIMIT 1`,
+        [connectorCode],
+      )
+    : Promise.resolve({ rows: [] });
+  const [latestResult, approvedImageResult, launchReviewResult, validationResult, connectorCheckResult] = await Promise.all([
     executor.query<ChannelListingVersionRow>(
       `SELECT * FROM channel_listing_versions
        WHERE channel_listing_id = $1
@@ -1411,28 +1524,25 @@ async function readChannelLaunchReadiness(
        LIMIT 1`,
       [target.channelListing.id],
     ),
+    executor.query<ChannelLaunchValidationRow>(
+      `SELECT * FROM channel_launch_validations
+       WHERE channel_listing_id = $1
+       ORDER BY executed_at DESC`,
+      [target.channelListing.id],
+    ),
+    connectorCheck,
   ]);
   const latest = latestResult.rows[0] ?? null;
-  const profile = getChannelProfile(target.platform.code);
   const approvedReview = launchReviewResult.rows[0] ?? null;
-  const readiness = evaluateLaunchReadiness({
-    latestVersion: latest
-      ? {
-          id: latest.id,
-          version: latest.version,
-          status: latest.status,
-          preflightPassed: Boolean((latest.preflight_result as Partial<ListingPreflightResult>).passed),
-        }
-      : null,
+  const launchContext = buildChannelLaunchContext({
+    target,
+    latest,
     approvedMainImageCount: Number(approvedImageResult.rows[0]?.count ?? 0),
-    account: { status: target.account.status, isDemo: target.account.is_demo },
-    writeAdapterAvailable: profile.publishingSupported,
-    dryRunSupported: profile.dryRunSupported,
-    approvedLaunchReview: approvedReview
-      ? { channelVersionId: approvedReview.channel_version_id, decision: approvedReview.decision }
-      : null,
+    approvedReview,
+    validations: validationResult.rows,
+    latestConnectorCheck: connectorCheckResult.rows[0] ?? null,
   });
-  return { latest, approvedReview, readiness };
+  return { latest, approvedReview, ...launchContext };
 }
 
 export async function recordChannelLaunchReadinessCheck(

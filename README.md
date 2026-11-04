@@ -49,6 +49,7 @@
 - 统一导入 API `/api/ingestion`，支持候选品、供应商、报价和 Keepa 四类通道
 - CSV 文件上传或直接粘贴导入；候选品最多 200 行，供应商和报价最多 1,000 行，CSV 最大 2 MB
 - 中英文字段名兼容，重复 `asin + marketplace` 幂等跳过；供应商按平台 + 外部 ID、规范化链接或名称去重
+- 候选品导入显式绑定“国家 × 平台站点”；同一商品可关联多个站点，机会看板和指标严格按当前站点隔离
 - 每个导入批次生成 `ingestion_runs`，记录文件、入口方式、新增/更新/跳过/失败、快照、告警和完成时间
 - 每条真实数据保留 `source_code`、`source_record_id`、`observed_at` 和 `evidence_snapshots` 原始快照
 - 候选品支持销量区间、币种、BSR、关键词搜索量、卖家数、变体数和完整成本假设
@@ -58,7 +59,7 @@
 - 每次连接检查写入 `connector_health_checks` 和 `connector.health_checked` 审计；页面与数据库均不保存或回显 Token、Secret
 - TikTok Shop 与 1688 明确显示“尚未接入”，检查结果标记为 `unsupported`，不发起外部请求，也不伪造连接状态
 - 确定性单位经济模型：净收入、佣金、广告、退货损失、压力测试、ROI
-- 按机会分排序的商品机会看板
+- 首页选择国家/市场与平台站点后，按机会分展示该站点商品机会，并同步计算候选数、GO 数、平均净利率与待审批数
 - 成本参数修改与版本化历史
 - 人工批准/否决立项
 - 审批状态、成本版本和关键动作写入审计日志
@@ -132,6 +133,25 @@ npm start
 
 首次启动时，如果 `product_cases` 为空，会自动写入 4 个演示商品。
 
+## 站点级商品机会
+
+首页是站点工作区入口。先选择“国家 / 市场”和“平台 / 站点”，再查看商品机会；地址栏会保留当前范围，例如：
+
+```text
+/?market=US&platform=amazon#opportunities
+/?market=US&platform=tiktok_shop#opportunities
+```
+
+商品机会不是按商品表里的单一 `marketplace` 字段粗略过滤，而是通过 `product_case_sites(case_id, market_code, platform_code)` 显式归一：
+
+- 首页只显示明确关联到当前 `国家 × 平台` 的候选品，或已经建立同站点渠道目标的商品
+- 切换国家或平台后，机会列表、机会数、建议 GO、平均净利率和待审批数量会一起变化
+- 同一商品可以在多个站点分别立项；从 Amazon 再导入 TikTok Shop 时会新增站点关系，不复制商品
+- 旧数据启动时只回填为原 `marketplace × amazon`，不会自动出现在其他平台
+- 非 Amazon 候选品不会自动生成 Amazon 测试店铺或 Listing
+
+从首页、`/import` 或数据源工作台导入候选品时，必须确认目标国家与平台；导入成功后会返回对应站点机会页。CSV 中的 `marketplace` 会被当前选择的国家覆盖，避免文件内容和页面范围不一致。
+
 ## 接入真实数据（P1.1）
 
 进入“数据源”页面 `/data-sources`，可以分别导入候选品、供应商、报价，或同步 Keepa ASIN。旧的“导入候选品”页面 `/import` 仍保留兼容，但新字段和运行记录以数据源工作台为准。
@@ -157,6 +177,7 @@ return_recovery_rate,coupon,storage_cost,other_cost,notes
 ```
 
 - `title` 和 `competitor_price` 必须有有效值
+- 导入前选择目标“国家 / 市场”和“平台 / 站点”；站点归属写入 `product_case_sites`
 - 没有 `asin` 时会生成临时编号；同一 `asin + marketplace` 重复导入会跳过
 - 没有 `landed_cost` 时暂按售价的 30% 估算，仅适合早期筛查，不能替代真实报价
 - 当前成本模型不盈利的候选品会被拒绝导入
@@ -372,12 +393,13 @@ KEEPA_API_KEY=
 本轮已在生产模式下完成自动检查和真实浏览器验收：
 
 - `npm run typecheck`：通过
-- `npm test`：39 / 39 通过
+- `npm test`：49 / 49 通过
 - `npm run build`：通过
 - 浏览器逐页打开 `/`、`/approvals`、`/sourcing`、`/data-sources`、`/connections`：均返回 200，无 404
 - 浏览器验收了“已内容批准版本”和“草稿版本”两种发布准备状态：前者显示 `本地内容已就绪` 与 4 个阻断项，后者显示 `本地门禁未完成`
 - 两种状态均显示平台 dry-run 不支持、`externalActions=none`、`published=false`；发布队列审批按钮只在满足 `approval_pending` 时可用
-- 首页原有 7 个候选商品仍可正常读取，正式数据库未重置
+- 首页 `US × Amazon` 显示 7 个机会；切换 `US × TikTok Shop` 显示 0 个，并出现该站点的导入入口
+- 首页国家/平台选择器、站点指标、机会列表和导入链接使用同一 `market + platform` 上下文，正式数据库未重置
 - Shopify 未配置凭证时检查返回 `409 not_configured`，页面不显示“已连接”，也不写入成功记录
 - TikTok Shop / 1688 始终显示“尚未接入”；即使检查请求被调用，也只返回 `unsupported` 且 `externalRequestAttempted: false`
 - 连接中心固定显示“写连接 0”；没有新增发布、改价、库存、订单或付款写接口

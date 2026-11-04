@@ -338,6 +338,26 @@ export type ChannelLaunchReviewRow = {
   created_at: string;
 };
 
+export type ChannelLaunchValidationRow = {
+  id: string;
+  channel_listing_id: string;
+  channel_version_id: string;
+  channel_account_id: string;
+  platform_code: string;
+  market_code: string;
+  operation: "validation_preview";
+  status: "failed" | "passed" | "unsupported";
+  platform_request_id: string | null;
+  platform_submission_id: string | null;
+  response_summary: Record<string, unknown>;
+  error_summary: Record<string, unknown>;
+  executed_by: string;
+  executed_at: string;
+  expires_at: string | null;
+  external_actions: "validation_only";
+  published: false;
+};
+
 export type ChannelMatrixItem = {
   product: ProductRow;
   variant: ProductMarketVariantRow;
@@ -362,6 +382,9 @@ export type ChannelTargetDetail = ChannelMatrixItem & {
   versions: ChannelListingVersionRow[];
   auditLogs: AuditRow[];
   launchReviews: ChannelLaunchReviewRow[];
+  launchValidations: ChannelLaunchValidationRow[];
+  currentValidation: ChannelLaunchValidationRow | null;
+  platformCapabilities: import("./platform-capabilities").PlatformCapabilityResult;
   launchReadiness: LaunchReadinessResult;
 };
 

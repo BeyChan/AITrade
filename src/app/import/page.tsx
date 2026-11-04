@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
 type ImportResponse = {
   imported?: number;
@@ -22,6 +22,15 @@ export default function ImportPage() {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<ImportResponse | null>(null);
+  const [site, setSite] = useState({ market: "US", platform: "amazon" });
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setSite({
+      market: (params.get("market") || "US").toUpperCase(),
+      platform: (params.get("platform") || "amazon").toLowerCase(),
+    });
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -30,6 +39,8 @@ export default function ImportPage() {
     setResult(null);
     const formData = new FormData();
     formData.set("kind", "candidates");
+    formData.set("market", site.market);
+    formData.set("platform", site.platform);
     if (file) formData.set("file", file);
     if (csvText.trim()) formData.set("csvText", csvText);
 
@@ -51,9 +62,9 @@ export default function ImportPage() {
       <div className="breadcrumb"><Link href="/">商品机会</Link> / 导入候选品</div>
       <section className="hero">
         <div>
-          <div className="eyebrow">CSV intake · P1.0</div>
-          <h1>导入候选品</h1>
-          <p>这是候选品快速入口。完整的数据源状态、供应商和报价导入在“数据源”工作台；每个候选品仍会生成保守的单位经济模型、原始快照和待审批单。</p>
+          <div className="eyebrow">CSV intake · {site.market} × {site.platform}</div>
+          <h1>导入 {site.market} 站点候选品</h1>
+          <p>本次导入固定归属于首页选中的国家站点。CSV 中的 marketplace 会以当前站点覆盖，避免同一批候选品被错误归到其他市场。</p>
         </div>
       </section>
 
@@ -72,7 +83,7 @@ export default function ImportPage() {
                 id="csvText"
                 value={csvText}
                 onChange={(event) => setCsvText(event.target.value)}
-                placeholder={"asin,marketplace,category,title,competitor_price,currency,monthly_sales_min,monthly_sales_max,review_count,rating,observed_at\nB0XXXXX,US,宠物用品,Example product,39.99,USD,800,1200,340,4.3,2026-11-04T08:00:00Z"}
+                placeholder={`asin,marketplace,category,title,competitor_price,currency,monthly_sales_min,monthly_sales_max,review_count,rating,observed_at\nB0XXXXX,${site.market},宠物用品,Example product,39.99,USD,800,1200,340,4.3,2026-11-04T08:00:00Z`}
               />
               <span className="help">文件与粘贴内容二选一。必需字段：title、competitor_price；建议同时填写 source、source_record_id 和 observed_at。</span>
             </div>
@@ -87,7 +98,7 @@ export default function ImportPage() {
             {result ? (
               <div className="result-box success">
                 导入完成：新增 {result.imported ?? 0} 个，更新 {result.updated ?? 0} 个，跳过重复 {result.skipped ?? 0} 个，保存快照 {result.snapshots ?? 0} 条。{" "}
-                <Link href="/" style={{ fontWeight: 800, textDecoration: "underline" }}>查看商品机会</Link>
+                <Link href={`/?market=${encodeURIComponent(site.market)}&platform=${encodeURIComponent(site.platform)}#opportunities`} style={{ fontWeight: 800, textDecoration: "underline" }}>查看 {site.market} 站点商品机会</Link>
               </div>
             ) : null}
             {error ? <div className="result-box error">{error}</div> : null}
@@ -99,7 +110,7 @@ export default function ImportPage() {
             <h3>最小字段</h3>
             <div className="pill-list">
               <span className="info-pill">asin</span>
-              <span className="info-pill">marketplace</span>
+              <span className="info-pill">marketplace（自动覆盖为 {site.market}）</span>
               <span className="info-pill">title</span>
               <span className="info-pill">competitor_price</span>
             </div>

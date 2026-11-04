@@ -1,8 +1,11 @@
 import { parseCandidateCsv, type CandidateImportRow } from "../csv.ts";
 import { asJsonObject, type ConnectorResult } from "./types.ts";
 
-export function readCandidateCsv(csv: string): ConnectorResult<CandidateImportRow> {
-  const rows = parseCandidateCsv(csv);
+export function readCandidateCsv(
+  csv: string,
+  defaults: { marketplace?: string } = {},
+): ConnectorResult<CandidateImportRow> {
+  const rows = parseCandidateCsv(csv, defaults);
   return {
     sourceCode: "csv_candidates",
     warnings: [],

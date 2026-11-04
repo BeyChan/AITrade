@@ -11,8 +11,16 @@ const readyInput: LaunchReadinessInput = {
   },
   approvedMainImageCount: 1,
   account: { status: "connected", isDemo: false },
-  writeAdapterAvailable: true,
-  dryRunSupported: true,
+  writeAdapter: { implemented: true },
+  validationPreview: {
+    adapterImplemented: true,
+    status: "passed",
+    currentVersionBound: true,
+    expired: false,
+    requestId: "request-1",
+    submissionId: "submission-1",
+    executedAt: "2026-11-04T04:00:00.000Z",
+  },
   approvedLaunchReview: null,
 };
 
@@ -23,10 +31,52 @@ test("launch readiness blocks a target without a saved version", () => {
   assert.ok(result.blockers.some((blocker) => blocker.code === "LATEST_VERSION"));
 });
 
-test("launch readiness does not treat local preflight as platform dry-run", () => {
-  const result = evaluateLaunchReadiness({ ...readyInput, dryRunSupported: false });
+test("launch readiness does not treat local preflight as platform validation", () => {
+  const result = evaluateLaunchReadiness({
+    ...readyInput,
+    validationPreview: {
+      ...readyInput.validationPreview,
+      status: null,
+      currentVersionBound: false,
+      requestId: null,
+      submissionId: null,
+      executedAt: null,
+    },
+  });
   assert.equal(result.status, "dry_run_unsupported");
-  assert.ok(result.checks.some((check) => check.code === "PLATFORM_DRY_RUN" && check.state === "unsupported"));
+  assert.ok(result.checks.some((check) => check.code === "PLATFORM_DRY_RUN" && check.state === "pending"));
+  assert.equal(result.canApproveForLaunchQueue, false);
+});
+
+test("expired, failed or old-version validation evidence cannot unlock the launch queue", () => {
+  const expired = evaluateLaunchReadiness({
+    ...readyInput,
+    validationPreview: { ...readyInput.validationPreview, expired: true },
+  });
+  assert.equal(expired.status, "dry_run_unsupported");
+  assert.ok(expired.checks.some((check) => check.code === "PLATFORM_DRY_RUN" && check.state === "fail"));
+  assert.match(expired.blockers.find((blocker) => blocker.code === "PLATFORM_DRY_RUN")?.detail ?? "", /过期/);
+
+  const failed = evaluateLaunchReadiness({
+    ...readyInput,
+    validationPreview: { ...readyInput.validationPreview, status: "failed" },
+  });
+  assert.equal(failed.status, "dry_run_unsupported");
+  assert.ok(failed.checks.some((check) => check.code === "PLATFORM_DRY_RUN" && check.state === "fail"));
+
+  const oldVersion = evaluateLaunchReadiness({
+    ...readyInput,
+    validationPreview: { ...readyInput.validationPreview, currentVersionBound: false },
+  });
+  assert.equal(oldVersion.status, "dry_run_unsupported");
+  assert.ok(oldVersion.checks.some((check) => check.code === "PLATFORM_DRY_RUN" && check.state === "pending"));
+  assert.match(oldVersion.blockers.find((blocker) => blocker.code === "PLATFORM_DRY_RUN")?.detail ?? "", /尚无/);
+});
+
+test("a validation receipt still cannot bypass the missing official write adapter", () => {
+  const result = evaluateLaunchReadiness({ ...readyInput, writeAdapter: { implemented: false } });
+  assert.equal(result.status, "dry_run_unsupported");
+  assert.ok(result.checks.some((check) => check.code === "WRITE_ADAPTER" && check.state === "unsupported"));
   assert.equal(result.canApproveForLaunchQueue, false);
 });
 
