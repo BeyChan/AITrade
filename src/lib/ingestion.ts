@@ -11,9 +11,9 @@ import {
 import { readCandidateCsv } from "./connectors/csv-candidates.ts";
 import { readSupplierCsv } from "./connectors/csv-suppliers.ts";
 import { readQuoteCsv } from "./connectors/csv-quotes.ts";
-import { fetchKeepaCandidates } from "./connectors/keepa.ts";
+import { fetchKeepaCandidates, type KeepaFetchOptions } from "./connectors/keepa.ts";
 import { getConnectorReadiness } from "./connectors/registry.ts";
-import type { ConnectorRecord, ConnectorResult } from "./connectors/types.ts";
+import type { ConnectorApiCall, ConnectorRecord, ConnectorResult } from "./connectors/types.ts";
 import type {
   DataSourcesDashboard,
   DataSourceRow,
@@ -37,6 +37,7 @@ export type IngestionSummary = ImportCounts & {
   runId: string;
   sourceCode: string;
   status: "completed" | "partial";
+  apiCalls?: ConnectorApiCall[];
 };
 
 type IngestionOptions = {
@@ -118,6 +119,8 @@ export async function importKeepaByAsins(input: {
   asins: string[];
   marketplace: string;
   actor?: string;
+  runId?: string;
+  fetchOptions?: KeepaFetchOptions;
 }) {
   return withIngestionRun(
     {
@@ -125,11 +128,20 @@ export async function importKeepaByAsins(input: {
       importKind: "keepa_product_sync",
       actor: input.actor ?? "运营人员",
       query: { asins: input.asins, marketplace: input.marketplace },
+      runId: input.runId,
     },
     async (runId) => {
-      const connector = await fetchKeepaCandidates({ asins: input.asins, marketplace: input.marketplace });
+      const connector = await fetchKeepaCandidates({
+        asins: input.asins,
+        marketplace: input.marketplace,
+        fetchOptions: input.fetchOptions,
+      });
       const result = await importCandidateConnector(connector, runId, { platformCode: "amazon" });
-      return { ...result, warnings: [...connector.warnings, ...result.warnings] };
+      return {
+        ...result,
+        warnings: [...connector.warnings, ...result.warnings],
+        apiCalls: connector.apiCalls ?? [],
+      };
     },
   );
 }
@@ -205,11 +217,12 @@ async function withIngestionRun(
     actor: string;
     fileName?: string;
     query?: Record<string, unknown>;
+    runId?: string;
   },
-  work: (runId: string) => Promise<ImportCounts>,
+  work: (runId: string) => Promise<ImportCounts & { apiCalls?: ConnectorApiCall[] }>,
 ): Promise<IngestionSummary> {
   const db = await getDb();
-  const runId = randomUUID();
+  const runId = input.runId ?? randomUUID();
   const actor = input.actor.trim() || "系统";
   await db.query(
     `INSERT INTO ingestion_runs

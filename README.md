@@ -2,12 +2,12 @@
 
 面向跨境电商的 AI 运营工作台。目标不是替代 ERP，而是把选品、供应商、内容生产、上架和运营异常沉淀成可审计、可审批、可复用的工作流。
 
-当前仓库是一个**可运行的 P1.1 数据底座 + 纵向业务切片 + 只读连接诊断**。真实候选品、供应商和报价可以通过 CSV 或人工通道入库，保留来源、采集时间、运行记录和原始快照；已跑通：
+当前仓库是一个**可运行的 P1.2 数据底座 + 纵向业务切片 + 只读连接诊断**。真实候选品、供应商和报价可以通过 CSV 或人工通道入库，保留来源、采集时间、运行记录和原始快照；Keepa 同步已升级为可重试、可审计、带数据新鲜度的持久化任务。已跑通：
 
 ```text
 候选品 / 供应商 / 报价真实数据接入
 → CSV 导入、幂等去重、运行记录与证据快照
-→ 可选 Keepa 只读 ASIN 商品数据同步
+→ 可选 Keepa 只读同步任务、自动重试、调用审计与数据新鲜度
 → Amazon / Shopify / eBay 只读连接检查
 → 生成证据占位与单位经济模型
 → 商品机会看板
@@ -46,7 +46,7 @@
 ## 当前能力
 
 - 独立“数据源”工作台 `/data-sources`，统一展示数据源就绪度、真实数据量、最近 20 次导入和告警
-- 统一导入 API `/api/ingestion`，支持候选品、供应商、报价和 Keepa 四类通道
+- CSV 导入 API `/api/ingestion` 支持候选品、供应商和报价；Keepa 使用独立的同步任务 API `/api/sync/jobs`
 - CSV 文件上传或直接粘贴导入；候选品最多 200 行，供应商和报价最多 1,000 行，CSV 最大 2 MB
 - 中英文字段名兼容，重复 `asin + marketplace` 幂等跳过；供应商按平台 + 外部 ID、规范化链接或名称去重
 - 候选品导入显式绑定“国家 × 平台站点”；同一商品可关联多个站点，机会看板和指标严格按当前站点隔离
@@ -54,7 +54,12 @@
 - 每条真实数据保留 `source_code`、`source_record_id`、`observed_at` 和 `evidence_snapshots` 原始快照
 - 候选品支持销量区间、币种、BSR、关键词搜索量、卖家数、变体数和完整成本假设
 - 报价支持运费、关税率、币种、有效期、开模费、付款条件、Incoterms、认证和供应商外部 ID
-- Keepa Adapter 只读同步指定 ASIN；未配置 `KEEPA_API_KEY` 时返回 409，不发起外部请求，也不伪造数据
+- Keepa Adapter 只读同步指定 ASIN，单次最多 100 个；408、429、5xx 和网络错误按指数退避自动重试，并遵守 `Retry-After`
+- 每次 Keepa 同步生成持久化任务，记录状态、尝试次数、下次重试时间、API 调用耗时、响应摘要、失败原因和关联导入运行
+- 按 `source_code + 市场` 维护同步游标和数据新鲜度；24 小时内成功同步为 `fresh`，超时为 `stale`，从未成功为 `unknown`
+- 同一 ASIN 集合与市场的活跃任务幂等复用；失败任务可人工重试，默认最多尝试 3 次
+- 未配置 `KEEPA_API_KEY` 时返回 409，不发起外部请求，也不伪造商品、连接或成功状态
+- 同步任务、API 调用和审计记录不保存 API Key、Authorization 或带密钥的请求 URL
 - 独立“连接中心” `/connections`：Amazon 验证 LWA + Seller API，Shopify 验证自有店铺只读访问，eBay 只验证应用凭证
 - 每次连接检查写入 `connector_health_checks` 和 `connector.health_checked` 审计；页面与数据库均不保存或回显 Token、Secret
 - TikTok Shop 与 1688 明确显示“尚未接入”，检查结果标记为 `unsupported`，不发起外部请求，也不伪造连接状态
@@ -84,11 +89,11 @@
 
 ## 明确边界
 
-P1.1 覆盖真实候选品、供应商和报价接入、平台只读授权诊断，并继续贯通“候选品 → 成本模型 → 人审立项 → 供应商报价对比 → 人审定标 → 商品定义 → 主图人审 → 多国家/多平台 Listing 草稿与本地预检 → 人工内容批准 → 发布准备门禁 → 内部发布队列审批”。它是可运行的数据底座与业务原型，不是生产系统。
+P1.2 覆盖真实候选品、供应商和报价接入、Keepa 持久化同步任务、平台只读授权诊断，并继续贯通“候选品 → 成本模型 → 人审立项 → 供应商报价对比 → 人审定标 → 商品定义 → 主图人审 → 多国家/多平台 Listing 草稿与本地预检 → 人工内容批准 → 发布准备门禁 → 内部发布队列审批”。它是可运行的数据底座与业务原型，不是生产系统。
 
 当前真实接入状态：
 
-- **已实现**：候选品 CSV、供应商 CSV、报价 CSV、人工报价录入、Keepa ASIN 只读同步
+- **已实现**：候选品 CSV、供应商 CSV、报价 CSV、人工报价录入、Keepa ASIN 只读同步任务与人工重试
 - **已实现只读诊断**：Amazon SP-API 自有店铺、Shopify Admin API、eBay 应用凭证
 - **已实现内部审批**：渠道发布准备检查与人工发布队列审批；审批只进入内部队列，不产生平台发布
 - **只做本地适配预览**：Amazon、Shopify、TikTok Shop、eBay Listing 字段映射
@@ -152,7 +157,7 @@ npm start
 
 从首页、`/import` 或数据源工作台导入候选品时，必须确认目标国家与平台；导入成功后会返回对应站点机会页。CSV 中的 `marketplace` 会被当前选择的国家覆盖，避免文件内容和页面范围不一致。
 
-## 接入真实数据（P1.1）
+## 接入真实数据（P1.2）
 
 进入“数据源”页面 `/data-sources`，可以分别导入候选品、供应商、报价，或同步 Keepa ASIN。旧的“导入候选品”页面 `/import` 仍保留兼容，但新字段和运行记录以数据源工作台为准。
 
@@ -223,9 +228,34 @@ certifications,quote_valid_until,currency,observed_at
 KEEPA_API_KEY=
 ```
 
-配置后可在数据源工作台按市场输入 ASIN，单次最多 100 个。Adapter 调用 `https://api.keepa.com/product`，只读同步商品价格、销量估计、评论、评级和类目等字段。缺少 Key 时接口返回 `409 not_configured`，不会发起外部请求；销量、费用和评级仍需人工核验，成本模型中的部分成本是保守占位值。
+配置后可在数据源工作台按市场输入 ASIN，单次最多 100 个。Adapter 调用 `https://api.keepa.com/product`，只读同步商品价格、销量估计、评论、评级和类目等字段。缺少 Key 时接口返回 `409 not_configured`，不会发起外部请求；销量、费用和评级仍需人工核验，成本模型中的部分成本是保守占位值。Keepa 只是竞品商品只读数据源，不是供应商、报价或采购承诺来源。
 
 API Secret 只能放在 `.env.local` 或密钥管理系统中，禁止写入数据库、源码、CSV、日志或聊天。
+
+### Keepa 同步任务 API
+
+同步请求会先创建 `connector_sync_jobs`，再原子抢占并执行。任务状态包括 `queued`、`running`、`completed`、`partial` 和 `failed`；失败不会伪装成导入成功。
+
+```bash
+# 查看最近任务、同步游标、新鲜度和统计
+curl http://localhost:3000/api/sync/jobs
+
+# 创建并执行一次 Keepa 只读同步
+curl -X POST http://localhost:3000/api/sync/jobs \
+  -H 'Content-Type: application/json' \
+  -d '{"sourceCode":"keepa","asins":["B08N5WRWNW"],"marketplace":"US","actor":"本地管理员"}'
+
+# 人工重试失败任务，最多执行到 max_attempts
+curl -X POST http://localhost:3000/api/sync/jobs/<jobId>/retry
+```
+
+接口只接受 Keepa 和受限参数，不接受任意 URL。每次外部 HTTP 尝试写入 `connector_api_calls`，包括状态码、耗时、重试序号和非敏感请求/响应摘要。同步成功会更新 `connector_sync_cursors`，失败会记录脱敏错误、连续失败次数和下次建议重试时间；当前还没有后台定时调度器，人工重试和后续调度会复用同一任务执行器。
+
+本功能新增三张表：
+
+- `connector_sync_jobs`：同步意图、执行状态、尝试次数、请求哈希、摘要、关联运行和重试时间
+- `connector_sync_cursors`：按数据源和市场的游标、最近成功/尝试时间、连续失败次数和新鲜度基础
+- `connector_api_calls`：每次外部 API 调用的状态码、耗时、重试序号和脱敏摘要
 
 ### 店铺连接中心（P1.1）
 
@@ -393,7 +423,7 @@ KEEPA_API_KEY=
 本轮已在生产模式下完成自动检查和真实浏览器验收：
 
 - `npm run typecheck`：通过
-- `npm test`：49 / 49 通过
+- `npm test`：55 / 55 通过
 - `npm run build`：通过
 - 浏览器逐页打开 `/`、`/approvals`、`/sourcing`、`/data-sources`、`/connections`：均返回 200，无 404
 - 浏览器验收了“已内容批准版本”和“草稿版本”两种发布准备状态：前者显示 `本地内容已就绪` 与 4 个阻断项，后者显示 `本地门禁未完成`
@@ -403,6 +433,8 @@ KEEPA_API_KEY=
 - Shopify 未配置凭证时检查返回 `409 not_configured`，页面不显示“已连接”，也不写入成功记录
 - TikTok Shop / 1688 始终显示“尚未接入”；即使检查请求被调用，也只返回 `unsupported` 且 `externalRequestAttempted: false`
 - 连接中心固定显示“写连接 0”；没有新增发布、改价、库存、订单或付款写接口
+- Keepa 未配置时，`POST /api/sync/jobs` 返回 `409 not_configured`；任务落库为失败、`apiCallCount=0`、没有新增商品，也没有外部请求
+- Keepa 自动重试测试覆盖 429 后成功、3 次 5xx 后失败、人工重试、活跃任务幂等和 Key 脱敏
 
 本轮验收同时修复了一个界面状态缺陷：未实现的平台不再因为环境变量是否填写而显示“待验证”或“未配置”，而是始终显示“尚未接入”。上面的连接中心截图来自修复后的本地生产构建。
 
@@ -412,9 +444,11 @@ KEEPA_API_KEY=
 src/app/                 页面、Server Actions 和导入 API
 src/app/data-sources/    真实数据源工作台
 src/app/connections/     平台连接中心与只读授权诊断
-src/app/api/ingestion/   候选品、供应商、报价与 Keepa 统一导入 API
+src/app/api/ingestion/   候选品、供应商与报价 CSV 导入 API
+src/app/api/sync/jobs/   Keepa 持久化同步任务、任务列表与人工重试 API
 src/app/api/connections/ 平台连接检查 API
 src/lib/ingestion.ts     导入编排、幂等、运行记录、快照与审计
+src/lib/connector-sync.ts 同步任务幂等、抢占、重试、游标、新鲜度与审计
 src/lib/connectors/      CSV / Keepa / 平台诊断 Connector 与就绪度注册表
 src/lib/connection-diagnostics.ts 连接检查持久化与审计
 src/lib/economics.ts     确定性单位经济计算
@@ -436,12 +470,13 @@ docs/                    实施蓝图和审批边界
 
 ## 下一步
 
-1. 用真实 Keepa Key、候选品表、供应商表和报价表跑一轮业务验收
-2. 用真实 Amazon / Shopify / eBay 凭证运行只读验收，确认权限范围、区域与店铺归属
-3. 在只读验收通过后实现真实平台 dry-run、官方写 Adapter、幂等写入与外部回执，并继续以人工审批控制任何外部发布
-4. 通过 TikTok Shop / 1688 官方开放平台完成应用审核、店铺授权和诊断；在此之前继续使用可追溯 CSV/人工通道
-5. 样品、质检、供应商认证与合规文件归档
-6. A+ 布局、场景图脚本、主图生成和品牌素材授权记录
-7. RFQ 模板、导出、人工确认发送与供应商回复归档
+1. 增加后台定时调度、租约超时回收、任务并发上限和失败告警，让 `queued` 任务可自动执行
+2. 用真实 Keepa Key、候选品表、供应商表和报价表跑一轮业务验收，核对字段口径和 API 配额
+3. 用真实 Amazon / Shopify / eBay 凭证运行只读验收，确认权限范围、区域与店铺归属
+4. 在只读验收通过后实现真实平台 dry-run、官方写 Adapter、幂等写入与外部回执，并继续以人工审批控制任何外部发布
+5. 通过 TikTok Shop / 1688 官方开放平台完成应用审核、店铺授权和诊断；在此之前继续使用可追溯 CSV/人工通道
+6. 样品、质检、供应商认证与合规文件归档
+7. A+ 布局、场景图脚本、主图生成和品牌素材授权记录
+8. RFQ 模板、导出、人工确认发送与供应商回复归档
 
 当前版本不自动联系供应商、不自动付款、不自动退款、不自动生成品牌授权、不无审批改价、不无审批发布。

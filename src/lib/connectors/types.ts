@@ -11,6 +11,18 @@ export type ConnectorResult<T> = {
   sourceCode: string;
   records: ConnectorRecord<T>[];
   warnings: string[];
+  apiCalls?: ConnectorApiCall[];
+};
+
+export type ConnectorApiCall = {
+  endpoint: string;
+  method: string;
+  statusCode: number | null;
+  durationMs: number;
+  retryCount: number;
+  requestSummary: Record<string, unknown>;
+  responseSummary: Record<string, unknown>;
+  errorMessage: string | null;
 };
 
 export type DataSourceReadiness = {

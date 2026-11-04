@@ -717,3 +717,66 @@ CREATE INDEX IF NOT EXISTS idx_ingestion_runs_source ON ingestion_runs(source_co
 CREATE INDEX IF NOT EXISTS idx_ingestion_runs_status ON ingestion_runs(status, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_product_cases_source ON product_cases(source_code, source_record_id);
 CREATE INDEX IF NOT EXISTS idx_quotes_source_hash ON quotes(rfq_id, source_hash);
+
+-- P1.2 durable connector sync jobs. A job records intent and attempts; ingestion_runs
+-- continue to record the data mutation, so failed requests never look like imports.
+CREATE TABLE IF NOT EXISTS connector_sync_jobs (
+  id TEXT PRIMARY KEY,
+  source_code TEXT NOT NULL REFERENCES data_sources(code),
+  marketplace TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'queued'
+    CHECK (status IN ('queued', 'running', 'completed', 'partial', 'failed')),
+  trigger_type TEXT NOT NULL DEFAULT 'manual'
+    CHECK (trigger_type IN ('manual', 'scheduled')),
+  requested_by TEXT NOT NULL,
+  attempt INTEGER NOT NULL DEFAULT 1 CHECK (attempt > 0),
+  max_attempts INTEGER NOT NULL DEFAULT 3 CHECK (max_attempts > 0),
+  request_hash TEXT NOT NULL,
+  request_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+  run_id TEXT REFERENCES ingestion_runs(id) ON DELETE SET NULL,
+  next_run_at TIMESTAMPTZ,
+  error_message TEXT,
+  started_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_connector_sync_jobs_active_request
+  ON connector_sync_jobs(source_code, request_hash)
+  WHERE status IN ('queued', 'running');
+CREATE INDEX IF NOT EXISTS idx_connector_sync_jobs_recent
+  ON connector_sync_jobs(source_code, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_connector_sync_jobs_status
+  ON connector_sync_jobs(status, next_run_at, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS connector_sync_cursors (
+  id TEXT PRIMARY KEY,
+  source_code TEXT NOT NULL REFERENCES data_sources(code),
+  marketplace TEXT NOT NULL,
+  cursor JSONB NOT NULL DEFAULT '{}'::jsonb,
+  last_success_at TIMESTAMPTZ,
+  last_attempt_at TIMESTAMPTZ,
+  consecutive_failures INTEGER NOT NULL DEFAULT 0 CHECK (consecutive_failures >= 0),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (source_code, marketplace)
+);
+
+CREATE TABLE IF NOT EXISTS connector_api_calls (
+  id TEXT PRIMARY KEY,
+  job_id TEXT NOT NULL REFERENCES connector_sync_jobs(id) ON DELETE CASCADE,
+  source_code TEXT NOT NULL,
+  endpoint TEXT NOT NULL,
+  method TEXT NOT NULL DEFAULT 'GET',
+  status_code INTEGER,
+  duration_ms INTEGER NOT NULL DEFAULT 0,
+  retry_count INTEGER NOT NULL DEFAULT 0,
+  request_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+  response_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+  error_message TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_connector_api_calls_job
+  ON connector_api_calls(job_id, created_at ASC);

@@ -75,3 +75,60 @@ test("Keepa read-only adapter maps product price and market metadata", async () 
     globalThis.fetch = originalFetch;
   }
 });
+
+test("Keepa retries transient HTTP failures and records each attempt", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestCount = 0;
+  globalThis.fetch = (async () => {
+    requestCount += 1;
+    if (requestCount === 1) return new Response("temporary", { status: 503 });
+    return new Response(JSON.stringify({
+      products: [{
+        asin: "B0RETRY001",
+        title: "Retry Product",
+        monthlySold: 10,
+        stats: { current: [null, 1499] },
+      }],
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+
+  try {
+    const result = await fetchKeepaCandidates({
+      asins: ["B0RETRY001"],
+      marketplace: "US",
+      env: { NODE_ENV: "test", KEEPA_API_KEY: "retry-test-key" } as NodeJS.ProcessEnv,
+      fetchOptions: { maxAttempts: 2, retryBaseDelayMs: 1, sleep: async () => {} },
+    });
+    assert.equal(requestCount, 2);
+    assert.equal(result.records.length, 1);
+    assert.deepEqual(result.apiCalls?.map((call) => [call.statusCode, call.retryCount]), [[503, 0], [200, 1]]);
+    assert.equal(result.apiCalls?.[0].endpoint, "/product");
+    assert.equal(result.apiCalls?.[0].requestSummary.asinCount, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Keepa stops after the configured transient retry budget", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestCount = 0;
+  globalThis.fetch = (async () => {
+    requestCount += 1;
+    return new Response("upstream unavailable", { status: 500 });
+  }) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      fetchKeepaCandidates({
+        asins: ["B0RETRY002"],
+        marketplace: "US",
+        env: { NODE_ENV: "test", KEEPA_API_KEY: "retry-test-key" } as NodeJS.ProcessEnv,
+        fetchOptions: { maxAttempts: 3, retryBaseDelayMs: 1, sleep: async () => {} },
+      }),
+      /3 次尝试后失败/,
+    );
+    assert.equal(requestCount, 3);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

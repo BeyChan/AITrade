@@ -7,7 +7,8 @@ type IngestionKind = "candidates" | "suppliers" | "quotes" | "keepa";
 
 type IngestionResult = {
   runId?: string;
-  status?: "completed" | "partial";
+  jobId?: string;
+  status?: "queued" | "running" | "completed" | "partial" | "failed";
   imported?: number;
   updated?: number;
   skipped?: number;
@@ -16,6 +17,14 @@ type IngestionResult = {
   warnings?: string[];
   error?: string;
   code?: string;
+  job?: {
+    id: string;
+    status: string;
+    attempt: number;
+    max_attempts: number;
+    next_run_at: string | null;
+    summary?: { apiCallCount?: number; durationMs?: number };
+  };
 };
 
 const modes: Array<{
@@ -116,10 +125,7 @@ export function DataSourceImport() {
 
     const formData = new FormData();
     formData.set("kind", kind);
-    if (kind === "keepa") {
-      formData.set("asins", asins);
-      formData.set("marketplace", marketplace);
-    } else {
+    if (kind !== "keepa") {
       if (file) formData.set("file", file);
       if (csvText.trim()) formData.set("csvText", csvText);
       if (kind === "candidates") {
@@ -129,20 +135,26 @@ export function DataSourceImport() {
     }
 
     try {
-      const response = await fetch("/api/ingestion", { method: "POST", body: formData });
+      const response = kind === "keepa"
+        ? await fetch("/api/sync/jobs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sourceCode: "keepa", asins, marketplace, actor: "运营人员" }),
+          })
+        : await fetch("/api/ingestion", { method: "POST", body: formData });
       const payload = (await response.json()) as IngestionResult;
+      setResult(payload);
+      router.refresh();
       if (!response.ok) {
         if (payload.code === "not_configured") {
           throw new Error(`${payload.error || "连接器未配置"}。请把凭证写入 .env.local 后重启服务，不要把密钥发到聊天里。`);
         }
         throw new Error(payload.error || "导入失败");
       }
-      setResult(payload);
       if (kind !== "keepa") {
         setFile(null);
         setCsvText("");
       }
-      router.refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "导入失败");
     } finally {
@@ -275,24 +287,32 @@ export function DataSourceImport() {
 
           <div className="button-row">
             <button className="button primary" type="submit" disabled={pending || !canSubmit}>
-              {pending ? "正在导入…" : kind === "keepa" ? "同步 Keepa 商品" : "开始导入"}
+              {pending ? "正在同步…" : kind === "keepa" ? "创建并执行 Keepa 同步任务" : "开始导入"}
             </button>
             <span className="source-safe-note">外部动作：不会发送 RFQ、自动定标、发布、下单或付款</span>
           </div>
 
           {result ? (
-            <div className={result.status === "partial" ? "result-box warning" : "result-box success"}>
-              <strong>{result.status === "partial" ? "导入完成，但有需要处理的记录" : "导入完成"}</strong>
+            <div className={result.status === "partial" ? "result-box warning" : result.status === "failed" ? "result-box error" : "result-box success"}>
+              <strong>
+                {result.status === "partial"
+                  ? "同步完成，但有需要处理的记录"
+                  : result.status === "failed"
+                    ? "同步任务失败，未伪造任何业务数据"
+                    : kind === "keepa" ? "Keepa 同步任务完成" : "导入完成"}
+              </strong>
               <div className="result-metrics">
                 <span>新增 {result.imported ?? 0}</span>
                 <span>更新 {result.updated ?? 0}</span>
                 <span>跳过 {result.skipped ?? 0}</span>
                 <span>失败 {result.errors ?? 0}</span>
                 <span>快照 {result.snapshots ?? 0}</span>
+                {kind === "keepa" ? <span>API 调用 {result.job?.summary?.apiCallCount ?? 0} 次</span> : null}
               </div>
               {result.runId ? <div className="run-id">runId: {result.runId}</div> : null}
-              {kind === "candidates" ? (
-                <a className="text-link" href={`/?market=${encodeURIComponent(marketplace)}&platform=${encodeURIComponent(platformCode)}#opportunities`}>
+              {result.jobId ? <div className="run-id">jobId: {result.jobId} · attempt {result.job?.attempt ?? 1}/{result.job?.max_attempts ?? 3}</div> : null}
+              {kind === "candidates" || kind === "keepa" ? (
+                <a className="text-link" href={`/?market=${encodeURIComponent(marketplace)}&platform=${encodeURIComponent(kind === "keepa" ? "amazon" : platformCode)}#opportunities`}>
                   查看该国家 × 平台站点的商品机会 →
                 </a>
               ) : null}

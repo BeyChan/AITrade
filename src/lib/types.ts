@@ -470,3 +470,61 @@ export type DataSourcesDashboard = {
     configuredApiCount: number;
   };
 };
+
+export type ConnectorSyncStatus = "queued" | "running" | "completed" | "partial" | "failed";
+export type ConnectorFreshness = "fresh" | "stale" | "unknown";
+
+export type ConnectorSyncJobSummary = {
+  imported?: number;
+  updated?: number;
+  skipped?: number;
+  errors?: number;
+  snapshots?: number;
+  warnings?: string[];
+  apiCallCount?: number;
+  durationMs?: number;
+  externalActions?: "read_only";
+  errorCode?: string;
+};
+
+export type ConnectorSyncJobRow = {
+  id: string;
+  source_code: string;
+  marketplace: string;
+  status: ConnectorSyncStatus;
+  trigger_type: "manual" | "scheduled";
+  requested_by: string;
+  attempt: number;
+  max_attempts: number;
+  request_hash: string;
+  request_payload: Record<string, unknown>;
+  summary: ConnectorSyncJobSummary;
+  run_id: string | null;
+  next_run_at: string | null;
+  error_message: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ConnectorSyncCursorRow = {
+  id: string;
+  source_code: string;
+  marketplace: string;
+  cursor: Record<string, unknown>;
+  last_success_at: string | null;
+  last_attempt_at: string | null;
+  consecutive_failures: number;
+  updated_at: string;
+};
+
+export type ConnectorSyncDashboard = {
+  jobs: ConnectorSyncJobRow[];
+  cursors: Array<ConnectorSyncCursorRow & { freshness: ConnectorFreshness }>;
+  stats: {
+    runningCount: number;
+    failedCount: number;
+    staleSourceCount: number;
+  };
+};

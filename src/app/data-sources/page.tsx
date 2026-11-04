@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { ConnectorSyncJobs } from "@/components/connector-sync-jobs";
 import { DataSourceImport } from "@/components/data-source-import";
+import { getConnectorSyncDashboard } from "@/lib/connector-sync";
 import { getDataSourcesDashboard } from "@/lib/ingestion";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +21,10 @@ const runStatusLabels: Record<string, string> = {
 };
 
 export default async function DataSourcesPage() {
-  const dashboard = await getDataSourcesDashboard();
+  const [dashboard, syncDashboard] = await Promise.all([
+    getDataSourcesDashboard(),
+    getConnectorSyncDashboard(),
+  ]);
   const csvSources = dashboard.sources.filter((source) => source.kind === "csv" || source.kind === "manual");
   const apiSources = dashboard.sources.filter((source) => source.kind === "api" || source.kind === "feed");
 
@@ -28,11 +33,11 @@ export default async function DataSourcesPage() {
       <div className="breadcrumb"><Link href="/">商品机会</Link> / 数据源</div>
       <section className="hero source-hero">
         <div>
-          <div className="eyebrow">P1.0 · Real data foundation</div>
+          <div className="eyebrow">P1.2 · Durable connector sync</div>
           <h1>真实数据先入库，<br />再让 AI 做判断。</h1>
           <p>
-            当前把选品、供应商和报价通过可追溯的 CSV 通道接入，并预留 Keepa 只读 API。
-            每条数据都有来源、观察时间、原始快照和导入运行记录，不用聊天里的“估算值”冒充事实。
+            当前把选品、供应商和报价通过可追溯的 CSV 通道接入，并把 Keepa 升级为可重试的同步任务。
+            每条数据都有来源、观察时间、原始快照、API 调用记录和数据新鲜度，不用聊天里的“估算值”冒充事实。
           </p>
         </div>
         <Link className="button secondary" href="/import">快速导入候选品</Link>
@@ -70,6 +75,8 @@ export default async function DataSourcesPage() {
       </div>
 
       <DataSourceImport />
+
+      <ConnectorSyncJobs dashboard={syncDashboard} />
 
       <section className="panel source-panel">
         <div className="panel-header">
