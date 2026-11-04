@@ -1,0 +1,27 @@
+{
+  "name": "aitrade",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types src/lib/economics.test.ts src/lib/sourcing.test.ts src/lib/listing.test.ts src/lib/channels.test.ts src/lib/csv.test.ts src/lib/connectors.test.ts src/lib/ingestion.test.ts src/lib/connectors/diagnostics.test.ts src/lib/connection-diagnostics.test.ts",
+    "db:reset": "node -e \"import('node:fs').then(fs => fs.rmSync('.data/aitrade', { recursive: true, force: true }))\""
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.5.15",
+    "@next/swc-darwin-arm64": "^16.4.5",
+    "next": "^16.4.5",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "typescript": "^7.0.2"
+  }
+}

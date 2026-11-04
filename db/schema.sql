@@ -1,0 +1,633 @@
+-- AITrade core schema. PostgreSQL compatible; the local MVP runs the same SQL on PGlite.
+CREATE TABLE IF NOT EXISTS product_cases (
+  id TEXT PRIMARY KEY,
+  asin TEXT NOT NULL,
+  marketplace TEXT NOT NULL DEFAULT 'US',
+  category TEXT NOT NULL DEFAULT '未分类',
+  title TEXT NOT NULL,
+  url TEXT,
+  status TEXT NOT NULL DEFAULT 'review_pending'
+    CHECK (status IN ('draft', 'researching', 'review_pending', 'approved', 'rejected', 'archived')),
+  competitor_price_cents INTEGER NOT NULL CHECK (competitor_price_cents > 0),
+  monthly_sales_estimate INTEGER NOT NULL DEFAULT 0,
+  review_count INTEGER NOT NULL DEFAULT 0,
+  rating NUMERIC(3, 2),
+  notes TEXT NOT NULL DEFAULT '',
+  owner TEXT NOT NULL DEFAULT '未分配',
+  evidence_score INTEGER NOT NULL DEFAULT 0 CHECK (evidence_score BETWEEN 0 AND 100),
+  is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (asin, marketplace)
+);
+
+CREATE TABLE IF NOT EXISTS case_evidence (
+  id TEXT PRIMARY KEY,
+  case_id TEXT NOT NULL REFERENCES product_cases(id) ON DELETE CASCADE,
+  evidence_type TEXT NOT NULL,
+  source_type TEXT NOT NULL,
+  source_url TEXT,
+  title TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  confidence NUMERIC(4, 3) NOT NULL DEFAULT 0.500,
+  captured_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS cost_models (
+  id TEXT PRIMARY KEY,
+  case_id TEXT NOT NULL REFERENCES product_cases(id) ON DELETE CASCADE,
+  version INTEGER NOT NULL,
+  assumptions JSONB NOT NULL,
+  results JSONB NOT NULL,
+  created_by TEXT NOT NULL DEFAULT 'system',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (case_id, version)
+);
+
+CREATE TABLE IF NOT EXISTS approvals (
+  id TEXT PRIMARY KEY,
+  case_id TEXT NOT NULL REFERENCES product_cases(id) ON DELETE CASCADE,
+  gate TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'approved', 'rejected', 'cancelled')),
+  decision TEXT,
+  reviewer TEXT,
+  notes TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  decided_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id TEXT PRIMARY KEY,
+  actor TEXT NOT NULL,
+  action TEXT NOT NULL,
+  entity_type TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  details JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS suppliers (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  platform TEXT NOT NULL DEFAULT 'manual',
+  url TEXT,
+  contact TEXT,
+  country TEXT,
+  rating NUMERIC(3, 2),
+  notes TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS rfqs (
+  id TEXT PRIMARY KEY,
+  case_id TEXT NOT NULL REFERENCES product_cases(id) ON DELETE CASCADE,
+  supplier_id TEXT REFERENCES suppliers(id),
+  status TEXT NOT NULL DEFAULT 'draft',
+  requirements JSONB NOT NULL DEFAULT '{}'::jsonb,
+  sent_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS quotes (
+  id TEXT PRIMARY KEY,
+  rfq_id TEXT NOT NULL REFERENCES rfqs(id) ON DELETE CASCADE,
+  unit_price_cents INTEGER NOT NULL,
+  moq INTEGER NOT NULL DEFAULT 1,
+  lead_time_days INTEGER,
+  payment_terms TEXT,
+  incoterm TEXT,
+  certifications TEXT,
+  sample_fee_cents INTEGER,
+  raw_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS assets (
+  id TEXT PRIMARY KEY,
+  case_id TEXT NOT NULL REFERENCES product_cases(id) ON DELETE CASCADE,
+  asset_type TEXT NOT NULL,
+  file_url TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'draft',
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  parent_asset_id TEXT REFERENCES assets(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS listings (
+  id TEXT PRIMARY KEY,
+  case_id TEXT NOT NULL REFERENCES product_cases(id) ON DELETE CASCADE,
+  marketplace TEXT NOT NULL,
+  external_id TEXT,
+  status TEXT NOT NULL DEFAULT 'draft',
+  content JSONB NOT NULL DEFAULT '{}'::jsonb,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS listing_reviews (
+  id TEXT PRIMARY KEY,
+  listing_id TEXT NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+  review_type TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  findings JSONB NOT NULL DEFAULT '[]'::jsonb,
+  reviewer TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS issues (
+  id TEXT PRIMARY KEY,
+  case_id TEXT REFERENCES product_cases(id),
+  issue_type TEXT NOT NULL,
+  severity TEXT NOT NULL DEFAULT 'medium',
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open',
+  source_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  resolved_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS experiments (
+  id TEXT PRIMARY KEY,
+  case_id TEXT NOT NULL REFERENCES product_cases(id) ON DELETE CASCADE,
+  experiment_type TEXT NOT NULL,
+  hypothesis TEXT NOT NULL,
+  variant TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'draft',
+  metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
+  started_at TIMESTAMPTZ,
+  ended_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_product_cases_status ON product_cases(status);
+CREATE INDEX IF NOT EXISTS idx_cost_models_case_version ON cost_models(case_id, version DESC);
+CREATE INDEX IF NOT EXISTS idx_case_evidence_case ON case_evidence(case_id);
+CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(entity_type, entity_id, created_at DESC);
+
+
+-- P0.5 sourcing migration. Additive and safe to run on an existing local database.
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS freight_per_unit_cents INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS duty_rate NUMERIC(6, 4) NOT NULL DEFAULT 0;
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS quality_score INTEGER NOT NULL DEFAULT 60;
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS selected_at TIMESTAMPTZ;
+ALTER TABLE rfqs ADD COLUMN IF NOT EXISTS selected_at TIMESTAMPTZ;
+
+CREATE TABLE IF NOT EXISTS supplier_selections (
+  id TEXT PRIMARY KEY,
+  case_id TEXT NOT NULL REFERENCES product_cases(id) ON DELETE CASCADE,
+  supplier_id TEXT NOT NULL REFERENCES suppliers(id),
+  quote_id TEXT NOT NULL REFERENCES quotes(id),
+  cost_model_id TEXT NOT NULL REFERENCES cost_models(id),
+  selected_by TEXT NOT NULL,
+  exception_reason TEXT NOT NULL DEFAULT '',
+  score_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (case_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_rfqs_case ON rfqs(case_id);
+CREATE INDEX IF NOT EXISTS idx_quotes_rfq ON quotes(rfq_id);
+CREATE INDEX IF NOT EXISTS idx_supplier_selections_case ON supplier_selections(case_id);
+
+-- P0.6 content studio migration.
+ALTER TABLE listings ADD COLUMN IF NOT EXISTS created_by TEXT NOT NULL DEFAULT 'system';
+ALTER TABLE listing_reviews ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;
+
+CREATE TABLE IF NOT EXISTS case_content_profiles (
+  id TEXT PRIMARY KEY,
+  case_id TEXT NOT NULL UNIQUE REFERENCES product_cases(id) ON DELETE CASCADE,
+  product_name TEXT NOT NULL,
+  target_customer TEXT NOT NULL,
+  core_differentiator TEXT NOT NULL,
+  specifications TEXT NOT NULL,
+  package_contents TEXT NOT NULL,
+  claims_to_avoid TEXT NOT NULL DEFAULT '',
+  updated_by TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_listings_case_version ON listings(case_id, version);
+CREATE INDEX IF NOT EXISTS idx_assets_case_created ON assets(case_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_listing_reviews_listing ON listing_reviews(listing_id, created_at DESC);
+
+-- P1.1 multi-market and multi-channel foundation.
+CREATE TABLE IF NOT EXISTS platforms (
+  code TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  adapter_type TEXT NOT NULL DEFAULT 'manual'
+    CHECK (adapter_type IN ('api', 'feed', 'manual')),
+  api_name TEXT,
+  capabilities JSONB NOT NULL DEFAULT '{}'::jsonb,
+  status TEXT NOT NULL DEFAULT 'planned',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS markets (
+  code TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  locale TEXT NOT NULL,
+  currency TEXT NOT NULL CHECK (char_length(currency) = 3),
+  region TEXT NOT NULL,
+  measurement_system TEXT NOT NULL DEFAULT 'metric',
+  default_tax_mode TEXT NOT NULL DEFAULT 'marketplace',
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO platforms (code, name, adapter_type, api_name, capabilities, status) VALUES
+  ('amazon', 'Amazon', 'api', 'Amazon SP-API', '{"listing":true,"price":true,"inventory":true,"orders":true,"webhook":true}', 'planned'),
+  ('shopify', 'Shopify', 'api', 'Shopify Admin GraphQL API', '{"listing":true,"price":true,"inventory":true,"orders":true,"webhook":true}', 'planned'),
+  ('tiktok_shop', 'TikTok Shop', 'api', 'TikTok Shop Partner API', '{"listing":true,"price":true,"inventory":true,"orders":true,"webhook":true}', 'planned'),
+  ('ebay', 'eBay', 'api', 'eBay Sell APIs', '{"listing":true,"price":true,"inventory":true,"orders":true,"webhook":true}', 'planned'),
+  ('manual', 'CSV / 人工', 'manual', NULL, '{"listing":true,"price":false,"inventory":false,"orders":false,"webhook":false}', 'available')
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO markets (code, name, locale, currency, region, measurement_system, default_tax_mode) VALUES
+  ('US', '美国', 'en-US', 'USD', 'North America', 'imperial', 'marketplace'),
+  ('GB', '英国', 'en-GB', 'GBP', 'Europe', 'metric', 'marketplace'),
+  ('DE', '德国', 'de-DE', 'EUR', 'Europe', 'metric', 'marketplace'),
+  ('JP', '日本', 'ja-JP', 'JPY', 'Asia Pacific', 'metric', 'marketplace'),
+  ('SG', '新加坡', 'en-SG', 'SGD', 'Asia Pacific', 'metric', 'marketplace'),
+  ('MY', '马来西亚', 'en-MY', 'MYR', 'Asia Pacific', 'metric', 'marketplace'),
+  ('AU', '澳大利亚', 'en-AU', 'AUD', 'Asia Pacific', 'metric', 'marketplace')
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS channel_accounts (
+  id TEXT PRIMARY KEY,
+  platform_code TEXT NOT NULL REFERENCES platforms(code),
+  market_code TEXT NOT NULL REFERENCES markets(code),
+  name TEXT NOT NULL,
+  external_seller_id TEXT,
+  currency TEXT NOT NULL,
+  locale TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'unconfigured'
+    CHECK (status IN ('unconfigured', 'connected', 'disabled')),
+  is_demo BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (platform_code, market_code, name)
+);
+
+CREATE TABLE IF NOT EXISTS products (
+  id TEXT PRIMARY KEY,
+  case_id TEXT NOT NULL UNIQUE REFERENCES product_cases(id) ON DELETE CASCADE,
+  sku TEXT NOT NULL,
+  gtin TEXT,
+  hs_code TEXT,
+  category TEXT NOT NULL,
+  brand TEXT,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS product_market_variants (
+  id TEXT PRIMARY KEY,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  country_code TEXT NOT NULL REFERENCES markets(code),
+  locale TEXT NOT NULL,
+  currency TEXT NOT NULL,
+  title TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'draft',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (product_id, country_code, locale)
+);
+
+CREATE TABLE IF NOT EXISTS channel_listings (
+  id TEXT PRIMARY KEY,
+  product_market_variant_id TEXT NOT NULL REFERENCES product_market_variants(id) ON DELETE CASCADE,
+  channel_account_id TEXT NOT NULL REFERENCES channel_accounts(id),
+  external_id TEXT,
+  status TEXT NOT NULL DEFAULT 'draft',
+  adapter_version TEXT NOT NULL DEFAULT 'p1.1',
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (product_market_variant_id, channel_account_id)
+);
+
+CREATE TABLE IF NOT EXISTS channel_listing_versions (
+  id TEXT PRIMARY KEY,
+  channel_listing_id TEXT NOT NULL REFERENCES channel_listings(id) ON DELETE CASCADE,
+  version INTEGER NOT NULL,
+  canonical_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+  mapped_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  preflight_result JSONB NOT NULL DEFAULT '{}'::jsonb,
+  status TEXT NOT NULL DEFAULT 'draft',
+  approved_by TEXT,
+  approved_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (channel_listing_id, version)
+);
+
+ALTER TABLE listings ADD COLUMN IF NOT EXISTS channel_listing_id TEXT REFERENCES channel_listings(id);
+ALTER TABLE listings ADD COLUMN IF NOT EXISTS platform_code TEXT NOT NULL DEFAULT 'amazon';
+ALTER TABLE listings ADD COLUMN IF NOT EXISTS country_code TEXT;
+ALTER TABLE listings ADD COLUMN IF NOT EXISTS locale TEXT;
+ALTER TABLE listings ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'USD';
+
+INSERT INTO products (id, case_id, sku, category, brand, status)
+SELECT
+  'product-' || pc.id,
+  pc.id,
+  'SKU-' || upper(substr(replace(pc.id, '-', ''), 1, 12)),
+  pc.category,
+  NULL,
+  'active'
+FROM product_cases pc
+WHERE NOT EXISTS (SELECT 1 FROM products p WHERE p.case_id = pc.id);
+
+INSERT INTO product_market_variants (id, product_id, country_code, locale, currency, title, status)
+SELECT
+  'pmv-' || pc.id || '-' || lower(CASE WHEN m.code IS NULL THEN 'US' ELSE m.code END),
+  'product-' || pc.id,
+  CASE WHEN m.code IS NULL THEN 'US' ELSE m.code END,
+  COALESCE(m.locale, 'en-US'),
+  COALESCE(m.currency, 'USD'),
+  pc.title,
+  'active'
+FROM product_cases pc
+LEFT JOIN markets m ON m.code = pc.marketplace
+WHERE NOT EXISTS (
+  SELECT 1 FROM product_market_variants pmv
+  WHERE pmv.product_id = 'product-' || pc.id
+    AND pmv.country_code = CASE WHEN m.code IS NULL THEN 'US' ELSE m.code END
+);
+
+INSERT INTO channel_accounts (id, platform_code, market_code, name, currency, locale, status, is_demo)
+SELECT
+  'account-' || pc.id || '-amazon-' || lower(CASE WHEN m.code IS NULL THEN 'US' ELSE m.code END),
+  'amazon',
+  COALESCE(m.code, 'US'),
+  'Amazon ' || COALESCE(m.name, '美国') || ' · ' || pc.asin || ' 验收店铺（测试）',
+  COALESCE(m.currency, 'USD'),
+  COALESCE(m.locale, 'en-US'),
+  'unconfigured',
+  TRUE
+FROM product_cases pc
+LEFT JOIN markets m ON m.code = pc.marketplace
+WHERE NOT EXISTS (
+  SELECT 1 FROM channel_accounts ca
+  WHERE ca.id = 'account-' || pc.id || '-amazon-' || lower(CASE WHEN m.code IS NULL THEN 'US' ELSE m.code END)
+);
+
+INSERT INTO channel_listings
+  (id, product_market_variant_id, channel_account_id, external_id, status, adapter_version, metadata)
+SELECT
+  'channel-' || pc.id || '-amazon-' || lower(CASE WHEN m.code IS NULL THEN 'US' ELSE m.code END),
+  'pmv-' || pc.id || '-' || lower(CASE WHEN m.code IS NULL THEN 'US' ELSE m.code END),
+  'account-' || pc.id || '-amazon-' || lower(CASE WHEN m.code IS NULL THEN 'US' ELSE m.code END),
+  latest.external_id,
+  CASE WHEN latest.status = 'content_approved' THEN 'content_approved' ELSE 'draft' END,
+  'legacy-amazon',
+  jsonb_build_object('legacy', TRUE, 'sourceMarketplace', pc.marketplace)
+FROM product_cases pc
+LEFT JOIN markets m ON m.code = pc.marketplace
+LEFT JOIN LATERAL (
+  SELECT external_id, status
+  FROM listings
+  WHERE case_id = pc.id
+  ORDER BY version DESC
+  LIMIT 1
+) latest ON TRUE
+WHERE NOT EXISTS (
+  SELECT 1 FROM channel_listings cl
+  WHERE cl.id = 'channel-' || pc.id || '-amazon-' || lower(CASE WHEN m.code IS NULL THEN 'US' ELSE m.code END)
+);
+
+UPDATE listings l
+SET
+  channel_listing_id = COALESCE(
+    l.channel_listing_id,
+    'channel-' || l.case_id || '-amazon-' || lower(CASE WHEN m.code IS NULL THEN 'US' ELSE m.code END)
+  ),
+  platform_code = 'amazon',
+  country_code = COALESCE(l.country_code, CASE WHEN m.code IS NULL THEN 'US' ELSE m.code END),
+  locale = COALESCE(l.locale, m.locale, 'en-US'),
+  currency = COALESCE(l.currency, m.currency, 'USD')
+FROM product_cases pc
+LEFT JOIN markets m ON m.code = pc.marketplace
+WHERE l.case_id = pc.id;
+
+INSERT INTO channel_listing_versions
+  (id, channel_listing_id, version, canonical_snapshot, mapped_payload, preflight_result, status, approved_by, approved_at)
+SELECT
+  'clv-' || l.id,
+  l.channel_listing_id,
+  l.version,
+  l.content,
+  '{}'::jsonb,
+  COALESCE((
+    SELECT lr.findings -> 'preflight'
+    FROM listing_reviews lr
+    WHERE lr.listing_id = l.id AND lr.review_type = 'automated_preflight'
+    ORDER BY lr.created_at DESC
+    LIMIT 1
+  ), '{}'::jsonb),
+  l.status,
+  (
+    SELECT lr.reviewer
+    FROM listing_reviews lr
+    WHERE lr.listing_id = l.id AND lr.review_type = 'human_content_review' AND lr.status = 'approved'
+    ORDER BY lr.created_at DESC
+    LIMIT 1
+  ),
+  (
+    SELECT lr.reviewed_at
+    FROM listing_reviews lr
+    WHERE lr.listing_id = l.id AND lr.review_type = 'human_content_review' AND lr.status = 'approved'
+    ORDER BY lr.created_at DESC
+    LIMIT 1
+  )
+FROM listings l
+WHERE l.channel_listing_id IS NOT NULL
+ON CONFLICT (channel_listing_id, version) DO NOTHING;
+
+DROP INDEX IF EXISTS idx_listings_case_version;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_listings_channel_version ON listings(channel_listing_id, version);
+CREATE INDEX IF NOT EXISTS idx_product_market_variants_product ON product_market_variants(product_id);
+CREATE INDEX IF NOT EXISTS idx_channel_listings_variant ON channel_listings(product_market_variant_id);
+CREATE INDEX IF NOT EXISTS idx_channel_listings_account ON channel_listings(channel_account_id);
+CREATE INDEX IF NOT EXISTS idx_channel_listing_versions_listing ON channel_listing_versions(channel_listing_id, version DESC);
+
+-- P1.0 real-data ingestion foundation. Additive and safe to run on an existing database.
+ALTER TABLE product_cases ADD COLUMN IF NOT EXISTS source_code TEXT NOT NULL DEFAULT 'legacy';
+ALTER TABLE product_cases ADD COLUMN IF NOT EXISTS source_record_id TEXT;
+ALTER TABLE product_cases ADD COLUMN IF NOT EXISTS source_observed_at TIMESTAMPTZ;
+ALTER TABLE product_cases ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'USD';
+ALTER TABLE product_cases ADD COLUMN IF NOT EXISTS monthly_sales_min INTEGER;
+ALTER TABLE product_cases ADD COLUMN IF NOT EXISTS monthly_sales_max INTEGER;
+ALTER TABLE product_cases ADD COLUMN IF NOT EXISTS bsr INTEGER;
+ALTER TABLE product_cases ADD COLUMN IF NOT EXISTS keyword TEXT;
+ALTER TABLE product_cases ADD COLUMN IF NOT EXISTS keyword_search_volume INTEGER;
+ALTER TABLE product_cases ADD COLUMN IF NOT EXISTS seller_count INTEGER;
+ALTER TABLE product_cases ADD COLUMN IF NOT EXISTS variation_count INTEGER;
+
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS tooling_fee_cents INTEGER;
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'USD';
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS valid_until DATE;
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS source_code TEXT;
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS source_hash TEXT;
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS observed_at TIMESTAMPTZ;
+
+CREATE TABLE IF NOT EXISTS data_sources (
+  id TEXT PRIMARY KEY,
+  code TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  auth_mode TEXT NOT NULL DEFAULT 'none',
+  status TEXT NOT NULL DEFAULT 'planned',
+  capabilities JSONB NOT NULL DEFAULT '{}'::jsonb,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  last_synced_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS ingestion_runs (
+  id TEXT PRIMARY KEY,
+  source_code TEXT NOT NULL REFERENCES data_sources(code),
+  import_kind TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'running',
+  requested_by TEXT NOT NULL,
+  file_name TEXT,
+  query JSONB NOT NULL DEFAULT '{}'::jsonb,
+  imported_count INTEGER NOT NULL DEFAULT 0,
+  updated_count INTEGER NOT NULL DEFAULT 0,
+  skipped_count INTEGER NOT NULL DEFAULT 0,
+  error_count INTEGER NOT NULL DEFAULT 0,
+  snapshot_count INTEGER NOT NULL DEFAULT 0,
+  warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+  error_message TEXT,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  completed_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS evidence_snapshots (
+  id TEXT PRIMARY KEY,
+  ingestion_run_id TEXT REFERENCES ingestion_runs(id) ON DELETE SET NULL,
+  case_id TEXT REFERENCES product_cases(id) ON DELETE CASCADE,
+  source_code TEXT NOT NULL,
+  source_record_id TEXT NOT NULL,
+  evidence_type TEXT NOT NULL,
+  source_url TEXT,
+  raw_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  normalized_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  content_hash TEXT NOT NULL,
+  observed_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_evidence_snapshots_dedupe
+  ON evidence_snapshots(source_code, source_record_id, evidence_type, content_hash);
+CREATE INDEX IF NOT EXISTS idx_evidence_snapshots_case ON evidence_snapshots(case_id, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_evidence_snapshots_run ON evidence_snapshots(ingestion_run_id);
+
+CREATE TABLE IF NOT EXISTS supplier_external_ids (
+  id TEXT PRIMARY KEY,
+  supplier_id TEXT NOT NULL REFERENCES suppliers(id) ON DELETE CASCADE,
+  source_code TEXT NOT NULL,
+  external_id TEXT,
+  normalized_url TEXT,
+  identity_key TEXT NOT NULL UNIQUE,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_supplier_external_ids_supplier ON supplier_external_ids(supplier_id);
+CREATE INDEX IF NOT EXISTS idx_supplier_external_ids_url ON supplier_external_ids(normalized_url);
+
+CREATE TABLE IF NOT EXISTS rfq_messages (
+  id TEXT PRIMARY KEY,
+  rfq_id TEXT NOT NULL REFERENCES rfqs(id) ON DELETE CASCADE,
+  direction TEXT NOT NULL,
+  channel TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'draft',
+  subject TEXT,
+  body TEXT,
+  external_message_id TEXT,
+  sent_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_rfq_messages_rfq ON rfq_messages(rfq_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS quote_documents (
+  id TEXT PRIMARY KEY,
+  quote_id TEXT NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
+  document_type TEXT NOT NULL,
+  file_url TEXT,
+  source_url TEXT,
+  checksum TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_quote_documents_quote ON quote_documents(quote_id);
+
+INSERT INTO data_sources (id, code, name, kind, auth_mode, status, capabilities, metadata) VALUES
+  ('src-csv-candidates', 'csv_candidates', '候选品 CSV', 'csv', 'none', 'available',
+   '{"selection":true,"supplier":false,"quotes":false,"rawSnapshots":true}',
+   '{"adapterImplemented":true,"credentialEnv":[],"externalActions":"none"}'),
+  ('src-csv-suppliers', 'csv_suppliers', '供应商 CSV', 'csv', 'none', 'available',
+   '{"selection":false,"supplier":true,"quotes":false,"rawSnapshots":true}',
+   '{"adapterImplemented":true,"credentialEnv":[],"externalActions":"none"}'),
+  ('src-csv-quotes', 'csv_quotes', '报价 CSV', 'csv', 'none', 'available',
+   '{"selection":false,"supplier":true,"quotes":true,"rawSnapshots":true}',
+   '{"adapterImplemented":true,"credentialEnv":[],"externalActions":"none"}'),
+  ('src-manual-quotes', 'manual_quotes', '人工报价录入', 'manual', 'none', 'available',
+   '{"selection":false,"supplier":true,"quotes":true,"rawSnapshots":true}',
+   '{"adapterImplemented":true,"credentialEnv":[],"externalActions":"none"}'),
+  ('src-keepa', 'keepa', 'Keepa 商品数据', 'api', 'api_key', 'not_configured',
+   '{"selection":true,"supplier":false,"quotes":false,"rawSnapshots":true}',
+   '{"adapterImplemented":true,"credentialEnv":["KEEPA_API_KEY"],"externalActions":"read_only"}'),
+  ('src-amazon-sp-api', 'amazon_sp_api', 'Amazon SP-API（自有店铺）', 'api', 'oauth2', 'not_configured',
+   '{"selection":false,"supplier":false,"quotes":false,"orders":true,"inventory":true,"rawSnapshots":true}',
+   '{"adapterImplemented":false,"diagnostic":"seller_read","credentialEnv":["AMAZON_SP_API_CLIENT_ID","AMAZON_SP_API_CLIENT_SECRET","AMAZON_SP_API_REFRESH_TOKEN"],"externalActions":"read_only"}'),
+  ('src-shopify', 'shopify', 'Shopify Admin API', 'api', 'oauth2', 'not_configured',
+   '{"listing":true,"inventory":true,"orders":true,"rawSnapshots":true}',
+   '{"adapterImplemented":false,"diagnostic":"seller_read","credentialEnv":["SHOPIFY_SHOP_DOMAIN","SHOPIFY_ACCESS_TOKEN"],"externalActions":"read_only"}'),
+  ('src-tiktok-shop', 'tiktok_shop', 'TikTok Shop Partner API', 'api', 'oauth2', 'not_configured',
+   '{"listing":true,"inventory":true,"orders":true,"rawSnapshots":true}',
+   '{"adapterImplemented":false,"credentialEnv":["TIKTOK_SHOP_APP_KEY","TIKTOK_SHOP_APP_SECRET"],"externalActions":"none"}'),
+  ('src-ebay', 'ebay', 'eBay Sell APIs', 'api', 'oauth2', 'not_configured',
+   '{"listing":true,"inventory":true,"orders":true,"rawSnapshots":true}',
+   '{"adapterImplemented":false,"diagnostic":"application_credentials","credentialEnv":["EBAY_CLIENT_ID","EBAY_CLIENT_SECRET"],"externalActions":"read_only"}'),
+  ('src-alibaba-1688', 'alibaba_1688', '1688 / Alibaba 官方授权接口', 'api', 'oauth2', 'planned',
+   '{"selection":false,"supplier":true,"quotes":true,"rawSnapshots":true}',
+   '{"adapterImplemented":false,"credentialEnv":["ALIBABA_1688_APP_KEY","ALIBABA_1688_APP_SECRET"],"externalActions":"none","note":"需按官方开放平台授权和应用审核接入"}')
+ON CONFLICT (code) DO UPDATE SET
+  name = EXCLUDED.name,
+  kind = EXCLUDED.kind,
+  auth_mode = EXCLUDED.auth_mode,
+  capabilities = EXCLUDED.capabilities,
+  metadata = EXCLUDED.metadata;
+
+CREATE TABLE IF NOT EXISTS connector_health_checks (
+  id TEXT PRIMARY KEY,
+  source_code TEXT NOT NULL,
+  status TEXT NOT NULL
+    CHECK (status IN ('verified', 'credentials_valid', 'failed', 'unsupported')),
+  verification_level TEXT NOT NULL
+    CHECK (verification_level IN ('seller_read', 'application_credentials', 'unsupported')),
+  message TEXT NOT NULL,
+  duration_ms INTEGER NOT NULL DEFAULT 0,
+  details JSONB NOT NULL DEFAULT '{}'::jsonb,
+  checked_by TEXT NOT NULL,
+  checked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_connector_health_checks_source
+  ON connector_health_checks(source_code, checked_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_ingestion_runs_source ON ingestion_runs(source_code, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ingestion_runs_status ON ingestion_runs(status, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_product_cases_source ON product_cases(source_code, source_record_id);
+CREATE INDEX IF NOT EXISTS idx_quotes_source_hash ON quotes(rfq_id, source_hash);

@@ -1,0 +1,16 @@
+# Optional production-like PostgreSQL service for a later pg adapter.
+# The MVP runs locally with embedded PGlite and does not require Docker.
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: aitrade
+      POSTGRES_USER: aitrade
+      POSTGRES_PASSWORD: aitrade
+    ports:
+      - "5432:5432"
+    volumes:
+      - aitrade_pgdata:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+volumes:
+  aitrade_pgdata:
