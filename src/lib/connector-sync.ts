@@ -2,13 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { getDb } from "./db.ts";
 import type { KeepaFetchOptions } from "./connectors/keepa.ts";
 import { sanitizeConnectorError } from "./connectors/security.ts";
-import {
-  normalizeSorftimeRequest,
-  type SorftimeFetchOptions,
-  type SorftimeResearchRequest,
-} from "./connectors/sorftime.ts";
 import { ConnectorNotConfiguredError, type ConnectorApiCall } from "./connectors/types.ts";
-import { importKeepaByAsins, importSorftimeResearch, type IngestionSummary } from "./ingestion.ts";
+import { importKeepaByAsins, type IngestionSummary } from "./ingestion.ts";
 import type {
   ConnectorFreshness,
   ConnectorSyncDashboard,
@@ -19,21 +14,11 @@ const KEEPA_MARKETS = new Set(["US", "GB", "DE", "FR", "IT", "ES", "JP", "CA", "
 const FRESHNESS_WINDOW_MS = 24 * 60 * 60 * 1_000;
 const MAX_JOB_ERROR_LENGTH = 1_000;
 
-export type SupportedSyncSource = "keepa" | "sorftime";
+export type SupportedSyncSource = "keepa";
 
 export type KeepaSyncInput = {
   asins: string[] | string;
   marketplace: string;
-  actor?: string;
-  triggerType?: "manual" | "scheduled";
-};
-
-export type SorftimeSyncInput = {
-  mode: "category" | "asin";
-  marketplace: string;
-  categoryQuery?: string;
-  nodeId?: string;
-  asins?: string[] | string;
   actor?: string;
   triggerType?: "manual" | "scheduled";
 };
@@ -47,7 +32,6 @@ export type ConnectorSyncRunResult = {
 
 type InternalRunOptions = {
   fetchOptions?: KeepaFetchOptions;
-  sorftimeFetchOptions?: SorftimeFetchOptions;
 };
 
 type EnqueueSyncJobInput = {
@@ -85,56 +69,11 @@ export async function enqueueKeepaSync(input: KeepaSyncInput): Promise<Connector
   });
 }
 
-export async function enqueueSorftimeSync(input: SorftimeSyncInput): Promise<ConnectorSyncJobRow> {
-  const normalized = normalizeSorftimeRequest(input as SorftimeResearchRequest);
-  return enqueueSyncJob({
-    sourceCode: "sorftime",
-    marketplace: normalized.marketplace,
-    requestHash: hashPayload({
-      sourceCode: "sorftime",
-      mode: normalized.mode,
-      marketplace: normalized.marketplace,
-      categoryQuery: normalized.categoryQuery ?? null,
-      nodeId: normalized.nodeId ?? null,
-      asins: normalized.asins ?? null,
-    }),
-    requestPayload: {
-      mode: normalized.mode,
-      marketplace: normalized.marketplace,
-      ...(normalized.categoryQuery ? { categoryQuery: normalized.categoryQuery } : {}),
-      ...(normalized.nodeId ? { nodeId: normalized.nodeId } : {}),
-      ...(normalized.asins ? { asins: normalized.asins } : {}),
-      requestSummary: {
-        mode: normalized.mode,
-        asinCount: normalized.asins?.length ?? 0,
-      },
-    },
-    actor: input.actor,
-    triggerType: input.triggerType,
-    auditDetails: {
-      sourceCode: "sorftime",
-      mode: normalized.mode,
-      marketplace: normalized.marketplace,
-      asinCount: normalized.asins?.length ?? 0,
-      categoryQueryPresent: Boolean(normalized.categoryQuery),
-      nodeIdPresent: Boolean(normalized.nodeId),
-    },
-  });
-}
-
 export async function createAndRunKeepaSync(
   input: KeepaSyncInput,
   options: InternalRunOptions = {},
 ): Promise<ConnectorSyncRunResult> {
   const job = await enqueueKeepaSync(input);
-  return runConnectorSyncJob(job.id, options);
-}
-
-export async function createAndRunSorftimeSync(
-  input: SorftimeSyncInput,
-  options: InternalRunOptions = {},
-): Promise<ConnectorSyncRunResult> {
-  const job = await enqueueSorftimeSync(input);
   return runConnectorSyncJob(job.id, options);
 }
 
@@ -158,7 +97,6 @@ export async function runConnectorSyncJob(
     return { job: current };
   }
   if (job.source_code === "keepa") return runKeepaSync(job, options);
-  if (job.source_code === "sorftime") return runSorftimeSync(job, options);
 
   const failed = await failJob(job, `不支持的同步数据源：${job.source_code}`, "unsupported_source");
   return { job: failed, error: failed.error_message ?? "不支持的同步任务", errorCode: "unsupported_source" };
@@ -194,44 +132,6 @@ async function runKeepaSync(
     const ingestion = await importKeepaByAsins({
       asins,
       marketplace: job.marketplace,
-      actor: job.requested_by,
-      runId,
-      fetchOptions,
-    });
-    const completed = await succeedJob(job, ingestion, apiCallCount, Date.now() - startedAt);
-    return { job: completed, ingestion };
-  } catch (error) {
-    return failedRunResult(job, error, apiCallCount, startedAt, runId);
-  }
-}
-
-async function runSorftimeSync(
-  job: ConnectorSyncJobRow,
-  options: InternalRunOptions,
-): Promise<ConnectorSyncRunResult> {
-  const payload = job.request_payload as SorftimeResearchRequest;
-  let normalized: ReturnType<typeof normalizeSorftimeRequest>;
-  try {
-    normalized = normalizeSorftimeRequest(payload);
-  } catch (error) {
-    return invalidRequestResult(job, error);
-  }
-
-  const runId = randomUUID();
-  const startedAt = Date.now();
-  let apiCallCount = 0;
-  const fetchOptions: SorftimeFetchOptions = {
-    ...options.sorftimeFetchOptions,
-    onAttempt: async (call) => {
-      apiCallCount += 1;
-      await persistApiCall(job.id, job.source_code, call);
-      await options.sorftimeFetchOptions?.onAttempt?.(call);
-    },
-  };
-
-  try {
-    const ingestion = await importSorftimeResearch({
-      ...normalized,
       actor: job.requested_by,
       runId,
       fetchOptions,

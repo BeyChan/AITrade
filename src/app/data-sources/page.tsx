@@ -21,7 +21,8 @@ const runStatusLabels: Record<string, string> = {
 export default async function DataSourcesPage() {
   const dashboard = await getDataSourcesDashboard();
   const freeSources = dashboard.sources.filter((source) => source.kind === "csv" || source.kind === "manual");
-  const freeRuns = dashboard.runs.filter((run) => run.source_code !== "keepa" && run.source_code !== "sorftime");
+  const freeSourceCodes = new Set(freeSources.map((source) => source.code));
+  const freeRuns = dashboard.runs.filter((run) => freeSourceCodes.has(run.source_code));
 
   return (
     <div className="page">

@@ -49,7 +49,7 @@ export function ConnectorSyncJobs({ dashboard }: { dashboard: ConnectorSyncDashb
         <div>
           <h2>连接器同步任务与数据新鲜度</h2>
           <p>
-            Keepa 与 Sorftime 共用可追溯任务队列。每个任务记录请求、重试、API 调用耗时和导入结果；Adapter 自动重试 408/429/5xx，任务级失败可人工重试。
+            Keepa 使用可追溯任务队列。每个任务记录请求、重试、API 调用耗时和导入结果；Adapter 自动重试 408/429/5xx，任务级失败可人工重试。
           </p>
         </div>
         <div className="sync-summary-pills">
@@ -78,7 +78,7 @@ export function ConnectorSyncJobs({ dashboard }: { dashboard: ConnectorSyncDashb
       ) : (
         <div className="empty-state compact-empty">
           <h3>还没有成功同步记录</h3>
-          <p>配置 Key 后执行一次 Keepa 或 Sorftime 任务；成功后会按数据源和市场显示新鲜度、连续失败次数与游标摘要。</p>
+          <p>配置 Key 后执行一次 Keepa 任务；成功后会按数据源和市场显示新鲜度、连续失败次数与游标摘要。</p>
         </div>
       )}
 
@@ -147,7 +147,7 @@ export function ConnectorSyncJobs({ dashboard }: { dashboard: ConnectorSyncDashb
       ) : (
         <div className="empty-state compact-empty">
           <h3>还没有连接器任务</h3>
-          <p>在上方 Keepa 或 Sorftime 标签页创建任务；失败任务会在这里保留调用审计并允许重试。</p>
+          <p>在 Keepa 导入入口创建任务；失败任务会在这里保留调用审计并允许重试。</p>
         </div>
       )}
     </section>
@@ -156,12 +156,10 @@ export function ConnectorSyncJobs({ dashboard }: { dashboard: ConnectorSyncDashb
 
 function sourceLabel(sourceCode: string) {
   if (sourceCode === "keepa") return "Keepa";
-  if (sourceCode === "sorftime") return "Sorftime";
   return sourceCode;
 }
 
-function credentialName(sourceCode: string) {
-  if (sourceCode === "sorftime") return "SORFTIME_API_KEY";
+function credentialName(_sourceCode: string) {
   return "KEEPA_API_KEY";
 }
 

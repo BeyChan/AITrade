@@ -49,15 +49,6 @@ const definitions: ReadinessDefinition[] = [
     externalActions: "read_only",
   },
   {
-    code: "sorftime",
-    name: "Sorftime 选品研究",
-    kind: "api",
-    adapterImplemented: true,
-    credentialEnv: ["SORFTIME_API_KEY"],
-    note: "只读类目与 ASIN 研究；销量为第三方估算，成本需真实报价重新测算。",
-    externalActions: "read_only",
-  },
-  {
     code: "amazon_sp_api",
     name: "Amazon SP-API（自有店铺）",
     kind: "api",

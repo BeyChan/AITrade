@@ -261,7 +261,7 @@ export function DataSourceImport() {
           <div className="eyebrow">Guardrails</div>
           <h3>免费模式的边界</h3>
           <ul className="guardrail-list">
-            <li>不使用任何订阅型选品 API，也不需要 Sorftime、Keepa 或其他付费 Key。</li>
+            <li>默认工作流不使用任何订阅型选品 API，也不要求生成付费 Key。</li>
             <li>候选品、供应商和报价都保留原始 payload、来源标识与观察时间。</li>
             <li>平台后台导出和人工核验表可以直接导入，成本以真实报价为准。</li>
             <li>报价必须关联已立项商品，未立项记录只报错，不创建报价。</li>

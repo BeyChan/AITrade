@@ -13,12 +13,6 @@ import { readSupplierCsv } from "./connectors/csv-suppliers.ts";
 import { readQuoteCsv } from "./connectors/csv-quotes.ts";
 import { fetchKeepaCandidates, type KeepaFetchOptions } from "./connectors/keepa.ts";
 import { getConnectorReadiness } from "./connectors/registry.ts";
-import {
-  fetchSorftimeCandidates,
-  normalizeSorftimeRequest,
-  type SorftimeFetchOptions,
-  type SorftimeResearchRequest,
-} from "./connectors/sorftime.ts";
 import { sanitizeConnectorError } from "./connectors/security.ts";
 import type { ConnectorApiCall, ConnectorRecord, ConnectorResult } from "./connectors/types.ts";
 import type {
@@ -153,46 +147,6 @@ export async function importKeepaByAsins(input: {
   );
 }
 
-export async function importSorftimeResearch(input: SorftimeResearchRequest & {
-  actor?: string;
-  runId?: string;
-  maxProducts?: number;
-  fetchOptions?: SorftimeFetchOptions;
-}) {
-  const normalized = normalizeSorftimeRequest(input);
-  return withIngestionRun(
-    {
-      sourceCode: "sorftime",
-      importKind: normalized.mode === "category"
-        ? "sorftime_category_research"
-        : "sorftime_asin_research",
-      actor: input.actor ?? "运营人员",
-      query: {
-        mode: normalized.mode,
-        marketplace: normalized.marketplace,
-        ...(normalized.categoryQuery ? { categoryQuery: normalized.categoryQuery } : {}),
-        ...(normalized.nodeId ? { nodeId: normalized.nodeId } : {}),
-        ...(normalized.asins ? { asins: normalized.asins } : {}),
-        maxProducts: input.maxProducts ?? 50,
-      },
-      runId: input.runId,
-    },
-    async (runId) => {
-      const connector = await fetchSorftimeCandidates({
-        ...normalized,
-        maxProducts: input.maxProducts,
-        fetchOptions: input.fetchOptions,
-      });
-      const result = await importCandidateConnector(connector, runId, { platformCode: "amazon" });
-      return {
-        ...result,
-        warnings: [...connector.warnings, ...result.warnings],
-        apiCalls: connector.apiCalls ?? [],
-      };
-    },
-  );
-}
-
 export async function getDataSourcesDashboard(): Promise<DataSourcesDashboard> {
   const db = await getDb();
   const [sourcesResult, runsResult, statsResult, snapshotsBySource, suppliersBySource, quotesBySource] =
@@ -315,7 +269,7 @@ async function withIngestionRun(
             skipped: counts.skipped,
             errors: counts.errors,
             snapshots: counts.snapshots,
-            externalActions: input.sourceCode === "keepa" || input.sourceCode === "sorftime" ? "read_only" : "none",
+            externalActions: input.sourceCode === "keepa" ? "read_only" : "none",
           }),
         ],
       );
@@ -339,7 +293,7 @@ async function withIngestionRun(
         JSON.stringify({
           runId,
           error: message,
-          externalActions: input.sourceCode === "keepa" || input.sourceCode === "sorftime" ? "read_only" : "none",
+          externalActions: input.sourceCode === "keepa" ? "read_only" : "none",
         }),
       ],
     );
@@ -515,9 +469,7 @@ async function importCandidateConnector(
           runId,
           caseId: null,
           sourceCode: connector.sourceCode,
-          evidenceType: connector.sourceCode === "sorftime"
-            ? "sorftime_category_report"
-            : "connector_additional_evidence",
+          evidenceType: "connector_additional_evidence",
           item,
         })
       ) {

@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types src/lib/economics.test.ts src/lib/sourcing.test.ts src/lib/listing.test.ts src/lib/channels.test.ts src/lib/launch-readiness.test.ts src/lib/platform-capabilities.test.ts src/lib/csv.test.ts src/lib/connectors.test.ts src/lib/connectors/sorftime.test.ts src/lib/ingestion.test.ts src/lib/connector-sync.test.ts src/lib/connectors/diagnostics.test.ts src/lib/connection-diagnostics.test.ts",
+    "test": "node --test --experimental-strip-types src/lib/economics.test.ts src/lib/sourcing.test.ts src/lib/listing.test.ts src/lib/channels.test.ts src/lib/launch-readiness.test.ts src/lib/platform-capabilities.test.ts src/lib/csv.test.ts src/lib/connectors.test.ts src/lib/ingestion.test.ts src/lib/connector-sync.test.ts src/lib/connectors/diagnostics.test.ts src/lib/connection-diagnostics.test.ts",
     "db:reset": "node -e \"import('node:fs').then(fs => fs.rmSync('.data/aitrade', { recursive: true, force: true }))\""
   },
   "dependencies": {
