@@ -34,8 +34,9 @@ export async function createAISourcingBatchAction(formData: FormData) {
   const marketCode = String(formData.get("marketCode") || "").trim().toUpperCase();
   const platformCode = String(formData.get("platformCode") || "").trim().toLowerCase();
   const returnPath = `/?market=${encodeURIComponent(marketCode)}&platform=${encodeURIComponent(platformCode)}`;
+  let outcome: Awaited<ReturnType<typeof createAISourcingBatch>>;
   try {
-    const outcome = await createAISourcingBatch({
+    outcome = await createAISourcingBatch({
       marketCode,
       platformCode,
       category: String(formData.get("category") || ""),
@@ -44,11 +45,11 @@ export async function createAISourcingBatchAction(formData: FormData) {
       fxRateToUsd: numberOrNull(formData.get("fxRateToUsd")),
       fxSourceUrl: String(formData.get("fxSourceUrl") || "") || null,
     });
-    revalidateAISourcing(outcome.runId);
-    redirect(`/ai-sourcing/${encodeURIComponent(outcome.runId)}?notice=${encodeURIComponent("已生成 5 个选品假设；下一步请用真实竞品、评论和供应商报价验证")}`);
   } catch (error) {
     redirect(`${returnPath}&error=${encodeURIComponent(errorMessage(error))}`);
   }
+  revalidateAISourcing(outcome.runId);
+  redirect(`/ai-sourcing/${encodeURIComponent(outcome.runId)}?notice=${encodeURIComponent("已生成 5 个选品假设；下一步请用真实竞品、评论和供应商报价验证")}`);
 }
 
 export async function selectHypothesisAction(formData: FormData) {
@@ -159,16 +160,17 @@ export async function recordAISupplierQuoteAction(formData: FormData) {
 export async function promoteHypothesisAction(formData: FormData) {
   const runId = String(formData.get("runId") || "");
   const hypothesisId = String(formData.get("hypothesisId") || "");
+  let outcome: Awaited<ReturnType<typeof promoteHypothesisToProductCase>>;
   try {
-    const outcome = await promoteHypothesisToProductCase(hypothesisId, String(formData.get("actor") || ""));
-    revalidateAISourcing(runId);
-    revalidatePath("/");
-    revalidatePath(`/cases/${outcome.caseId}`);
-    revalidatePath(`/cases/${outcome.caseId}/sourcing`);
-    redirect(`/cases/${encodeURIComponent(outcome.caseId)}/sourcing?notice=${encodeURIComponent("GO 机会已转入商品立项，全部真实报价已带入供应商比价与定标")}`);
+    outcome = await promoteHypothesisToProductCase(hypothesisId, String(formData.get("actor") || ""));
   } catch (error) {
     redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
   }
+  revalidateAISourcing(runId);
+  revalidatePath("/");
+  revalidatePath(`/cases/${outcome.caseId}`);
+  revalidatePath(`/cases/${outcome.caseId}/sourcing`);
+  redirect(`/cases/${encodeURIComponent(outcome.caseId)}/sourcing?notice=${encodeURIComponent("GO 机会已转入商品立项，全部真实报价已带入供应商比价与定标")}`);
 }
 
 function revalidateAISourcing(runId: string) {
@@ -463,19 +465,20 @@ export async function checkChannelLaunchReadinessAction(formData: FormData) {
   const caseId = String(formData.get("caseId") || "");
   const channelListingId = String(formData.get("channelListingId") || "");
   const actor = String(formData.get("actor") || "").trim();
+  let outcome: Awaited<ReturnType<typeof recordChannelLaunchReadinessCheck>>;
   try {
-    const outcome = await recordChannelLaunchReadinessCheck(caseId, channelListingId, actor);
-    revalidateChannels(caseId, channelListingId);
-    redirect(
-      `/cases/${encodeURIComponent(caseId)}/channels/${encodeURIComponent(channelListingId)}?notice=${encodeURIComponent(
-        `发布准备检查已记录：${outcome.readiness.label}；外部写入仍为 none`,
-      )}`,
-    );
+    outcome = await recordChannelLaunchReadinessCheck(caseId, channelListingId, actor);
   } catch (error) {
     redirect(
       `/cases/${encodeURIComponent(caseId)}/channels/${encodeURIComponent(channelListingId)}?error=${encodeURIComponent(errorMessage(error))}`,
     );
   }
+  revalidateChannels(caseId, channelListingId);
+  redirect(
+    `/cases/${encodeURIComponent(caseId)}/channels/${encodeURIComponent(channelListingId)}?notice=${encodeURIComponent(
+      `发布准备检查已记录：${outcome.readiness.label}；外部写入仍为 none`,
+    )}`,
+  );
 }
 
 export async function approveChannelLaunchQueueAction(formData: FormData) {

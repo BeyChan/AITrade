@@ -14,7 +14,6 @@ const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
     label: "业务工作台",
     items: [
       { href: "/", label: "AI 选品", icon: "ai" },
-      { href: "/sourcing", label: "供应商询价", icon: "sourcing" },
       { href: "/data-sources", label: "数据源", icon: "data" },
     ],
   },
