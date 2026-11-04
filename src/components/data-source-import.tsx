@@ -31,7 +31,7 @@ const modes: Array<{
     kind: "candidates",
     label: "候选品",
     title: "导入选品与市场信号",
-    description: "接入平台后台导出、ERP 导出或人工整理的候选品表。无需订阅、无需 API Key，系统保留来源、采集时间、销量区间和原始快照。",
+    description: "导入平台后台、ERP 或人工整理的候选品表。系统保留来源、观察时间、销量区间和原始快照。",
     template: "/candidates-template-v2.csv",
     templateName: "候选品模板",
     placeholder:
@@ -142,11 +142,11 @@ export function DataSourceImport() {
       <section className="panel source-import-panel">
         <div className="panel-header source-panel-header">
           <div>
-            <div className="eyebrow">Free data intake</div>
-            <h2>免费数据接入</h2>
-            <p>不依赖订阅型选品 API。平台后台、ERP、1688 或人工核验数据导出为 CSV 后即可入库。</p>
+            <div className="eyebrow">本地数据导入</div>
+            <h2>导入 CSV 或粘贴表格</h2>
+            <p>平台后台、ERP、1688 或人工核验数据整理成 CSV 后即可入库；不需要配置选品 API。</p>
           </div>
-          <span className="badge badge-success">0 付费 Key</span>
+          <span className="badge badge-success">无需 API Key</span>
         </div>
 
         <div className="source-tabs" role="tablist" aria-label="导入数据类型">

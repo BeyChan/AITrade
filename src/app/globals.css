@@ -3232,6 +3232,110 @@ tbody tr:last-child td {
   margin-top: 14px;
 }
 
+.ai-query-grid-two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ai-supplier-discovery {
+  margin-top: 16px;
+  padding: 15px;
+  border: 1px solid #dfe9e2;
+  border-radius: 16px;
+  background: #f6faf7;
+}
+
+.ai-supplier-discovery-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ai-supplier-discovery-head > div {
+  display: grid;
+  gap: 3px;
+}
+
+.ai-supplier-discovery-head strong {
+  color: var(--green);
+  font-size: 12px;
+}
+
+.ai-supplier-discovery-head span:not(.badge) {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.ai-supplier-lead-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  margin-top: 12px;
+}
+
+.ai-supplier-lead {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 13px;
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid #e2eae4;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.ai-supplier-lead:first-child {
+  grid-column: 1 / -1;
+}
+
+.ai-supplier-lead-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.ai-supplier-lead-copy > span {
+  color: var(--green);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.ai-supplier-lead-copy strong {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ai-supplier-lead-copy p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.ai-supplier-lead-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ai-supplier-lead-links a {
+  padding: 5px 8px;
+  border: 1px solid #d9e7de;
+  border-radius: 999px;
+  color: var(--green);
+  background: #f8fbf8;
+  font-size: 9px;
+  font-weight: 750;
+}
+
+.ai-supplier-lead-links a:hover {
+  border-color: #bfd9c8;
+  background: #eef7f1;
+}
+
 .ai-query-group {
   display: grid;
   align-content: start;
@@ -3711,6 +3815,14 @@ tbody tr:last-child td {
   .ai-query-grid {
     grid-template-columns: 1fr;
   }
+
+  .ai-supplier-lead-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-supplier-lead:first-child {
+    grid-column: auto;
+  }
 }
 
 @media (max-width: 980px) {
@@ -3835,37 +3947,6 @@ tbody tr:last-child td {
   color: var(--lime);
 }
 
-.settings-status-card {
-  display: grid;
-  gap: 7px;
-  min-width: 245px;
-  padding: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.settings-status-card.is-ready {
-  border-color: rgba(185, 242, 108, 0.34);
-  background: rgba(185, 242, 108, 0.09);
-}
-
-.settings-status-card > span:not(.badge),
-.settings-status-card small {
-  color: rgba(255, 255, 255, 0.62);
-  font-size: 11px;
-}
-
-.settings-status-card strong {
-  color: #fff;
-  font-size: 18px;
-}
-
-.settings-metric-text {
-  font-size: 17px !important;
-  line-height: 1.3;
-}
-
 .settings-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.55fr) minmax(300px, 0.75fr);
@@ -3880,6 +3961,24 @@ tbody tr:last-child td {
 .settings-form input,
 .settings-form select {
   background: #fbfcfa;
+}
+
+.settings-current-summary {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  min-width: 150px;
+}
+
+.settings-current-summary strong {
+  max-width: 220px;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.settings-current-summary small {
+  color: var(--muted);
+  font-size: 10px;
 }
 
 .field-hint {
@@ -3925,30 +4024,12 @@ tbody tr:last-child td {
   line-height: 1.65;
 }
 
-.settings-detail-list {
-  display: grid;
-  gap: 0;
+.settings-guide-list {
   margin: 0;
-}
-
-.settings-detail-list > div {
-  display: grid;
-  grid-template-columns: 86px minmax(0, 1fr);
-  gap: 12px;
-  padding: 10px 0;
-  border-top: 1px solid #edf1ed;
-}
-
-.settings-detail-list dt {
+  padding-left: 18px;
   color: var(--muted);
   font-size: 11px;
-}
-
-.settings-detail-list dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-  font-size: 11px;
-  font-weight: 650;
+  line-height: 1.7;
 }
 
 .settings-security {
@@ -3974,9 +4055,6 @@ tbody tr:last-child td {
     flex-direction: column;
   }
 
-  .settings-status-card {
-    width: 100%;
-  }
 }
 
 @media (max-width: 720px) {
@@ -3991,5 +4069,10 @@ tbody tr:last-child td {
 
   .settings-actions > span {
     text-align: left;
+  }
+
+  .settings-current-summary {
+    width: 100%;
+    justify-items: start;
   }
 }

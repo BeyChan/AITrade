@@ -16,6 +16,12 @@ import {
   type AISourcingHypothesisDetail,
 } from "@/lib/ai-sourcing-repository";
 import { compactNumber, moneyIn, percent, shortDate } from "@/lib/format";
+import {
+  buildSupplierLeads,
+  supplier1688SearchUrl,
+  supplierAlibabaSearchUrl,
+  supplierGoogleSearchUrl,
+} from "@/lib/supplier-discovery";
 
 export const dynamic = "force-dynamic";
 
@@ -161,6 +167,12 @@ function HypothesisCard({
 }) {
   const decision = hypothesis.decision;
   const supplierByShortlistId = new Map(hypothesis.shortlist.map((item) => [item.id, item]));
+  const supplierLeads = buildSupplierLeads({
+    concept: hypothesis.concept,
+    category: batch.category,
+    targetUser: hypothesis.targetUser,
+    supplierKeywords: hypothesis.supplierKeywords,
+  });
   const externalEvidence = hypothesis.evidence.filter((item) => !["competitor_snapshot", "supplier_quote"].includes(item.evidenceType));
 
   return (
@@ -197,13 +209,33 @@ function HypothesisCard({
         <div><span>证据完整度</span><strong>{decision?.evidenceCompleteness ?? 0}%</strong></div>
       </div>
 
-      <div className="ai-query-grid">
-        <QueryGroup
-          title="供应商关键词"
-          items={hypothesis.supplierKeywords}
-          hrefFor={(item) => supplierSearchUrl(item)}
-          actionLabel="搜 1688"
-        />
+      <section className="ai-supplier-discovery">
+        <div className="ai-supplier-discovery-head">
+          <div>
+            <strong>供应商找货线索</strong>
+            <span>每张卡对应一种搜索思路。搜索命中只是候选供应商，需要继续核对主体、产品匹配和报价。</span>
+          </div>
+          <span className="badge badge-neutral">5 组线索</span>
+        </div>
+        <div className="ai-supplier-lead-grid">
+          {supplierLeads.map((lead) => (
+            <article className="ai-supplier-lead" key={lead.role}>
+              <div className="ai-supplier-lead-copy">
+                <span>{lead.role}</span>
+                <strong>{lead.query}</strong>
+                <p>{lead.note}</p>
+              </div>
+              <div className="ai-supplier-lead-links">
+                <a href={supplier1688SearchUrl(lead.query)} target="_blank" rel="noreferrer">1688 ↗</a>
+                <a href={supplierAlibabaSearchUrl(lead.query)} target="_blank" rel="noreferrer">Alibaba ↗</a>
+                <a href={supplierGoogleSearchUrl(lead.query)} target="_blank" rel="noreferrer">Google 查工厂 ↗</a>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <div className="ai-query-grid ai-query-grid-two">
         <QueryGroup
           title={`${batch.platformName} · ${batch.marketCode} 竞品词`}
           items={hypothesis.competitorQueries}
@@ -656,10 +688,6 @@ function evidenceTypeLabel(value: string) {
 function dateTimeInputValue(date: Date) {
   const offset = date.getTimezoneOffset();
   return new Date(date.getTime() - offset * 60_000).toISOString().slice(0, 16);
-}
-
-function supplierSearchUrl(query: string) {
-  return `https://s.1688.com/selloffer/offer_search.htm?keywords=${encodeURIComponent(query)}`;
 }
 
 function googleSearchUrl(query: string) {

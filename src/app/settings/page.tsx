@@ -12,19 +12,6 @@ type PageProps = {
   searchParams: Promise<{ notice?: string; error?: string }>;
 };
 
-const providerLabels = {
-  template: "免 Key 模板模式",
-  ollama: "本地 Ollama",
-  "openai-compatible": "OpenAI 兼容接口",
-} as const;
-
-const keySourceLabels = {
-  database: "页面保存（服务端加密）",
-  environment: "环境变量 AI_API_KEY",
-  none: "未配置",
-  unreadable: "配置无法解密",
-} as const;
-
 export default async function SettingsPage({ searchParams }: PageProps) {
   const [query, provider] = await Promise.all([searchParams, getAIProviderStatus()]);
   const keyPlaceholder = provider.apiKeyConfigured
@@ -37,56 +24,32 @@ export default async function SettingsPage({ searchParams }: PageProps) {
 
       <section className="hero settings-hero">
         <div>
-          <div className="eyebrow">System settings · AI model</div>
+          <div className="eyebrow">系统设置 · 模型连接</div>
           <h1>大模型设置</h1>
           <p>
-            默认模板模式不需要任何 Key。需要更高质量的选品假设时，可以接入本地 Ollama 或任意 OpenAI 兼容接口；
-            页面配置优先于环境变量。模型只负责生成假设，不会替代真实证据或确定性决策。
+            默认使用本地模板，无需 API Key。需要生成更具体的选品假设时，可接入 Ollama 或 OpenAI 兼容接口。
+            模型只负责提出待验证假设，是否通过仍由证据和确定性规则决定。
           </p>
-        </div>
-        <div className={`settings-status-card${provider.configured ? " is-ready" : ""}`}>
-          <span className={`badge ${provider.configured ? "badge-success" : "badge-neutral"}`}>
-            {provider.configured ? "可用" : "自动回退模板"}
-          </span>
-          <strong>{provider.label}</strong>
-          <span>{provider.model}</span>
-          <small>{provider.usingSavedSettings ? "页面配置已生效" : "当前使用环境变量或默认值"}</small>
         </div>
       </section>
 
       {query.notice ? <div className="notice"><strong>已完成：</strong>{query.notice}</div> : null}
       {query.error ? <div className="notice warn"><strong>未完成：</strong>{query.error}</div> : null}
 
-      <section className="metrics-grid settings-metrics" aria-label="大模型配置概览">
-        <article className="metric-card">
-          <div className="metric-label">当前模式</div>
-          <div className="metric-value settings-metric-text">{providerLabels[provider.provider]}</div>
-          <div className="metric-note">{provider.detail}</div>
-        </article>
-        <article className="metric-card">
-          <div className="metric-label">模型</div>
-          <div className="metric-value settings-metric-text">{provider.model}</div>
-          <div className="metric-note">生成失败时自动回退模板，不阻断主流程</div>
-        </article>
-        <article className="metric-card">
-          <div className="metric-label">API Key</div>
-          <div className="metric-value settings-metric-text">{provider.apiKeyConfigured ? provider.apiKeyHint : "未配置"}</div>
-          <div className="metric-note">{keySourceLabels[provider.apiKeySource]}</div>
-        </article>
-        <article className="metric-card">
-          <div className="metric-label">配置优先级</div>
-          <div className="metric-value settings-metric-text">页面 → 环境变量</div>
-          <div className="metric-note">保存后首页与研究批次会立即使用该配置</div>
-        </article>
-      </section>
-
       <div className="settings-layout">
         <form action={saveAISettingsAction} className="panel settings-form">
           <div className="panel-header">
             <div>
-              <div className="eyebrow">Connection</div>
+              <div className="eyebrow">模型连接</div>
               <h2>模型连接</h2>
               <p>填写后先点“测试连接”确认可用，再保存。测试不会保存表单内容，也不会把 Key 回显到页面。</p>
+            </div>
+            <div className="settings-current-summary">
+              <span className={`badge ${provider.configured ? "badge-success" : "badge-neutral"}`}>
+                {provider.configured ? "已连接" : "模板模式"}
+              </span>
+              <strong>{provider.model}</strong>
+              <small>{provider.apiKeyConfigured ? provider.apiKeyHint : "未配置 Key"}</small>
             </div>
           </div>
 
@@ -157,15 +120,12 @@ export default async function SettingsPage({ searchParams }: PageProps) {
 
         <aside className="settings-side">
           <section className="panel settings-info-card">
-            <div className="eyebrow">Current state</div>
-            <h2>当前连接</h2>
-            <dl className="settings-detail-list">
-              <div><dt>服务商</dt><dd>{providerLabels[provider.provider]}</dd></div>
-              <div><dt>模型</dt><dd>{provider.model}</dd></div>
-              <div><dt>Base URL</dt><dd>{provider.baseUrl || "不需要"}</dd></div>
-              <div><dt>Key 来源</dt><dd>{keySourceLabels[provider.apiKeySource]}</dd></div>
-              <div><dt>Key 状态</dt><dd>{provider.apiKeyConfigured ? provider.apiKeyHint : "未配置"}</dd></div>
-            </dl>
+            <h2>配置如何使用</h2>
+            <ul className="settings-guide-list">
+              <li>页面保存的配置优先于环境变量。</li>
+              <li>模型请求失败时回退到本地模板，不阻断选品流程。</li>
+              <li>保存后，新建的选品研究批次会使用当前配置。</li>
+            </ul>
           </section>
 
           <section className="panel settings-info-card">
@@ -178,7 +138,7 @@ export default async function SettingsPage({ searchParams }: PageProps) {
           </section>
 
           <section className="panel settings-info-card settings-security">
-            <div className="eyebrow">Security</div>
+            <div className="eyebrow">安全说明</div>
             <h2>安全边界</h2>
             <ul>
               <li>Key 使用 AES-256-GCM 加密后写入本机 `.data`，页面只显示末四位。</li>

@@ -29,11 +29,11 @@ export default async function DataSourcesPage() {
       <div className="breadcrumb"><Link href="/">AI 选品</Link> / 数据源</div>
       <section className="hero source-hero">
         <div>
-          <div className="eyebrow">FREE DATA WORKFLOW · NO SUBSCRIPTION</div>
-          <h1>不接收费数据源，<br />也能把真实业务跑起来。</h1>
+          <div className="eyebrow">数据导入 · CSV / 人工录入</div>
+          <h1>用已有数据，<br />推进选品验证和上架准备。</h1>
           <p>
-            默认工作流只使用平台后台导出、ERP、供应商报价和人工核验数据。CSV 入库无需订阅、无需 API Key，
-            每条数据仍保留来源、观察时间、原始快照和运行记录。收费选品 Key 不再是运行前提。
+            平台后台导出、ERP 记录、供应商报价和人工核验结果，都可以通过 CSV 或页面录入。
+            系统会保留来源、观察时间和原始快照，不要求先订阅选品 API。
           </p>
         </div>
         <Link className="button secondary" href="/import">快速导入候选品</Link>
@@ -51,22 +51,22 @@ export default async function DataSourcesPage() {
           <div className="metric-note">按外部 ID、链接或名称去重</div>
         </article>
         <article className="metric-card">
-          <div className="metric-label">已入库报价</div>
-          <div className="metric-value">{dashboard.stats.quoteCount}</div>
-          <div className="metric-note">{dashboard.stats.snapshotCount} 条原始证据快照</div>
+          <div className="metric-label">导入批次</div>
+          <div className="metric-value">{freeRuns.length}</div>
+          <div className="metric-note">最近 20 次本地导入记录</div>
         </article>
         <article className="metric-card">
-          <div className="metric-label">默认付费依赖</div>
-          <div className="metric-value">0</div>
-          <div className="metric-note">CSV + 人工通道即可运行</div>
+          <div className="metric-label">原始证据快照</div>
+          <div className="metric-value">{dashboard.stats.snapshotCount}</div>
+          <div className="metric-note">保留导入时的原始内容</div>
         </article>
       </section>
 
       <div className="notice source-notice">
-        <span className="badge badge-success">FREE MODE</span>
+        <span className="badge badge-success">数据边界</span>
         <span>
-          <strong>默认不连接任何收费选品服务。</strong> 数据来自你已有的平台导出、ERP、供应商报价或人工核验结果。
-          系统不会自动发送 RFQ、联系供应商、定标、发布 Listing、改价、下单或付款。
+          <strong>系统只处理你主动导入的数据。</strong> 平台销量、评论和供应商信息不会自动抓取；
+          联系供应商、发布 Listing、改价、下单和付款仍需在对应平台人工完成。
         </span>
       </div>
 
@@ -75,10 +75,10 @@ export default async function DataSourcesPage() {
       <section className="panel source-panel">
         <div className="panel-header">
           <div>
-            <h2>免费数据源状态</h2>
-            <p>“可用”表示无需密钥、无需订阅即可导入。收费 API 连接器不再显示在默认工作流中。</p>
+            <h2>可用导入通道</h2>
+            <p>以下通道在本机处理 CSV 或人工录入，不需要 API Key；每次导入都会生成运行记录。</p>
           </div>
-          <span className="badge badge-success">0 订阅</span>
+          <span className="badge badge-success">CSV / 人工</span>
         </div>
 
         <div className="table-wrap">
@@ -89,7 +89,7 @@ export default async function DataSourcesPage() {
                 <th>类型</th>
                 <th>状态</th>
                 <th>已存快照</th>
-                <th>供应商 / 报价</th>
+                <th>关联记录</th>
                 <th>上次同步</th>
                 <th>外部动作</th>
               </tr>
@@ -183,16 +183,16 @@ export default async function DataSourcesPage() {
 
       <section className="source-bottom-grid">
         <article className="card">
-          <h3>现在就能免费用</h3>
-          <p>候选品 CSV、供应商 CSV、报价 CSV 已可直接使用。建议从 Amazon / Shopify / TikTok Shop / eBay 后台导出、ERP 导出、1688 供应商表格或人工核验表开始。</p>
+          <h3>可以先导入哪些数据</h3>
+          <p>候选品、供应商和报价都可以通过 CSV 导入。数据可来自 Amazon、Shopify、TikTok Shop、eBay 后台导出、ERP、1688 供应商表格或人工核验表。</p>
         </article>
         <article className="card">
-          <h3>为什么没有一键选品</h3>
-          <p>覆盖全类目的实时销量、BSR 和历史趋势通常来自收费数据商。免费且合规的替代方式是你已有的平台导出和人工核验，不用为了跑工作流再购买一套数据订阅。</p>
+          <h3>市场数据从哪里来</h3>
+          <p>实时销量、BSR 和历史趋势通常来自付费数据服务。系统不自动抓取这些数据；你可以导入已有报表，或补充人工核验记录。</p>
         </article>
         <article className="card">
-          <h3>主图与上架也不依赖付费 Key</h3>
-          <p>主图先上传到商品定义并在内容工作台做人工检查；Listing 使用本地字段映射和发布预检。平台真实发布仍需对应店铺的官方授权，不会用付费选品 Key 代替。</p>
+          <h3>主图与商品页怎么处理</h3>
+          <p>主图上传后在内容工作台人工检查；Listing 使用本地字段映射和发布预检。正式发布仍需对应店铺的官方授权。</p>
         </article>
       </section>
     </div>
