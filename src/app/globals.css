@@ -165,6 +165,11 @@ main {
   margin-bottom: 28px;
 }
 
+.hero-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .eyebrow {
   color: var(--green);
   font-size: 12px;
@@ -208,6 +213,85 @@ h3 {
 .hero p {
   max-width: 720px;
   margin-bottom: 0;
+}
+
+.hero-site-switcher {
+  flex: 0 0 420px;
+  width: min(100%, 420px);
+  padding: 18px;
+  border: 1px solid rgba(185, 242, 108, 0.24);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at 100% -40%, rgba(185, 242, 108, 0.24), transparent 17rem),
+    var(--deep);
+  color: #fff;
+  box-shadow: 0 18px 44px rgba(16, 37, 28, 0.18);
+  transition: opacity 0.16s ease;
+}
+
+.hero-site-switcher[aria-busy="true"] {
+  opacity: 0.72;
+}
+
+.site-switcher-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.site-switcher-kicker {
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.site-switcher-status {
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.site-switcher-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.site-switcher-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.site-switcher-field > span {
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.site-switcher-field select {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 30px 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 11px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+  outline: none;
+}
+
+.site-switcher-field select:focus {
+  border-color: var(--lime);
+  box-shadow: 0 0 0 3px rgba(185, 242, 108, 0.2);
+}
+
+.site-switcher-field select:disabled {
+  cursor: wait;
 }
 
 .button {
@@ -271,107 +355,6 @@ h3 {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
   margin-bottom: 22px;
-}
-
-.site-scope {
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(370px, 0.8fr);
-  gap: 24px;
-  margin-bottom: 22px;
-  padding: 26px;
-  border: 1px solid rgba(185, 242, 108, 0.24);
-  border-radius: 24px;
-  background:
-    radial-gradient(circle at 82% -20%, rgba(185, 242, 108, 0.2), transparent 22rem),
-    var(--deep);
-  color: #fff;
-  box-shadow: 0 18px 44px rgba(16, 37, 28, 0.18);
-}
-
-.site-scope .eyebrow {
-  color: var(--lime);
-}
-
-.site-scope h2 {
-  max-width: 680px;
-  margin-bottom: 10px;
-  color: #fff;
-  font-size: clamp(24px, 3vw, 34px);
-}
-
-.site-scope p {
-  max-width: 680px;
-  margin-bottom: 16px;
-  color: rgba(255, 255, 255, 0.68);
-  line-height: 1.65;
-  font-size: 13px;
-}
-
-.site-scope-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.site-scope-meta span {
-  padding: 6px 9px;
-  border: 1px solid rgba(255, 255, 255, 0.13);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.78);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.site-scope-form {
-  align-self: center;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  padding: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.07);
-}
-
-.site-scope-form .field label {
-  color: rgba(255, 255, 255, 0.68);
-}
-
-.site-scope-form .field select {
-  width: 100%;
-  min-height: 44px;
-}
-
-.site-scope-form .button {
-  grid-column: 1 / -1;
-}
-
-.site-scope-result {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding-top: 18px;
-  border-top: 1px solid rgba(255, 255, 255, 0.11);
-  color: rgba(255, 255, 255, 0.64);
-  font-size: 12px;
-}
-
-.site-scope-result strong {
-  color: #fff;
-  font-size: 15px;
-}
-
-.site-scope-result .text-link {
-  margin-left: auto;
-  color: var(--lime);
-}
-
-.site-scope-kicker {
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
 }
 
 .metric-card {
@@ -1008,6 +991,15 @@ tbody tr:last-child td {
 }
 
 @media (max-width: 980px) {
+  .hero {
+    flex-direction: column;
+  }
+
+  .hero-site-switcher {
+    flex-basis: auto;
+    width: 100%;
+  }
+
   .metrics-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1023,14 +1015,6 @@ tbody tr:last-child td {
 }
 
 @media (max-width: 720px) {
-  .site-scope {
-    padding: 20px;
-  }
-
-  .site-scope-form {
-    grid-template-columns: 1fr;
-  }
-
   .topbar-inner {
     padding: 0 16px;
     min-height: 64px;
@@ -2501,10 +2485,6 @@ tbody tr:last-child td {
 }
 
 @media (max-width: 920px) {
-  .site-scope {
-    grid-template-columns: 1fr;
-  }
-
   .connection-grid,
   .connection-steps {
     grid-template-columns: 1fr;

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { RecommendationBadge, StatusBadge } from "@/components/badges";
+import { SiteScopeSwitcher } from "@/components/site-scope-switcher";
 import { compactNumber, money, percent } from "@/lib/format";
 import { getDashboardStats, getSiteOptions, listCasesForSite } from "@/lib/repository";
 
@@ -34,62 +35,26 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const demoCount = cases.filter((item) => item.is_demo).length;
   const siteLabel = `${selectedMarket.name}站 · ${selectedPlatform.name}`;
   const siteHref = `/?market=${encodeURIComponent(selectedMarket.code)}&platform=${encodeURIComponent(selectedPlatform.code)}#opportunities`;
+  const marketOptions = options.markets.map(({ code, name, currency }) => ({ code, name, currency }));
+  const platformOptions = options.platforms.map(({ code, name, api_name }) => ({ code, name, api_name }));
 
   return (
     <div className="page">
       <section className="hero">
-        <div>
+        <div className="hero-copy">
           <div className="eyebrow">Opportunity workspace</div>
           <h1>选对国家站点，<br />再判断商品机会。</h1>
           <p>
             候选品证据、单位经济模型、供应商定标和内容门禁集中在一个工作台。
-            先在首页确定国家与平台站点，机会列表、利润指标和后续 Listing 工作流都会从同一个站点上下文开始。
+            在右上角切换国家与平台站点，机会列表、利润指标和后续 Listing 工作流都会从同一个站点上下文开始。
           </p>
         </div>
-        <a className="button primary" href="#site-scope">选择国家站点 ↓</a>
-      </section>
-
-      <section className="site-scope" id="site-scope" aria-labelledby="site-scope-title">
-        <div className="site-scope-intro">
-          <div className="eyebrow">1 · 选择出海站点</div>
-          <h2 id="site-scope-title">当前查看：{siteLabel}</h2>
-          <p>商品机会按“国家 × 平台”隔离。切换站点后，只显示与该站点相关的主市场机会或已经建立渠道目标的商品。</p>
-          <div className="site-scope-meta">
-            <span>{selectedMarket.region}</span>
-            <span>{selectedMarket.locale}</span>
-            <span>{selectedMarket.currency}</span>
-            <span>{selectedPlatform.api_name ?? selectedPlatform.name}</span>
-          </div>
-        </div>
-        <form className="site-scope-form" method="get" action="/#opportunities">
-          <div className="field">
-            <label htmlFor="marketCode">国家 / 市场</label>
-            <select id="marketCode" name="market" defaultValue={selectedMarket.code}>
-              {options.markets.map((market) => (
-                <option key={market.code} value={market.code}>
-                  {market.name} · {market.code} · {market.currency}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="platformCode">平台 / 站点</label>
-            <select id="platformCode" name="platform" defaultValue={selectedPlatform.code}>
-              {options.platforms.map((platform) => (
-                <option key={platform.code} value={platform.code}>
-                  {platform.name}{platform.api_name ? ` · ${platform.api_name}` : " · 人工导出"}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button className="button primary" type="submit">应用站点</button>
-        </form>
-        <div className="site-scope-result">
-          <span className="site-scope-kicker">当前范围</span>
-          <strong>{siteLabel}</strong>
-          <span>{cases.length} 个机会</span>
-          <Link className="text-link" href="/connections">检查站点连接 →</Link>
-        </div>
+        <SiteScopeSwitcher
+          markets={marketOptions}
+          platforms={platformOptions}
+          selectedMarket={selectedMarket.code}
+          selectedPlatform={selectedPlatform.code}
+        />
       </section>
 
       <section className="metrics-grid" aria-label="核心指标">
