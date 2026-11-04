@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Suspense } from "react";
+import { TopbarSiteScope } from "@/components/topbar-site-scope";
+import { getSiteOptions } from "@/lib/repository";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -7,7 +10,11 @@ export const metadata: Metadata = {
   description: "从选品、成本模型、供应商定标到内容发布预检的可审计工作流。",
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  const options = await getSiteOptions();
+  const markets = options.markets.map(({ code, name, currency }) => ({ code, name, currency }));
+  const platforms = options.platforms.map(({ code, name }) => ({ code, name }));
+
   return (
     <html lang="zh-CN">
       <body>
@@ -27,9 +34,14 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
               <Link href="/data-sources">数据源</Link>
               <Link href="/connections">连接中心</Link>
             </nav>
-            <div className="environment-pill">
-              <span className="dot" />
-              P1.1 · 连接验证
+            <div className="topbar-actions">
+              <Suspense fallback={null}>
+                <TopbarSiteScope markets={markets} platforms={platforms} />
+              </Suspense>
+              <div className="environment-pill">
+                <span className="dot" />
+                P1.1 · 连接验证
+              </div>
             </div>
           </div>
         </header>

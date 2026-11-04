@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { RecommendationBadge, StatusBadge } from "@/components/badges";
-import { SiteScopeSwitcher } from "@/components/site-scope-switcher";
 import { compactNumber, money, percent } from "@/lib/format";
 import { getDashboardStats, getSiteOptions, listCasesForSite } from "@/lib/repository";
 
@@ -35,9 +34,6 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const demoCount = cases.filter((item) => item.is_demo).length;
   const siteLabel = `${selectedMarket.name}站 · ${selectedPlatform.name}`;
   const siteHref = `/?market=${encodeURIComponent(selectedMarket.code)}&platform=${encodeURIComponent(selectedPlatform.code)}#opportunities`;
-  const marketOptions = options.markets.map(({ code, name, currency }) => ({ code, name, currency }));
-  const platformOptions = options.platforms.map(({ code, name }) => ({ code, name }));
-
   return (
     <div className="page">
       <section className="hero">
@@ -49,12 +45,6 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             在右上角切换国家与平台站点，机会列表、利润指标和后续 Listing 工作流都会从同一个站点上下文开始。
           </p>
         </div>
-        <SiteScopeSwitcher
-          markets={marketOptions}
-          platforms={platformOptions}
-          selectedMarket={selectedMarket.code}
-          selectedPlatform={selectedPlatform.code}
-        />
       </section>
 
       <section className="metrics-grid" aria-label="核心指标">

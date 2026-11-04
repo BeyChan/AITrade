@@ -19,6 +19,7 @@ type SiteScopeSwitcherProps = {
   platforms: PlatformOption[];
   selectedMarket: string;
   selectedPlatform: string;
+  variant?: "default" | "topbar";
 };
 
 export function SiteScopeSwitcher({
@@ -26,11 +27,13 @@ export function SiteScopeSwitcher({
   platforms,
   selectedMarket,
   selectedPlatform,
+  variant = "default",
 }: SiteScopeSwitcherProps) {
   const router = useRouter();
   const [market, setMarket] = useState(selectedMarket);
   const [platform, setPlatform] = useState(selectedPlatform);
   const [isPending, startTransition] = useTransition();
+  const isTopbar = variant === "topbar";
 
   useEffect(() => {
     setMarket(selectedMarket);
@@ -48,14 +51,15 @@ export function SiteScopeSwitcher({
   }
 
   return (
-    <div className="hero-site-switcher" aria-label="国家与平台站点" aria-busy={isPending}>
-      <div className="site-switcher-heading">
-        <span className="site-switcher-kicker">当前站点</span>
-        <span className="site-switcher-status">{isPending ? "正在切换…" : "选择后自动更新"}</span>
-      </div>
+    <div
+      className={`site-scope-switcher ${isTopbar ? "topbar-site-switcher" : ""}`}
+      aria-label="国家与平台站点"
+      aria-busy={isPending}
+    >
+      <span className="site-switcher-kicker">{isTopbar ? "站点" : "当前站点"}</span>
       <div className="site-switcher-fields">
         <label className="site-switcher-field" htmlFor="marketCode">
-          <span>国家 / 市场</span>
+          <span>{isTopbar ? "国家" : "国家 / 市场"}</span>
           <select
             id="marketCode"
             value={market}
@@ -68,13 +72,13 @@ export function SiteScopeSwitcher({
           >
             {markets.map((item) => (
               <option key={item.code} value={item.code}>
-                {item.name} · {item.code} · {item.currency}
+                {isTopbar ? `${item.name} · ${item.code}` : `${item.name} · ${item.code} · ${item.currency}`}
               </option>
             ))}
           </select>
         </label>
         <label className="site-switcher-field" htmlFor="platformCode">
-          <span>平台 / 站点</span>
+          <span>{isTopbar ? "平台" : "平台 / 站点"}</span>
           <select
             id="platformCode"
             value={platform}
@@ -93,6 +97,7 @@ export function SiteScopeSwitcher({
           </select>
         </label>
       </div>
+      <span className="site-switcher-status">{isPending ? "切换中…" : isTopbar ? "即时生效" : "选择后自动更新"}</span>
     </div>
   );
 }

@@ -126,6 +126,14 @@ button {
   background: #f1f5f1;
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-left: auto;
+}
+
 .environment-pill {
   display: flex;
   align-items: center;
@@ -215,72 +223,72 @@ h3 {
   margin-bottom: 0;
 }
 
-.hero-site-switcher {
-  flex: 0 0 460px;
-  width: min(100%, 460px);
-  padding: 18px;
-  border: 1px solid rgba(185, 242, 108, 0.24);
-  border-radius: 20px;
-  background:
-    radial-gradient(circle at 100% -40%, rgba(185, 242, 108, 0.24), transparent 17rem),
-    var(--deep);
-  color: #fff;
-  box-shadow: 0 18px 44px rgba(16, 37, 28, 0.18);
+.site-scope-switcher {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
   transition: opacity 0.16s ease;
 }
 
-.hero-site-switcher[aria-busy="true"] {
+.site-scope-switcher[aria-busy="true"] {
   opacity: 0.72;
 }
 
-.site-switcher-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
+.topbar-site-switcher {
+  padding: 5px 7px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(250, 252, 249, 0.96);
+  box-shadow: 0 4px 14px rgba(24, 44, 32, 0.04);
 }
 
 .site-switcher-kicker {
-  color: #fff;
-  font-size: 12px;
+  padding-left: 4px;
+  color: var(--green);
+  font-size: 10px;
   font-weight: 800;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .site-switcher-status {
-  color: rgba(255, 255, 255, 0.58);
+  color: var(--muted);
   font-size: 10px;
   white-space: nowrap;
 }
 
 .site-switcher-fields {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.site-switcher-field {
-  display: grid;
+  display: flex;
+  align-items: center;
   gap: 6px;
   min-width: 0;
 }
 
+.site-switcher-field {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
 .site-switcher-field > span {
-  color: rgba(255, 255, 255, 0.62);
+  color: var(--muted);
   font-size: 10px;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .site-switcher-field select {
-  width: 100%;
-  min-height: 44px;
-  padding: 0 30px 0 12px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 11px;
+  width: 132px;
+  min-height: 34px;
+  padding: 0 26px 0 9px;
+  border: 1px solid #d7e1da;
+  border-radius: 9px;
   background: #fff;
   color: var(--ink);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   outline: none;
 }
@@ -990,14 +998,45 @@ tbody tr:last-child td {
   background: var(--red-soft);
 }
 
-@media (max-width: 980px) {
-  .hero {
-    flex-direction: column;
+@media (max-width: 1120px) {
+  .topbar-inner {
+    gap: 20px;
   }
 
-  .hero-site-switcher {
-    flex-basis: auto;
-    width: 100%;
+  .environment-pill {
+    display: none;
+  }
+
+  .nav {
+    gap: 2px;
+  }
+
+  .nav a {
+    padding: 8px 10px;
+  }
+}
+
+@media (max-width: 960px) {
+  .topbar-inner {
+    flex-wrap: wrap;
+    padding: 10px 20px;
+    gap: 8px 16px;
+  }
+
+  .brand {
+    min-width: 142px;
+  }
+
+  .nav {
+    order: 3;
+    flex: 0 0 100%;
+    justify-content: flex-start;
+    overflow-x: auto;
+    padding: 2px 0;
+  }
+
+  .hero {
+    flex-direction: column;
   }
 
   .metrics-grid {
@@ -1016,27 +1055,47 @@ tbody tr:last-child td {
 
 @media (max-width: 720px) {
   .topbar-inner {
-    padding: 0 16px;
-    min-height: 64px;
-    gap: 12px;
+    min-height: 0;
+    padding: 8px 16px;
+    gap: 8px 12px;
   }
 
   .brand {
     min-width: auto;
   }
 
-  .brand small,
-  .environment-pill {
+  .brand > span:last-child {
     display: none;
   }
 
   .nav {
-    justify-content: flex-end;
+    justify-content: flex-start;
   }
 
   .nav a {
     padding: 8px;
     font-size: 12px;
+  }
+
+  .topbar-actions {
+    gap: 0;
+  }
+
+  .topbar-site-switcher {
+    gap: 0;
+    padding: 4px;
+  }
+
+  .topbar-site-switcher .site-switcher-kicker,
+  .topbar-site-switcher .site-switcher-field > span,
+  .topbar-site-switcher .site-switcher-status {
+    display: none;
+  }
+
+  .topbar-site-switcher .site-switcher-field select {
+    width: clamp(96px, 29vw, 124px);
+    padding-left: 7px;
+    font-size: 11px;
   }
 
   .page {

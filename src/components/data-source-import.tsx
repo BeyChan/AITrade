@@ -3,14 +3,11 @@
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 
-type IngestionKind = "candidates" | "suppliers" | "quotes" | "keepa" | "sorftime";
-type SyncKind = Extract<IngestionKind, "keepa" | "sorftime">;
-type CsvKind = Exclude<IngestionKind, SyncKind>;
+type IngestionKind = "candidates" | "suppliers" | "quotes";
 
 type IngestionResult = {
   runId?: string;
-  jobId?: string;
-  status?: "queued" | "running" | "completed" | "partial" | "failed";
+  status?: "completed" | "partial" | "failed";
   imported?: number;
   updated?: number;
   skipped?: number;
@@ -19,18 +16,10 @@ type IngestionResult = {
   warnings?: string[];
   error?: string;
   code?: string;
-  job?: {
-    id: string;
-    status: string;
-    attempt: number;
-    max_attempts: number;
-    next_run_at: string | null;
-    summary?: { apiCallCount?: number; durationMs?: number };
-  };
 };
 
 const modes: Array<{
-  kind: CsvKind;
+  kind: IngestionKind;
   label: string;
   title: string;
   description: string;
@@ -42,7 +31,7 @@ const modes: Array<{
     kind: "candidates",
     label: "候选品",
     title: "导入选品与市场信号",
-    description: "接入平台后台导出、第三方选品工具导出或人工整理的候选品表。系统保留来源、采集时间、销量区间和原始快照。",
+    description: "接入平台后台导出、ERP 导出或人工整理的候选品表。无需订阅、无需 API Key，系统保留来源、采集时间、销量区间和原始快照。",
     template: "/candidates-template-v2.csv",
     templateName: "候选品模板",
     placeholder:
@@ -70,8 +59,6 @@ const modes: Array<{
   },
 ];
 
-const keepaMarkets = ["US", "GB", "DE", "FR", "IT", "ES", "JP", "CA", "IN", "MX", "BR", "AU"];
-const sorftimeMarkets = ["US", "GB", "DE", "JP", "AU"];
 const importMarkets = [
   ["US", "美国"],
   ["GB", "英国"],
@@ -94,17 +81,12 @@ export function DataSourceImport() {
   const [kind, setKind] = useState<IngestionKind>("candidates");
   const [file, setFile] = useState<File | null>(null);
   const [csvText, setCsvText] = useState("");
-  const [asins, setAsins] = useState("");
   const [marketplace, setMarketplace] = useState("US");
   const [platformCode, setPlatformCode] = useState("amazon");
-  const [researchMode, setResearchMode] = useState<"category" | "asin">("category");
-  const [categoryQuery, setCategoryQuery] = useState("");
-  const [nodeId, setNodeId] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<IngestionResult | null>(null);
-  const csvMode = modes.find((item) => item.kind === kind);
-  const isSync = kind === "keepa" || kind === "sorftime";
+  const csvMode = modes.find((item) => item.kind === kind) ?? modes[0];
 
   function selectKind(nextKind: IngestionKind) {
     setKind(nextKind);
@@ -112,11 +94,6 @@ export function DataSourceImport() {
     setCsvText("");
     setError("");
     setResult(null);
-    if (nextKind === "sorftime" && !sorftimeMarkets.includes(marketplace)) {
-      setMarketplace("US");
-    } else if (nextKind === "keepa" && !keepaMarkets.includes(marketplace)) {
-      setMarketplace("US");
-    }
   }
 
   function selectFile(selected: File | null) {
@@ -136,50 +113,21 @@ export function DataSourceImport() {
     setResult(null);
 
     try {
-      let response: Response;
-      if (isSync) {
-        const body = kind === "keepa"
-          ? { sourceCode: "keepa", asins, marketplace, actor: "运营人员" }
-          : {
-              sourceCode: "sorftime",
-              mode: researchMode,
-              marketplace,
-              categoryQuery: researchMode === "category" ? categoryQuery : undefined,
-              nodeId: researchMode === "category" ? nodeId : undefined,
-              asins: researchMode === "asin" ? asins : undefined,
-              actor: "运营人员",
-            };
-        response = await fetch("/api/sync/jobs", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-      } else {
-        const formData = new FormData();
-        formData.set("kind", kind);
-        if (file) formData.set("file", file);
-        if (csvText.trim()) formData.set("csvText", csvText);
-        if (kind === "candidates") {
-          formData.set("market", marketplace);
-          formData.set("platform", platformCode);
-        }
-        response = await fetch("/api/ingestion", { method: "POST", body: formData });
+      const formData = new FormData();
+      formData.set("kind", kind);
+      if (file) formData.set("file", file);
+      if (csvText.trim()) formData.set("csvText", csvText);
+      if (kind === "candidates") {
+        formData.set("market", marketplace);
+        formData.set("platform", platformCode);
       }
-
+      const response = await fetch("/api/ingestion", { method: "POST", body: formData });
       const payload = (await response.json()) as IngestionResult;
       setResult(payload);
       router.refresh();
-      if (!response.ok) {
-        if (payload.code === "not_configured") {
-          const credential = kind === "sorftime" ? "SORFTIME_API_KEY" : "KEEPA_API_KEY";
-          throw new Error(`${payload.error || "连接器未配置"}。请把 ${credential} 写入 .env.local 后重启服务，不要把密钥发到聊天里。`);
-        }
-        throw new Error(payload.error || "导入失败");
-      }
-      if (!isSync) {
-        setFile(null);
-        setCsvText("");
-      }
+      if (!response.ok) throw new Error(payload.error || "导入失败");
+      setFile(null);
+      setCsvText("");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "导入失败");
     } finally {
@@ -187,24 +135,18 @@ export function DataSourceImport() {
     }
   }
 
-  const canSubmit =
-    kind === "keepa"
-      ? asins.trim().length > 0
-      : kind === "sorftime"
-        ? researchMode === "asin"
-          ? asins.trim().length > 0
-          : Boolean(categoryQuery.trim() || nodeId.trim())
-        : Boolean(file || csvText.trim());
+  const canSubmit = Boolean(file || csvText.trim());
 
   return (
     <div className="source-workbench">
       <section className="panel source-import-panel">
         <div className="panel-header source-panel-header">
           <div>
-            <div className="eyebrow">Real data intake</div>
-            <h2>接入真实业务数据</h2>
-            <p>CSV 是可追溯的数据主通道；Keepa 与 Sorftime 是可选只读竞品研究连接器。</p>
+            <div className="eyebrow">Free data intake</div>
+            <h2>免费数据接入</h2>
+            <p>不依赖订阅型选品 API。平台后台、ERP、1688 或人工核验数据导出为 CSV 后即可入库。</p>
           </div>
+          <span className="badge badge-success">0 付费 Key</span>
         </div>
 
         <div className="source-tabs" role="tablist" aria-label="导入数据类型">
@@ -220,202 +162,75 @@ export function DataSourceImport() {
               {item.label}
             </button>
           ))}
-          <button
-            className={kind === "keepa" ? "source-tab active" : "source-tab"}
-            type="button"
-            role="tab"
-            aria-selected={kind === "keepa"}
-            onClick={() => selectKind("keepa")}
-          >
-            Keepa
-          </button>
-          <button
-            className={kind === "sorftime" ? "source-tab active" : "source-tab"}
-            type="button"
-            role="tab"
-            aria-selected={kind === "sorftime"}
-            onClick={() => selectKind("sorftime")}
-          >
-            Sorftime
-          </button>
         </div>
 
         <form onSubmit={handleSubmit} className="stack source-form">
-          {csvMode ? (
-            <>
-              <div className="source-form-intro">
-                <div>
-                  <h3>{csvMode.title}</h3>
-                  <p>{csvMode.description}</p>
-                </div>
-                <a className="button ghost compact-button" href={csvMode.template} download>
-                  下载{csvMode.templateName}
-                </a>
-              </div>
+          <div className="source-form-intro">
+            <div>
+              <h3>{csvMode.title}</h3>
+              <p>{csvMode.description}</p>
+            </div>
+            <a className="button ghost compact-button" href={csvMode.template} download>
+              下载{csvMode.templateName}
+            </a>
+          </div>
 
-              {csvMode.kind === "candidates" ? (
-                <div className="form-grid">
-                  <div className="field">
-                    <label htmlFor="candidate-market">候选品归属国家 / 市场</label>
-                    <select id="candidate-market" value={marketplace} onChange={(event) => setMarketplace(event.target.value)}>
-                      {importMarkets.map(([code, name]) => <option key={code} value={code}>{name} · {code}</option>)}
-                    </select>
-                  </div>
-                  <div className="field">
-                    <label htmlFor="candidate-platform">候选品归属平台站</label>
-                    <select id="candidate-platform" value={platformCode} onChange={(event) => setPlatformCode(event.target.value)}>
-                      {importPlatforms.map(([code, name]) => <option key={code} value={code}>{name} · {code}</option>)}
-                    </select>
-                  </div>
-                  <span className="help full">CSV 内的 marketplace 会以这里选择的国家覆盖；平台归属会持久化，机会只显示在对应国家 × 平台站点。</span>
-                </div>
-              ) : null}
-
-              <div className="dropzone">
-                <h3>选择 CSV 文件</h3>
-                <p className="muted">UTF-8，最大 2 MB；候选品单次最多 200 行，供应商和报价最多 1,000 行。</p>
-                <input
-                  key={csvMode.kind}
-                  type="file"
-                  accept=".csv,text/csv"
-                  onChange={(event) => selectFile(event.target.files?.[0] ?? null)}
-                />
-              </div>
-
+          {kind === "candidates" ? (
+            <div className="form-grid">
               <div className="field">
-                <label htmlFor="source-csv-text">或者直接粘贴 CSV</label>
-                <textarea
-                  id="source-csv-text"
-                  className="source-csv-textarea"
-                  value={csvText}
-                  onChange={(event) => setCsvText(event.target.value)}
-                  placeholder={csvMode.placeholder}
-                />
-                <span className="help">文件和粘贴内容二选一。导入后会显示运行 ID、失败数、跳过数、告警和原始快照数。</span>
+                <label htmlFor="candidate-market">候选品归属国家 / 市场</label>
+                <select id="candidate-market" value={marketplace} onChange={(event) => setMarketplace(event.target.value)}>
+                  {importMarkets.map(([code, name]) => <option key={code} value={code}>{name} · {code}</option>)}
+                </select>
               </div>
-            </>
-          ) : kind === "keepa" ? (
-            <>
-              <div className="source-form-intro">
-                <div>
-                  <h3>从 Keepa 同步竞品商品</h3>
-                  <p>只读请求商品价格、评论、销量和 BSR。未配置 KEEPA_API_KEY 时系统不会发起任何外部请求。</p>
-                </div>
-                <span className="info-pill">只读 API</span>
+              <div className="field">
+                <label htmlFor="candidate-platform">候选品归属平台站</label>
+                <select id="candidate-platform" value={platformCode} onChange={(event) => setPlatformCode(event.target.value)}>
+                  {importPlatforms.map(([code, name]) => <option key={code} value={code}>{name} · {code}</option>)}
+                </select>
               </div>
+              <span className="help full">CSV 内的 marketplace 会以这里选择的国家覆盖；平台归属会持久化，机会只显示在对应国家 × 平台站点。</span>
+            </div>
+          ) : null}
 
-              <div className="form-grid keepa-form-grid">
-                <div className="field">
-                  <label htmlFor="keepa-marketplace">Amazon 市场</label>
-                  <select id="keepa-marketplace" value={marketplace} onChange={(event) => setMarketplace(event.target.value)}>
-                    {keepaMarkets.map((market) => <option key={market} value={market}>{market}</option>)}
-                  </select>
-                </div>
-                <div className="field full">
-                  <label htmlFor="keepa-asins">ASIN（换行或逗号分隔）</label>
-                  <textarea
-                    id="keepa-asins"
-                    value={asins}
-                    onChange={(event) => setAsins(event.target.value)}
-                    placeholder={"B0XXXXXXXX\nB0YYYYYYYY"}
-                  />
-                  <span className="help">单次最多 100 个 ASIN；同步后仍会生成待立项审批，不会自动采购。</span>
-                </div>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="source-form-intro">
-                <div>
-                  <h3>用 Sorftime 做类目与 ASIN 研究</h3>
-                  <p>通过固定 MCP 只读获取类目 Top 产品、类目统计和商品详情。未配置 SORFTIME_API_KEY 时不会发起外部请求。</p>
-                </div>
-                <span className="info-pill">只读研究</span>
-              </div>
+          <div className="dropzone">
+            <h3>选择 CSV 文件</h3>
+            <p className="muted">UTF-8，最大 2 MB；候选品单次最多 200 行，供应商和报价最多 1,000 行。</p>
+            <input
+              key={kind}
+              type="file"
+              accept=".csv,text/csv"
+              onChange={(event) => selectFile(event.target.files?.[0] ?? null)}
+            />
+          </div>
 
-              <div className="form-grid keepa-form-grid">
-                <div className="field">
-                  <label htmlFor="sorftime-mode">研究模式</label>
-                  <select
-                    id="sorftime-mode"
-                    value={researchMode}
-                    onChange={(event) => setResearchMode(event.target.value === "asin" ? "asin" : "category")}
-                  >
-                    <option value="category">类目研究</option>
-                    <option value="asin">ASIN 研究</option>
-                  </select>
-                </div>
-                <div className="field">
-                  <label htmlFor="sorftime-marketplace">Amazon 市场</label>
-                  <select id="sorftime-marketplace" value={marketplace} onChange={(event) => setMarketplace(event.target.value)}>
-                    {sorftimeMarkets.map((market) => <option key={market} value={market}>{market}</option>)}
-                  </select>
-                </div>
-                {researchMode === "category" ? (
-                  <>
-                    <div className="field">
-                      <label htmlFor="sorftime-category-query">类目关键词</label>
-                      <input
-                        id="sorftime-category-query"
-                        value={categoryQuery}
-                        onChange={(event) => setCategoryQuery(event.target.value)}
-                        placeholder="例如 Pet Supplies"
-                      />
-                    </div>
-                    <div className="field">
-                      <label htmlFor="sorftime-node-id">Node ID（可选）</label>
-                      <input
-                        id="sorftime-node-id"
-                        value={nodeId}
-                        onChange={(event) => setNodeId(event.target.value)}
-                        inputMode="numeric"
-                        placeholder="例如 2972638011"
-                      />
-                    </div>
-                    <span className="help full">关键词和 Node ID 至少填一个。类目报告最多导入前 50 个有价格的商品。</span>
-                  </>
-                ) : (
-                  <div className="field full">
-                    <label htmlFor="sorftime-asins">ASIN（换行或逗号分隔）</label>
-                    <textarea
-                      id="sorftime-asins"
-                      value={asins}
-                      onChange={(event) => setAsins(event.target.value)}
-                      placeholder={"B0XXXXXXXX\nB0YYYYYYYY"}
-                    />
-                    <span className="help">单次最多 20 个 ASIN。销量是第三方估算；成本仍是研究占位值，必须用真实报价重算。</span>
-                  </div>
-                )}
-                <span className="help full">结果只创建 review_pending 候选品和证据快照，不会采购、询价、定标或发布。</span>
-              </div>
-            </>
-          )}
+          <div className="field">
+            <label htmlFor="source-csv-text">或者直接粘贴 CSV</label>
+            <textarea
+              id="source-csv-text"
+              className="source-csv-textarea"
+              value={csvText}
+              onChange={(event) => setCsvText(event.target.value)}
+              placeholder={csvMode.placeholder}
+            />
+            <span className="help">文件和粘贴内容二选一。导入后会显示运行 ID、失败数、跳过数、告警和原始快照数。</span>
+          </div>
 
           <div className="button-row">
             <button className="button primary" type="submit" disabled={pending || !canSubmit}>
-              {pending
-                ? "正在执行…"
-                : kind === "keepa"
-                  ? "创建并执行 Keepa 同步任务"
-                  : kind === "sorftime"
-                    ? "创建并执行 Sorftime 研究任务"
-                    : "开始导入"}
+              {pending ? "正在导入…" : "开始导入"}
             </button>
-            <span className="source-safe-note">外部动作：不会发送 RFQ、自动定标、发布、下单或付款</span>
+            <span className="source-safe-note">无需 API Key；不会发送 RFQ、自动定标、发布、下单或付款</span>
           </div>
 
           {result ? (
             <div className={result.status === "partial" ? "result-box warning" : result.status === "failed" ? "result-box error" : "result-box success"}>
               <strong>
                 {result.status === "partial"
-                  ? "任务完成，但有需要处理的记录"
+                  ? "导入完成，但有需要处理的记录"
                   : result.status === "failed"
-                    ? "任务失败，未伪造任何业务数据"
-                    : kind === "keepa"
-                      ? "Keepa 同步任务完成"
-                      : kind === "sorftime"
-                        ? "Sorftime 研究任务完成"
-                        : "导入完成"}
+                    ? "导入失败，未写入伪造数据"
+                    : "导入完成"}
               </strong>
               <div className="result-metrics">
                 <span>新增 {result.imported ?? 0}</span>
@@ -423,12 +238,10 @@ export function DataSourceImport() {
                 <span>跳过 {result.skipped ?? 0}</span>
                 <span>失败 {result.errors ?? 0}</span>
                 <span>快照 {result.snapshots ?? 0}</span>
-                {isSync ? <span>API 调用 {result.job?.summary?.apiCallCount ?? 0} 次</span> : null}
               </div>
               {result.runId ? <div className="run-id">runId: {result.runId}</div> : null}
-              {result.jobId ? <div className="run-id">jobId: {result.jobId} · attempt {result.job?.attempt ?? 1}/{result.job?.max_attempts ?? 3}</div> : null}
-              {kind === "candidates" || isSync ? (
-                <a className="text-link" href={`/?market=${encodeURIComponent(marketplace)}&platform=${encodeURIComponent(isSync ? "amazon" : platformCode)}#opportunities`}>
+              {kind === "candidates" ? (
+                <a className="text-link" href={`/?market=${encodeURIComponent(marketplace)}&platform=${encodeURIComponent(platformCode)}#opportunities`}>
                   查看该国家 × 平台站点的商品机会 →
                 </a>
               ) : null}
@@ -446,23 +259,22 @@ export function DataSourceImport() {
       <aside className="stack">
         <section className="card source-guardrail-card">
           <div className="eyebrow">Guardrails</div>
-          <h3>真实数据接入边界</h3>
+          <h3>免费模式的边界</h3>
           <ul className="guardrail-list">
+            <li>不使用任何订阅型选品 API，也不需要 Sorftime、Keepa 或其他付费 Key。</li>
             <li>候选品、供应商和报价都保留原始 payload、来源标识与观察时间。</li>
-            <li>Keepa / Sorftime 销量都是第三方估算，不把估算改写成确定事实。</li>
-            <li>Sorftime 成本是研究占位值，必须用真实供应商报价重新测算。</li>
+            <li>平台后台导出和人工核验表可以直接导入，成本以真实报价为准。</li>
             <li>报价必须关联已立项商品，未立项记录只报错，不创建报价。</li>
-            <li>Amazon SP-API 只用于自有店铺，不能拿来伪造竞品销量。</li>
-            <li>未获官方授权的平台不采用爬虫接入。</li>
+            <li>不抓取未获官方授权的数据，不把估算值写成确定事实。</li>
           </ul>
         </section>
         <section className="card">
-          <h3>接入顺序建议</h3>
+          <h3>推荐免费流程</h3>
           <div className="source-steps">
-            <span><b>01</b> 先用 Sorftime 做 1 个类目或 10–20 个 ASIN 研究</span>
+            <span><b>01</b> 从平台后台、ERP 或选品工具导出候选品 CSV</span>
             <span><b>02</b> 人工审批，确认值得立项的商品</span>
             <span><b>03</b> 导入供应商档案和至少 3 份真实报价</span>
-            <span><b>04</b> 人工对比、定标，再进入内容和上架预检</span>
+            <span><b>04</b> 人工对比、定标，再进入主图和上架预检</span>
           </div>
         </section>
       </aside>

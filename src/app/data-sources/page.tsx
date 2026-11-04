@@ -1,7 +1,5 @@
 import Link from "next/link";
-import { ConnectorSyncJobs } from "@/components/connector-sync-jobs";
 import { DataSourceImport } from "@/components/data-source-import";
-import { getConnectorSyncDashboard } from "@/lib/connector-sync";
 import { getDataSourcesDashboard } from "@/lib/ingestion";
 
 export const dynamic = "force-dynamic";
@@ -21,23 +19,20 @@ const runStatusLabels: Record<string, string> = {
 };
 
 export default async function DataSourcesPage() {
-  const [dashboard, syncDashboard] = await Promise.all([
-    getDataSourcesDashboard(),
-    getConnectorSyncDashboard(),
-  ]);
-  const csvSources = dashboard.sources.filter((source) => source.kind === "csv" || source.kind === "manual");
-  const apiSources = dashboard.sources.filter((source) => source.kind === "api" || source.kind === "feed");
+  const dashboard = await getDataSourcesDashboard();
+  const freeSources = dashboard.sources.filter((source) => source.kind === "csv" || source.kind === "manual");
+  const freeRuns = dashboard.runs.filter((run) => run.source_code !== "keepa" && run.source_code !== "sorftime");
 
   return (
     <div className="page">
       <div className="breadcrumb"><Link href="/">商品机会</Link> / 数据源</div>
       <section className="hero source-hero">
         <div>
-          <div className="eyebrow">P1.2 · Durable connector sync</div>
-          <h1>真实数据先入库，<br />再让 AI 做判断。</h1>
+          <div className="eyebrow">FREE DATA WORKFLOW · NO SUBSCRIPTION</div>
+          <h1>不接收费数据源，<br />也能把真实业务跑起来。</h1>
           <p>
-            当前把选品、供应商和报价通过可追溯的 CSV 通道接入，并支持 Keepa 与 Sorftime MCP 的只读同步任务。
-            Sorftime 用于 Amazon 类目/ASIN 研究；每条数据都有来源、观察时间、原始快照、API 调用记录和数据新鲜度，不用聊天里的“估算值”冒充事实。
+            默认工作流只使用平台后台导出、ERP、供应商报价和人工核验数据。CSV 入库无需订阅、无需 API Key，
+            每条数据仍保留来源、观察时间、原始快照和运行记录。收费选品 Key 不再是运行前提。
           </p>
         </div>
         <Link className="button secondary" href="/import">快速导入候选品</Link>
@@ -60,31 +55,29 @@ export default async function DataSourcesPage() {
           <div className="metric-note">{dashboard.stats.snapshotCount} 条原始证据快照</div>
         </article>
         <article className="metric-card">
-          <div className="metric-label">已配置 API</div>
-          <div className="metric-value">{dashboard.stats.configuredApiCount}</div>
-          <div className="metric-note">CSV 无需密钥，可直接使用</div>
+          <div className="metric-label">默认付费依赖</div>
+          <div className="metric-value">0</div>
+          <div className="metric-note">CSV + 人工通道即可运行</div>
         </article>
       </section>
 
       <div className="notice source-notice">
-        <span className="badge badge-success">READ ONLY</span>
+        <span className="badge badge-success">FREE MODE</span>
         <span>
-          <strong>导入只代表数据入库。</strong> 系统不会自动发送 RFQ、联系供应商、定标、发布 Listing、改价、下单或付款。
-          内容批准也不等于平台上架。
+          <strong>默认不连接任何收费选品服务。</strong> 数据来自你已有的平台导出、ERP、供应商报价或人工核验结果。
+          系统不会自动发送 RFQ、联系供应商、定标、发布 Listing、改价、下单或付款。
         </span>
       </div>
 
       <DataSourceImport />
 
-      <ConnectorSyncJobs dashboard={syncDashboard} />
-
       <section className="panel source-panel">
         <div className="panel-header">
           <div>
-            <h2>数据源状态</h2>
-            <p>“可用”表示无需密钥即可导入；“未配置”表示 Adapter 已就绪但缺少环境变量；“规划中”表示尚未实现。</p>
+            <h2>免费数据源状态</h2>
+            <p>“可用”表示无需密钥、无需订阅即可导入。收费 API 连接器不再显示在默认工作流中。</p>
           </div>
-          <span className="badge badge-neutral">{apiSources.length} 个 API 连接器</span>
+          <span className="badge badge-success">0 订阅</span>
         </div>
 
         <div className="table-wrap">
@@ -101,7 +94,7 @@ export default async function DataSourcesPage() {
               </tr>
             </thead>
             <tbody>
-              {[...csvSources, ...apiSources].map((source) => (
+              {freeSources.map((source) => (
                 <tr key={source.code}>
                   <td>
                     <strong>{source.name}</strong>
@@ -117,7 +110,7 @@ export default async function DataSourcesPage() {
                       {statusLabels[source.readiness] ?? source.readiness}
                     </span>
                   </td>
-                  <td>{source.snapshotCount.toLocaleString("zh-CN")}</td>
+                  <td>{source.snapshotCount}</td>
                   <td>{source.supplierCount} / {source.quoteCount}</td>
                   <td>{source.last_synced_at ? formatDate(source.last_synced_at) : "尚未同步"}</td>
                   <td>{source.externalActions === "read_only" ? "只读" : "无"}</td>
@@ -134,10 +127,10 @@ export default async function DataSourcesPage() {
             <h2>最近导入运行</h2>
             <p>每次导入都记录文件、发起人、结果、告警和运行 ID，便于追溯错误与重复数据。</p>
           </div>
-          <span className="badge badge-neutral">最近 {dashboard.runs.length} 次</span>
+          <span className="badge badge-neutral">最近 {freeRuns.length} 次</span>
         </div>
 
-        {dashboard.runs.length === 0 ? (
+        {freeRuns.length === 0 ? (
           <div className="empty-state">
             <h3>还没有导入运行</h3>
             <p>从上方选择一个导入类型开始；第一次导入后这里会出现运行记录。</p>
@@ -160,7 +153,7 @@ export default async function DataSourcesPage() {
                 </tr>
               </thead>
               <tbody>
-                {dashboard.runs.map((run) => (
+                {freeRuns.map((run) => (
                   <tr key={run.id}>
                     <td className="run-time">{formatDate(run.started_at)}</td>
                     <td>{run.source_code}</td>
@@ -189,16 +182,16 @@ export default async function DataSourcesPage() {
 
       <section className="source-bottom-grid">
         <article className="card">
-          <h3>当前可以直接接入</h3>
-          <p>候选品 CSV、供应商 CSV、报价 CSV 已可立即使用；配置 SORFTIME_API_KEY 后可对 Amazon 类目或最多 20 个 ASIN 做只读研究。建议从平台后台、ERP、1688/Alibaba 导出或人工核验表开始。</p>
+          <h3>现在就能免费用</h3>
+          <p>候选品 CSV、供应商 CSV、报价 CSV 已可直接使用。建议从 Amazon / Shopify / TikTok Shop / eBay 后台导出、ERP 导出、1688 供应商表格或人工核验表开始。</p>
         </article>
         <article className="card">
-          <h3>下一步 API 顺序</h3>
-          <p>Sorftime 用于类目和商品研究，Keepa 用于竞品价格/销量信号；销量均为第三方估算。Amazon SP-API、Shopify、TikTok Shop 和 eBay 只处理自有店铺，1688/Alibaba 必须走官方开放平台授权。</p>
+          <h3>为什么没有一键选品</h3>
+          <p>覆盖全类目的实时销量、BSR 和历史趋势通常来自收费数据商。免费且合规的替代方式是你已有的平台导出和人工核验，不用为了跑工作流再购买一套数据订阅。</p>
         </article>
         <article className="card">
-          <h3>密钥放置</h3>
-          <p>写入本机 <code>.env.local</code> 或正式密钥管理系统，并重启服务。Sorftime 使用 <code>SORFTIME_API_KEY</code>；不要把 API Key、Token 或店铺凭证粘贴到聊天、CSV 或源码中。</p>
+          <h3>主图与上架也不依赖付费 Key</h3>
+          <p>主图先上传到商品定义并在内容工作台做人工检查；Listing 使用本地字段映射和发布预检。平台真实发布仍需对应店铺的官方授权，不会用付费选品 Key 代替。</p>
         </article>
       </section>
     </div>
