@@ -42,6 +42,20 @@ export type AIProviderTestResult = {
   message: string;
 };
 
+export type StructuredGenerationInput = {
+  systemPrompt: string;
+  userPrompt: string;
+  timeoutMs?: number;
+  maxTokens?: number;
+};
+
+export type StructuredGenerationResult = {
+  provider: AIProviderId;
+  model: string;
+  content: string;
+  latencyMs: number;
+};
+
 const SYSTEM_PROMPT = `你是跨境电商选品研究助理。你的任务不是预测销量，也不是替用户做投资决定，而是把模糊需求拆成 5 个可验证的商品机会假设。
 
 硬性规则：
@@ -176,6 +190,78 @@ export async function testAIProviderConnection(input: AIProviderTestInput): Prom
     model,
     latencyMs: Date.now() - startedAt,
     message: "连接测试通过。",
+  };
+}
+
+/**
+ * Shared server-side JSON generation entry point. Callers must still parse and
+ * validate model output against a deterministic schema before persisting it.
+ */
+export async function generateStructuredJSON(
+  input: StructuredGenerationInput,
+): Promise<StructuredGenerationResult> {
+  const config = await loadAIProviderConfig();
+  const status = statusFromConfig(config);
+  if (!status.configured || config.provider === "template") {
+    throw new Error("当前为免 Key 模板模式，未调用外部模型");
+  }
+
+  const startedAt = Date.now();
+  validateBaseUrl(config.baseUrl);
+  if (config.provider === "ollama") {
+    const response = await fetch(ollamaChatEndpoint(config.baseUrl), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: config.model,
+        stream: false,
+        format: "json",
+        messages: [
+          { role: "system", content: input.systemPrompt },
+          { role: "user", content: input.userPrompt },
+        ],
+        options: { temperature: 0 },
+      }),
+      signal: AbortSignal.timeout(input.timeoutMs ?? 60_000),
+    });
+    if (!response.ok) throw new Error(`Ollama 请求失败：HTTP ${response.status}`);
+    const payload = await response.json() as { message?: { content?: string } };
+    if (!payload.message?.content) throw new Error("Ollama 未返回结构化内容");
+    return {
+      provider: "ollama",
+      model: config.model,
+      content: payload.message.content,
+      latencyMs: Date.now() - startedAt,
+    };
+  }
+
+  const response = await fetch(openAIChatEndpoint(config.baseUrl), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: config.model,
+      temperature: 0,
+      max_tokens: input.maxTokens ?? 2_500,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: input.systemPrompt },
+        { role: "user", content: input.userPrompt },
+      ],
+    }),
+    signal: AbortSignal.timeout(input.timeoutMs ?? 60_000),
+  });
+  if (!response.ok) throw new Error(`AI 接口请求失败：HTTP ${response.status}`);
+  const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+  const content = payload.choices?.[0]?.message?.content;
+  if (!content) throw new Error("AI 接口未返回结构化内容");
+  return {
+    provider: "openai-compatible",
+    model: config.model,
+    content,
+    latencyMs: Date.now() - startedAt,
   };
 }
 

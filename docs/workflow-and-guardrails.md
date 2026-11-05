@@ -1,5 +1,7 @@
 # 工作流与安全边界
 
+> 当前实现状态为 **P2.0 AI 证据收件箱 + P2.1 内部供应商草稿**。已支持文本、CSV、JSON、Markdown 的结构化提取、字段审核、事务应用和门禁重算；也支持基于已录入事实生成 RFQ、缺失信息追问和报价到期提醒内部草稿。**尚不支持图片/截图/PDF OCR、草稿外部发送、自动联系供应商或自动发布**。P2.2 及之后内容仍是规划与实施约束。
+
 ## 主流程
 
 ```text
@@ -8,6 +10,12 @@ AI 生成 5 个机会假设
 [人工确认] 加入验证
   ↓
 真实竞品 / 差评 / 专利 / 物流证据
+  ↓
+AI 证据收件箱：文本 / CSV / JSON / Markdown → 候选字段
+  ↓
+[人工审核] 低置信度、冲突、敏感字段
+  ↓
+事务写入证据、供应商短名单与报价，并重算门禁
   ↓
 供应商短名单与真实报价
   ↓
@@ -25,7 +33,9 @@ AI 生成 5 个机会假设
   ↓
 [人工确认] 立项
   ↓
-RFQ 生成与供应商筛选
+AI 供应商助手：RFQ / 追问 / 到期提醒内部草稿
+  ↓
+[人工审阅并复制] 人在系统外部沟通，系统不发送
   ↓
 报价对比
   ↓
@@ -78,11 +88,103 @@ archived
 rejected
 ```
 
-目标态要求状态变化只能由受控 workflow transition 完成。当前 P1.1 的人工动作由 Server Action 在事务中写入，但尚未实现完整的通用状态机。
+目标态要求状态变化只能由受控 workflow transition 完成。当前人工动作由 Server Action 在事务中写入，但尚未实现完整的通用状态机。
 
-当前 P1.1 为保持商品主状态简单，商品直接立项后保持 `approved`。供应商定标由 `supplier_selections` 记录；内容确认状态由 `channel_listing_versions.status` 表达，主市场 Amazon 的兼容视图同步写入 `listings.status` 与 `listing_reviews`。后续扩展完整状态机时再显式增加 `supplier_selected`、`content_approved` 等主状态。
+当前为保持商品主状态简单，商品直接立项后保持 `approved`。供应商定标由 `supplier_selections` 记录；内容确认状态由 `channel_listing_versions.status` 表达，主市场 Amazon 的兼容视图同步写入 `listings.status` 与 `listing_reviews`。后续扩展完整状态机时再显式增加 `supplier_selected`、`content_approved` 等主状态。
 
 同一商品可以有多个国家 × 平台目标。每个目标拥有独立版本和预检，不能把某个市场的 `content_approved` 当成另一个市场的状态，也不能把它映射成 `published`。
+
+## AI 自动化任务状态
+
+AI 自动化采用“单编排器 + 专用 Skill”，不是多个 Agent 自由协商。每次上传、粘贴或生成草稿只创建一条持久化任务，由固定步骤执行。
+
+```text
+queued
+  ↓
+running ─────────────→ failed
+  ├─→ ready ──────────→ applied
+  └─→ needs_review ───→ ready ─→ applied
+```
+
+任务状态含义：
+
+- `queued`：原始 artifact 已保存，等待执行。
+- `running`：正在解析文本或调用模型。
+- `needs_review`：存在低置信度、来源缺失、来源冲突、高风险字段或人工修改。
+- `ready`：所有必填字段均为 `auto_accepted` 或 `accepted`，且无阻断项，等待幂等应用。
+- `applied`：已在事务中写入业务表，并触发必要的确定性重算。
+- `failed`：解析、模型、Schema 或应用失败；保留原始证据，可重试。
+
+字段状态为：
+
+```text
+extracted
+auto_accepted
+needs_review
+accepted
+rejected
+missing
+```
+
+其中 `extracted`、`needs_review`、`missing` 仍需处理；`auto_accepted`、`accepted` 可应用；`rejected` 不写入业务事实。人工动作只有 `accept | correct | reject`，没有任务级的“批准”或“取消”状态。
+
+模型可以建议，但不能决定最终状态。最终决策由服务端根据来源定位、Schema、冲突、白名单和置信度计算。
+
+## AI 字段级自动接受规则
+
+默认建议：
+
+| 条件 | 处理 |
+|---|---|
+| 原文明确、字段在自动接受白名单、无冲突、置信度 ≥ 0.90 | `auto_accepted` |
+| 需要单位/币种换算、同义字段映射或置信度 0.70～0.90 | `needs_review` |
+| 多来源冲突、来源无法定位、置信度 < 0.70 | `needs_review` |
+| 认证、专利、合规声明、品牌授权、供应商最终身份 | `needs_review` 或 `blocked`，永不自动通过 |
+| 模型推断销量、利润、风险或“已认证” | `blocked`，不得作为事实 |
+
+自动接受必须同时满足：
+
+1. 字段可从 artifact 原文片段定位；当前使用原文 offset，OCR block 定位属于后续能力。
+2. 字段在明确的自动接受白名单。
+3. 值通过类型、范围、币种和单位校验。
+4. 无其他来源冲突。
+5. 置信度达到配置阈值。
+6. 不涉及高风险声明或商业承诺。
+7. 幂等键已生成。
+8. 审计包含模型、Prompt、Schema、来源和应用结果。
+
+置信度不是“真实概率”，不能单独作为自动通过依据。金额、认证、专利和合规字段宁可多审，不可误放。
+
+## 四类 AI 工作流的审批点
+
+| 工作流 | 可自动完成 | 必须人工确认 | 当前状态 |
+|---|---|---|---|
+| AI 证据收件箱 | 文本/CSV/JSON/Markdown 分类、字段提取、来源定位、去重、冲突提示 | 低置信度字段、来源冲突、供应商身份、联系方式、认证/专利/合规事实、评论摘要 | P2.0 已实现（文本输入；OCR 未实现） |
+| AI 供应商助手 | RFQ、缺失信息追问、报价到期提醒内部草稿；可选模型润色主题与开场 | 复核并复制草稿、对外发送、供应商定标、首单采购 | P2.1 第一阶段已实现；OCR/PDF 与发送未实现 |
+| AI Listing 操作员 | 标题/卖点/描述草稿、本地化、平台字段检查、图片 brief | 商品事实、合规声明、内容确认、发布 | P2.2 规划 |
+| AI 运营分析员 | 报表映射、利润对账、异常检测、行动建议 | 改价、广告预算、补货、清仓、退款 | P2.3 规划 |
+
+统一原则：
+
+- AI 只能生成内部草稿，不能把草稿状态当成外部执行结果。
+- AI 输出先进入暂存表，再通过事务写入领域表。
+- 应用 AI 字段后必须重新运行确定性门禁，不允许模型直接写 GO / NO-GO。
+- 外部发送、发布、改价、广告、采购、付款、退款永远走人工审批。
+- AI 服务不可用时，现有 CSV、人工录入和确定性流程仍必须可用。
+
+## 外部动作分级
+
+```text
+L0 只读：解析文件、读取已授权报表
+L1 内部草稿：RFQ、Listing、行动建议、提醒
+L2 外部写入：发送、发布、改价、广告、补货、下单
+L3 禁止自动：付款、退款、赔付、删除、绕过平台风控
+```
+
+- L0 可自动，但必须保留来源和访问审计。
+- L1 可自动，但产物必须标记为未审批草稿。
+- L2 必须有人工批准、幂等键和外部回执；没有回执不得标记成功。
+- L3 AI 不得执行，必须走专用人工流程。
 
 ## 发布准备状态
 
@@ -159,16 +261,22 @@ AI 只能生成机会假设、查询词和待办，不得生成或补全销量�
 - 任何退款/赔付/付款：人审
 - 供应商定标、定样和首单采购：人审
 
-## 当前实现边界（P1.3）
+## 当前实现边界（P2.0 + P2.1 内部草稿）
 
 当前实际可运行路径：
 
 ```text
 AI 选品假设（模板 / Ollama / OpenAI-compatible）
 → 真实竞品、差评、专利、物流证据
+→ AI 证据收件箱：文本 / CSV / JSON / Markdown 字段提取
+→ 人工审核并事务应用
+→ 竞品快照、供应商短名单与报价、评论证据
+→ 确定性门禁重算
 → 供应商短名单与真实报价
 → 16 项确定性 GO / HOLD / NO-GO
 → 仅 GO 转商品立项并导入全部报价
+→ AI 供应商助手：RFQ / 追问 / 到期提醒内部草稿
+→ 人工复制草稿并在系统外部沟通（系统不发送）
 → 候选品 / 供应商 / 报价 CSV 或人工接入
 → 导入运行、幂等去重与证据快照
 → 可选 Keepa ASIN 只读同步
@@ -192,6 +300,18 @@ AI 选品假设（模板 / Ollama / OpenAI-compatible）
 已经落地：
 
 - `/ai-sourcing` 支持按当前国家 × 平台生成 5 个不同假设、研究优先级、加入验证、证据、供应商短名单、真实报价和 16 项确定性决策。
+- 研究生成按钮在模型处理中禁用并显示进度提示；页面渲染时生成请求幂等键，`ai_sourcing_runs.request_key` 使用唯一索引，重复提交、刷新重试或并发冲突均返回既有批次，不新增研究记录。
+- 研究批次在 `/ai-sourcing` 独立列表中按创建时间倒序完整展示，并从 AI 选品工作台进入；它属于 AI 选品的二级页面，不占用主导航。删除批次会级联研究假设、证据、供应商短名单和报价，已转商品立项的数据保留；删除前二次确认，删除后写入审计日志。
+- `/ai-inbox` 支持把文本、CSV、JSON、Markdown 提交为持久化 AI 任务，识别竞品、供应商报价和评论证据，按固定 Schema 提取候选字段并保存来源摘录与 artifact 字符位置。
+- 任务支持 `queued`、`running`、`needs_review`、`ready`、`applied`、`failed`；失败任务可重试，重复请求使用 request hash 幂等复用。
+- 字段审核支持 `accept | correct | reject`；敏感字段永不自动接受，无来源、来源无法定位、冲突、币种不一致和月销量上下限矛盾均阻止应用。
+- 应用前服务端重新读取数据库字段并重新校验；成功后在事务中写入 `competitor_snapshots`、`supplier_shortlists` / `sourcing_supplier_quotes`、`review_insights` 与对应 `opportunity_evidence`。
+- 应用完成后重算目标机会的确定性 GO / HOLD / NO-GO；AI 不直接写入决策。
+- 任务、字段、来源、审核动作和模型调用分别写入 `ai_tasks`、`ai_extracted_fields`、`ai_field_sources`、`ai_review_actions`、`ai_model_calls`，并保留 `externalActions: none` 审计。
+- AI 供应商助手可在机会详情中生成 RFQ、缺失信息追问和报价到期提醒内部草稿；追问和提醒必须绑定已录入供应商，提醒必须先有真实报价且日期不得早于今天。
+- 供应商草稿先由确定性模板生成完整问题列表，缺失问题始终由确定性代码追加；配置模型时只润色主题和开场。模型 JSON、Markdown、越权表述、新增数字或 Schema 校验失败时自动回退模板。
+- 草稿保存事实快照、生成模式、模型、Prompt/Schema 版本和 SHA-256 幂等键；状态只有 `draft | reviewed`，可复制和标记已审阅。
+- 供应商草稿没有发送入口、`sent_at` 或 `sent` 状态；审计固定记录 `externalActions: "none"`、`sent: false`。
 - AI Provider 默认模板免 Key，可选 Ollama 或 OpenAI-compatible；模型失败自动回退模板，不伪造市场事实。
 - 证据录入强制校验 http/https URL、观察时间不能晚于当前时间，并保留录入人、原始快照和来源。
 - 非 USD 站点必须保存汇率数值和来源 URL；缺失时决策为 HOLD。
@@ -219,9 +339,13 @@ AI 选品假设（模板 / Ollama / OpenAI-compatible）
 - 队列确认只在服务端重新计算为 `approval_pending` 且阻断项为 0 时接受；检查和确认分别写入 `channel.launch_readiness_checked`、`channel.launch_queue_approved` 审计。
 - 当前所有平台是 `dryRunSupported=false`、`publishingSupported=false`；发布准备和队列确认始终记录 `externalActions: none`、`published: false`，外部商品 ID 保持为空。
 
-P1.3 的护栏：
+P2.0 的护栏：
 
 - AI 只生成假设，不得伪造市场事实；缺数据必须保持 HOLD，不得用模型补值。
+- AI 证据收件箱只接受文本内容；图片、截图和 PDF OCR 尚未实现，不得宣称已自动解析。
+- AI 字段必须先进入暂存表；应用前由服务端重新校验当前数据库值，不信任页面提交值。
+- 认证、专利、合规声明、品牌授权、供应商主体、联系方式和评论摘要必须人工确认，置信度高也不例外。
+- AI 字段应用后必须重新运行确定性门禁，模型不能直接决定 GO / HOLD / NO-GO。
 - 只有确定性 GO 可转商品立项；HOLD / NO-GO 不得绕过门禁。
 - 专利风险为 found 时硬性 NO-GO；物流风险为 found 时阻断。
 - `sent_at` 仅表示已确认的真实发送时间；人工录入、CSV 导入和 AI 转立项均不得伪造发送时间。
@@ -243,15 +367,29 @@ P1.3 的护栏：
 - TikTok Shop / 1688 在官方 Adapter 接入前必须保持 `unsupported`，不得伪造连接状态。
 - API Secret 只能通过 `.env.local` 或密钥管理系统注入，禁止写入源码、数据库、CSV、日志或聊天。
 
+P2.1 内部供应商草稿的护栏：
+
+- 草稿只能绑定已加入验证的机会；追问和到期提醒必须绑定该机会下已录入的供应商。
+- 到期提醒必须先存在该供应商的真实报价；提醒日期只能是真实存在的今天或未来日期，且不得表述为供应商已确认的报价有效期。
+- RFQ、追问和提醒的完整问题列表由确定性代码生成，模型不得删除或替换缺失问题。
+- 模型只允许改写主题和开场，必须输出 JSON；新增输入以外的数字、Markdown、越权表述或 Schema 不匹配时回退确定性模板。
+- 草稿状态只有 `draft | reviewed`，审阅不等于已发送；不得生成 `sent_at`、外部消息 ID 或发送回执。
+- 复制和审阅仅供内部使用，不调用邮件、IM、供应商平台或其他外部写接口。
+- 审计必须固定记录 `externalActions: "none"`、`sent: false`；事实快照和幂等键不可省略。
+
 仍未实现：
 
+- 图片、截图、PDF 与扫描件的 OCR/视觉提取；当前只支持文本、CSV、JSON、Markdown
+- 邮件正文、邮件附件和 IM 会话的自动归档与增量同步
 - 评论、关键词和竞品证据的规模化自动采集；当前通过真实人工/CSV 证据录入闭环，Keepa 目前只覆盖商品层只读字段
-- RFQ 自动生成、导出和发送
-- 供应商回复解析、附件和邮件/IM 归档
+- 报价单图片/截图/PDF OCR、PDF 导出、邮件/IM 发送和自动联系供应商
+- 供应商回复解析、附件和邮件/IM 自动归档
+- AI Listing 文案生成、平台类目必填字段检查、主图初筛和 payload 草稿
+- 结算、广告、库存、退货报表导入与 AI 运营分析
 - 样品、定样、质检、认证与合规文件管理
 - AI 图片生成、A+ 自动排版和场景图脚本
 - 品牌授权、知识产权和类目准入自动核验
-- 密钥托管、eBay 卖家 OAuth、平台类目必填字段校验、真实平台 dry-run、官方写 Adapter 和平台发布
+- 密钥托管、eBay 卖家 OAuth、真实平台 dry-run、官方写 Adapter 和平台发布
 - TikTok Shop Partner API 和 1688 / Alibaba 官方授权诊断与 Adapter
 - Amazon、Shopify、eBay 的真实写 Adapter、幂等写入与外部回执
 - 发布后改价、广告、库存和运营复盘
@@ -270,8 +408,12 @@ after
 reason
 evidence
 workflow_run_id
-model_version
-skill_version
+ai_task_id
+field_id
+model
+prompt_version
+schema_version
+source_id
 externalActions
 ```
 
@@ -292,3 +434,7 @@ channel.launch_queue_approved
 - 禁止把竞品图片直接当成自有商品素材发布。
 - 禁止在无预算/利润护栏时自动改价或加广告。
 - 禁止在未通过合规检查时自动发布。
+- 禁止让 AI 直接写核心业务表；必须先进入暂存表并通过规则校验。
+- 禁止用模型置信度替代来源定位和确定性校验。
+- 禁止多个 Agent 通过自由文本互相传递业务事实；交接必须使用结构化数据。
+- 禁止把 AI 草稿、内部队列或本地预检标记为已发送、已发布或已有外部回执。

@@ -5,9 +5,22 @@ import { redirect } from "next/navigation";
 import type { EconomicsAssumptions } from "@/lib/economics";
 import { clearStoredAIProviderKey, saveAIProviderSettings } from "@/lib/app-settings";
 import { testAIProviderConnection } from "@/lib/ai-provider";
+import { applyAiInboxTask, reviewAiInboxField } from "@/lib/ai-inbox/apply";
+import {
+  createAiInboxTask,
+  inferSourceKind,
+  type AiInboxSourceKind,
+} from "@/lib/ai-inbox/repository";
+import { retryAiInboxTask, runAiInboxTask } from "@/lib/ai-inbox/worker";
+import {
+  createSupplierDraft,
+  reviewSupplierDraft,
+} from "@/lib/ai-supplier-assistant/repository";
+import { isSupplierDraftType } from "@/lib/ai-supplier-assistant/schema";
 import {
   confirmHypothesisPrice,
   createAISourcingBatch,
+  deleteAISourcingBatch,
   promoteHypothesisToProductCase,
   recordAISupplierQuote,
   recordCompetitorEvidence,
@@ -45,12 +58,150 @@ export async function createAISourcingBatchAction(formData: FormData) {
       actor: String(formData.get("actor") || ""),
       fxRateToUsd: numberOrNull(formData.get("fxRateToUsd")),
       fxSourceUrl: String(formData.get("fxSourceUrl") || "") || null,
+      requestKey: String(formData.get("requestKey") || "") || null,
     });
   } catch (error) {
     redirect(`${returnPath}&error=${encodeURIComponent(errorMessage(error))}`);
   }
   revalidateAISourcing(outcome.runId);
   redirect(`/ai-sourcing/${encodeURIComponent(outcome.runId)}?notice=${encodeURIComponent("已生成 5 个选品假设；下一步请用真实竞品、评论和供应商报价验证")}`);
+}
+
+export async function deleteAISourcingBatchAction(formData: FormData) {
+  const runId = String(formData.get("runId") || "").trim();
+  let deleted: Awaited<ReturnType<typeof deleteAISourcingBatch>>;
+  try {
+    deleted = await deleteAISourcingBatch(runId, String(formData.get("actor") || "运营人员"));
+  } catch (error) {
+    redirect(`/ai-sourcing?error=${encodeURIComponent(errorMessage(error))}`);
+  }
+
+  revalidatePath("/");
+  revalidatePath("/ai-sourcing");
+  revalidatePath(`/ai-sourcing/${encodeURIComponent(deleted.runId)}`);
+  const preserved = deleted.preservedProductCaseCount > 0
+    ? `；${deleted.preservedProductCaseCount} 个已立项商品及后续数据已保留`
+    : "";
+  redirect(`/ai-sourcing?notice=${encodeURIComponent(`已删除研究批次「${deleted.category}」${preserved}`)}`);
+}
+
+export async function createAiInboxTaskAction(formData: FormData) {
+  const contentInput = String(formData.get("content") || "");
+  const actor = String(formData.get("actor") || "").trim();
+  const targetHypothesisId = String(formData.get("targetHypothesisId") || "").trim();
+  const upload = formData.get("evidenceFile");
+  let sourceKind = normalizeAiInboxSourceKind(String(formData.get("sourceKind") || "paste"));
+  let content = contentInput;
+  let fileName: string | null = null;
+  let mimeType: string | null = null;
+
+  try {
+    if (upload instanceof File && upload.size > 0) {
+      fileName = upload.name;
+      mimeType = upload.type || null;
+      sourceKind = inferSourceKind(upload.name, sourceKind);
+      if (upload.size > 300_000) throw new Error("证据文件不能超过 300 KB");
+      content = await upload.text();
+    }
+  } catch (error) {
+    redirect(aiInboxPath(null, "error", errorMessage(error)));
+  }
+
+  let created: Awaited<ReturnType<typeof createAiInboxTask>>;
+  try {
+    created = await createAiInboxTask({
+      content,
+      sourceKind,
+      fileName,
+      mimeType,
+      targetHypothesisId,
+      requestedBy: actor,
+    });
+  } catch (error) {
+    redirect(aiInboxPath(null, "error", errorMessage(error)));
+  }
+  if (!created) redirect(aiInboxPath(null, "error", "AI 证据任务创建失败"));
+
+  let result: Awaited<ReturnType<typeof runAiInboxTask>>;
+  try {
+    result = await runAiInboxTask(created.task.id, { actor: created.task.requestedBy });
+  } catch (error) {
+    revalidateAiInbox(created.task.id);
+    redirect(aiInboxPath(created.task.id, "error", errorMessage(error)));
+  }
+
+  revalidateAiInbox(result.task.id);
+  const notice = result.task.status === "failed"
+    ? "任务已创建，但提取失败；可查看原因后重试"
+    : result.task.status === "ready"
+      ? "证据已提取并通过确定性校验，请再次确认后应用"
+      : `证据已提取，${result.task.extractionSummary.needsReviewCount ?? 0} 个字段需要人工审核`;
+  redirect(aiInboxPath(result.task.id, "notice", notice));
+}
+
+export async function reviewAiInboxFieldAction(formData: FormData) {
+  const taskId = String(formData.get("taskId") || "");
+  const fieldId = String(formData.get("fieldId") || "");
+  const requestedAction = String(formData.get("reviewAction") || "");
+  const action = requestedAction === "accept" || requestedAction === "correct" || requestedAction === "reject"
+    ? requestedAction
+    : null;
+  if (!action) redirect(aiInboxPath(taskId, "error", "审核动作无效"));
+
+  try {
+    await reviewAiInboxField({
+      taskId,
+      fieldId,
+      action,
+      actor: String(formData.get("actor") || ""),
+      value: action === "correct" ? String(formData.get("value") || "") : undefined,
+      notes: String(formData.get("notes") || ""),
+    });
+  } catch (error) {
+    redirect(aiInboxPath(taskId, "error", errorMessage(error)));
+  }
+  revalidateAiInbox(taskId);
+  redirect(aiInboxPath(taskId, "notice", action === "reject" ? "字段已拒绝，门禁状态已重算" : "字段已人工确认，门禁状态已重算"));
+}
+
+export async function applyAiInboxTaskAction(formData: FormData) {
+  const taskId = String(formData.get("taskId") || "");
+  const actor = String(formData.get("actor") || "");
+  try {
+    await applyAiInboxTask({ taskId, actor });
+  } catch (error) {
+    redirect(aiInboxPath(taskId, "error", errorMessage(error)));
+  }
+  revalidateAiInbox(taskId);
+  redirect(aiInboxPath(taskId, "notice", "已审核证据已事务写入业务表，并重新计算确定性门禁；未产生外部动作"));
+}
+
+export async function retryAiInboxTaskAction(formData: FormData) {
+  const taskId = String(formData.get("taskId") || "");
+  try {
+    await retryAiInboxTask(taskId, String(formData.get("actor") || ""));
+  } catch (error) {
+    redirect(aiInboxPath(taskId, "error", errorMessage(error)));
+  }
+  revalidateAiInbox(taskId);
+  redirect(aiInboxPath(taskId, "notice", "已重新提取原始证据；历史调用和审核记录仍保留"));
+}
+
+function normalizeAiInboxSourceKind(value: string): AiInboxSourceKind {
+  return value === "csv" || value === "json" || value === "text" || value === "markdown"
+    ? value
+    : "paste";
+}
+
+function revalidateAiInbox(taskId?: string) {
+  revalidatePath("/");
+  revalidatePath("/ai-inbox");
+  if (taskId) revalidatePath(`/ai-inbox/${taskId}`);
+}
+
+function aiInboxPath(taskId: string | null, key: "notice" | "error", message: string) {
+  const path = taskId ? `/ai-inbox/${encodeURIComponent(taskId)}` : "/ai-inbox";
+  return `${path}?${key}=${encodeURIComponent(message)}`;
 }
 
 export async function selectHypothesisAction(formData: FormData) {
@@ -172,6 +323,46 @@ export async function recordAISupplierQuoteAction(formData: FormData) {
   }
   revalidateAISourcing(runId);
   redirect(aiSourcingDetailPath(runId, "notice", "供应商真实报价已记录并重新计算到岸成本、利润和门禁"));
+}
+
+export async function generateSupplierDraftAction(formData: FormData) {
+  const runId = String(formData.get("runId") || "").trim();
+  const hypothesisId = String(formData.get("hypothesisId") || "").trim();
+  const draftType = String(formData.get("draftType") || "").trim();
+  if (!isSupplierDraftType(draftType)) {
+    redirect(aiSourcingDetailPath(runId, "error", "供应商草稿类型无效"));
+  }
+
+  try {
+    await createSupplierDraft({
+      hypothesisId,
+      draftType,
+      supplierShortlistId: String(formData.get("supplierShortlistId") || "").trim() || null,
+      quoteValidUntil: String(formData.get("quoteValidUntil") || "").trim() || null,
+      actor: String(formData.get("actor") || "").trim(),
+    });
+  } catch (error) {
+    redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
+  }
+
+  revalidateAISourcing(runId);
+  redirect(aiSourcingDetailPath(runId, "notice", "供应商内部草稿已生成；尚未发送，请人工核对后复制到你的沟通渠道"));
+}
+
+export async function reviewSupplierDraftAction(formData: FormData) {
+  const runId = String(formData.get("runId") || "").trim();
+  const draftId = String(formData.get("draftId") || "").trim();
+  try {
+    await reviewSupplierDraft({
+      draftId,
+      actor: String(formData.get("actor") || "").trim(),
+    });
+  } catch (error) {
+    redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
+  }
+
+  revalidateAISourcing(runId);
+  redirect(aiSourcingDetailPath(runId, "notice", "供应商草稿已标记为人工审阅；仍未发送，也未产生任何外部动作"));
 }
 
 export async function promoteHypothesisAction(formData: FormData) {

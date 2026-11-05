@@ -808,6 +808,7 @@ CREATE TABLE IF NOT EXISTS ai_sourcing_runs (
   brief_id TEXT NOT NULL REFERENCES sourcing_briefs(id) ON DELETE CASCADE,
   provider TEXT NOT NULL,
   model TEXT NOT NULL,
+  request_key TEXT,
   status TEXT NOT NULL DEFAULT 'completed'
     CHECK (status IN ('running', 'completed', 'failed')),
   response_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -815,6 +816,8 @@ CREATE TABLE IF NOT EXISTS ai_sourcing_runs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   completed_at TIMESTAMPTZ
 );
+
+ALTER TABLE ai_sourcing_runs ADD COLUMN IF NOT EXISTS request_key TEXT;
 
 CREATE TABLE IF NOT EXISTS opportunity_hypotheses (
   id TEXT PRIMARY KEY,
@@ -962,6 +965,8 @@ CREATE TABLE IF NOT EXISTS selection_decisions (
 
 CREATE INDEX IF NOT EXISTS idx_sourcing_briefs_site ON sourcing_briefs(market_code, platform_code, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ai_sourcing_runs_brief ON ai_sourcing_runs(brief_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_sourcing_runs_request_key
+  ON ai_sourcing_runs(request_key) WHERE request_key IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_opportunity_hypotheses_run ON opportunity_hypotheses(run_id, position);
 CREATE INDEX IF NOT EXISTS idx_opportunity_evidence_hypothesis ON opportunity_evidence(hypothesis_id, observed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_competitor_snapshots_hypothesis ON competitor_snapshots(hypothesis_id, observed_at DESC);
@@ -977,3 +982,167 @@ UPDATE product_cases
 SET status = 'approved',
     updated_at = NOW()
 WHERE status = 'review_pending';
+
+-- P2.0 AI evidence inbox. Extracted values are staged here first and remain
+-- separate from verified business facts until a human review + transaction apply.
+INSERT INTO data_sources (id, code, name, kind, auth_mode, status, capabilities, metadata) VALUES
+  ('src-ai-inbox', 'ai_inbox', 'AI 证据收件箱', 'manual', 'none', 'available',
+   '{"selection":true,"supplier":true,"quotes":true,"rawSnapshots":true,"aiExtraction":true}',
+   '{"adapterImplemented":true,"externalActions":"none","supportedInputs":["text","csv","json","markdown"],"unsupportedInputs":["image","pdf"]}')
+ON CONFLICT (code) DO UPDATE SET
+  name = EXCLUDED.name,
+  kind = EXCLUDED.kind,
+  status = EXCLUDED.status,
+  capabilities = EXCLUDED.capabilities,
+  metadata = EXCLUDED.metadata;
+
+CREATE TABLE IF NOT EXISTS ai_tasks (
+  id TEXT PRIMARY KEY,
+  task_type TEXT NOT NULL DEFAULT 'evidence_extraction'
+    CHECK (task_type IN ('evidence_extraction')),
+  status TEXT NOT NULL DEFAULT 'queued'
+    CHECK (status IN ('queued', 'running', 'needs_review', 'ready', 'applied', 'failed')),
+  source_kind TEXT NOT NULL
+    CHECK (source_kind IN ('paste', 'csv', 'json', 'text', 'markdown')),
+  target_hypothesis_id TEXT REFERENCES opportunity_hypotheses(id) ON DELETE SET NULL,
+  ingestion_run_id TEXT REFERENCES ingestion_runs(id) ON DELETE SET NULL,
+  request_hash TEXT NOT NULL UNIQUE,
+  requested_by TEXT NOT NULL,
+  provider TEXT NOT NULL DEFAULT 'template',
+  model TEXT NOT NULL DEFAULT 'deterministic-v1',
+  attempt INTEGER NOT NULL DEFAULT 1 CHECK (attempt > 0),
+  extraction_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+  error_message TEXT,
+  applied_entity_type TEXT,
+  applied_entity_id TEXT,
+  applied_at TIMESTAMPTZ,
+  applied_by TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_tasks_status ON ai_tasks(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_tasks_target ON ai_tasks(target_hypothesis_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS ai_task_artifacts (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES ai_tasks(id) ON DELETE CASCADE,
+  artifact_type TEXT NOT NULL CHECK (artifact_type IN ('paste', 'file')),
+  file_name TEXT,
+  mime_type TEXT,
+  content_text TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  source_url TEXT,
+  observed_at TIMESTAMPTZ,
+  evidence_snapshot_id TEXT REFERENCES evidence_snapshots(id) ON DELETE SET NULL,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (task_id, content_hash)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_task_artifacts_task ON ai_task_artifacts(task_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_ai_task_artifacts_snapshot ON ai_task_artifacts(evidence_snapshot_id);
+
+CREATE TABLE IF NOT EXISTS ai_extracted_fields (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES ai_tasks(id) ON DELETE CASCADE,
+  document_type TEXT NOT NULL,
+  field_name TEXT NOT NULL,
+  field_label TEXT NOT NULL,
+  raw_value TEXT,
+  normalized_value JSONB,
+  confidence NUMERIC(4, 3) NOT NULL DEFAULT 0 CHECK (confidence >= 0 AND confidence <= 1),
+  status TEXT NOT NULL DEFAULT 'needs_review'
+    CHECK (status IN ('extracted', 'auto_accepted', 'needs_review', 'accepted', 'rejected', 'missing')),
+  risk_level TEXT NOT NULL DEFAULT 'normal'
+    CHECK (risk_level IN ('normal', 'sensitive')),
+  validation_message TEXT NOT NULL DEFAULT '',
+  position INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 同一字段允许多个候选值，以便保留冲突来源并交由人工裁决。
+ALTER TABLE ai_extracted_fields DROP CONSTRAINT IF EXISTS ai_extracted_fields_task_id_field_name_key;
+
+CREATE INDEX IF NOT EXISTS idx_ai_extracted_fields_task ON ai_extracted_fields(task_id, position);
+CREATE INDEX IF NOT EXISTS idx_ai_extracted_fields_status ON ai_extracted_fields(task_id, status);
+
+CREATE TABLE IF NOT EXISTS ai_field_sources (
+  id TEXT PRIMARY KEY,
+  field_id TEXT NOT NULL UNIQUE REFERENCES ai_extracted_fields(id) ON DELETE CASCADE,
+  artifact_id TEXT REFERENCES ai_task_artifacts(id) ON DELETE SET NULL,
+  source_type TEXT NOT NULL CHECK (source_type IN ('artifact', 'manual')),
+  excerpt TEXT NOT NULL,
+  locator JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS ai_review_actions (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES ai_tasks(id) ON DELETE CASCADE,
+  field_id TEXT REFERENCES ai_extracted_fields(id) ON DELETE SET NULL,
+  action TEXT NOT NULL
+    CHECK (action IN ('accept', 'correct', 'reject', 'retry', 'apply')),
+  previous_value JSONB,
+  new_value JSONB,
+  actor TEXT NOT NULL,
+  notes TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_review_actions_task ON ai_review_actions(task_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_review_actions_field ON ai_review_actions(field_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS ai_model_calls (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES ai_tasks(id) ON DELETE CASCADE,
+  attempt INTEGER NOT NULL DEFAULT 1,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed', 'skipped')),
+  latency_ms INTEGER NOT NULL DEFAULT 0,
+  input_chars INTEGER NOT NULL DEFAULT 0,
+  output_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+  error_message TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_model_calls_task ON ai_model_calls(task_id, created_at DESC);
+
+-- P2.1 supplier assistant. Drafts are internal artifacts only. There is no
+-- sent_at column and no status that can be mistaken for an external delivery.
+CREATE TABLE IF NOT EXISTS ai_supplier_drafts (
+  id TEXT PRIMARY KEY,
+  hypothesis_id TEXT NOT NULL REFERENCES opportunity_hypotheses(id) ON DELETE CASCADE,
+  supplier_shortlist_id TEXT REFERENCES supplier_shortlists(id) ON DELETE SET NULL,
+  draft_type TEXT NOT NULL
+    CHECK (draft_type IN ('rfq', 'followup', 'expiry_reminder')),
+  status TEXT NOT NULL DEFAULT 'draft'
+    CHECK (status IN ('draft', 'reviewed')),
+  subject TEXT NOT NULL,
+  body TEXT NOT NULL,
+  missing_fields JSONB NOT NULL DEFAULT '[]'::jsonb,
+  questions JSONB NOT NULL DEFAULT '[]'::jsonb,
+  facts_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+  generation_mode TEXT NOT NULL
+    CHECK (generation_mode IN ('deterministic', 'model_polished')),
+  generation_note TEXT NOT NULL DEFAULT '',
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  prompt_version TEXT NOT NULL,
+  schema_version TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  created_by TEXT NOT NULL,
+  reviewed_at TIMESTAMPTZ,
+  reviewed_by TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_supplier_drafts_hypothesis
+  ON ai_supplier_drafts(hypothesis_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_supplier_drafts_status
+  ON ai_supplier_drafts(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_supplier_drafts_supplier
+  ON ai_supplier_drafts(supplier_shortlist_id, created_at DESC);

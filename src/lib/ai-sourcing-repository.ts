@@ -160,6 +160,7 @@ export type AISourcingBatchSummary = {
   hypothesisCount: number;
   selectedCount: number;
   goCount: number;
+  promotedCount: number;
   templateFallback: boolean;
   providerError: string | null;
 };
@@ -189,6 +190,7 @@ type BatchJoinRow = {
   hypothesis_count: string | number;
   selected_count: string | number;
   go_count: string | number;
+  promoted_count: string | number;
   fallback: string | null;
   provider_error: string | null;
 };
@@ -325,6 +327,45 @@ type DecisionRow = {
   evaluated_at: string;
 };
 
+type AppDatabase = Awaited<ReturnType<typeof getDb>>;
+
+type ExistingAISourcingRun = {
+  runId: string;
+  briefId: string;
+  provider: string;
+  fallback: boolean;
+  reused: true;
+};
+
+class DuplicateAISourcingRequestError extends Error {}
+
+async function findExistingAISourcingRun(
+  db: AppDatabase,
+  requestKey: string,
+): Promise<ExistingAISourcingRun | null> {
+  const result = await db.query<{
+    run_id: string;
+    brief_id: string;
+    provider: string;
+    response_summary: Record<string, unknown>;
+  }>(
+    `SELECT r.id AS run_id, r.brief_id, r.provider, r.response_summary
+     FROM ai_sourcing_runs r
+     WHERE r.request_key = $1
+     LIMIT 1`,
+    [requestKey],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    runId: row.run_id,
+    briefId: row.brief_id,
+    provider: row.provider,
+    fallback: Boolean(row.response_summary.fallback),
+    reused: true,
+  };
+}
+
 export async function createAISourcingBatch(input: {
   marketCode: string;
   platformCode: string;
@@ -333,8 +374,17 @@ export async function createAISourcingBatch(input: {
   actor: string;
   fxRateToUsd?: number | null;
   fxSourceUrl?: string | null;
+  requestKey?: string | null;
 }) {
   const db = await getDb();
+  const requestKey = input.requestKey?.trim() || null;
+  if (requestKey && requestKey.length > 128) {
+    throw new Error("研究请求标识无效，请刷新页面后重试");
+  }
+  if (requestKey) {
+    const existing = await findExistingAISourcingRun(db, requestKey);
+    if (existing) return existing;
+  }
   const site = await db.query<{ market_name: string; currency: string; platform_name: string }>(
     `SELECT m.name AS market_name, m.currency, p.name AS platform_name
      FROM markets m, platforms p
@@ -368,76 +418,181 @@ export async function createAISourcingBatch(input: {
   const generated = await generateHypotheses({ brief, category, context });
   const scored = attachResearchPriority(generated.hypotheses, category, context);
 
-  await db.transaction(async (tx) => {
-    await tx.query(
-      `INSERT INTO sourcing_briefs
-        (id, market_code, platform_code, category, brief, currency, fx_rate_to_usd, fx_source_url, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [briefId, input.marketCode, input.platformCode, category, brief, row.currency, fxRate, fxSourceUrl, actor],
-    );
-    await tx.query(
-      `INSERT INTO ai_sourcing_runs
-        (id, brief_id, provider, model, status, response_summary, completed_at)
-       VALUES ($1, $2, $3, $4, 'completed', $5::jsonb, NOW())`,
-      [runId, briefId, generated.provider, generated.model, JSON.stringify(generated.responseSummary)],
-    );
-    for (const [index, item] of scored.entries()) {
-      const hypothesis = item.hypothesis;
+  try {
+    await db.transaction(async (tx) => {
       await tx.query(
-        `INSERT INTO opportunity_hypotheses
-          (id, run_id, position, concept, target_user, pain_point, differentiator,
-           recommended_price_cents, expected_margin_rate, first_order_budget_cents,
-           main_risks, supplier_keywords, competitor_queries, review_queries, priority_score)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb, $15)`,
+        `INSERT INTO sourcing_briefs
+          (id, market_code, platform_code, category, brief, currency, fx_rate_to_usd, fx_source_url, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [briefId, input.marketCode, input.platformCode, category, brief, row.currency, fxRate, fxSourceUrl, actor],
+      );
+      const insertedRun = await tx.query<{ id: string }>(
+        `INSERT INTO ai_sourcing_runs
+          (id, brief_id, provider, model, request_key, status, response_summary, completed_at)
+         VALUES ($1, $2, $3, $4, $5, 'completed', $6::jsonb, NOW())
+         ON CONFLICT DO NOTHING
+         RETURNING id`,
+        [runId, briefId, generated.provider, generated.model, requestKey, JSON.stringify(generated.responseSummary)],
+      );
+      if (insertedRun.rows.length === 0) throw new DuplicateAISourcingRequestError();
+      for (const [index, item] of scored.entries()) {
+        const hypothesis = item.hypothesis;
+        await tx.query(
+          `INSERT INTO opportunity_hypotheses
+            (id, run_id, position, concept, target_user, pain_point, differentiator,
+             recommended_price_cents, expected_margin_rate, first_order_budget_cents,
+             main_risks, supplier_keywords, competitor_queries, review_queries, priority_score)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb, $15)`,
+          [
+            randomUUID(),
+            runId,
+            index + 1,
+            hypothesis.concept,
+            hypothesis.targetUser,
+            hypothesis.painPoint,
+            hypothesis.differentiator,
+            hypothesis.recommendedPriceCents,
+            hypothesis.expectedMarginRate,
+            hypothesis.firstOrderBudgetCents,
+            JSON.stringify(hypothesis.mainRisks),
+            JSON.stringify(hypothesis.supplierKeywords),
+            JSON.stringify(hypothesis.competitorQueries),
+            JSON.stringify(hypothesis.reviewQueries),
+            item.priorityScore,
+          ],
+        );
+      }
+      await tx.query(
+        `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
+         VALUES ($1, $2, 'ai_sourcing.batch_created', 'ai_sourcing_run', $3, $4::jsonb)`,
         [
           randomUUID(),
+          actor,
           runId,
-          index + 1,
-          hypothesis.concept,
-          hypothesis.targetUser,
-          hypothesis.painPoint,
-          hypothesis.differentiator,
-          hypothesis.recommendedPriceCents,
-          hypothesis.expectedMarginRate,
-          hypothesis.firstOrderBudgetCents,
-          JSON.stringify(hypothesis.mainRisks),
-          JSON.stringify(hypothesis.supplierKeywords),
-          JSON.stringify(hypothesis.competitorQueries),
-          JSON.stringify(hypothesis.reviewQueries),
-          item.priorityScore,
+          JSON.stringify({
+            provider: generated.provider,
+            model: generated.model,
+            hypothesisCount: generated.hypotheses.length,
+            marketCode: input.marketCode,
+            platformCode: input.platformCode,
+            evidenceCreated: 0,
+            requestKeyPresent: Boolean(requestKey),
+          }),
         ],
       );
+    });
+  } catch (error) {
+    if (error instanceof DuplicateAISourcingRequestError && requestKey) {
+      const existing = await findExistingAISourcingRun(db, requestKey);
+      if (existing) return existing;
     }
+    throw error;
+  }
+
+  return {
+    runId,
+    briefId,
+    provider: generated.provider,
+    fallback: Boolean(generated.responseSummary.fallback),
+    reused: false as const,
+  };
+}
+
+export async function listAISourcingBatches(marketCode?: string, platformCode?: string): Promise<AISourcingBatchSummary[]> {
+  const db = await getDb();
+  const conditions: string[] = [];
+  const values: string[] = [];
+  if (marketCode) {
+    values.push(marketCode);
+    conditions.push(`b.market_code = $${values.length}`);
+  }
+  if (platformCode) {
+    values.push(platformCode);
+    conditions.push(`b.platform_code = $${values.length}`);
+  }
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const result = await db.query<BatchJoinRow>(`${batchSelect}
+    ${where}
+    GROUP BY r.id, b.id, m.name, p.name
+    ORDER BY r.created_at DESC`, values);
+  return result.rows.map(mapBatch);
+}
+
+export async function deleteAISourcingBatch(runId: string, actor: string) {
+  const db = await getDb();
+  const normalizedRunId = runId.trim();
+  const deletedBy = actor.trim() || "运营人员";
+  if (!normalizedRunId) throw new Error("缺少研究批次 ID");
+
+  return db.transaction(async (tx) => {
+    const batchResult = await tx.query<{
+      id: string;
+      brief_id: string;
+      market_code: string;
+      platform_code: string;
+      category: string;
+    }>(
+      `SELECT r.id, r.brief_id, b.market_code, b.platform_code, b.category
+       FROM ai_sourcing_runs r
+       JOIN sourcing_briefs b ON b.id = r.brief_id
+       WHERE r.id = $1
+       FOR UPDATE OF r, b`,
+      [normalizedRunId],
+    );
+    const batch = batchResult.rows[0];
+    if (!batch) throw new Error("研究批次不存在或已被删除");
+
+    const countsResult = await tx.query<{
+      hypothesis_count: string | number;
+      preserved_product_case_count: string | number;
+    }>(
+      `SELECT
+         COUNT(*) AS hypothesis_count,
+         COUNT(DISTINCT product_case_id) AS preserved_product_case_count
+       FROM opportunity_hypotheses
+       WHERE run_id = $1`,
+      [normalizedRunId],
+    );
+    const counts = countsResult.rows[0];
+    const deletedHypothesisCount = Number(counts?.hypothesis_count ?? 0);
+    const preservedProductCaseCount = Number(counts?.preserved_product_case_count ?? 0);
+
     await tx.query(
       `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'ai_sourcing.batch_created', 'ai_sourcing_run', $3, $4::jsonb)`,
+       VALUES ($1, $2, 'ai_sourcing.batch_deleted', 'ai_sourcing_run', $3, $4::jsonb)`,
       [
         randomUUID(),
-        actor,
-        runId,
+        deletedBy,
+        normalizedRunId,
         JSON.stringify({
-          provider: generated.provider,
-          model: generated.model,
-          hypothesisCount: generated.hypotheses.length,
-          marketCode: input.marketCode,
-          platformCode: input.platformCode,
-          evidenceCreated: 0,
+          briefId: batch.brief_id,
+          marketCode: batch.market_code,
+          platformCode: batch.platform_code,
+          category: batch.category,
+          deletedHypothesisCount,
+          preservedProductCaseCount,
+          productCasesPreserved: true,
+          externalActions: "none",
         }),
       ],
     );
+
+    const deleted = await tx.query<{ id: string }>(
+      "DELETE FROM sourcing_briefs WHERE id = $1 RETURNING id",
+      [batch.brief_id],
+    );
+    if (deleted.rows.length === 0) throw new Error("研究批次删除失败");
+
+    return {
+      runId: normalizedRunId,
+      briefId: batch.brief_id,
+      category: batch.category,
+      marketCode: batch.market_code,
+      platformCode: batch.platform_code,
+      deletedHypothesisCount,
+      preservedProductCaseCount,
+    };
   });
-
-  return { runId, briefId, provider: generated.provider, fallback: Boolean(generated.responseSummary.fallback) };
-}
-
-export async function listAISourcingBatches(marketCode: string, platformCode: string): Promise<AISourcingBatchSummary[]> {
-  const db = await getDb();
-  const result = await db.query<BatchJoinRow>(`${batchSelect}
-    WHERE b.market_code = $1 AND b.platform_code = $2
-    GROUP BY r.id, b.id, m.name, p.name
-    ORDER BY r.created_at DESC
-    LIMIT 30`, [marketCode, platformCode]);
-  return result.rows.map(mapBatch);
 }
 
 export async function getAISourcingBatch(runId: string): Promise<AISourcingBatchDetail | null> {
@@ -1284,7 +1439,8 @@ const batchSelect = `
     r.response_summary->>'providerError' AS provider_error,
     COUNT(h.id) AS hypothesis_count,
     COUNT(h.id) FILTER (WHERE h.selected_for_validation = TRUE) AS selected_count,
-    COUNT(h.id) FILTER (WHERE d.decision = 'GO') AS go_count
+    COUNT(h.id) FILTER (WHERE d.decision = 'GO') AS go_count,
+    COUNT(DISTINCT h.product_case_id) FILTER (WHERE h.product_case_id IS NOT NULL) AS promoted_count
   FROM ai_sourcing_runs r
   JOIN sourcing_briefs b ON b.id = r.brief_id
   JOIN markets m ON m.code = b.market_code
@@ -1313,6 +1469,7 @@ function mapBatch(row: BatchJoinRow): AISourcingBatchSummary {
     hypothesisCount: Number(row.hypothesis_count),
     selectedCount: Number(row.selected_count),
     goCount: Number(row.go_count),
+    promotedCount: Number(row.promoted_count),
     templateFallback: row.fallback === "true",
     providerError: row.provider_error,
   };

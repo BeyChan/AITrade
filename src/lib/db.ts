@@ -1,6 +1,6 @@
 import { PGlite } from "@electric-sql/pglite";
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { calculateEconomics, type EconomicsAssumptions } from "./economics.ts";
 
@@ -20,6 +20,7 @@ async function initializeDb() {
   const configuredDir = process.env.PGLITE_DATA_DIR || ".data/aitrade";
   // PGlite opens this path at runtime; it must not be traced into the server bundle.
   const dataDir = path.isAbsolute(configuredDir) ? configuredDir : path.resolve(/* turbopackIgnore: true */ process.cwd(), configuredDir);
+  mkdirSync(dataDir, { recursive: true });
   const db = new PGlite(dataDir);
   await db.waitReady;
   const schema = readFileSync(path.resolve(process.cwd(), "db/schema.sql"), "utf8");

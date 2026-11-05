@@ -1,10 +1,12 @@
+import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { createAISourcingBatchAction } from "@/app/actions";
 import { RecommendationBadge, StatusBadge } from "@/components/badges";
 import { CategoryRecommender } from "@/components/category-recommender";
+import { GenerateResearchButton } from "@/components/generate-research-button";
 import { getAIProviderStatus } from "@/lib/ai-provider";
-import { getBatchSiteLabel, listAISourcingBatches } from "@/lib/ai-sourcing-repository";
-import { compactNumber, money, percent, shortDate } from "@/lib/format";
+import { listAISourcingBatches } from "@/lib/ai-sourcing-repository";
+import { compactNumber, money, percent } from "@/lib/format";
 import { getSiteOptions, listCasesForSite } from "@/lib/repository";
 
 export const dynamic = "force-dynamic";
@@ -40,7 +42,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const selectedCount = batches.reduce((sum, batch) => sum + batch.selectedCount, 0);
   const goCount = batches.reduce((sum, batch) => sum + batch.goCount, 0);
   const demoCount = cases.filter((item) => item.is_demo).length;
-  const recentBatches = recentDistinctBatches(batches, 3);
+  const researchRequestKey = randomUUID();
 
   return (
     <div className="page ai-sourcing-page">
@@ -54,7 +56,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           </p>
           <div className="button-row ai-hero-actions">
             <a href="#new-research" className="button primary">新建选品研究</a>
-            <a href="#research-history" className="button secondary">查看研究批次</a>
+            <Link href="/ai-sourcing" className="button secondary">研究批次</Link>
             <Link href="/settings" className="button secondary">大模型设置</Link>
           </div>
         </div>
@@ -107,6 +109,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         <form action={createAISourcingBatchAction} className="form-grid ai-research-form">
           <input type="hidden" name="marketCode" value={selectedMarket.code} />
           <input type="hidden" name="platformCode" value={selectedPlatform.code} />
+          <input type="hidden" name="requestKey" value={researchRequestKey} />
           <div className="ai-research-basics">
             <CategoryRecommender
               marketCode={selectedMarket.code}
@@ -145,53 +148,9 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           ) : null}
           <div className="field full ai-form-footer">
             <p className="muted">默认模板模式不需要模型 Key。生成后请先筛选方向，再逐项录入真实竞品、差评、专利、物流、供应商和报价证据。</p>
-            <button type="submit" className="button primary">生成 5 个候选方向</button>
+            <GenerateResearchButton />
           </div>
         </form>
-      </section>
-
-      <section className="panel ai-research-history" id="research-history">
-        <div className="panel-header">
-          <div>
-            <div className="eyebrow">Research pipeline</div>
-            <h2>{siteLabel}的研究批次</h2>
-            <p>按类目和研究条件合并重复记录，仅显示最近 3 条。打开批次继续补充证据、录入报价并查看确定性决策。</p>
-          </div>
-        </div>
-        {recentBatches.length === 0 ? (
-          <div className="empty-state">
-            <h3>还没有选品研究</h3>
-            <p>在上方填写类目和研究条件即可开始，不需要准备任何 Key。</p>
-            <div className="button-row" style={{ justifyContent: "center" }}>
-              <a href="#new-research" className="button primary">新建第一个研究</a>
-              <Link href="/data-sources" className="button secondary">查看数据源</Link>
-            </div>
-          </div>
-        ) : (
-          <div className="ai-batch-list">
-            {recentBatches.map((batch) => (
-              <Link
-                href={`/ai-sourcing/${batch.id}?market=${encodeURIComponent(selectedMarket.code)}&platform=${encodeURIComponent(selectedPlatform.code)}`}
-                className="ai-batch-card"
-                key={batch.id}
-              >
-                <div className="ai-batch-main">
-                  <div className="button-row">
-                    <span className="badge badge-neutral">{batch.category}</span>
-                    <span className="badge badge-success">{batch.goCount} 个 GO</span>
-                  </div>
-                  <h3>{batch.brief}</h3>
-                  <p>{getBatchSiteLabel(batch)} · {shortDate(batch.createdAt)} · {batch.provider} / {batch.model}</p>
-                </div>
-                <div className="ai-batch-counts">
-                  <span><strong>{batch.hypothesisCount}</strong> 候选方向</span>
-                  <span><strong>{batch.selectedCount}</strong> 已加入验证</span>
-                  <span className="arrow-link">→</span>
-                </div>
-              </Link>
-            ))}
-          </div>
-        )}
       </section>
 
       {demoCount > 0 ? (
@@ -285,21 +244,4 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       </section>
     </div>
   );
-}
-
-function recentDistinctBatches<T extends { category: string; brief: string }>(batches: T[], limit: number): T[] {
-  const seen = new Set<string>();
-  const recent: T[] = [];
-  for (const batch of batches) {
-    const key = `${normalizeBatchText(batch.category)}\u0000${normalizeBatchText(batch.brief)}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    recent.push(batch);
-    if (recent.length === limit) break;
-  }
-  return recent;
-}
-
-function normalizeBatchText(value: string) {
-  return value.trim().toLocaleLowerCase().replace(/\s+/g, "");
 }

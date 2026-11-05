@@ -1,10 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { CSSProperties } from "react";
+import { CopyDraftButton } from "@/components/copy-draft-button";
 import { CostBackCalculator } from "@/components/cost-back-calculator";
 import {
   confirmHypothesisPriceAction,
+  generateSupplierDraftAction,
   promoteHypothesisAction,
+  reviewSupplierDraftAction,
   recordAISupplierQuoteAction,
   recordCompetitorAction,
   recordOpportunityEvidenceAction,
@@ -17,6 +20,14 @@ import {
   type AISelectionDecision,
   type AISourcingHypothesisDetail,
 } from "@/lib/ai-sourcing-repository";
+import {
+  SUPPLIER_DRAFT_TYPES,
+  SUPPLIER_DRAFT_TYPE_LABELS,
+} from "@/lib/ai-supplier-assistant/schema";
+import {
+  listSupplierDraftsByRun,
+  type SupplierDraft,
+} from "@/lib/ai-supplier-assistant/repository";
 import { compactNumber, moneyIn, percent, shortDate } from "@/lib/format";
 import {
   buildSupplierLeads,
@@ -34,8 +45,18 @@ type PageProps = {
 
 export default async function AISourcingDetailPage({ params, searchParams }: PageProps) {
   const [{ runId }, query] = await Promise.all([params, searchParams]);
-  const batch = await getAISourcingBatch(runId);
+  const [batch, supplierDrafts] = await Promise.all([
+    getAISourcingBatch(runId),
+    listSupplierDraftsByRun(runId),
+  ]);
   if (!batch) notFound();
+
+  const draftsByHypothesis = new Map<string, SupplierDraft[]>();
+  for (const draft of supplierDrafts) {
+    const existing = draftsByHypothesis.get(draft.hypothesisId) ?? [];
+    existing.push(draft);
+    draftsByHypothesis.set(draft.hypothesisId, existing);
+  }
 
   const siteLabel = getBatchSiteLabel(batch);
   const selectedCount = batch.hypotheses.filter((item) => item.selectedForValidation).length;
@@ -63,7 +84,7 @@ export default async function AISourcingDetailPage({ params, searchParams }: Pag
           </div>
         </div>
         <div className="button-row">
-          <Link href={`/?market=${encodeURIComponent(batch.marketCode)}&platform=${encodeURIComponent(batch.platformCode)}#research-history`} className="button secondary">返回研究列表</Link>
+          <Link href="/ai-sourcing" className="button secondary">返回研究列表</Link>
           <Link href={`/?market=${encodeURIComponent(batch.marketCode)}&platform=${encodeURIComponent(batch.platformCode)}#opportunities`} className="button ghost">查看已立项商品</Link>
         </div>
       </div>
@@ -142,6 +163,7 @@ export default async function AISourcingDetailPage({ params, searchParams }: Pag
             key={hypothesis.id}
             batch={batch}
             hypothesis={hypothesis}
+            supplierDrafts={draftsByHypothesis.get(hypothesis.id) ?? []}
             observedAt={observedAt}
           />
         ))}
@@ -166,10 +188,12 @@ type BatchType = NonNullable<Awaited<ReturnType<typeof getAISourcingBatch>>>;
 function HypothesisCard({
   batch,
   hypothesis,
+  supplierDrafts,
   observedAt,
 }: {
   batch: BatchType;
   hypothesis: AISourcingHypothesisDetail;
+  supplierDrafts: SupplierDraft[];
   observedAt: string;
 }) {
   const decision = hypothesis.decision;
@@ -356,6 +380,12 @@ function HypothesisCard({
             <SupplierQuoteEntryForm hypothesisId={hypothesis.id} runId={batch.id} observedAt={observedAt} currency={batch.currency} />
           </div>
 
+          <SupplierAssistantPanel
+            runId={batch.id}
+            hypothesis={hypothesis}
+            drafts={supplierDrafts}
+          />
+
           {hypothesis.competitors.length > 0 ? (
             <section className="ai-record-block">
               <div className="ai-validation-summary-head">
@@ -537,6 +567,133 @@ function QueryGroup({
         </a>
       ))}
     </div>
+  );
+}
+
+function SupplierAssistantPanel({
+  runId,
+  hypothesis,
+  drafts,
+}: {
+  runId: string;
+  hypothesis: AISourcingHypothesisDetail;
+  drafts: SupplierDraft[];
+}) {
+  const supplierByShortlistId = new Map(hypothesis.shortlist.map((item) => [item.id, item]));
+  const today = dateInputValue(new Date());
+  const defaultReminderDate = dateInputValue(new Date(Date.now() + 7 * 86_400_000));
+
+  return (
+    <section className="ai-supplier-assistant ai-record-block">
+      <div className="ai-validation-summary-head">
+        <div>
+          <span className="eyebrow">AI supplier assistant</span>
+          <h3>供应商内部草稿</h3>
+          <p>AI 只润色主题和开场；缺失信息由确定性程序追加为问题。草稿仅供内部复核，系统不会发送。</p>
+        </div>
+        <span className="badge badge-success">内部草稿 · 未发送</span>
+      </div>
+
+      <form action={generateSupplierDraftAction} className="ai-draft-compose form-grid">
+        <input type="hidden" name="runId" value={runId} />
+        <input type="hidden" name="hypothesisId" value={hypothesis.id} />
+        <div className="field">
+          <label>草稿类型</label>
+          <select name="draftType" defaultValue="rfq" required>
+            {SUPPLIER_DRAFT_TYPES.map((type) => (
+              <option value={type} key={type}>{SUPPLIER_DRAFT_TYPE_LABELS[type]}</option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label>已录入供应商（追问/提醒必选）</label>
+          <select name="supplierShortlistId" defaultValue="">
+            <option value="">不指定供应商</option>
+            {hypothesis.shortlist.map((supplier) => (
+              <option value={supplier.id} key={supplier.id}>{supplier.supplierName} · {supplier.platform}</option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label>报价提醒日期（仅到期提醒）</label>
+          <input name="quoteValidUntil" type="date" min={today} defaultValue={defaultReminderDate} />
+        </div>
+        <div className="field">
+          <label>生成人</label>
+          <input name="actor" defaultValue="采购人员" maxLength={80} required />
+        </div>
+        <div className="field full ai-draft-actions">
+          <span>生成后可复制到 1688、Alibaba、邮件或你已有的聊天工具；本系统没有发送入口。</span>
+          <button className="button primary" type="submit">生成内部草稿</button>
+        </div>
+      </form>
+
+      {drafts.length > 0 ? (
+        <div className="ai-draft-list">
+          {drafts.map((draft) => {
+            const supplier = draft.supplierShortlistId
+              ? supplierByShortlistId.get(draft.supplierShortlistId)
+              : null;
+            const gaps = draft.questions.map((question) => question.label);
+            const copyText = `${draft.subject}\n\n${draft.body}`;
+            return (
+              <article className="ai-draft-card" key={draft.id}>
+                <div className="ai-draft-card-head">
+                  <div>
+                    <strong>{SUPPLIER_DRAFT_TYPE_LABELS[draft.draftType]}</strong>
+                    <span className={`badge ${draft.status === "reviewed" ? "badge-success" : "badge-neutral"}`}>
+                      {draft.status === "reviewed" ? "已人工审阅" : "待人工审阅"}
+                    </span>
+                  </div>
+                  <span className="badge status-review_pending">未发送</span>
+                </div>
+
+                <div className="ai-draft-meta">
+                  <span>{supplier?.supplierName ?? "未指定供应商"}</span>
+                  <span>{draft.generationMode === "model_polished" ? "模型润色" : "确定性模板"}</span>
+                  <span>{draft.provider} / {draft.model}</span>
+                  <span>{shortDate(draft.createdAt)} · {draft.createdBy}</span>
+                </div>
+
+                <div className="ai-draft-subject">
+                  <span>主题</span>
+                  <strong>{draft.subject}</strong>
+                </div>
+                <pre className="ai-draft-body">{draft.body}</pre>
+
+                {gaps.length > 0 ? (
+                  <div className="ai-draft-gaps">
+                    <span>确定性追问</span>
+                    {gaps.map((gap, index) => <small key={`${gap}-${index}`}>{gap}</small>)}
+                  </div>
+                ) : null}
+
+                <div className="ai-draft-foot">
+                  <div>
+                    <span className="badge badge-neutral">externalActions: none</span>
+                    {draft.reviewedAt ? <small>{draft.reviewedBy} 于 {shortDate(draft.reviewedAt)} 审阅</small> : null}
+                  </div>
+                  <div className="button-row">
+                    <CopyDraftButton text={copyText} />
+                    {draft.status === "draft" ? (
+                      <form action={reviewSupplierDraftAction} className="ai-draft-review">
+                        <input type="hidden" name="runId" value={runId} />
+                        <input type="hidden" name="draftId" value={draft.id} />
+                        <input name="actor" aria-label="审阅人" defaultValue="采购人员" maxLength={80} required />
+                        <button className="button secondary" type="submit">标记已审阅</button>
+                      </form>
+                    ) : null}
+                  </div>
+                </div>
+                <small className="ai-draft-note">{draft.generationNote}</small>
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="ai-draft-empty">还没有供应商草稿。先录入真实报价，再生成追问或到期提醒。</div>
+      )}
+    </section>
   );
 }
 
@@ -727,6 +884,11 @@ function evidenceTypeLabel(value: string) {
     supplier_quote: "报价",
   };
   return labels[value] ?? value;
+}
+
+function dateInputValue(date: Date) {
+  const offset = date.getTimezoneOffset();
+  return new Date(date.getTime() - offset * 60_000).toISOString().slice(0, 10);
 }
 
 function dateTimeInputValue(date: Date) {

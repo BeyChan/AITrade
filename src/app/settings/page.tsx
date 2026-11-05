@@ -15,8 +15,8 @@ type PageProps = {
 export default async function SettingsPage({ searchParams }: PageProps) {
   const [query, provider] = await Promise.all([searchParams, getAIProviderStatus()]);
   const keyPlaceholder = provider.apiKeyConfigured
-    ? `已配置 ${provider.apiKeyHint}，留空则保留现有 Key`
-    : "粘贴 API Key；保存后只显示脱敏尾号";
+    ? `已配置 ${provider.apiKeyHint}，留空保留`
+    : "输入新的 API Key";
 
   return (
     <div className="page settings-page">
@@ -40,28 +40,28 @@ export default async function SettingsPage({ searchParams }: PageProps) {
         <form action={saveAISettingsAction} className="panel settings-form">
           <div className="panel-header">
             <div>
-              <div className="eyebrow">模型连接</div>
-              <h2>模型连接</h2>
-              <p>填写后先点“测试连接”确认可用，再保存。测试不会保存表单内容，也不会把 Key 回显到页面。</p>
+              <div className="eyebrow">连接配置</div>
+              <h2>模型服务</h2>
+              <p>先测试连接，再保存。测试只检查当前表单，不会保存配置或回显 Key。</p>
             </div>
             <div className="settings-current-summary">
-              <span className={`badge ${provider.configured ? "badge-success" : "badge-neutral"}`}>
-                {provider.configured ? "已连接" : "模板模式"}
+              <span className={`badge ${provider.configured && provider.provider !== "template" ? "badge-success" : "badge-neutral"}`}>
+                {provider.provider === "template" ? "模板模式" : provider.configured ? "已连接" : "待配置"}
               </span>
-              <strong>{provider.model}</strong>
+              <strong>当前：{provider.model}</strong>
               <small>{provider.apiKeyConfigured ? provider.apiKeyHint : "未配置 Key"}</small>
             </div>
           </div>
 
-          <div className="form-grid">
+          <div className="form-grid settings-form-grid">
             <div className="field full">
               <label htmlFor="provider">模型服务商</label>
-              <select id="provider" name="provider" defaultValue={provider.provider}>
+              <select id="provider" name="provider" defaultValue={provider.provider} aria-describedby="provider-hint">
                 <option value="template">免 Key 模板模式（默认，无外部请求）</option>
                 <option value="ollama">本地 Ollama（数据不出本机）</option>
-                <option value="openai-compatible">OpenAI 兼容接口（OpenAI / DeepSeek / 自建服务）</option>
+                <option value="openai-compatible">OpenAI 兼容接口（OpenAI / DeepSeek / 自建）</option>
               </select>
-              <small className="field-hint">切换服务商后，请同步填写对应的 Base URL 与模型名称。</small>
+              <small id="provider-hint" className="field-hint">服务商、Base URL 和模型名称需要匹配。</small>
             </div>
 
             <div className="field full">
@@ -71,50 +71,58 @@ export default async function SettingsPage({ searchParams }: PageProps) {
                 name="baseUrl"
                 type="url"
                 defaultValue={provider.baseUrl}
-                placeholder="例如 https://api.openai.com/v1 或 http://127.0.0.1:11434"
+                placeholder="https://api.openai.com/v1"
                 spellCheck={false}
+                aria-describedby="base-url-hint"
               />
-              <small className="field-hint">兼容接口会自动补全 `/v1/chat/completions`；如果填入完整 endpoint，则按原样使用。</small>
+              <small id="base-url-hint" className="field-hint">
+                OpenAI 使用 <code>https://api.openai.com/v1</code>，DeepSeek 使用 <code>https://api.deepseek.com/v1</code>。
+              </small>
             </div>
 
-            <div className="field">
-              <label htmlFor="model">模型名称</label>
-              <input
-                id="model"
-                name="model"
-                type="text"
-                defaultValue={provider.provider === "template" ? "" : provider.model}
-                placeholder="例如 gpt-4.1-mini、deepseek-chat、qwen3"
-                spellCheck={false}
-              />
-            </div>
+            <div className="settings-credential-grid full">
+              <div className="field">
+                <label htmlFor="model">模型名称</label>
+                <input
+                  id="model"
+                  name="model"
+                  type="text"
+                  defaultValue={provider.provider === "template" ? "" : provider.model}
+                  placeholder="例如 deepseek-chat"
+                  spellCheck={false}
+                />
+                <small className="field-hint">填写服务商控制台中的准确模型 ID。</small>
+              </div>
 
-            <div className="field">
-              <label htmlFor="apiKey">API Key</label>
-              <input
-                id="apiKey"
-                name="apiKey"
-                type="password"
-                autoComplete="new-password"
-                placeholder={keyPlaceholder}
-                spellCheck={false}
-              />
-              <small className="field-hint">只在服务端读取并加密保存在本机数据目录；不会进入 URL、页面 HTML 或审计日志。</small>
-            </div>
-
-            <div className="field full">
-              <label htmlFor="actor">操作人</label>
-              <input id="actor" name="actor" type="text" defaultValue="本机管理员" maxLength={80} />
-              <small className="field-hint">保存设置与清除 Key 都会写入本地操作记录，但不会记录密钥内容。</small>
+              <div className="field">
+                <label htmlFor="apiKey">API Key</label>
+                <input
+                  id="apiKey"
+                  name="apiKey"
+                  type="password"
+                  autoComplete="new-password"
+                  placeholder={keyPlaceholder}
+                  spellCheck={false}
+                  aria-describedby="api-key-hint"
+                />
+                <small id="api-key-hint" className="field-hint">仅服务端读取，AES-256-GCM 加密保存，不进入页面 HTML。</small>
+              </div>
             </div>
           </div>
 
           <div className="settings-actions">
-            <div className="button-row">
-              <button type="submit" formAction={testAISettingsAction} formNoValidate className="button secondary">测试连接</button>
-              <button type="submit" className="button primary">保存设置</button>
+            <div className="field settings-actor">
+              <label htmlFor="actor">操作人</label>
+              <input id="actor" name="actor" type="text" defaultValue="本机管理员" maxLength={80} />
+              <small className="field-hint">操作会写入本地审计记录，不记录 Key。</small>
             </div>
-            <span className="muted">密钥不会返回到浏览器；留空保存会保留已有 Key。</span>
+            <div className="settings-submit">
+              <div className="button-row">
+                <button type="submit" formAction={testAISettingsAction} formNoValidate className="button secondary">测试连接</button>
+                <button type="submit" className="button primary">保存设置</button>
+              </div>
+              <span className="muted">留空保存会保留当前 Key。</span>
+            </div>
           </div>
         </form>
 
