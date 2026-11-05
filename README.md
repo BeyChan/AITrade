@@ -146,7 +146,7 @@ P2.1 的第二阶段再评估报价单 OCR/PDF、邮件/IM 归档和供应商回
 
 所有 AI 输出先进入暂存表，经 Schema、来源定位、冲突检测和人工审核后才能写业务表。确定性的利润计算、GO / HOLD / NO-GO 和发布准备门禁不会交给模型。
 
-详细阶段、数据表、API、验收指标和后续路线见 [实施蓝图](docs/implementation-plan.md) 与 [工作流与安全边界](docs/workflow-and-guardrails.md)。
+当前已落地能力、完整经营闭环、数据模型、安全边界和后续路线统一见 [当前方案](docs/current-plan.md)。
 
 ## 规则与边界
 
@@ -188,7 +188,4 @@ src/lib/channels.ts      国家与平台字段映射
 db/schema.sql            PostgreSQL 兼容表结构
 ```
 
-更多细节见：
-
-- [实施蓝图](docs/implementation-plan.md)
-- [工作流与安全边界](docs/workflow-and-guardrails.md)
+更多细节见 [当前方案](docs/current-plan.md)。
