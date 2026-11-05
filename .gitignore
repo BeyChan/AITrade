@@ -7,3 +7,6 @@ out
 *.log
 *.tsbuildinfo
 .DS_Store
+
+# graphify 代码图谱产物（本地生成，可随时重建）
+graphify-out/
