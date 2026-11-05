@@ -1,3 +1,4 @@
+import path from "node:path";
 import Link from "next/link";
 import {
   clearAIProviderKeyAction,
@@ -14,6 +15,11 @@ type PageProps = {
 
 export default async function SettingsPage({ searchParams }: PageProps) {
   const [query, provider] = await Promise.all([searchParams, getAIProviderStatus()]);
+  const workingDirectory = process.cwd();
+  const configuredDataDirectory = process.env.PGLITE_DATA_DIR || ".data/aitrade";
+  const dataDirectory = path.isAbsolute(configuredDataDirectory)
+    ? configuredDataDirectory
+    : path.resolve(/* turbopackIgnore: true */ workingDirectory, configuredDataDirectory);
   const keyPlaceholder = provider.apiKeyConfigured
     ? `已配置 ${provider.apiKeyHint}，留空保留`
     : "输入新的 API Key";
@@ -127,6 +133,28 @@ export default async function SettingsPage({ searchParams }: PageProps) {
         </form>
 
         <aside className="settings-side">
+          <section className="panel settings-info-card settings-runtime">
+            <div className="eyebrow">本机运行位置</div>
+            <h2>当前使用哪套数据</h2>
+            <dl>
+              <div>
+                <dt>工作目录</dt>
+                <dd><code>{workingDirectory}</code></dd>
+              </div>
+              <div>
+                <dt>数据库目录</dt>
+                <dd><code>{dataDirectory}</code></dd>
+              </div>
+              <div>
+                <dt>Key 文件</dt>
+                <dd><code>{`${dataDirectory}.ai-key`}</code></dd>
+              </div>
+            </dl>
+            <p className="muted">
+              从不同目录或 worktree 启动会使用不同数据。页面保存的 API Key 只对当前数据库目录有效。
+            </p>
+          </section>
+
           <section className="panel settings-info-card">
             <h2>配置如何使用</h2>
             <ul className="settings-guide-list">

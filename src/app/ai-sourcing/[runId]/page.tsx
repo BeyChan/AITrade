@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import type { CSSProperties } from "react";
 import { CopyDraftButton } from "@/components/copy-draft-button";
 import { CostBackCalculator } from "@/components/cost-back-calculator";
+import { HashOpenDetails } from "@/components/hash-open-details";
 import {
   confirmHypothesisPriceAction,
   generateSupplierDraftAction,
@@ -70,6 +71,10 @@ export default async function AISourcingDetailPage({ params, searchParams }: Pag
     ? Math.round(batch.hypotheses.reduce((sum, item) => sum + (item.decision?.evidenceCompleteness ?? 0), 0) / batch.hypotheses.length)
     : 0;
   const observedAt = dateTimeInputValue(new Date());
+  const defaultHypothesisId =
+    batch.hypotheses.find((item) => item.decision?.decision === "GO")?.id ??
+    batch.hypotheses.find((item) => item.selectedForValidation)?.id ??
+    batch.hypotheses[0]?.id;
 
   return (
     <div className="page ai-sourcing-detail-page">
@@ -171,6 +176,7 @@ export default async function AISourcingDetailPage({ params, searchParams }: Pag
             supplierDrafts={draftsByHypothesis.get(hypothesis.id) ?? []}
             aiInboxCounts={aiInboxCounts.get(hypothesis.id) ?? null}
             observedAt={observedAt}
+            defaultOpen={hypothesis.id === defaultHypothesisId}
           />
         ))}
       </div>
@@ -197,12 +203,14 @@ function HypothesisCard({
   supplierDrafts,
   aiInboxCounts,
   observedAt,
+  defaultOpen,
 }: {
   batch: BatchType;
   hypothesis: AISourcingHypothesisDetail;
   supplierDrafts: SupplierDraft[];
   aiInboxCounts: AiInboxHypothesisTaskCounts | null;
   observedAt: string;
+  defaultOpen: boolean;
 }) {
   const decision = hypothesis.decision;
   const supplierByShortlistId = new Map(hypothesis.shortlist.map((item) => [item.id, item]));
@@ -215,42 +223,54 @@ function HypothesisCard({
   const externalEvidence = hypothesis.evidence.filter((item) => !["competitor_snapshot", "supplier_quote"].includes(item.evidenceType));
 
   return (
-    <article className="card ai-hypothesis-card" id={`hypothesis-${hypothesis.id}`}>
-      <div className="ai-hypothesis-head">
-        <div>
-          <div className="ai-hypothesis-rank">
-            <span>0{hypothesis.position}</span>
-            <span>研究优先级 {hypothesis.priorityScore}</span>
+    <HashOpenDetails
+      id={`hypothesis-${hypothesis.id}`}
+      className="card ai-hypothesis-card"
+      defaultOpen={defaultOpen}
+    >
+      <summary className="ai-hypothesis-summary">
+        <div className="ai-hypothesis-summary-main">
+          <span className="ai-hypothesis-rank">0{hypothesis.position}</span>
+          <div>
+            <h2>{hypothesis.concept}</h2>
+            <div className="ai-hypothesis-summary-meta">
+              <DecisionBadge decision={decision} />
+              <span className="badge badge-neutral">
+                {hypothesis.selectedForValidation ? "已加入验证" : "尚未加入验证"}
+              </span>
+              <span className="badge badge-neutral">
+                证据 {decision?.evidenceCompleteness ?? 0}%
+              </span>
+              {hypothesis.productCaseId ? <span className="badge badge-success">已转商品立项</span> : null}
+            </div>
           </div>
-          <h2>{hypothesis.concept}</h2>
-          <div className="button-row">
-            <DecisionBadge decision={decision} />
-            {hypothesis.selectedForValidation ? <span className="badge badge-neutral">已加入验证</span> : <span className="badge badge-neutral">尚未加入验证</span>}
-            {hypothesis.productCaseId ? <span className="badge badge-success">已转商品立项</span> : null}
+        </div>
+        <div className="ai-hypothesis-summary-side">
+          <div className="ai-hypothesis-score">
+            <strong>{hypothesis.priorityScore}</strong>
+            <span>机会分</span>
           </div>
+          <span className="ai-hypothesis-chevron" aria-hidden="true">⌄</span>
         </div>
-        <div className="ai-priority-ring" style={{ "--score": `${hypothesis.priorityScore}%` } as CSSProperties}>
-          <strong>{hypothesis.priorityScore}</strong>
-          <span>机会分</span>
-        </div>
-      </div>
+      </summary>
 
-      <div className="ai-hypothesis-facts">
-        <div><span>目标用户</span><strong>{hypothesis.targetUser}</strong></div>
-        <div><span>核心痛点</span><strong>{hypothesis.painPoint}</strong></div>
-        <div><span>差异化假设</span><strong>{hypothesis.differentiator}</strong></div>
-      </div>
-
-      <div className="ai-hypothesis-metrics">
-        <div>
-          <span>已确认售价</span>
-          <strong>{hypothesis.confirmedPriceCents ? moneyIn(batch.currency, hypothesis.confirmedPriceCents) : "未确认"}</strong>
-          <small>AI 假设价 {hypothesis.recommendedPriceCents > 0 ? moneyIn(batch.currency, hypothesis.recommendedPriceCents) : "待补充"}（未验证，不参与门禁）</small>
+      <div className="ai-hypothesis-body">
+        <div className="ai-hypothesis-facts">
+          <div><span>目标用户</span><strong>{hypothesis.targetUser}</strong></div>
+          <div><span>核心痛点</span><strong>{hypothesis.painPoint}</strong></div>
+          <div><span>差异化假设</span><strong>{hypothesis.differentiator}</strong></div>
         </div>
-        <div><span>AI 假设净利率</span><strong>{percent(hypothesis.expectedMarginRate)}</strong></div>
-        <div><span>AI 假设首单预算</span><strong>{moneyIn(batch.currency, hypothesis.firstOrderBudgetCents)}</strong></div>
-        <div><span>证据完整度</span><strong>{decision?.evidenceCompleteness ?? 0}%</strong></div>
-      </div>
+
+        <div className="ai-hypothesis-metrics">
+          <div>
+            <span>已确认售价</span>
+            <strong>{hypothesis.confirmedPriceCents ? moneyIn(batch.currency, hypothesis.confirmedPriceCents) : "未确认"}</strong>
+            <small>AI 假设价 {hypothesis.recommendedPriceCents > 0 ? moneyIn(batch.currency, hypothesis.recommendedPriceCents) : "待补充"}（未验证，不参与门禁）</small>
+          </div>
+          <div><span>AI 假设净利率</span><strong>{percent(hypothesis.expectedMarginRate)}</strong></div>
+          <div><span>AI 假设首单预算</span><strong>{moneyIn(batch.currency, hypothesis.firstOrderBudgetCents)}</strong></div>
+          <div><span>证据完整度</span><strong>{decision?.evidenceCompleteness ?? 0}%</strong></div>
+        </div>
 
       <section className="ai-supplier-discovery">
         <div className="ai-supplier-discovery-head">
@@ -514,7 +534,8 @@ function HypothesisCard({
           </div>
         </>
       )}
-    </article>
+      </div>
+    </HashOpenDetails>
   );
 }
 
