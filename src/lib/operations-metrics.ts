@@ -244,7 +244,7 @@ export type AssignPeriodInput = {
 const SITE_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 /** 只接受真实存在的日历日期，避免 2026-02-30 这类脏数据被悄悄归到某个月。 */
-function siteMonth(date: string): string {
+export function assertSiteDate(date: string): void {
   const match = SITE_DATE.exec(date);
   if (!match) {
     throw new Error(`invalid site-calendar date: ${date}`);
@@ -261,7 +261,11 @@ function siteMonth(date: string): string {
   ) {
     throw new Error(`invalid site-calendar date: ${date}`);
   }
-  return `${yearText}-${monthText}`;
+}
+
+function siteMonth(date: string): string {
+  assertSiteDate(date);
+  return date.slice(0, 7);
 }
 
 /** 结算周期（收付实现制）与订单月（权责发生制）必须分列，不混用。 */

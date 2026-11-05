@@ -192,7 +192,8 @@ src/lib/ai-provider.ts   模型调用与模板回退
 src/lib/ai-sourcing.ts   假设校验与确定性门禁
 src/lib/ingestion.ts     导入、去重、快照与运行记录
 src/lib/economics.ts     单位经济计算
-src/lib/operations-metrics.ts  经营口径确定性计算（纯函数，尚未接入报表）
+src/lib/operations-metrics.ts    经营口径确定性计算（纯函数，尚未接入报表）
+src/lib/operations-settlement.ts  报表导入契约校验与结算行归集（纯函数）
 src/lib/listing.ts       Listing 预检
 src/lib/channels.ts      国家与平台字段映射
 db/schema.sql            PostgreSQL 兼容表结构
