@@ -10,3 +10,6 @@ out
 
 # graphify 代码图谱产物（本地生成，可随时重建）
 graphify-out/
+
+# 本地工作记忆与会话数据
+.workbuddy/
