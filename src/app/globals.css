@@ -148,69 +148,21 @@ button {
 
 .sidebar-nav {
   display: grid;
-  gap: 28px;
-}
-
-.sidebar-group {
-  min-width: 0;
-}
-
-.sidebar-group-toggle {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 0 8px 8px 10px;
-  color: rgba(255, 255, 255, 0.38);
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  text-align: left;
-}
-
-.sidebar-group-toggle:hover {
-  color: rgba(255, 255, 255, 0.7);
-}
-
-.sidebar-group-toggle:focus-visible {
-  outline: 2px solid var(--lime);
-  outline-offset: 2px;
-  border-radius: 7px;
-}
-
-.sidebar-label {
-  margin: 0;
-  color: inherit;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.sidebar-chevron {
-  width: 14px;
-  height: 14px;
-  flex: 0 0 auto;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  transition: transform 0.16s ease;
-}
-
-.sidebar-group-toggle[aria-expanded="true"] .sidebar-chevron {
-  transform: rotate(180deg);
-}
-
-.sidebar-links {
-  display: grid;
   gap: 5px;
 }
 
-.sidebar-links.collapsed {
-  display: none;
+.sidebar-utility {
+  display: grid;
+  gap: 5px;
+  margin-top: 24px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.sidebar-item {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
 }
 
 .sidebar-link {
@@ -235,6 +187,30 @@ button {
   color: #fff;
   background: rgba(185, 242, 108, 0.12);
   box-shadow: inset 3px 0 0 var(--lime);
+}
+
+.sidebar-subnav {
+  display: grid;
+  gap: 2px;
+  margin: 0 0 4px 21px;
+  padding: 2px 0 2px 14px;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  list-style: none;
+}
+
+.sidebar-sublink {
+  display: block;
+  padding: 7px 9px;
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.sidebar-sublink:hover,
+.sidebar-sublink.active {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .sidebar-icon {
@@ -1135,22 +1111,29 @@ tbody tr:last-child td {
     display: none;
   }
 
-  .sidebar-group {
+  .sidebar-utility {
+    display: flex;
+    gap: 18px;
+    margin: 0;
+    padding: 0;
+    border-top: 0;
+  }
+
+  .sidebar-item {
     display: contents;
   }
 
-  .sidebar-label {
-    display: none;
-  }
-
-  .sidebar-group-toggle {
-    display: none;
-  }
-
-  .sidebar-links,
-  .sidebar-links.collapsed {
+  .sidebar-subnav {
     display: flex;
-    gap: 6px;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .sidebar-sublink {
+    padding: 0 10px;
+    white-space: nowrap;
   }
 
   .sidebar-link {

@@ -2,41 +2,27 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
 
 type NavItem = {
   href: string;
   label: string;
-  icon: "ai" | "content" | "data" | "settings" | "connection";
+  icon: "ai" | "sourcing" | "content" | "data" | "settings" | "connection";
+  children?: Array<{
+    href: string;
+    label: string;
+  }>;
 };
 
-type NavGroup = {
-  id: "workspace" | "system";
-  label: string;
-  defaultOpen: boolean;
-  items: NavItem[];
-};
+const NAV_ITEMS: NavItem[] = [
+  { href: "/", label: "选品", icon: "ai" },
+  { href: "/sourcing", label: "供应商询价", icon: "sourcing" },
+  { href: "/content", label: "内容与上架", icon: "content" },
+  { href: "/data-sources", label: "数据导入", icon: "data" },
+];
 
-const NAV_GROUPS: NavGroup[] = [
-  {
-    id: "workspace",
-    label: "业务工作台",
-    defaultOpen: true,
-    items: [
-      { href: "/", label: "AI 选品", icon: "ai" },
-      { href: "/content", label: "内容工作台", icon: "content" },
-      { href: "/data-sources", label: "数据源", icon: "data" },
-    ],
-  },
-  {
-    id: "system",
-    label: "系统",
-    defaultOpen: true,
-    items: [
-      { href: "/connections", label: "连接中心", icon: "connection" },
-      { href: "/settings", label: "系统设置", icon: "settings" },
-    ],
-  },
+const UTILITY_ITEMS: NavItem[] = [
+  { href: "/connections", label: "连接中心", icon: "connection" },
+  { href: "/settings", label: "系统设置", icon: "settings" },
 ];
 
 function NavIcon({ name }: { name: NavItem["icon"] }) {
@@ -68,6 +54,15 @@ function NavIcon({ name }: { name: NavItem["icon"] }) {
         <path d="M5 3.5h9l5 5V20.5H5V3.5Z" />
         <path d="M14 3.5v5h5" />
         <path d="m8 16 1.1-3.1 4.7-4.7 2 2-4.7 4.7L8 16Z" />
+      </svg>
+    );
+  }
+
+  if (name === "sourcing") {
+    return (
+      <svg {...common}>
+        <path d="M4 7.5 12 3l8 4.5v9L12 21l-8-4.5v-9Z" />
+        <path d="m4 7.5 8 4.5 8-4.5M12 12v9" />
       </svg>
     );
   }
@@ -114,72 +109,60 @@ function NavIcon({ name }: { name: NavItem["icon"] }) {
 
 function isActiveRoute(pathname: string, href: string) {
   if (href === "/") {
-    return pathname === "/" ||
-      pathname === "/import" ||
-      pathname === "/ai-sourcing" ||
-      pathname.startsWith("/ai-sourcing/") ||
-      (pathname.startsWith("/cases/") && !pathname.endsWith("/content"));
+    if (pathname === "/" || pathname.startsWith("/ai-sourcing")) return true;
+    if (!pathname.startsWith("/cases/")) return false;
+    return !pathname.includes("/sourcing") &&
+      !pathname.includes("/content") &&
+      !pathname.includes("/channels");
+  }
+  if (href === "/sourcing") {
+    return pathname === "/sourcing" ||
+      (pathname.startsWith("/cases/") && pathname.includes("/sourcing"));
   }
   if (href === "/content") {
-    return pathname === "/content" || pathname.endsWith("/content");
+    return pathname === "/content" ||
+      (pathname.startsWith("/cases/") &&
+        (pathname.includes("/content") || pathname.includes("/channels")));
+  }
+  if (href === "/data-sources") {
+    return pathname === "/data-sources" || pathname === "/import";
   }
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function openGroupsByDefault(): Record<string, boolean> {
-  return Object.fromEntries(NAV_GROUPS.map((group) => [group.id, group.defaultOpen]));
-}
-
-function SidebarNavigation({ pathname }: { pathname: string }) {
-  // Collapse state is intentionally ephemeral: it resets on every route change
-  // and is never written to localStorage or sessionStorage.
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(openGroupsByDefault);
-
-  function toggleGroup(groupId: string) {
-    setOpenGroups((current) => ({ ...current, [groupId]: !current[groupId] }));
-  }
+function SidebarItemLink({ item, pathname }: { item: NavItem; pathname: string }) {
+  const active = isActiveRoute(pathname, item.href) ||
+    item.children?.some((child) => isActiveRoute(pathname, child.href)) === true;
 
   return (
-    <nav className="sidebar-nav" aria-label="主导航">
-      {NAV_GROUPS.map((group) => {
-        const open = openGroups[group.id] ?? group.defaultOpen;
-        return (
-          <div className="sidebar-group" key={group.id}>
-            <button
-              type="button"
-              className="sidebar-group-toggle"
-              aria-expanded={open}
-              aria-controls={`sidebar-group-${group.id}`}
-              onClick={() => toggleGroup(group.id)}
-            >
-              <span className="sidebar-label">{group.label}</span>
-              <svg className="sidebar-chevron" aria-hidden="true" viewBox="0 0 16 16">
-                <path d="m4 6 4 4 4-4" />
-              </svg>
-            </button>
-            <div
-              id={`sidebar-group-${group.id}`}
-              className={`sidebar-links${open ? "" : " collapsed"}`}
-            >
-              {group.items.map((item) => {
-                const active = isActiveRoute(pathname, item.href);
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`sidebar-link${active ? " active" : ""}`}
-                    aria-current={active ? "page" : undefined}
-                  >
-                    <span className="sidebar-icon"><NavIcon name={item.icon} /></span>
-                    <span>{item.label}</span>
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })}
-    </nav>
+    <div className={`sidebar-item${active ? " active" : ""}`}>
+      <Link
+        href={item.href}
+        className={`sidebar-link${active ? " active" : ""}`}
+        aria-current={pathname === item.href ? "page" : undefined}
+      >
+        <span className="sidebar-icon"><NavIcon name={item.icon} /></span>
+        <span>{item.label}</span>
+      </Link>
+      {item.children?.length ? (
+        <ul className="sidebar-subnav">
+          {item.children.map((child) => {
+            const childActive = isActiveRoute(pathname, child.href);
+            return (
+              <li key={child.href}>
+                <Link
+                  href={child.href}
+                  className={`sidebar-sublink${childActive ? " active" : ""}`}
+                  aria-current={childActive ? "page" : undefined}
+                >
+                  {child.label}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 
@@ -196,7 +179,12 @@ export function AppSidebar() {
         </span>
       </Link>
 
-      <SidebarNavigation key={pathname} pathname={pathname} />
+      <nav className="sidebar-nav" aria-label="主导航">
+        {NAV_ITEMS.map((item) => <SidebarItemLink key={item.href} item={item} pathname={pathname} />)}
+        <div className="sidebar-utility">
+          {UTILITY_ITEMS.map((item) => <SidebarItemLink key={item.href} item={item} pathname={pathname} />)}
+        </div>
+      </nav>
     </aside>
   );
 }
