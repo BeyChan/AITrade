@@ -8,6 +8,7 @@ import { testAIProviderConnection } from "@/lib/ai-provider";
 import { applyAiInboxTask, reviewAiInboxField } from "@/lib/ai-inbox/apply";
 import {
   createAiInboxTask,
+  getAiInboxTaskTarget,
   inferSourceKind,
   type AiInboxSourceKind,
 } from "@/lib/ai-inbox/repository";
@@ -167,12 +168,23 @@ export async function reviewAiInboxFieldAction(formData: FormData) {
 export async function applyAiInboxTaskAction(formData: FormData) {
   const taskId = String(formData.get("taskId") || "");
   const actor = String(formData.get("actor") || "");
+  let target: Awaited<ReturnType<typeof getAiInboxTaskTarget>> = null;
   try {
+    target = await getAiInboxTaskTarget(taskId);
     await applyAiInboxTask({ taskId, actor });
   } catch (error) {
     redirect(aiInboxPath(taskId, "error", errorMessage(error)));
   }
   revalidateAiInbox(taskId);
+  if (target?.runId && target.hypothesisId) {
+    revalidateAISourcing(target.runId);
+    const hash = `#hypothesis-${encodeURIComponent(target.hypothesisId)}`;
+    redirect(aiSourcingDetailPath(
+      target.runId,
+      "notice",
+      `AI 证据已写入「${target.concept ?? "当前机会"}」并重新计算确定性门禁；未产生外部动作`,
+    ) + hash);
+  }
   redirect(aiInboxPath(taskId, "notice", "已审核证据已事务写入业务表，并重新计算确定性门禁；未产生外部动作"));
 }
 

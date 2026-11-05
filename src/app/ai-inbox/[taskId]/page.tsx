@@ -84,11 +84,16 @@ export default async function AiInboxTaskPage({ params, searchParams }: PageProp
   const canReview = task.status === "needs_review" || task.status === "ready";
   const sensitiveCount = fields.filter((field) => field.riskLevel === "sensitive").length;
   const unresolvedCount = fields.filter((field) => field.status === "needs_review" || field.status === "extracted" || field.status === "missing").length;
+  const returnHref = task.targetRunId && task.targetHypothesisId
+    ? `/ai-sourcing/${encodeURIComponent(task.targetRunId)}#hypothesis-${encodeURIComponent(task.targetHypothesisId)}`
+    : "/ai-inbox";
 
   return (
     <div className="page ai-inbox-page ai-inbox-detail-page">
       <div className="ai-inbox-detail-breadcrumb">
-        <Link href="/ai-inbox">← 返回 AI 证据收件箱</Link>
+        <Link href={returnHref}>
+          {task.targetRunId ? `← 返回「${task.targetHypothesisConcept ?? "当前机会"}」验证` : "← 返回 AI 证据收件箱"}
+        </Link>
         <span>任务 {task.id.slice(0, 8)}</span>
       </div>
 
@@ -103,6 +108,7 @@ export default async function AiInboxTaskPage({ params, searchParams }: PageProp
         <div className="ai-inbox-detail-title-meta">
           <span className={`badge ${taskStatusClass(task.status)}`}>{TASK_STATUS_LABELS[task.status]}</span>
           {sensitiveCount > 0 ? <span className="badge badge-danger">{sensitiveCount} 个敏感字段</span> : null}
+          {task.targetRunId ? <Link className="button ghost" href={returnHref}>返回机会验证</Link> : null}
         </div>
       </div>
 
@@ -393,6 +399,9 @@ function FieldCard({
 
 function ApplyPanel({ detail, canApply }: { detail: AiInboxTaskDetail; canApply: boolean }) {
   const { task } = detail;
+  const returnHref = task.targetRunId && task.targetHypothesisId
+    ? `/ai-sourcing/${encodeURIComponent(task.targetRunId)}#hypothesis-${encodeURIComponent(task.targetHypothesisId)}`
+    : null;
   return (
     <section className={`panel ai-inbox-apply-card${canApply ? " ready" : ""}`}>
       <div className="panel-header">
@@ -409,12 +418,15 @@ function ApplyPanel({ detail, canApply }: { detail: AiInboxTaskDetail; canApply:
       </div>
       <div className="ai-inbox-apply-body">
         {task.status === "applied" ? (
-          <dl className="ai-inbox-apply-facts">
-            <div><dt>写入实体</dt><dd>{task.appliedEntityType ?? "-"}</dd></div>
-            <div><dt>实体 ID</dt><dd><code>{task.appliedEntityId ?? "-"}</code></dd></div>
-            <div><dt>操作人</dt><dd>{task.appliedBy ?? "-"}</dd></div>
-            <div><dt>时间</dt><dd>{task.appliedAt ? shortDate(task.appliedAt) : "-"}</dd></div>
-          </dl>
+          <>
+            <dl className="ai-inbox-apply-facts">
+              <div><dt>写入实体</dt><dd>{task.appliedEntityType ?? "-"}</dd></div>
+              <div><dt>实体 ID</dt><dd><code>{task.appliedEntityId ?? "-"}</code></dd></div>
+              <div><dt>操作人</dt><dd>{task.appliedBy ?? "-"}</dd></div>
+              <div><dt>时间</dt><dd>{task.appliedAt ? shortDate(task.appliedAt) : "-"}</dd></div>
+            </dl>
+            {returnHref ? <Link className="button secondary" href={returnHref}>返回机会验证并查看门禁</Link> : null}
+          </>
         ) : canApply ? (
           <form action={applyAiInboxTaskAction} className="ai-inbox-apply-form">
             <input type="hidden" name="taskId" value={task.id} />

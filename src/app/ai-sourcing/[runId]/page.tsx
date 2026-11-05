@@ -28,6 +28,10 @@ import {
   listSupplierDraftsByRun,
   type SupplierDraft,
 } from "@/lib/ai-supplier-assistant/repository";
+import {
+  listAiInboxTaskCountsByRun,
+  type AiInboxHypothesisTaskCounts,
+} from "@/lib/ai-inbox/repository";
 import { compactNumber, moneyIn, percent, shortDate } from "@/lib/format";
 import {
   buildSupplierLeads,
@@ -45,9 +49,10 @@ type PageProps = {
 
 export default async function AISourcingDetailPage({ params, searchParams }: PageProps) {
   const [{ runId }, query] = await Promise.all([params, searchParams]);
-  const [batch, supplierDrafts] = await Promise.all([
+  const [batch, supplierDrafts, aiInboxCounts] = await Promise.all([
     getAISourcingBatch(runId),
     listSupplierDraftsByRun(runId),
+    listAiInboxTaskCountsByRun(runId),
   ]);
   if (!batch) notFound();
 
@@ -164,6 +169,7 @@ export default async function AISourcingDetailPage({ params, searchParams }: Pag
             batch={batch}
             hypothesis={hypothesis}
             supplierDrafts={draftsByHypothesis.get(hypothesis.id) ?? []}
+            aiInboxCounts={aiInboxCounts.get(hypothesis.id) ?? null}
             observedAt={observedAt}
           />
         ))}
@@ -189,11 +195,13 @@ function HypothesisCard({
   batch,
   hypothesis,
   supplierDrafts,
+  aiInboxCounts,
   observedAt,
 }: {
   batch: BatchType;
   hypothesis: AISourcingHypothesisDetail;
   supplierDrafts: SupplierDraft[];
+  aiInboxCounts: AiInboxHypothesisTaskCounts | null;
   observedAt: string;
 }) {
   const decision = hypothesis.decision;
@@ -372,6 +380,33 @@ function HypothesisCard({
               )}
             </section>
           </div>
+
+          <section className="ai-smart-intake-card">
+            <div>
+              <span className="eyebrow">AI-assisted evidence</span>
+              <h3>AI 智能录入</h3>
+              <p>把竞品页面、评论、CSV 或供应商报价文本整理成可追溯字段。AI 只提取，人工确认后才写入当前机会。</p>
+            </div>
+            <div className="ai-smart-intake-actions">
+              {aiInboxCounts?.pending ? <span className="badge status-review_pending">待审核 {aiInboxCounts.pending}</span> : null}
+              {aiInboxCounts?.inProgress ? <span className="badge badge-neutral">提取中 {aiInboxCounts.inProgress}</span> : null}
+              {aiInboxCounts?.failed ? <span className="badge badge-danger">失败 {aiInboxCounts.failed}</span> : null}
+              <Link
+                href={`/ai-inbox?targetHypothesisId=${encodeURIComponent(hypothesis.id)}`}
+                className="button primary"
+              >
+                AI 智能录入
+              </Link>
+              {aiInboxCounts?.pending ? (
+                <Link
+                  href={`/ai-inbox?targetHypothesisId=${encodeURIComponent(hypothesis.id)}&status=needs_review`}
+                  className="button secondary"
+                >
+                  继续审核
+                </Link>
+              ) : null}
+            </div>
+          </section>
 
           <div className="ai-entry-grid">
             <EvidenceEntryForms hypothesisId={hypothesis.id} runId={batch.id} observedAt={observedAt} />

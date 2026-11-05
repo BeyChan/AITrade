@@ -25,6 +25,7 @@ export type AiInboxTask = {
   taskType: "evidence_extraction";
   status: AiInboxTaskStatus;
   sourceKind: AiInboxSourceKind;
+  targetRunId: string | null;
   targetHypothesisId: string | null;
   targetHypothesisConcept: string | null;
   targetCurrency: string | null;
@@ -129,6 +130,7 @@ export type AiInboxTaskDetail = {
 
 export type AiInboxHypothesisOption = {
   id: string;
+  runId: string;
   concept: string;
   category: string;
   marketName: string;
@@ -151,6 +153,7 @@ type TaskRow = {
   task_type: "evidence_extraction";
   status: AiInboxTaskStatus;
   source_kind: AiInboxSourceKind;
+  target_run_id: string | null;
   target_hypothesis_id: string | null;
   target_hypothesis_concept: string | null;
   target_currency: string | null;
@@ -292,6 +295,7 @@ export async function createAiInboxTask(input: CreateAiInboxTaskInput) {
 export async function listAiInboxTasks(input: {
   status?: AiInboxTaskStatus | "all";
   sourceKind?: AiInboxSourceKind | "all";
+  targetHypothesisId?: string;
   limit?: number;
 } = {}): Promise<AiInboxTaskSummary[]> {
   const db = await getDb();
@@ -305,11 +309,16 @@ export async function listAiInboxTasks(input: {
     params.push(normalizeSourceKind(input.sourceKind));
     conditions.push(`t.source_kind = $${params.length}`);
   }
+  const targetHypothesisId = input.targetHypothesisId?.trim();
+  if (targetHypothesisId) {
+    params.push(targetHypothesisId);
+    conditions.push(`t.target_hypothesis_id = $${params.length}`);
+  }
   const limit = Math.min(100, Math.max(1, Math.round(input.limit ?? 50)));
   params.push(limit);
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
   const result = await db.query<TaskListRow>(
-    `SELECT t.*, h.concept AS target_hypothesis_concept, b.currency AS target_currency,
+    `SELECT t.*, r.id AS target_run_id, h.concept AS target_hypothesis_concept, b.currency AS target_currency,
             a.file_name, a.content_chars AS input_chars,
             (SELECT COUNT(*) FROM ai_extracted_fields f WHERE f.task_id = t.id) AS field_count,
             (SELECT COUNT(*) FROM ai_extracted_fields f
@@ -339,7 +348,7 @@ export async function listAiInboxTasks(input: {
 export async function getAiInboxTask(taskId: string): Promise<AiInboxTaskDetail | null> {
   const db = await getDb();
   const taskResult = await db.query<TaskRow>(
-    `SELECT t.*, h.concept AS target_hypothesis_concept, b.currency AS target_currency
+    `SELECT t.*, r.id AS target_run_id, h.concept AS target_hypothesis_concept, b.currency AS target_currency
      FROM ai_tasks t
      LEFT JOIN opportunity_hypotheses h ON h.id = t.target_hypothesis_id
      LEFT JOIN ai_sourcing_runs r ON r.id = h.run_id
@@ -456,6 +465,7 @@ export async function listAiInboxHypotheses(): Promise<AiInboxHypothesisOption[]
   const db = await getDb();
   const result = await db.query<{
     id: string;
+    run_id: string;
     concept: string;
     category: string;
     market_name: string;
@@ -463,7 +473,7 @@ export async function listAiInboxHypotheses(): Promise<AiInboxHypothesisOption[]
     currency: string;
     decision: "GO" | "HOLD" | "NO-GO" | null;
   }>(
-    `SELECT h.id, h.concept, b.category, m.name AS market_name, p.name AS platform_name, b.currency,
+    `SELECT h.id, r.id AS run_id, h.concept, b.category, m.name AS market_name, p.name AS platform_name, b.currency,
             d.decision
      FROM opportunity_hypotheses h
      JOIN ai_sourcing_runs r ON r.id = h.run_id
@@ -478,6 +488,7 @@ export async function listAiInboxHypotheses(): Promise<AiInboxHypothesisOption[]
   );
   return result.rows.map((row) => ({
     id: row.id,
+    runId: row.run_id,
     concept: row.concept,
     category: row.category,
     marketName: row.market_name,
@@ -485,6 +496,77 @@ export async function listAiInboxHypotheses(): Promise<AiInboxHypothesisOption[]
     currency: row.currency,
     decision: row.decision,
   }));
+}
+
+export type AiInboxHypothesisTaskCounts = {
+  total: number;
+  pending: number;
+  inProgress: number;
+  failed: number;
+  applied: number;
+};
+
+export async function listAiInboxTaskCountsByRun(runId: string) {
+  const db = await getDb();
+  const result = await db.query<{
+    hypothesis_id: string;
+    total: string | number;
+    pending: string | number;
+    in_progress: string | number;
+    failed: string | number;
+    applied: string | number;
+  }>(
+    `SELECT t.target_hypothesis_id AS hypothesis_id,
+            COUNT(*) AS total,
+            COUNT(*) FILTER (WHERE t.status IN ('needs_review', 'ready')) AS pending,
+            COUNT(*) FILTER (WHERE t.status IN ('queued', 'running')) AS in_progress,
+            COUNT(*) FILTER (WHERE t.status = 'failed') AS failed,
+            COUNT(*) FILTER (WHERE t.status = 'applied') AS applied
+     FROM ai_tasks t
+     JOIN opportunity_hypotheses h ON h.id = t.target_hypothesis_id
+     WHERE h.run_id = $1
+     GROUP BY t.target_hypothesis_id`,
+    [runId],
+  );
+
+  return new Map<string, AiInboxHypothesisTaskCounts>(
+    result.rows.map((row) => [
+      row.hypothesis_id,
+      {
+        total: Number(row.total),
+        pending: Number(row.pending),
+        inProgress: Number(row.in_progress),
+        failed: Number(row.failed),
+        applied: Number(row.applied),
+      },
+    ]),
+  );
+}
+
+export async function getAiInboxTaskTarget(taskId: string) {
+  const db = await getDb();
+  const result = await db.query<{
+    task_id: string;
+    hypothesis_id: string | null;
+    run_id: string | null;
+    concept: string | null;
+  }>(
+    `SELECT t.id AS task_id, t.target_hypothesis_id AS hypothesis_id,
+            r.id AS run_id, h.concept
+     FROM ai_tasks t
+     LEFT JOIN opportunity_hypotheses h ON h.id = t.target_hypothesis_id
+     LEFT JOIN ai_sourcing_runs r ON r.id = h.run_id
+     WHERE t.id = $1`,
+    [taskId],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    taskId: row.task_id,
+    hypothesisId: row.hypothesis_id,
+    runId: row.run_id,
+    concept: row.concept,
+  };
 }
 
 export async function getAiInboxTargetContext(hypothesisId: string) {
@@ -527,6 +609,7 @@ async function getTargetHypothesis(hypothesisId: string) {
   const db = await getDb();
   const result = await db.query<{
     id: string;
+    run_id: string;
     concept: string;
     selected_for_validation: boolean;
     product_case_id: string | null;
@@ -534,7 +617,7 @@ async function getTargetHypothesis(hypothesisId: string) {
     market_code: string;
     platform_code: string;
   }>(
-    `SELECT h.id, h.concept, h.selected_for_validation, h.product_case_id,
+    `SELECT h.id, r.id AS run_id, h.concept, h.selected_for_validation, h.product_case_id,
             b.currency, b.market_code, b.platform_code
      FROM opportunity_hypotheses h
      JOIN ai_sourcing_runs r ON r.id = h.run_id
@@ -546,6 +629,7 @@ async function getTargetHypothesis(hypothesisId: string) {
   if (!row) return null;
   return {
     id: row.id,
+    runId: row.run_id,
     concept: row.concept,
     selectedForValidation: row.selected_for_validation,
     productCaseId: row.product_case_id,
@@ -568,6 +652,7 @@ function mapTask(row: TaskRow): AiInboxTask {
     taskType: row.task_type,
     status: row.status,
     sourceKind: row.source_kind,
+    targetRunId: row.target_run_id,
     targetHypothesisId: row.target_hypothesis_id,
     targetHypothesisConcept: row.target_hypothesis_concept,
     targetCurrency: row.target_currency,

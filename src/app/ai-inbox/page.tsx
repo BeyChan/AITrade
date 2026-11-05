@@ -8,6 +8,7 @@ import {
   type EvidenceDocumentType,
 } from "@/lib/ai-inbox/schema";
 import {
+  getAiInboxTargetContext,
   listAiInboxHypotheses,
   listAiInboxTasks,
   type AiInboxSourceKind,
@@ -22,6 +23,7 @@ type PageProps = {
   searchParams: Promise<{
     status?: string;
     sourceKind?: string;
+    targetHypothesisId?: string;
     notice?: string;
     error?: string;
   }>;
@@ -48,8 +50,10 @@ export default async function AiInboxPage({ searchParams }: PageProps) {
   const query = await searchParams;
   const status = isTaskStatus(query.status) ? query.status : "all";
   const sourceKind = isSourceKind(query.sourceKind) ? query.sourceKind : "all";
+  const requestedTargetId = query.targetHypothesisId?.trim() || null;
+  const target = requestedTargetId ? await getAiInboxTargetContext(requestedTargetId) : null;
   const [allTasks, hypotheses] = await Promise.all([
-    listAiInboxTasks({ limit: 100 }),
+    listAiInboxTasks({ limit: 100, targetHypothesisId: target?.id }),
     listAiInboxHypotheses(),
   ]);
   const tasks = allTasks.filter((task) => {
@@ -63,26 +67,44 @@ export default async function AiInboxPage({ searchParams }: PageProps) {
   ).length;
   const appliedCount = allTasks.filter((task) => task.status === "applied").length;
   const failedCount = allTasks.filter((task) => task.status === "failed").length;
+  const returnHref = target
+    ? `/ai-sourcing/${encodeURIComponent(target.runId)}#hypothesis-${encodeURIComponent(target.id)}`
+    : null;
 
   return (
     <div className="page ai-inbox-page">
+      {target ? (
+        <div className="ai-inbox-context-bar">
+          <Link href={returnHref ?? "/ai-inbox"}>← 返回「{target.concept}」验证</Link>
+          <span>{target.marketCode} / {target.platformCode} · {target.currency}</span>
+        </div>
+      ) : null}
       <div className="title-row">
         <div>
-          <div className="eyebrow">Evidence before action</div>
-          <h1>AI 证据收件箱</h1>
+          <div className="eyebrow">{target ? "Opportunity evidence" : "Evidence review queue"}</div>
+          <h1>{target ? "AI 智能录入" : "AI 证据收件箱"}</h1>
           <p className="muted ai-inbox-subtitle">
-            把竞品、供应商报价和评论证据整理成可追溯字段。AI 只负责提取，人工确认后才写入业务事实。
+            {target
+              ? `为「${target.concept}」整理竞品、评论或供应商报价。AI 只提取候选字段，人工确认后才写入当前机会。`
+              : "把竞品、供应商报价和评论证据整理成可追溯字段。AI 只负责提取，人工确认后才写入业务事实。"}
           </p>
         </div>
-        <span className="badge badge-neutral">仅本机 / 内部工作台</span>
+        {returnHref ? (
+          <Link href={returnHref} className="button secondary">返回机会验证</Link>
+        ) : (
+          <span className="badge badge-neutral">仅本机 / 内部工作台</span>
+        )}
       </div>
 
       {query.notice ? <div className="notice"><strong>已完成：</strong>{query.notice}</div> : null}
       {query.error ? <div className="notice warn"><strong>未完成：</strong>{query.error}</div> : null}
+      {requestedTargetId && !target ? (
+        <div className="notice warn"><strong>目标机会不可用：</strong>该机会可能已删除或已转商品立项，当前展示全部证据任务。</div>
+      ) : null}
 
       <div className="metrics-grid ai-inbox-metrics">
         <div className="metric-card">
-          <span className="metric-label">当前筛选</span>
+          <span className="metric-label">{target ? "当前机会任务" : "当前筛选"}</span>
           <strong className="metric-value">{tasks.length}</strong>
           <span className="metric-note">最多展示最近 100 个任务</span>
         </div>
@@ -112,24 +134,36 @@ export default async function AiInboxPage({ searchParams }: PageProps) {
             </div>
           </div>
           <form action={createAiInboxTaskAction} className="stack ai-inbox-form">
-            <div className="field">
-              <label htmlFor="targetHypothesisId">写入目标机会</label>
-              <select
-                id="targetHypothesisId"
-                name="targetHypothesisId"
-                required
-                disabled={hypotheses.length === 0}
-                defaultValue=""
-              >
-                <option value="" disabled>选择已加入验证的机会</option>
-                {hypotheses.map((hypothesis) => (
-                  <option key={hypothesis.id} value={hypothesis.id}>
-                    {hypothesis.concept} · {hypothesis.category} · {hypothesis.marketName}/{hypothesis.platformName} · {hypothesis.currency}
-                  </option>
-                ))}
-              </select>
-              <span className="help">只能写入仍处于验证阶段、尚未转为商品立项的机会。</span>
-            </div>
+            {target ? (
+              <div className="ai-inbox-target-card">
+                <div>
+                  <span>写入目标机会</span>
+                  <strong>{target.concept}</strong>
+                  <small>{target.marketCode} / {target.platformCode} · {target.currency}</small>
+                </div>
+                <input type="hidden" name="targetHypothesisId" value={target.id} />
+                <Link href="/ai-inbox">切换机会</Link>
+              </div>
+            ) : (
+              <div className="field">
+                <label htmlFor="targetHypothesisId">写入目标机会</label>
+                <select
+                  id="targetHypothesisId"
+                  name="targetHypothesisId"
+                  required
+                  disabled={hypotheses.length === 0}
+                  defaultValue=""
+                >
+                  <option value="" disabled>选择已加入验证的机会</option>
+                  {hypotheses.map((hypothesis) => (
+                    <option key={hypothesis.id} value={hypothesis.id}>
+                      {hypothesis.concept} · {hypothesis.category} · {hypothesis.marketName}/{hypothesis.platformName} · {hypothesis.currency}
+                    </option>
+                  ))}
+                </select>
+                <span className="help">只能写入仍处于验证阶段、尚未转为商品立项的机会。</span>
+              </div>
+            )}
 
             <div className="form-grid">
               <div className="field">
@@ -176,7 +210,7 @@ export default async function AiInboxPage({ searchParams }: PageProps) {
               </div>
             ) : null}
 
-            <button className="button primary" type="submit" disabled={hypotheses.length === 0}>
+            <button className="button primary" type="submit" disabled={!target && hypotheses.length === 0}>
               保存原始证据并开始提取
             </button>
           </form>
@@ -210,6 +244,7 @@ export default async function AiInboxPage({ searchParams }: PageProps) {
             <p>按时间倒序展示；失败任务保留原证据，可重试提取。</p>
           </div>
           <form method="get" action="/ai-inbox" className="ai-inbox-filter">
+            {target ? <input type="hidden" name="targetHypothesisId" value={target.id} /> : null}
             <select name="status" defaultValue={status} aria-label="筛选任务状态">
               <option value="all">全部状态</option>
               {Object.entries(TASK_STATUS_LABELS).map(([value, label]) => (

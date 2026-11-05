@@ -155,18 +155,62 @@ button {
   min-width: 0;
 }
 
-.sidebar-label {
-  margin: 0 10px 9px;
+.sidebar-group-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 8px 8px 10px;
   color: rgba(255, 255, 255, 0.38);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.sidebar-group-toggle:hover {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.sidebar-group-toggle:focus-visible {
+  outline: 2px solid var(--lime);
+  outline-offset: 2px;
+  border-radius: 7px;
+}
+
+.sidebar-label {
+  margin: 0;
+  color: inherit;
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
+.sidebar-chevron {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 0.16s ease;
+}
+
+.sidebar-group-toggle[aria-expanded="true"] .sidebar-chevron {
+  transform: rotate(180deg);
+}
+
 .sidebar-links {
   display: grid;
   gap: 5px;
+}
+
+.sidebar-links.collapsed {
+  display: none;
 }
 
 .sidebar-link {
@@ -1099,7 +1143,12 @@ tbody tr:last-child td {
     display: none;
   }
 
-  .sidebar-links {
+  .sidebar-group-toggle {
+    display: none;
+  }
+
+  .sidebar-links,
+  .sidebar-links.collapsed {
     display: flex;
     gap: 6px;
   }
@@ -3491,6 +3540,58 @@ tbody tr:last-child td {
   letter-spacing: -0.025em;
 }
 
+.ai-smart-intake-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-top: 16px;
+  padding: 18px 20px;
+  border: 1px solid #cfe4d5;
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 100% 0, rgba(185, 242, 108, 0.18), transparent 13rem),
+    linear-gradient(135deg, #f2f9f3 0%, #fbfdfa 100%);
+}
+
+.ai-smart-intake-card > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ai-smart-intake-card .eyebrow {
+  color: var(--green);
+}
+
+.ai-smart-intake-card h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.ai-smart-intake-card p {
+  max-width: 760px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+.ai-smart-intake-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ai-smart-intake-actions .button {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 11px;
+}
+
 .ai-query-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -4716,6 +4817,22 @@ tbody tr:last-child td {
     border-radius: 18px;
   }
 
+  .ai-smart-intake-card {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 14px;
+    padding: 16px;
+  }
+
+  .ai-smart-intake-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .ai-smart-intake-actions .button {
+    flex: 1 1 auto;
+  }
+
   .ai-batch-card,
   .ai-next-step,
   .ai-promotion-bar,
@@ -5149,6 +5266,25 @@ tbody tr:last-child td {
   line-height: 1.65;
 }
 
+.ai-inbox-context-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding: 10px 13px;
+  border: 1px solid #dfe8e2;
+  border-radius: 11px;
+  background: #f7faf7;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.ai-inbox-context-bar a {
+  color: var(--green);
+  font-weight: 800;
+}
+
 .ai-inbox-metrics {
   margin-top: 22px;
 }
@@ -5167,6 +5303,48 @@ tbody tr:last-child td {
 
 .ai-inbox-form .form-grid {
   align-items: start;
+}
+
+.ai-inbox-target-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid #d6e7dc;
+  border-radius: 13px;
+  background: linear-gradient(135deg, #f2f9f3 0%, #fbfdf9 100%);
+}
+
+.ai-inbox-target-card > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ai-inbox-target-card span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ai-inbox-target-card strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.ai-inbox-target-card small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.ai-inbox-target-card a {
+  flex: 0 0 auto;
+  color: var(--green);
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .ai-inbox-form .dropzone,

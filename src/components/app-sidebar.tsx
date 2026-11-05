@@ -2,25 +2,36 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
 
 type NavItem = {
   href: string;
   label: string;
-  icon: "ai" | "content" | "inbox" | "data" | "settings" | "connection";
+  icon: "ai" | "content" | "data" | "settings" | "connection";
 };
 
-const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
+type NavGroup = {
+  id: "workspace" | "system";
+  label: string;
+  defaultOpen: boolean;
+  items: NavItem[];
+};
+
+const NAV_GROUPS: NavGroup[] = [
   {
+    id: "workspace",
     label: "业务工作台",
+    defaultOpen: true,
     items: [
       { href: "/", label: "AI 选品", icon: "ai" },
       { href: "/content", label: "内容工作台", icon: "content" },
-      { href: "/ai-inbox", label: "AI 证据收件箱", icon: "inbox" },
       { href: "/data-sources", label: "数据源", icon: "data" },
     ],
   },
   {
+    id: "system",
     label: "系统",
+    defaultOpen: true,
     items: [
       { href: "/connections", label: "连接中心", icon: "connection" },
       { href: "/settings", label: "系统设置", icon: "settings" },
@@ -47,16 +58,6 @@ function NavIcon({ name }: { name: NavItem["icon"] }) {
         <path d="m12 3 1.1 3.2a4.2 4.2 0 0 0 2.7 2.7L19 10l-3.2 1.1a4.2 4.2 0 0 0-2.7 2.7L12 17l-1.1-3.2a4.2 4.2 0 0 0-2.7-2.7L5 10l3.2-1.1a4.2 4.2 0 0 0 2.7-2.7L12 3Z" />
         <path d="m18.5 16 .6 1.9a2 2 0 0 0 1.3 1.3l1.6.8-1.6.8a2 2 0 0 0-1.3 1.3l-.6 1.9-.6-1.9a2 2 0 0 0-1.3-1.3l-1.6-.8 1.6-.8a2 2 0 0 0 1.3-1.3l.6-1.9Z" />
         <path d="M4 17.5h3M5.5 16v3" />
-      </svg>
-    );
-  }
-
-  if (name === "inbox") {
-    return (
-      <svg {...common}>
-        <path d="M4 4.5h16v15H4v-15Z" />
-        <path d="M4 13h4l1.5 2h5l1.5-2h4" />
-        <path d="m8 8 4-2 4 2" />
       </svg>
     );
   }
@@ -125,24 +126,41 @@ function isActiveRoute(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function AppSidebar() {
-  const pathname = usePathname();
+function openGroupsByDefault(): Record<string, boolean> {
+  return Object.fromEntries(NAV_GROUPS.map((group) => [group.id, group.defaultOpen]));
+}
+
+function SidebarNavigation({ pathname }: { pathname: string }) {
+  // Collapse state is intentionally ephemeral: it resets on every route change
+  // and is never written to localStorage or sessionStorage.
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(openGroupsByDefault);
+
+  function toggleGroup(groupId: string) {
+    setOpenGroups((current) => ({ ...current, [groupId]: !current[groupId] }));
+  }
 
   return (
-    <aside className="sidebar">
-      <Link href="/" className="brand sidebar-brand">
-        <span className="brand-mark">A</span>
-        <span>
-          <strong>AITrade</strong>
-          <small>Cross-border Ops</small>
-        </span>
-      </Link>
-
-      <nav className="sidebar-nav" aria-label="主导航">
-        {NAV_GROUPS.map((group) => (
-          <div className="sidebar-group" key={group.label}>
-            <div className="sidebar-label">{group.label}</div>
-            <div className="sidebar-links">
+    <nav className="sidebar-nav" aria-label="主导航">
+      {NAV_GROUPS.map((group) => {
+        const open = openGroups[group.id] ?? group.defaultOpen;
+        return (
+          <div className="sidebar-group" key={group.id}>
+            <button
+              type="button"
+              className="sidebar-group-toggle"
+              aria-expanded={open}
+              aria-controls={`sidebar-group-${group.id}`}
+              onClick={() => toggleGroup(group.id)}
+            >
+              <span className="sidebar-label">{group.label}</span>
+              <svg className="sidebar-chevron" aria-hidden="true" viewBox="0 0 16 16">
+                <path d="m4 6 4 4 4-4" />
+              </svg>
+            </button>
+            <div
+              id={`sidebar-group-${group.id}`}
+              className={`sidebar-links${open ? "" : " collapsed"}`}
+            >
               {group.items.map((item) => {
                 const active = isActiveRoute(pathname, item.href);
                 return (
@@ -159,8 +177,26 @@ export function AppSidebar() {
               })}
             </div>
           </div>
-        ))}
-      </nav>
+        );
+      })}
+    </nav>
+  );
+}
+
+export function AppSidebar() {
+  const pathname = usePathname();
+
+  return (
+    <aside className="sidebar">
+      <Link href="/" className="brand sidebar-brand">
+        <span className="brand-mark">A</span>
+        <span>
+          <strong>AITrade</strong>
+          <small>Cross-border Ops</small>
+        </span>
+      </Link>
+
+      <SidebarNavigation key={pathname} pathname={pathname} />
     </aside>
   );
 }
