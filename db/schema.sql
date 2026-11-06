@@ -929,6 +929,57 @@ CREATE TABLE IF NOT EXISTS sourcing_supplier_quotes (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS supplier_discovery_runs (
+  id TEXT PRIMARY KEY,
+  hypothesis_id TEXT NOT NULL REFERENCES opportunity_hypotheses(id) ON DELETE CASCADE,
+  source TEXT NOT NULL DEFAULT '1688_visible_page',
+  trigger_mode TEXT NOT NULL DEFAULT 'user_triggered',
+  query TEXT NOT NULL DEFAULT '',
+  page_url TEXT,
+  payload_text TEXT NOT NULL DEFAULT '',
+  captured_at TIMESTAMPTZ NOT NULL,
+  received_count INTEGER NOT NULL DEFAULT 0 CHECK (received_count >= 0),
+  parsed_count INTEGER NOT NULL DEFAULT 0 CHECK (parsed_count >= 0),
+  duplicate_count INTEGER NOT NULL DEFAULT 0 CHECK (duplicate_count >= 0),
+  top_count INTEGER NOT NULL DEFAULT 0 CHECK (top_count >= 0),
+  warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+  actor TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS supplier_candidates (
+  id TEXT PRIMARY KEY,
+  discovery_run_id TEXT NOT NULL REFERENCES supplier_discovery_runs(id) ON DELETE CASCADE,
+  hypothesis_id TEXT NOT NULL REFERENCES opportunity_hypotheses(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  supplier_name TEXT NOT NULL,
+  platform TEXT NOT NULL DEFAULT '1688',
+  offer_url TEXT NOT NULL DEFAULT '',
+  supplier_url TEXT NOT NULL DEFAULT '',
+  offer_id TEXT,
+  price_cents INTEGER CHECK (price_cents IS NULL OR price_cents > 0),
+  currency TEXT NOT NULL DEFAULT 'CNY',
+  moq INTEGER CHECK (moq IS NULL OR moq > 0),
+  location TEXT NOT NULL DEFAULT '',
+  badges JSONB NOT NULL DEFAULT '[]'::jsonb,
+  lead_time_days INTEGER CHECK (lead_time_days IS NULL OR lead_time_days > 0),
+  source_text TEXT NOT NULL DEFAULT '',
+  fingerprint TEXT NOT NULL,
+  score INTEGER NOT NULL CHECK (score BETWEEN 0 AND 100),
+  score_parts JSONB NOT NULL DEFAULT '[]'::jsonb,
+  reasons JSONB NOT NULL DEFAULT '[]'::jsonb,
+  risk_notes JSONB NOT NULL DEFAULT '[]'::jsonb,
+  status TEXT NOT NULL DEFAULT 'candidate'
+    CHECK (status IN ('candidate', 'shortlisted', 'rejected')),
+  shortlist_id TEXT REFERENCES supplier_shortlists(id) ON DELETE SET NULL,
+  verified_by TEXT,
+  verified_at TIMESTAMPTZ,
+  observed_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (hypothesis_id, fingerprint)
+);
+
 CREATE TABLE IF NOT EXISTS validation_tasks (
   id TEXT PRIMARY KEY,
   hypothesis_id TEXT NOT NULL REFERENCES opportunity_hypotheses(id) ON DELETE CASCADE,
@@ -973,6 +1024,9 @@ CREATE INDEX IF NOT EXISTS idx_competitor_snapshots_hypothesis ON competitor_sna
 CREATE INDEX IF NOT EXISTS idx_review_insights_hypothesis ON review_insights(hypothesis_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_supplier_shortlists_hypothesis ON supplier_shortlists(hypothesis_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sourcing_supplier_quotes_hypothesis ON sourcing_supplier_quotes(hypothesis_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_supplier_discovery_runs_hypothesis ON supplier_discovery_runs(hypothesis_id, captured_at DESC);
+CREATE INDEX IF NOT EXISTS idx_supplier_candidates_hypothesis ON supplier_candidates(hypothesis_id, score DESC, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_supplier_candidates_run ON supplier_candidates(discovery_run_id, score DESC);
 CREATE INDEX IF NOT EXISTS idx_validation_tasks_hypothesis ON validation_tasks(hypothesis_id, status, created_at);
 
 -- Item selection no longer uses a human approval queue. Keep the legacy status

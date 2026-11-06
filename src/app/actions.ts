@@ -26,7 +26,9 @@ import {
   recordAISupplierQuote,
   recordCompetitorEvidence,
   recordOpportunityEvidence,
+  recordSupplierCandidates,
   selectHypothesisForValidation,
+  shortlistSupplierCandidate,
 } from "@/lib/ai-sourcing-repository";
 import {
   approveChannelLaunchQueue,
@@ -335,6 +337,46 @@ export async function recordAISupplierQuoteAction(formData: FormData) {
   }
   revalidateAISourcing(runId);
   redirect(aiSourcingDetailPath(runId, "notice", "供应商真实报价已记录并重新计算到岸成本、利润和门禁"));
+}
+
+export async function recordSupplierCandidatesAction(formData: FormData) {
+  const runId = String(formData.get("runId") || "").trim();
+  const hypothesisId = String(formData.get("hypothesisId") || "").trim();
+  let outcome: Awaited<ReturnType<typeof recordSupplierCandidates>>;
+  try {
+    outcome = await recordSupplierCandidates({
+      hypothesisId,
+      query: String(formData.get("query") || ""),
+      payload: String(formData.get("payload") || ""),
+      actor: String(formData.get("actor") || ""),
+    });
+  } catch (error) {
+    redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
+  }
+
+  revalidateAISourcing(runId);
+  const message = outcome.newCount > 0
+    ? `已解析当前页候选并更新 TOP 10：新增 ${outcome.newCount} 个，候选池现有结果需人工核验后才进入短名单`
+    : `当前页候选均已存在于候选池；本次识别 ${outcome.parsedCount} 个，未重复写入`;
+  redirect(aiSourcingDetailPath(runId, "notice", message));
+}
+
+export async function shortlistSupplierCandidateAction(formData: FormData) {
+  const runId = String(formData.get("runId") || "").trim();
+  try {
+    await shortlistSupplierCandidate({
+      candidateId: String(formData.get("candidateId") || ""),
+      supplierName: String(formData.get("supplierName") || ""),
+      productMatch: String(formData.get("productMatch") || ""),
+      actor: String(formData.get("actor") || ""),
+      verified: formData.get("verified") === "true",
+    });
+  } catch (error) {
+    redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
+  }
+
+  revalidateAISourcing(runId);
+  redirect(aiSourcingDetailPath(runId, "notice", "候选已人工核验并加入短名单；下一步可生成 RFQ 草稿"));
 }
 
 export async function generateSupplierDraftAction(formData: FormData) {

@@ -12,13 +12,16 @@ import {
   recordAISupplierQuoteAction,
   recordCompetitorAction,
   recordOpportunityEvidenceAction,
+  recordSupplierCandidatesAction,
   selectHypothesisAction,
+  shortlistSupplierCandidateAction,
 } from "@/app/actions";
 import {
   getAISourcingBatch,
   getBatchSiteLabel,
   type AIOpportunityEvidence,
   type AISelectionDecision,
+  type AISupplierCandidate,
   type AISourcingHypothesisDetail,
 } from "@/lib/ai-sourcing-repository";
 import {
@@ -298,6 +301,12 @@ function HypothesisCard({
         </div>
       </section>
 
+      <SupplierCandidateCapture
+        runId={batch.id}
+        hypothesis={hypothesis}
+        defaultQuery={supplierLeads[0]?.query ?? hypothesis.concept}
+      />
+
       <div className="ai-query-grid ai-query-grid-two">
         <QueryGroup
           title={`${batch.platformName} · ${batch.marketCode} 竞品词`}
@@ -536,6 +545,216 @@ function HypothesisCard({
       )}
       </div>
     </HashOpenDetails>
+  );
+}
+
+function SupplierCandidateCapture({
+  runId,
+  hypothesis,
+  defaultQuery,
+}: {
+  runId: string;
+  hypothesis: AISourcingHypothesisDetail;
+  defaultQuery: string;
+}) {
+  const latestRun = hypothesis.supplierDiscoveryRuns[0] ?? null;
+  const candidates = hypothesis.supplierCandidates.slice(0, 10);
+  const shortlistedCount = hypothesis.supplierCandidates.filter((candidate) => candidate.status === "shortlisted").length;
+  const captureExample = `{
+  "source": "1688_visible_page",
+  "pageUrl": "https://s.1688.com/...",
+  "candidates": [
+    {
+      "title": "商品标题",
+      "supplierName": "供应商名称",
+      "offerUrl": "https://detail.1688.com/offer/123456789.html",
+      "supplierUrl": "https://shop.example.1688.com/",
+      "price": "¥35.80-42.00",
+      "moq": "2件起批",
+      "badges": ["超级工厂", "深度验厂", "48小时发货"],
+      "location": "广东 深圳",
+      "sourceText": "当前商品卡可见文本"
+    }
+  ]
+}`;
+
+  return (
+    <section className="ai-candidate-capture">
+      <div className="ai-candidate-capture-head">
+        <div>
+          <span className="eyebrow">User-triggered capture</span>
+          <strong>当前页候选 · TOP 10 · 人工核验后进入短名单</strong>
+          <p>你打开目标 1688 搜索结果页并触发采集；系统只处理当前可见页数据，不后台抓取、不翻页、不登录，也不绕过验证码。</p>
+        </div>
+        <div className="ai-candidate-capture-badges">
+          <span className="badge badge-neutral">{hypothesis.counts.supplierCandidates} 个候选</span>
+          <span className="badge badge-success">{shortlistedCount} 个已核验</span>
+        </div>
+      </div>
+
+      <form action={recordSupplierCandidatesAction} className="ai-candidate-capture-form">
+        <input type="hidden" name="runId" value={runId} />
+        <input type="hidden" name="hypothesisId" value={hypothesis.id} />
+        <div className="field">
+          <label>本次搜索词</label>
+          <input name="query" defaultValue={defaultQuery} maxLength={500} required disabled={!hypothesis.selectedForValidation} />
+        </div>
+        <div className="field">
+          <label>采集人</label>
+          <input name="actor" defaultValue="采购人员" maxLength={80} required disabled={!hypothesis.selectedForValidation} />
+        </div>
+        <div className="field full">
+          <label>当前页候选数据（JSON 或页面文本）</label>
+          <textarea
+            name="payload"
+            rows={7}
+            required
+            maxLength={500_000}
+            disabled={!hypothesis.selectedForValidation}
+            placeholder={'粘贴当前搜索结果页商品卡的 JSON 或纯文本。每条至少需要标题，以及商品链接或供应商主页链接。'}
+          />
+        </div>
+        <div className="field full ai-candidate-capture-actions">
+          <span>
+            {hypothesis.selectedForValidation
+              ? "解析后会做确定性去重和评分。候选本身不会进入报价门禁，也不会自动联系供应商。"
+              : "请先点击下方“加入验证”，再加入当前页候选。"}
+          </span>
+          <button className="button primary" type="submit" disabled={!hypothesis.selectedForValidation}>
+            解析并生成 TOP 10
+          </button>
+        </div>
+      </form>
+
+      <details className="ai-capture-format">
+        <summary>查看采集格式与半自动接入方式</summary>
+        <div>
+          <p>第一版支持浏览器采集器或人工复制的当前页 JSON；纯文本只要包含商品标题、价格和商品链接也能解析。后续可在同一接口上接 Chrome MV3 扩展，仍保持“用户点击才采集当前页”的权限边界。</p>
+          <pre>{captureExample}</pre>
+        </div>
+      </details>
+
+      {latestRun ? (
+        <div className="ai-candidate-run-summary">
+          <div><span>最近采集</span><strong>{shortDate(latestRun.capturedAt)}</strong></div>
+          <div><span>识别</span><strong>{latestRun.receivedCount}</strong></div>
+          <div><span>去重</span><strong>{latestRun.duplicateCount}</strong></div>
+          <div><span>TOP</span><strong>{latestRun.topCount}</strong></div>
+          <div><span>触发方式</span><strong>用户触发</strong></div>
+          {latestRun.warnings.length > 0 ? (
+            <div className="ai-candidate-run-warnings">
+              {latestRun.warnings.map((warning) => <span key={warning}>{warning}</span>)}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {candidates.length > 0 ? (
+        <div className="ai-candidate-grid">
+          {candidates.map((candidate, index) => (
+            <SupplierCandidateCard
+              candidate={candidate}
+              index={index}
+              runId={runId}
+              key={candidate.id}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="empty-inline">还没有候选。打开 1688 搜索结果页，采集当前可见商品卡后粘贴到上方。</div>
+      )}
+    </section>
+  );
+}
+
+function SupplierCandidateCard({
+  candidate,
+  index,
+  runId,
+}: {
+  candidate: AISupplierCandidate;
+  index: number;
+  runId: string;
+}) {
+  return (
+    <article className={`ai-candidate-card ${candidate.status === "shortlisted" ? "shortlisted" : ""}`}>
+      <div className="ai-candidate-card-head">
+        <div>
+          <span className="ai-candidate-rank">TOP {index + 1}</span>
+          <h3>{candidate.title}</h3>
+          <p>{candidate.supplierName} · {candidate.platform}</p>
+        </div>
+        <div className="ai-candidate-score">
+          <strong>{candidate.score}</strong>
+          <span>匹配分</span>
+        </div>
+      </div>
+
+      <div className="ai-candidate-score-parts">
+        {candidate.scoreParts.map((part) => (
+          <div key={part.key} title={part.reason}>
+            <span>{part.label}</span>
+            <strong>{part.points}/{part.maxPoints}</strong>
+          </div>
+        ))}
+      </div>
+
+      <div className="ai-candidate-facts">
+        <div><span>价格</span><strong>{candidate.priceCents ? moneyIn(candidate.currency, candidate.priceCents) : "待确认"}</strong></div>
+        <div><span>MOQ</span><strong>{candidate.moq ?? "待确认"}</strong></div>
+        <div><span>地区</span><strong>{candidate.location || "待确认"}</strong></div>
+        <div><span>交期</span><strong>{candidate.leadTimeDays ? `${candidate.leadTimeDays} 天` : "待确认"}</strong></div>
+      </div>
+
+      {candidate.badges.length > 0 ? (
+        <div className="ai-candidate-badges">
+          {candidate.badges.map((badge) => <span key={badge}>{badge}</span>)}
+        </div>
+      ) : null}
+
+      {candidate.riskNotes.length > 0 ? (
+        <div className="ai-candidate-risks">
+          <strong>待核验风险</strong>
+          {candidate.riskNotes.map((note) => <span key={note}>{note}</span>)}
+        </div>
+      ) : null}
+
+      <div className="ai-candidate-links">
+        {candidate.offerUrl ? <a href={candidate.offerUrl} target="_blank" rel="noreferrer">打开商品 ↗</a> : null}
+        {candidate.supplierUrl ? <a href={candidate.supplierUrl} target="_blank" rel="noreferrer">打开店铺 ↗</a> : null}
+        <small>{shortDate(candidate.observedAt)} 采集</small>
+      </div>
+
+      {candidate.status === "shortlisted" ? (
+        <div className="ai-candidate-shortlisted">
+          <strong>✓ 已人工核验并加入短名单</strong>
+          <span>{candidate.verifiedBy ?? "采购人员"} · {candidate.verifiedAt ? shortDate(candidate.verifiedAt) : "已记录"}</span>
+          <small>可在下方“供应商内部草稿”中选择该供应商生成 RFQ；系统不会发送。</small>
+        </div>
+      ) : (
+        <form action={shortlistSupplierCandidateAction} className="ai-candidate-verify-form">
+          <input type="hidden" name="runId" value={runId} />
+          <input type="hidden" name="candidateId" value={candidate.id} />
+          <div className="field">
+            <label>核验后的供应商名称</label>
+            <input name="supplierName" defaultValue={candidate.supplierName} maxLength={180} required />
+          </div>
+          <div className="field">
+            <label>人工核验人</label>
+            <input name="actor" defaultValue="采购人员" maxLength={80} required />
+          </div>
+          <div className="field full">
+            <label>产品匹配说明</label>
+            <textarea name="productMatch" rows={2} maxLength={500} required placeholder="写明你已核对的材质、规格、结构、包装或差异" />
+          </div>
+          <label className="ai-candidate-verified-check full">
+            <input type="checkbox" name="verified" value="true" required />
+            <span>我已打开来源并人工核验供应商主体、产品一致性和公开信息</span>
+          </label>
+          <button className="button primary full" type="submit">已人工核验，加入短名单</button>
+        </form>
+      )}
+    </article>
   );
 }
 

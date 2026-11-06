@@ -15,6 +15,9 @@ const {
   deleteAISourcingBatch,
   getAISourcingBatch,
   listAISourcingBatches,
+  recordSupplierCandidates,
+  selectHypothesisForValidation,
+  shortlistSupplierCandidate,
 } = await import("./ai-sourcing-repository.ts");
 
 after(async () => {
@@ -144,4 +147,127 @@ test("the same research request key reuses one batch", async () => {
     [first.briefId, requestKey, first.runId],
   );
   assert.deepEqual(counts.rows[0], { briefs: "1", runs: "1", audits: "1" });
+});
+
+test("visible-page candidates stay outside supplier counts until manually verified", async () => {
+  const db = await getDb();
+  const created = await createAISourcingBatch({
+    marketCode: "US",
+    platformCode: "amazon",
+    category: "宠物饮水",
+    brief: "验证静音宠物饮水机的供应商候选、人工核验和 RFQ 衔接",
+    actor: "测试运营",
+  });
+  const initial = await getAISourcingBatch(created.runId);
+  const hypothesisId = initial?.hypotheses[0]?.id;
+  assert.ok(hypothesisId);
+  await selectHypothesisForValidation(hypothesisId, "测试运营");
+
+  const observedAt = new Date().toISOString();
+  const items = Array.from({ length: 12 }, (_, index) => ({
+    title: `静音宠物饮水机 跨境款 ${index + 1}`,
+    supplierName: `深圳宠物电器工厂 ${index + 1}`,
+    offerUrl: `https://detail.1688.com/offer/${900000 + index}.html`,
+    supplierUrl: `https://shop${index + 1}.1688.com/`,
+    price: 30 + index,
+    moq: 2,
+    location: "广东 深圳",
+    badges: ["超级工厂", "48小时发货"],
+    sourceText: `静音宠物饮水机 跨境款 ${index + 1} 超级工厂 48小时发货`,
+  }));
+  const payload = JSON.stringify({
+    source: "1688_visible_page",
+    pageUrl: "https://s.1688.com/selloffer/offer_search.htm?keywords=pet-water",
+    capturedAt: observedAt,
+    candidates: items,
+  });
+
+  const recorded = await recordSupplierCandidates({
+    hypothesisId,
+    query: "静音宠物饮水机",
+    payload,
+    actor: "测试采购",
+  });
+  assert.equal(recorded.receivedCount, 12);
+  assert.equal(recorded.parsedCount, 10);
+  assert.equal(recorded.newCount, 10);
+  assert.equal(recorded.topCount, 10);
+
+  const beforeVerification = await getAISourcingBatch(created.runId);
+  const hypothesisBefore = beforeVerification?.hypotheses.find((item) => item.id === hypothesisId);
+  assert.ok(hypothesisBefore);
+  assert.equal(hypothesisBefore.counts.supplierCandidates, 10);
+  assert.equal(hypothesisBefore.counts.suppliers, 0);
+  assert.equal(hypothesisBefore.shortlist.length, 0);
+  assert.equal(hypothesisBefore.supplierDiscoveryRuns.length, 1);
+
+  const candidate = hypothesisBefore.supplierCandidates[0];
+  assert.ok(candidate);
+  await assert.rejects(
+    () => shortlistSupplierCandidate({
+      candidateId: candidate.id,
+      supplierName: candidate.supplierName,
+      productMatch: "材质和规格已核对",
+      actor: "测试采购",
+      verified: false,
+    }),
+    /请先确认已经人工核验/,
+  );
+
+  const shortlisted = await shortlistSupplierCandidate({
+    candidateId: candidate.id,
+    supplierName: `${candidate.supplierName}（已核验）`,
+    productMatch: "已核对材质、规格、包装和产品链接",
+    actor: "测试采购",
+    verified: true,
+  });
+  const afterVerification = await getAISourcingBatch(created.runId);
+  const hypothesisAfter = afterVerification?.hypotheses.find((item) => item.id === hypothesisId);
+  assert.ok(hypothesisAfter);
+  assert.equal(hypothesisAfter.counts.suppliers, 1);
+  assert.equal(hypothesisAfter.counts.supplierCandidates, 10);
+  const verifiedCandidate = hypothesisAfter.supplierCandidates.find((item) => item.id === candidate.id);
+  assert.equal(verifiedCandidate?.status, "shortlisted");
+  assert.equal(verifiedCandidate?.shortlistId, shortlisted.shortlistId);
+  assert.equal(verifiedCandidate?.verifiedBy, "测试采购");
+
+  const shortlistRow = await db.query<{ source_type: string; product_match: string }>(
+    "SELECT source_type, product_match FROM supplier_shortlists WHERE id = $1",
+    [shortlisted.shortlistId],
+  );
+  assert.deepEqual(shortlistRow.rows[0], {
+    source_type: "visible_page_manual_verification",
+    product_match: "已核对材质、规格、包装和产品链接",
+  });
+  const audits = await db.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM audit_logs
+     WHERE action IN ('ai_sourcing.supplier_candidates_recorded', 'ai_sourcing.supplier_candidate_shortlisted')
+       AND (entity_id = $1 OR entity_id = $2)`,
+    [hypothesisId, candidate.id],
+  );
+  assert.equal(audits.rows[0]?.count, "2");
+  await assert.rejects(
+    () => shortlistSupplierCandidate({
+      candidateId: candidate.id,
+      supplierName: candidate.supplierName,
+      productMatch: "重复加入",
+      actor: "测试采购",
+      verified: true,
+    }),
+    /已加入短名单/,
+  );
+
+  const repeated = await recordSupplierCandidates({
+    hypothesisId,
+    query: "静音宠物饮水机",
+    payload,
+    actor: "测试采购",
+  });
+  assert.equal(repeated.newCount, 0);
+  assert.equal(repeated.skippedExistingCount, 10);
+  assert.equal(repeated.duplicateCount, 10);
+  const finalBatch = await getAISourcingBatch(created.runId);
+  const finalHypothesis = finalBatch?.hypotheses.find((item) => item.id === hypothesisId);
+  assert.equal(finalHypothesis?.supplierCandidates.length, 10);
+  assert.equal(finalHypothesis?.supplierDiscoveryRuns.length, 2);
 });
