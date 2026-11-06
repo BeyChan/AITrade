@@ -2989,8 +2989,16 @@ tbody tr:last-child td {
   display: flex;
   min-height: 30px;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 12px;
+}
+
+/* 左列标签行含 AI 按钮（30px），右列只有纯文本标签；两列各自成栅格，
+   不给右列同样的行高就会把右列输入框往上顶 13px。 */
+.ai-research-actor > label {
+  display: flex;
+  min-height: 30px;
+  align-items: center;
 }
 
 .ai-category-trigger {
