@@ -29,6 +29,7 @@ mkdir -p "$OUT_DIR"
 # 输出文件名 | 路由。只选稳定路由，不依赖演示数据生成的 case id。
 shots=(
   "aitrade-workspace-sidebar.png|/"
+  "aitrade-competitors.png|/competitors"
   "aitrade-sourcing.png|/sourcing"
   "aitrade-content-studio.png|/content"
 )

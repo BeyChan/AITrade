@@ -4,6 +4,8 @@
 
 ![选品工作台](docs/assets/aitrade-workspace-sidebar.png)
 
+![竞品对比](docs/assets/aitrade-competitors.png)
+
 ![供应商询价](docs/assets/aitrade-sourcing.png)
 
 ![内容工作台](docs/assets/aitrade-content-studio.png)
