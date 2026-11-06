@@ -1182,10 +1182,25 @@ tbody tr:last-child td {
     margin-bottom: 9px;
   }
 
-  .sidebar-link {
-    min-height: 34px;
-    padding: 0 10px;
-    font-size: 12px;
+  /* 窄屏把导航摊开换行，避免末端入口被横向裁掉 */
+  .sidebar-nav,
+  .sidebar-utility {
+    flex-wrap: wrap;
+    gap: 6px;
+    overflow: visible;
+  }
+
+  .sidebar-utility {
+    margin-top: 8px;
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  .sidebar-link,
+  .sidebar-sublink {
+    min-height: 32px;
+    padding: 0 9px;
+    font-size: 11px;
   }
 
   .topbar-inner {
@@ -7302,6 +7317,12 @@ tbody tr:last-child td {
   margin-top: 22px;
 }
 
+/* 这里用 span/strong，需显式断行，否则大数字会与说明文字叠在一起 */
+.ai-inbox-metrics .metric-value,
+.ai-inbox-detail-metrics .metric-value {
+  display: block;
+}
+
 .ai-inbox-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.55fr) minmax(290px, 0.75fr);
@@ -8152,7 +8173,7 @@ tbody tr:last-child td {
 @media (max-width: 620px) {
   .ai-inbox-metrics,
   .ai-inbox-detail-metrics {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
   }
 
   .ai-inbox-form,
@@ -8409,8 +8430,29 @@ tbody tr:last-child td {
 }
 
 @media (max-width: 720px) {
+  /* 窄屏改成横向紧凑步骤条，别让 5 张卡片占满首屏 */
   .ai-detail-tabs {
-    grid-template-columns: 1fr;
+    display: flex;
+    gap: 8px;
+    margin: 16px 0 18px;
+    padding-bottom: 4px;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+  }
+
+  .ai-detail-tab {
+    flex: 0 0 auto;
+    min-width: 100px;
+    padding: 9px 10px;
+    scroll-snap-align: start;
+  }
+
+  .ai-detail-tab strong {
+    white-space: nowrap;
+  }
+
+  .ai-detail-tab small {
+    display: none;
   }
 
   .ai-summary-row {

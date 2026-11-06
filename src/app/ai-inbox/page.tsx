@@ -81,7 +81,7 @@ export default async function AiInboxPage({ searchParams }: PageProps) {
       ) : null}
       <div className="title-row">
         <div>
-          <div className="eyebrow">{target ? "Opportunity evidence" : "Evidence review queue"}</div>
+          <div className="eyebrow">{target ? "机会证据录入" : "证据审核队列"}</div>
           <h1>{target ? "AI 智能录入" : "AI 证据收件箱"}</h1>
           <p className="muted ai-inbox-subtitle">
             {target
