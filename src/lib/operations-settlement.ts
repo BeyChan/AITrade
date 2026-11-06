@@ -1,9 +1,10 @@
 /**
  * P3.0 导入契约与结算归集（纯函数层）。
  *
- * 只定义「归一化之后」的内部契约与归集规则：不解析任何平台 CSV 列名、不读库、
- * 不建表、不启用阈值。平台列名 → 本契约字段的映射，要等拿到真实结算单和库存
- * 快照后由调用方提供。因此这里的行类型语义仍是暂定的，校准前不得接入导入通道。
+ * 只定义「归一化之后」的内部契约与归集规则：不解析平台 CSV 列名（由
+ * `report-adapters.ts` 承担）、不读库、不建表、不启用阈值。列名映射依据平台公开
+ * 报表规范，但金额与行组合仍须用真实结算单和库存快照核对；校准前不得把本契约
+ * 直接接入 `ingestion_runs` / `evidence_snapshots` 写入通道。
  */
 import {
   CONTRIBUTION_COST_KEYS,
@@ -79,6 +80,8 @@ export type NormalizedInventorySnapshot = {
   reservedUnits?: number;
   inTransitUnits?: number;
   unsellableUnits?: number;
+  /** 同一 SKU 的多个平台标识（ASIN / FNSKU / MSKU），供多对一映射使用。 */
+  externalIds?: Record<string, string>;
 };
 
 function requireText(value: string, field: string): string {

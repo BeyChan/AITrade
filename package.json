@@ -8,7 +8,9 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types src/lib/economics.test.ts src/lib/sourcing.test.ts src/lib/listing.test.ts src/lib/channels.test.ts src/lib/launch-readiness.test.ts src/lib/platform-capabilities.test.ts src/lib/csv.test.ts src/lib/connectors.test.ts src/lib/ingestion.test.ts src/lib/connector-sync.test.ts src/lib/connectors/diagnostics.test.ts src/lib/connection-diagnostics.test.ts src/lib/ai-sourcing.test.ts src/lib/ai-sourcing-repository.test.ts src/lib/app-settings.test.ts src/lib/supplier-discovery.test.ts src/lib/ai-inbox/schema.test.ts src/lib/ai-inbox/validator.test.ts src/lib/ai-inbox/apply.test.ts src/lib/ai-supplier-assistant/schema.test.ts src/lib/ai-supplier-assistant/repository.test.ts src/lib/operations-metrics.test.ts src/lib/operations-settlement.test.ts",
+    "test": "node --test --experimental-strip-types src/lib/economics.test.ts src/lib/sourcing.test.ts src/lib/listing.test.ts src/lib/channels.test.ts src/lib/launch-readiness.test.ts src/lib/platform-capabilities.test.ts src/lib/csv.test.ts src/lib/connectors.test.ts src/lib/ingestion.test.ts src/lib/connector-sync.test.ts src/lib/connectors/diagnostics.test.ts src/lib/connection-diagnostics.test.ts src/lib/ai-sourcing.test.ts src/lib/ai-sourcing-repository.test.ts src/lib/app-settings.test.ts src/lib/supplier-discovery.test.ts src/lib/ai-inbox/schema.test.ts src/lib/ai-inbox/validator.test.ts src/lib/ai-inbox/apply.test.ts src/lib/ai-supplier-assistant/schema.test.ts src/lib/ai-supplier-assistant/repository.test.ts src/lib/operations-metrics.test.ts src/lib/operations-settlement.test.ts src/lib/report-adapters.test.ts src/lib/operations-pipeline.test.ts",
+    "report:dry-run": "node --experimental-strip-types scripts/report-dry-run.ts",
+    "screenshots": "bash scripts/capture-screenshots.sh",
     "db:reset": "node -e \"import('node:fs').then(fs => fs.rmSync('.data/aitrade', { recursive: true, force: true }))\""
   },
   "dependencies": {
