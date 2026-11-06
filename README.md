@@ -1,221 +1,77 @@
 # AITrade
 
-跨境电商运营工作台，覆盖选品假设、证据核验、供应商与成本、商品内容、Listing 草稿和发布前检查。AI 只生成待验证假设和可追溯候选字段，是否通过由证据和确定性规则决定。
+跨境电商运营工作台：选品假设 → 证据核验 → 供应商与成本 → 商品内容 → 发布前检查。AI 只生成待验证假设，结论由证据和确定性规则决定。
 
-```text
-选择国家 × 平台
-→ AI 推荐 5 个候选类目（可选）
-→ 生成 5 个商品机会
-→ 导入或录入竞品、差评、专利、物流与供应商数据
-→ 得出 GO / HOLD / NO-GO
-→ 转商品立项
-→ 完善成本、主图与 Listing
-→ 内容确认与发布前检查
-```
+![选品工作台](docs/assets/aitrade-workspace-sidebar.png)
 
-> 截图对应当前界面。**改动 UI 后请运行 `npm run screenshots` 重拍，并把 `docs/assets/` 的变更随该次提交一起提交**，避免 README 长期落后于实际界面。
+![供应商询价](docs/assets/aitrade-sourcing.png)
 
-![选品工作台首页：今天先处理什么](docs/assets/aitrade-workspace-sidebar.png)
+![内容工作台](docs/assets/aitrade-content-studio.png)
 
-![供应商询价：立项商品与定标进度](docs/assets/aitrade-sourcing.png)
+## 功能
 
-![内容工作台：立项商品的制作状态与进入条件](docs/assets/aitrade-content-studio.png)
+- 首页任务型工作台，按「国家 × 平台」隔离数据。
+- AI 推荐类目与商品机会，附验证任务和找货线索。
+- 证据收件箱（文本 / CSV / JSON / Markdown）与供应商 RFQ 草稿，均需人工审核，不对外发送。
+- 确定性门禁给出 GO / HOLD / NO-GO；到岸成本、净利率、压力利润由代码计算，不交给模型。
+- 候选品、供应商、报价支持 CSV 或人工录入，保留来源与原始快照。
+- Listing 草稿、多站点版本、本地发布预检；导入与决策全量留痕。
 
-## 主要功能
-
-- 首页是任务型工作台：首屏先显示“今天先处理什么”、当前研究、待补证据、待录入报价、待对比定标和待制作内容；完整新建研究表单按需展开，模型配置降为底部状态。右上角可分别切换国家和平台，所有业务数据按当前站点隔离。
-- 选品批次详情默认只展开最值得处理的一个机会，其余 4 个方向以紧凑摘要展示排名、结论、证据完整度和机会分；跳到价格、报价等锚点时会自动展开对应方向。
-- 侧边栏按实际业务流程组织，不固定入口数量：选品、供应商询价、内容与上架、数据导入，连接中心和系统设置放在底部工具区；仅在存在真实二级页面时按需挂载子入口，不增加“业务工作台 / 系统”等伪一级目录。
-- 可按当前国家 × 平台生成 5 个候选类目；点击只回填类目，不自动提交研究。
-- AI 研究按当前站点生成 5 个不重复机会，并给出验证任务和找货线索；生成期间按钮进入禁用的 pending 状态，页面请求使用幂等键，重复点击或网络重试会复用同一批次。
-- `/ai-sourcing` 按创建时间倒序完整展示所有国家 × 平台的 research batches，不合并重复记录，支持二次确认后删除。
-- 删除研究批次会级联移除候选假设、研究证据、供应商短名单和报价；已经转入商品立项的商品及后续数据不受影响，删除动作写入审计日志。
-- 候选品、供应商、报价支持 CSV 或人工录入，保留来源、观察时间和原始快照。
-- 选品详情支持按售价和目标净利率反推最高到岸成本，并列出仍需核验的供应商、运费、平台费和汇率数据；缺真实报价时不会给出 GO。
-- 确定性计算到岸成本、净利率、压力利润、现金占用和 GO / HOLD / NO-GO。
-- 支持商品定义、主图检查、Listing 草稿、多国家多平台版本和本地预检。
-- Amazon、Shopify、eBay 可做只读连接检查；TikTok Shop 与 1688 尚未接入。
-- 模型支持本地模板、Ollama 和 OpenAI 兼容接口，可在 `/settings` 页面配置。
-- AI 智能录入作为机会验证的上下文工具，不再占用主导航：从机会卡片进入后自动预选当前机会并只显示该机会的任务；`/ai-inbox` 仍可作为全量审核队列直接访问。支持文本、CSV、JSON 和 Markdown，人工审核后事务写入，并重新运行确定性门禁。
-- AI 供应商助手在已加入验证的机会详情内，根据已录入的供应商、报价和商品事实生成 RFQ、缺失信息追问、报价到期提醒三类内部草稿；支持复制和标记已审阅，不会发送。
-- 导入、决策、内容确认和连接检查均写入本地运行记录与审计日志。
+完整能力、数据模型与路线见 [当前方案](docs/current-plan.md)；AI 模块实现见 `src/lib/ai-inbox/`、`src/lib/ai-supplier-assistant/`。
 
 ## 快速开始
 
-要求 Node.js 20.9+。当前使用本机 Node 直接运行，不需要 Docker；Docker 方案暂缓，后续再评估。
+Node.js 20.9+，本机直接运行，无需 Docker。
 
 ```bash
 npm install
 npm run dev
 ```
 
-打开 <http://localhost:3000>。数据库和页面保存的 API Key 默认保存在当前工作目录的 `.data`；首次启动会写入演示数据。`/settings` 的“本机运行位置”会直接显示当前工作目录、数据库目录和 Key 文件路径。切换项目目录或 Git worktree 会使用另一套 `.data`，不会自动继承之前保存的 Key。
-
-生产方式：
-
-```bash
-npm run build
-npm start
-```
+打开 <http://localhost:3000>。数据默认写入当前目录 `.data/`，首次启动生成演示数据。生产构建：`npm run build && npm start`。
 
 ## 数据接入
 
-进入 `/data-sources` 导入 CSV：
+在 `/data-sources` 导入 CSV，不需要 API Key：
 
-| 数据类型 | 模板 | 说明 |
-|---|---|---|
-| 候选品 | `public/candidates-template-v2.csv` | 平台后台、ERP 或人工整理的选品数据 |
-| 供应商 | `public/suppliers-template.csv` | 1688、Alibaba 或供应商表格整理出的档案 |
-| 报价 | `public/quotes-template.csv` | 关联已立项商品的采购、运费、关税等信息 |
+| 数据 | 模板 |
+|---|---|
+| 候选品 | `public/candidates-template-v2.csv` |
+| 供应商 | `public/suppliers-template.csv` |
+| 报价 | `public/quotes-template.csv` |
 
-CSV 不需要 API Key。每条记录会保留 `source_code`、`observed_at`、原始快照和导入运行记录；重复数据按商品、供应商或报价身份去重。
-
-系统不会自动抓取平台销量、评论或供应商信息，也不会自动联系供应商、下单、付款或发布。缺少的数据会显示为待补证据，不会由 AI 补全。
+系统不自动抓取平台数据、不联系供应商、不发布；缺失数据只显示为待补证据。
 
 ## AI 模型
 
-默认使用本地模板，无需 API Key。需要生成更具体的选品假设时，可在 `/settings` 选择：
+默认本地模板，无需 Key。`/settings` 可切换 Ollama 或 OpenAI 兼容接口，请求失败自动回退模板；API Key 不回显到页面。环境变量示例见 [.env.example](.env.example)。
 
-- 本地 Ollama；
-- OpenAI 兼容接口，例如 OpenAI、DeepSeek 或自建服务。
+## 边界
 
-服务商、Base URL 与模型名称必须匹配。OpenAI 通常填写 `https://api.openai.com/v1`，DeepSeek 填写 `https://api.deepseek.com/v1`。设置页可先测试连接再保存；测试不会保存表单，API Key 留空保存会保留已有 Key。
-
-配置优先级为“页面设置 → 环境变量 → 默认模板”。模型请求失败时自动回退模板。环境变量示例见 [.env.example](.env.example)。
-
-AI 类目推荐接口为 `POST /api/ai/category-recommendations`，请求体包含 `marketCode` 和 `platformCode`。服务端会重新校验国家与平台，并要求返回 5 个不同类目；推荐只表示待核验方向，不代表销量、竞争度或利润结论。
-
-## P2.0 AI 智能录入（证据收件箱，已实现）
-
-在机会验证页点击“AI 智能录入”进入 `/ai-inbox?targetHypothesisId=...`，系统会自动预选当前机会并只展示该机会的任务；也可直接访问 `/ai-inbox` 查看全量审核队列。先把目标机会加入验证，再粘贴或上传文本证据。当前支持文本、CSV、JSON 和 Markdown；单个文件不超过 300 KB。系统会创建一条持久化任务，按固定 Schema 提取竞品、供应商报价或评论证据字段，并保留原文位置、置信度、冲突候选和模型调用记录。
-
-处理流程：
-
-```text
-选择目标机会并提交证据
-→ 保存原始 artifact
-→ 确定性解析；配置模型时由模型补充结构化提取
-→ Schema、币种、范围、来源定位与冲突校验
-→ needs_review 人工接受 / 修正 / 拒绝，或 ready 直接应用
-→ 事务写入竞品快照、供应商短名单与报价、评论证据
-→ 重新计算确定性 GO / HOLD / NO-GO
-→ 返回当前机会验证页并显示门禁结果
-```
-
-任务状态只有 `queued | running | needs_review | ready | applied | failed`。字段状态为 `extracted | auto_accepted | needs_review | accepted | rejected | missing`。敏感字段（供应商主体、联系方式、认证/合规、专利风险、评论摘要）永不自动接受；无来源、来源无法定位、冲突或币种不一致都会阻止应用。
-
-当前边界：
-
-- **不支持图片、截图或 PDF OCR**；这些文件需要先转成文本，OCR/视觉提取属于后续能力。
-- 不自动联系或发送消息给供应商，不定标、不采购、不付款、不改价、不发布。
-- AI 不决定最终业务结论；自动接受只是候选事实通过规则校验，GO / HOLD / NO-GO 仍由确定性门禁计算。
-- 团队协作、登录、角色权限和多租户尚未实现。
-
-## P2.1 AI 供应商助手（内部草稿，已实现）
-
-在 `/ai-sourcing/[runId]` 的“已加入验证”机会中，选择供应商和草稿类型后生成内部沟通草稿。当前支持：
-
-- **RFQ 询价草稿**：根据商品方向生成需要向供应商确认的规格、数量、价格口径、认证、样品、交期和付款条款问题。
-- **缺失信息追问**：只针对已录入供应商生成追问；如果已存在报价，会结合报价字段识别仍缺失的信息。
-- **报价到期提醒**：必须先有该供应商的真实报价，并由人填写今天或未来的内部提醒日期；该日期不代表供应商确认的报价有效期。
-
-生成流程：
-
-```text
-已录入商品事实 / 供应商 / 报价
-→ 确定性模板生成主题、开场和完整问题列表
-→ 可选模型仅润色主题与开场
-→ 模型输出 JSON、越权表述、Markdown 和新增数字校验
-→ 校验失败自动回退确定性模板
-→ 缺失问题始终由确定性代码追加
-→ 保存为 draft，人工复制后标记 reviewed
-```
-
-当前边界：
-
-- 草稿只保存在 `ai_supplier_drafts`，状态只有 `draft | reviewed`，用于内部复核和复制。
-- **没有发送入口，不调用邮件或 IM，不产生 `sent_at`**；系统审计固定记录 `externalActions: "none"`、`sent: false`。
-- AI 不得新增供应商事实、价格、MOQ、交期、认证或有效期；模型只能改写主题和开场。
-- 仍**不支持报价单截图/PDF 解析、邮件/IM 自动归档和供应商回复解析**。
-- 真实供应商场景的效率和可用性验收尚未完成。
-
-后续阶段仍按“单编排器 + 专用 Skill”推进，而不是多个 Agent 自由协商：
-
-- **P2.2 AI Listing 操作员**：基于已确认商品事实生成多语言草稿、平台 payload 草稿并做类目字段检查；发布仍走现有门禁。
-- **P2.3 AI 运营分析员**：导入结算、广告、库存和退货报表，发现亏损 SKU、广告浪费和库存风险，生成待审批行动卡片。
-
-P2.1 的第二阶段再评估报价单 OCR/PDF、邮件/IM 归档和供应商回复解析；即使未来增加外部发送，也必须先完成人工批准、幂等和真实回执设计。
-
-所有 AI 输出先进入暂存表，经 Schema、来源定位、冲突检测和人工审核后才能写业务表。确定性的利润计算、GO / HOLD / NO-GO 和发布准备门禁不会交给模型。
-
-当前已落地能力、完整经营闭环、数据模型、安全边界和后续路线统一见 [当前方案](docs/current-plan.md)。
-
-## 规则与边界
-
-- 所有市场事实、供应商和成本数据都必须有外部来源或人工录入记录。
-- 成本模型不盈利、压力情景不通过或证据不足时，不会输出 GO。
-- 专利风险确认存在时直接 NO-GO。
-- 所有平台当前只支持本地内容检查和发布准备状态，不支持真实平台 dry-run、写入或发布。
-- 项目是本地可运行原型，不包含登录、角色权限和多租户。
-- 演示商品仅用于验证系统流程，不代表真实市场结论。
+- 平台连接只读，不支持真实写入或发布。
+- 本地原型，无登录、角色权限与多租户；演示商品不代表真实市场结论。
+- P3.0 经营报表计算层是纯函数试算，尚未接入真实结算单与库存快照。
 
 ## 常用命令
 
 ```bash
-npm run typecheck  # TypeScript 检查
-npm test           # 单元测试
-npm run build      # 生产构建
-npm run db:reset   # 清空本地数据库
-npm run report:dry-run -- --help   # 报表计算管线试算（不写库）
-npm run screenshots   # 重拍 README 截图（需先启动 npm run dev）
+npm run typecheck   # 类型检查
+npm test            # 单元测试
+npm run build       # 生产构建
+npm run db:reset    # 清空本地数据库
+npm run report:dry-run -- --help   # 报表试算（只读、不写库）
+npm run screenshots # 改 UI 后重拍截图，图片随提交一起更新
 ```
 
-`npm run screenshots` 用本机无头 Chrome 对三个稳定路由（`/`、`/sourcing`、`/content`）重拍 `docs/assets/` 的三张图，脚本见 `scripts/capture-screenshots.sh`，可用 `BASE_URL` / `OUT_DIR` / `CHROME` / `WIDTH` / `HEIGHT` 覆盖。`next.config.ts` 已关闭开发指示器，截图里不会带上 dev 角标。
-
-P3.0 计算管线可以脱离数据库试算平台导出报表：
-
-```bash
-npm run report:dry-run -- --settlement <结算 TSV> --inventory <库存 TSV> \
-  --config <口径 JSON> --out <结果 JSON>
-```
-
-口径参数（本位币、汇率、站点时区、成本模型版本、观察窗口、最小分母等）必须在 config 中显式给出；脚本不内置阈值、不写库、不建表、不生成行动建议，未知行进入待处理队列并输出警告。列名依据平台公开报表规范，**仍需按 [当前方案](docs/current-plan.md) 7.4 用一份真实导出核对**；合成样例见 `src/lib/operations-pipeline.test.ts`。
-
-代码图谱是可选的开发辅助，产物 `graphify-out/` 已加入 `.gitignore`：
-
-```bash
-graphify extract . --code-only       # 全量 AST 建图，不调用模型
-graphify cluster-only . --no-label   # 生成 GRAPH_REPORT.md 与 graph.html
-```
-
-当前版本不要用 `graphify update .`：项目没有基线时会失败，已有 `graphify-out/` 时也会报 `EEXIST`。代码改动后重跑上面两条即可。
+报表试算的口径参数由 `--config` 显式给出，不内置阈值；列名依据平台公开规范，仍需用真实导出核对，见 [当前方案](docs/current-plan.md) 7.4。代码图谱重建用 `graphify extract . --code-only` 与 `graphify cluster-only . --no-label`，不要用 `graphify update .`。
 
 ## 项目结构
 
 ```text
-src/app/                 页面、Server Actions 与 API
-src/app/ai-inbox/         AI 证据任务列表与字段审核页
-src/app/ai-sourcing/     AI 选品批次与验证
-src/app/api/ai/          AI 类目推荐接口
-src/app/api/ai-inbox/    AI 证据任务、字段审核、重试与应用接口
-src/app/data-sources/    CSV 与人工数据导入
-src/app/connections/     平台只读连接检查
-src/components/          AI 类目推荐等交互组件
-src/lib/ai-inbox/        AI 证据 Schema、提取、校验、事务应用与执行器
-src/lib/ai-supplier-assistant/  供应商草稿 Schema、确定性模板、模型润色与持久化
-src/lib/ai-provider.ts   模型调用与模板回退
-src/lib/ai-sourcing.ts   假设校验与确定性门禁
-src/lib/ingestion.ts     导入、去重、快照与运行记录
-src/lib/economics.ts     单位经济计算
-src/lib/operations-metrics.ts    经营口径确定性计算（纯函数）
-src/lib/operations-settlement.ts  报表导入契约校验与结算行归集（纯函数）
-src/lib/report-adapters.ts        平台报表列名与解析归一化（公开规范，待真实导出核对）
-src/lib/operations-pipeline.ts    报表 → 归集 → 预测对齐 → 库存天数的纯计算管线
-scripts/report-dry-run.ts        报表试算 CLI（只读文件、输出 JSON，不写库）
-scripts/capture-screenshots.sh   用无头 Chrome 重拍 README 截图
-src/lib/listing.ts       Listing 预检
-src/lib/channels.ts      国家与平台字段映射
-db/schema.sql            PostgreSQL 兼容表结构
+src/app/        页面、Server Actions 与 API
+src/lib/        确定性计算、导入、AI 提取与报表管线
+scripts/        报表试算 CLI 与截图脚本
+db/schema.sql   表结构
 ```
 
 更多细节见 [当前方案](docs/current-plan.md)。
