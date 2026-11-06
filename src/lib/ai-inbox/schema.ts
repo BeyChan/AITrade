@@ -1,12 +1,29 @@
+/**
+ * 证据收件箱的领域配置：文档类型、字段清单、类型识别与模型输出解析。
+ * 通用的提案契约、归一化与校验规则在 ../ai-proposals/contract.ts，
+ * 这里只保留本场景特有的定义；原有导出名保持不变，调用方无需改动。
+ */
+import {
+  parseProposalFields,
+  parseStructuredObject,
+  type ProposalField,
+  type ProposalValue,
+  type ValueRule,
+} from "../ai-proposals/contract.ts";
+
+export {
+  clampConfidence,
+  normalizeCurrency,
+  locateSource as sourceLocator,
+  normalizeByRule as normalizeFieldValue,
+  validateStoredByRule as validateNormalizedFieldValue,
+} from "../ai-proposals/contract.ts";
+
 export type EvidenceDocumentType = "competitor" | "supplier_quote" | "review_insight" | "unknown";
 
-export type NormalizedFieldValue = string | number | boolean | null;
-
-export type RawExtractedField = {
-  value: NormalizedFieldValue;
-  confidence: number;
-  sourceQuote: string;
-};
+export type NormalizedFieldValue = ProposalValue;
+export type RawExtractedField = ProposalField;
+export type NumericRule = ValueRule;
 
 export type EvidenceExtraction = {
   documentType: EvidenceDocumentType;
@@ -14,8 +31,6 @@ export type EvidenceExtraction = {
   notes: string;
   warnings: string[];
 };
-
-export type NumericRule = "money_cents" | "rating" | "integer" | "percent" | "url" | "datetime" | "currency" | "text";
 
 export type FieldDefinition = {
   name: string;
@@ -124,31 +139,15 @@ export function parseModelExtraction(
   content: string,
   fallbackDocumentType: EvidenceDocumentType,
 ): EvidenceExtraction {
-  const parsed = parseJsonObject(content);
+  const parsed = parseStructuredObject(content);
   const requestedType = String(parsed.documentType ?? "").trim().toLowerCase().replaceAll("-", "_");
   const documentType: EvidenceDocumentType = requestedType === "competitor" || requestedType === "supplier_quote" || requestedType === "review_insight"
     ? requestedType
     : fallbackDocumentType;
   const definitions = getFieldDefinitions(documentType);
   const sourceFields = isRecord(parsed.fields) ? parsed.fields : {};
-  const fields: Record<string, RawExtractedField> = {};
-  const warnings: string[] = [];
-
-  for (const definition of definitions) {
-    const raw = sourceFields[definition.name];
-    if (!isRecord(raw)) continue;
-    const sourceQuote = typeof raw.sourceQuote === "string" ? raw.sourceQuote.trim().slice(0, 1000) : "";
-    fields[definition.name] = {
-      value: scalarValue(raw.value),
-      confidence: clampConfidence(raw.confidence),
-      sourceQuote,
-    };
-  }
-
-  const known = new Set(definitions.map((field) => field.name));
-  for (const name of Object.keys(sourceFields)) {
-    if (!known.has(name)) warnings.push(`模型返回了未定义字段 ${name}，已忽略`);
-  }
+  const { fields, unknownFields } = parseProposalFields(sourceFields, definitions);
+  const warnings = unknownFields.map((name) => `模型返回了未定义字段 ${name}，已忽略`);
   if (documentType === "unknown") warnings.push("模型未能确认证据类型，需要人工选择或补充表头");
 
   return {
@@ -157,202 +156,6 @@ export function parseModelExtraction(
     notes: typeof parsed.notes === "string" ? parsed.notes.trim().slice(0, 500) : "",
     warnings,
   };
-}
-
-export function normalizeFieldValue(
-  definition: FieldDefinition,
-  value: NormalizedFieldValue,
-): { value: NormalizedFieldValue; error: string } {
-  if (value === null || value === undefined || String(value).trim() === "") {
-    return { value: null, error: definition.required ? "缺少必填字段" : "" };
-  }
-  const text = String(value).trim();
-
-  if (definition.rule === "text") {
-    const normalized = text.replace(/\s+/g, " ");
-    if (definition.maxLength && normalized.length > definition.maxLength) {
-      return { value: null, error: `超过 ${definition.maxLength} 个字符` };
-    }
-    return { value: normalized, error: "" };
-  }
-
-  if (definition.rule === "url") {
-    const normalized = normalizeUrl(text);
-    return normalized
-      ? { value: normalized, error: "" }
-      : { value: null, error: "不是有效的 http/https URL" };
-  }
-
-  if (definition.rule === "datetime") {
-    const timestamp = Date.parse(text);
-    return Number.isFinite(timestamp)
-      ? { value: new Date(timestamp).toISOString(), error: "" }
-      : { value: null, error: "不是有效日期时间" };
-  }
-
-  if (definition.rule === "currency") {
-    const currency = normalizeCurrency(text);
-    return currency ? { value: currency, error: "" } : { value: null, error: "需要 3 位 ISO 币种代码" };
-  }
-
-  const numericText = text.replace(/[,$，\s]/g, "").replace(/^[$¥￥€£]/, "");
-  if (/\d\s*[-~至]\s*\d/.test(text)) {
-    return { value: null, error: "字段是区间或多个值，请人工拆分后再确认" };
-  }
-  const numeric = Number(numericText.replace(/%$/, ""));
-  if (!Number.isFinite(numeric)) return { value: null, error: "不是有效数字" };
-
-  if (definition.rule === "money_cents") {
-    if (numeric < 0 || (!definition.allowZero && numeric === 0)) return { value: null, error: "金额必须大于 0" };
-    return { value: Math.round(numeric * 100), error: "" };
-  }
-  if (definition.rule === "rating") {
-    if (numeric < 0 || numeric > 5) return { value: null, error: "评分必须在 0 到 5 之间" };
-    return { value: Math.round(numeric * 100) / 100, error: "" };
-  }
-  if (definition.rule === "integer") {
-    if (!Number.isInteger(numeric) || numeric < 0 || (!definition.allowZero && numeric === 0)) {
-      return { value: null, error: "需要大于 0 的整数" };
-    }
-    return { value: numeric, error: "" };
-  }
-  if (definition.rule === "percent") {
-    const rate = text.includes("%") || numeric > 1 ? numeric / 100 : numeric;
-    if (rate < 0 || rate > 1) return { value: null, error: "比例必须在 0 到 1 之间" };
-    return { value: rate, error: "" };
-  }
-  return { value: null, error: "未知字段类型" };
-}
-
-/**
- * Validates a value that is already stored in canonical form. Unlike
- * normalizeFieldValue, this must never scale monetary values again.
- */
-export function validateNormalizedFieldValue(
-  definition: FieldDefinition,
-  value: NormalizedFieldValue,
-): { value: NormalizedFieldValue; error: string } {
-  if (value === null || value === undefined || String(value).trim() === "") {
-    return { value: null, error: definition.required ? "缺少必填字段" : "" };
-  }
-
-  if (definition.rule === "text") {
-    if (typeof value !== "string") return { value: null, error: "字段需要文本值" };
-    const text = value.trim().replace(/\s+/g, " ");
-    if (!text && definition.required) return { value: null, error: "缺少必填字段" };
-    if (definition.maxLength && text.length > definition.maxLength) {
-      return { value: null, error: `超过 ${definition.maxLength} 个字符` };
-    }
-    return { value: text, error: "" };
-  }
-
-  if (definition.rule === "url") {
-    if (typeof value !== "string") return { value: null, error: "不是有效的 http/https URL" };
-    try {
-      const url = new URL(value);
-      if (url.protocol !== "http:" && url.protocol !== "https:") {
-        return { value: null, error: "不是有效的 http/https URL" };
-      }
-      if (url.username || url.password) return { value: null, error: "URL 不能包含内嵌凭证" };
-      return { value: url.toString(), error: "" };
-    } catch {
-      return { value: null, error: "不是有效的 http/https URL" };
-    }
-  }
-
-  if (definition.rule === "datetime") {
-    if (typeof value !== "string") return { value: null, error: "不是有效日期时间" };
-    const timestamp = Date.parse(value);
-    return Number.isFinite(timestamp)
-      ? { value: new Date(timestamp).toISOString(), error: "" }
-      : { value: null, error: "不是有效日期时间" };
-  }
-
-  if (definition.rule === "currency") {
-    if (typeof value !== "string") return { value: null, error: "需要 3 位 ISO 币种代码" };
-    const currency = normalizeCurrency(value);
-    return currency ? { value: currency, error: "" } : { value: null, error: "需要 3 位 ISO 币种代码" };
-  }
-
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return { value: null, error: "不是有效数字" };
-  }
-  if (definition.rule === "money_cents") {
-    if (!Number.isInteger(value) || value < 0 || (!definition.allowZero && value === 0)) {
-      return { value: null, error: "金额必须是最小货币单位整数且大于 0" };
-    }
-    return { value, error: "" };
-  }
-  if (definition.rule === "rating") {
-    if (value < 0 || value > 5) return { value: null, error: "评分必须在 0 到 5 之间" };
-    return { value, error: "" };
-  }
-  if (definition.rule === "integer") {
-    if (!Number.isInteger(value) || value < 0 || (!definition.allowZero && value === 0)) {
-      return { value: null, error: "需要大于 0 的整数" };
-    }
-    return { value, error: "" };
-  }
-  if (definition.rule === "percent") {
-    if (value < 0 || value > 1) return { value: null, error: "比例必须在 0 到 1 之间" };
-    return { value, error: "" };
-  }
-  return { value: null, error: "未知字段类型" };
-}
-
-export function sourceLocator(content: string, excerpt: string) {
-  if (!excerpt.trim()) return { matched: false, start: -1, end: -1 };
-  const directStart = content.indexOf(excerpt);
-  if (directStart >= 0) return { matched: true, start: directStart, end: directStart + excerpt.length };
-  const collapsedContent = content.replace(/\s+/g, " ");
-  const collapsedExcerpt = excerpt.replace(/\s+/g, " ");
-  const collapsedStart = collapsedContent.indexOf(collapsedExcerpt);
-  return collapsedStart >= 0
-    ? { matched: true, start: collapsedStart, end: collapsedStart + collapsedExcerpt.length, collapsedWhitespace: true }
-    : { matched: false, start: -1, end: -1 };
-}
-
-export function normalizeCurrency(value: string) {
-  const normalized = value.trim().toUpperCase();
-  if (normalized === "RMB") return "CNY";
-  return /^[A-Z]{3}$/.test(normalized) ? normalized : "";
-}
-
-export function clampConfidence(value: unknown) {
-  const number = Number(value);
-  return Number.isFinite(number) ? Math.min(1, Math.max(0, number)) : 0;
-}
-
-function normalizeUrl(value: string) {
-  try {
-    const url = new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return "";
-    if (url.username || url.password) return "";
-    return url.toString();
-  } catch {
-    return "";
-  }
-}
-
-function scalarValue(value: unknown): NormalizedFieldValue {
-  return typeof value === "string" || typeof value === "number" || typeof value === "boolean" ? value : null;
-}
-
-function parseJsonObject(content: string): Record<string, unknown> {
-  const trimmed = content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-  try {
-    const parsed = JSON.parse(trimmed) as unknown;
-    if (!isRecord(parsed)) throw new Error("not an object");
-    return parsed;
-  } catch {
-    const start = trimmed.indexOf("{");
-    const end = trimmed.lastIndexOf("}");
-    if (start >= 0 && end > start) {
-      const parsed = JSON.parse(trimmed.slice(start, end + 1)) as unknown;
-      if (isRecord(parsed)) return parsed;
-    }
-    throw new Error("模型输出不是有效 JSON 对象");
-  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

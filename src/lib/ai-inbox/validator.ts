@@ -10,16 +10,18 @@ import {
   type RawExtractedField,
   type FieldDefinition,
 } from "./schema.ts";
+import {
+  MIN_AUTO_ACCEPT_CONFIDENCE,
+  isAcceptedProposalStatus,
+  isPendingProposalStatus,
+  isRejectedProposalStatus,
+  type ProposalRisk,
+  type ProposalStatus,
+} from "../ai-proposals/contract.ts";
 
-export type AiFieldStatus =
-  | "extracted"
-  | "auto_accepted"
-  | "needs_review"
-  | "accepted"
-  | "rejected"
-  | "missing";
-
-export type AiFieldRiskLevel = "normal" | "sensitive";
+/** 证据字段复用通用提案状态；业务专属部分只在 ValidatedField 上扩展。 */
+export type AiFieldStatus = ProposalStatus;
+export type AiFieldRiskLevel = ProposalRisk;
 
 export type FieldCandidate = {
   fieldName: string;
@@ -67,8 +69,6 @@ export type ValidateExtractionInput = {
   targetCurrency?: string;
   warnings?: string[];
 };
-
-const MIN_AUTO_ACCEPT_CONFIDENCE = 0.9;
 
 export function extractionFieldsToCandidates(
   extraction: Pick<EvidenceExtraction, "fields">,
@@ -241,15 +241,11 @@ export function validateStoredField(
 
 export function canApplyValidatedFields(fields: ValidatedField[]) {
   const required = fields.filter((field) => field.definition.required);
-  const requiredReady = required.every(
-    (field) => field.status === "auto_accepted" || field.status === "accepted",
-  );
-  const rejectedRequired = required.some((field) => field.status === "rejected" || field.status === "missing");
-  const pendingOptional = fields.some(
-    (field) => field.status === "needs_review" || field.status === "extracted" || field.status === "missing",
-  );
+  const requiredReady = required.every((field) => isAcceptedProposalStatus(field.status));
+  const rejectedRequired = required.some((field) => isRejectedProposalStatus(field.status));
+  const pendingOptional = fields.some((field) => isPendingProposalStatus(field.status));
   const invalidAccepted = fields.some(
-    (field) => (field.status === "auto_accepted" || field.status === "accepted")
+    (field) => isAcceptedProposalStatus(field.status)
       && (!field.locator.matched || field.validationMessage.includes("币种")),
   );
   return requiredReady && !rejectedRequired && !pendingOptional && !invalidAccepted;
