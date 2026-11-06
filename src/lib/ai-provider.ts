@@ -165,7 +165,7 @@ export async function testAIProviderConnection(input: AIProviderTestInput): Prom
       }),
       signal: AbortSignal.timeout(20_000),
     });
-    if (!response.ok) throw new Error(`Ollama 连接失败：HTTP ${response.status}`);
+    if (!response.ok) throw await httpFailure("Ollama 连接失败", response);
   } else {
     const response = await fetch(openAIChatEndpoint(baseUrl), {
       method: "POST",
@@ -182,7 +182,7 @@ export async function testAIProviderConnection(input: AIProviderTestInput): Prom
       }),
       signal: AbortSignal.timeout(20_000),
     });
-    if (!response.ok) throw new Error(`模型接口连接失败：HTTP ${response.status}`);
+    if (!response.ok) throw await httpFailure("模型接口连接失败", response);
   }
 
   return {
@@ -224,7 +224,7 @@ export async function generateStructuredJSON(
       }),
       signal: AbortSignal.timeout(input.timeoutMs ?? 60_000),
     });
-    if (!response.ok) throw new Error(`Ollama 请求失败：HTTP ${response.status}`);
+    if (!response.ok) throw await httpFailure("Ollama 请求失败", response);
     const payload = await response.json() as { message?: { content?: string } };
     if (!payload.message?.content) throw new Error("Ollama 未返回结构化内容");
     return {
@@ -253,7 +253,7 @@ export async function generateStructuredJSON(
     }),
     signal: AbortSignal.timeout(input.timeoutMs ?? 60_000),
   });
-  if (!response.ok) throw new Error(`AI 接口请求失败：HTTP ${response.status}`);
+  if (!response.ok) throw await httpFailure("AI 接口请求失败", response);
   const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
   const content = payload.choices?.[0]?.message?.content;
   if (!content) throw new Error("AI 接口未返回结构化内容");
@@ -377,7 +377,7 @@ async function generateCategoryWithOllama(
     }),
     signal: AbortSignal.timeout(45_000),
   });
-  if (!response.ok) throw new Error(`Ollama 请求失败：HTTP ${response.status}`);
+  if (!response.ok) throw await httpFailure("Ollama 请求失败", response);
   const payload = await response.json() as { message?: { content?: string } };
   const content = payload.message?.content;
   if (!content) throw new Error("Ollama 未返回类目推荐内容");
@@ -406,7 +406,7 @@ async function generateCategoryWithOpenAICompatible(
     }),
     signal: AbortSignal.timeout(45_000),
   });
-  if (!response.ok) throw new Error(`AI 接口请求失败：HTTP ${response.status}`);
+  if (!response.ok) throw await httpFailure("AI 接口请求失败", response);
   const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
   const content = payload.choices?.[0]?.message?.content;
   if (!content) throw new Error("AI 接口未返回类目推荐内容");
@@ -458,7 +458,7 @@ async function generateWithOllama(input: HypothesisGenerationInput, config: AIPr
     }),
     signal: AbortSignal.timeout(60_000),
   });
-  if (!response.ok) throw new Error(`Ollama 请求失败：HTTP ${response.status}`);
+  if (!response.ok) throw await httpFailure("Ollama 请求失败", response);
   const payload = await response.json() as { message?: { content?: string } };
   const content = payload.message?.content;
   if (!content) throw new Error("Ollama 未返回结构化内容");
@@ -487,7 +487,7 @@ async function generateWithOpenAICompatible(
     }),
     signal: AbortSignal.timeout(60_000),
   });
-  if (!response.ok) throw new Error(`AI 接口请求失败：HTTP ${response.status}`);
+  if (!response.ok) throw await httpFailure("AI 接口请求失败", response);
   const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
   const content = payload.choices?.[0]?.message?.content;
   if (!content) throw new Error("AI 接口未返回结构化内容");
@@ -580,7 +580,39 @@ function maskApiKey(value: string) {
   return `••••${tail}`;
 }
 
+/**
+ * A bare "HTTP 400" hides the real reason (invalid model id, unsupported
+ * parameter, quota/auth problem...). Surface the provider's own message so the
+ * settings page can show something actionable, without leaking credentials.
+ */
+async function httpFailure(label: string, response: Response): Promise<Error> {
+  let detail = "";
+  try {
+    const raw = (await response.text()).trim();
+    if (raw) {
+      try {
+        const payload = JSON.parse(raw) as { error?: { message?: string } | string; message?: string };
+        const fromError = typeof payload.error === "string" ? payload.error : payload.error?.message;
+        detail = fromError || payload.message || raw;
+      } catch {
+        detail = raw;
+      }
+    }
+  } catch {
+    // Body unavailable (e.g. reset connection): fall back to the status code.
+  }
+  const safe = redactProviderError(detail).replace(/\s+/g, " ").slice(0, 240);
+  return new Error(safe ? `${label}：HTTP ${response.status}（${safe}）` : `${label}：HTTP ${response.status}`);
+}
+
+function redactProviderError(value: string) {
+  return value
+    .replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]")
+    .replace(/\bsk-[A-Za-z0-9_-]{8,}/gi, "[REDACTED]")
+    .replace(/api[_-]?key\s*[=:]\s*\S+/gi, "api_key=[REDACTED]");
+}
+
 function safeProviderError(error: unknown) {
   const message = error instanceof Error ? error.message : "未知错误";
-  return message.replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]").slice(0, 300);
+  return redactProviderError(message).slice(0, 300);
 }

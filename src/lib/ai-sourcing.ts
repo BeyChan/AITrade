@@ -1,4 +1,5 @@
 import { calculateEconomics } from "./economics.ts";
+import type { CompetitorCoverage } from "./competitor-insights.ts";
 
 export type AISourcingContext = {
   marketCode: string;
@@ -110,6 +111,7 @@ export type DecisionEvaluation = {
   firstOrderCashCents: number | null;
   firstOrderCashUsdCents: number | null;
   metrics: Record<string, unknown>;
+  coverage?: CompetitorCoverage;
 };
 
 export const DEFAULT_SOURCING_THRESHOLDS = {

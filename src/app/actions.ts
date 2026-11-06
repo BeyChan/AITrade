@@ -292,8 +292,9 @@ export async function recordCompetitorAction(formData: FormData) {
 
 export async function confirmHypothesisPriceAction(formData: FormData) {
   const runId = String(formData.get("runId") || "");
+  let outcome: Awaited<ReturnType<typeof confirmHypothesisPrice>>;
   try {
-    await confirmHypothesisPrice({
+    outcome = await confirmHypothesisPrice({
       hypothesisId: String(formData.get("hypothesisId") || ""),
       priceCents: dollarsToCents(formData.get("price")),
       sourceUrl: String(formData.get("sourceUrl") || ""),
@@ -303,7 +304,10 @@ export async function confirmHypothesisPriceAction(formData: FormData) {
     redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
   }
   revalidateAISourcing(runId);
-  redirect(aiSourcingDetailPath(runId, "notice", "已确认售价已记录并重新计算门禁"));
+  const message = outcome.priceAdvisory
+    ? `已确认售价已记录并重新计算门禁；提示：${outcome.priceAdvisory}`
+    : "已确认售价已记录并重新计算门禁";
+  redirect(aiSourcingDetailPath(runId, "notice", message));
 }
 
 export async function recordAISupplierQuoteAction(formData: FormData) {

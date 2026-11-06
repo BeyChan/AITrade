@@ -338,14 +338,21 @@ function HypothesisCard({
     <div className="notice warn ai-tab-notice">
       <div>
         <strong>这个方向还没加入验证</strong>
-        <span>先到「找供应商」确认负责人，系统才会开放证据、报价和门禁录入。</span>
+        <span>确认负责人后，系统立即开放当前方向的证据、竞品、报价和门禁录入。</span>
       </div>
-      <Link
-        className="button secondary"
-        href={`/ai-sourcing/${encodeURIComponent(batch.id)}?tab=suppliers&hypothesisId=${encodeURIComponent(hypothesis.id)}#hypothesis-${encodeURIComponent(hypothesis.id)}`}
-      >
-        去开始 →
-      </Link>
+      <form action={selectHypothesisAction} className="button-row">
+        <input type="hidden" name="runId" value={batch.id} />
+        <input type="hidden" name="hypothesisId" value={hypothesis.id} />
+        <input
+          name="actor"
+          aria-label="加入验证负责人"
+          placeholder="负责人"
+          defaultValue="运营人员"
+          maxLength={80}
+          required
+        />
+        <button type="submit" className="button primary">加入验证并开始</button>
+      </form>
     </div>
   );
   const supplierByShortlistId = new Map(hypothesis.shortlist.map((item) => [item.id, item]));
@@ -518,6 +525,8 @@ function HypothesisCard({
             </div>
           </section>
 
+          <CompetitorBenchmarkPanel batch={batch} hypothesis={hypothesis} />
+
           <div className="ai-entry-grid">
             <EvidenceEntryForms hypothesisId={hypothesis.id} runId={batch.id} observedAt={observedAt} />
             <ConfirmPriceForm hypothesisId={hypothesis.id} runId={batch.id} currency={batch.currency} />
@@ -572,6 +581,11 @@ function HypothesisCard({
             quoteEntryHref={`#supplier-quote-${hypothesis.id}`}
             fxRateToUsd={batch.fxRateToUsd}
           />
+
+          <div className="ai-entry-grid">
+            <ConfirmPriceForm hypothesisId={hypothesis.id} runId={batch.id} currency={batch.currency} />
+            <SupplierQuoteEntryForm hypothesisId={hypothesis.id} runId={batch.id} observedAt={observedAt} currency={batch.currency} />
+          </div>
 
           {hypothesis.quotes.length > 0 ? (
             <section className="ai-record-block">
@@ -1294,6 +1308,186 @@ function RiskLevelField() {
   );
 }
 
+function CompetitorBenchmarkPanel({
+  batch,
+  hypothesis,
+}: {
+  batch: BatchType;
+  hypothesis: AISourcingHypothesisDetail;
+}) {
+  const { benchmark } = hypothesis;
+  const { coverage, price, distribution, themes, contradictions } = benchmark;
+  const hasAnyEvidence = coverage.competitorCount > 0 || hypothesis.reviewInsights.length > 0;
+  const priceBandLabel: Record<string, string> = {
+    below_p25: "低于 P25（低价切入）",
+    p25_to_p50: "P25–P50（主流偏低）",
+    p50_to_p75: "P50–P75（主流价格带）",
+    p75_to_p90: "P75–P90（中高溢价带）",
+    above_p90: "高于 P90（高溢价风险区）",
+  };
+  const fieldLabel: Record<string, string> = {
+    differentiator: "痛点与差异化",
+    price: "定价合理性",
+    margin: "市场中位价毛利可行性",
+  };
+  const verdictMeta = {
+    supported: { label: "证据支持", badge: "badge-success" },
+    unverified: { label: "待验证", badge: "status-review_pending" },
+    contradicted: { label: "存在冲突", badge: "badge-danger" },
+  } as const;
+
+  return (
+    <section className="ai-record-block benchmark-panel" aria-label="竞品画像与假设证伪">
+      <div className="ai-validation-summary-head">
+        <div>
+          <span className="eyebrow">确定性竞品分析 · 证据对标</span>
+          <h3>竞品画像与假设证伪</h3>
+        </div>
+        <div className="button-row">
+          <span className="info-pill">
+            {benchmark.scope.marketCode} · {benchmark.scope.platformCode} · {benchmark.scope.currency}
+          </span>
+          <span className={`badge ${coverage.sufficient ? "badge-success" : "status-review_pending"}`}>
+            {coverage.sufficient ? "样本充足 · 可用于对标" : "样本不足 · 结论仅供参考"}
+          </span>
+        </div>
+      </div>
+
+      <div className="benchmark-coverage-strip">
+        <div className={coverage.dedupedCount < 20 ? "warn" : ""}>
+          <span>去重竞品 / 总快照</span>
+          <strong>{coverage.dedupedCount} / {coverage.competitorCount}</strong>
+          <small>门禁要求 ≥ 20（按 ASIN / URL 去重）</small>
+        </div>
+        <div className={coverage.priceBandCount < 2 ? "warn" : ""}>
+          <span>价格分层覆盖</span>
+          <strong>{coverage.priceBandCount} 档</strong>
+          <small>分位计算建议覆盖 ≥ 2 档价格带</small>
+        </div>
+        <div className={coverage.themeCount < 2 || coverage.reviewSampleCount < 50 ? "warn" : ""}>
+          <span>差评主题 / 样本</span>
+          <strong>{coverage.themeCount} 个 / {coverage.reviewSampleCount} 条</strong>
+          <small>建议 ≥ 2 主题 · 门禁 ≥ 50 样本</small>
+        </div>
+        <div>
+          <span>来源 URL 齐备率</span>
+          <strong>{percent(coverage.withSourceUrlRate)}</strong>
+          <small>100% 可回溯真实网页</small>
+        </div>
+        <div className={(coverage.freshnessDaysP50 ?? 0) > 180 ? "warn" : ""}>
+          <span>证据新鲜度中位数</span>
+          <strong>{coverage.freshnessDaysP50 === null ? "—" : `${coverage.freshnessDaysP50} 天前`}</strong>
+          <small>{(coverage.freshnessDaysP50 ?? 0) > 180 ? "中位采集时间超过 180 天" : "在 180 天有效期内"}</small>
+        </div>
+      </div>
+
+      {!hasAnyEvidence ? (
+        <div className="empty-inline benchmark-empty">
+          <span>当前尚未录入竞品快照或差评证据，暂无法生成价格带分位与假设证伪结论。</span>
+          <a href={`#competitor-entry-${hypothesis.id}`} className="button secondary">去录入竞品快照 ↓</a>
+        </div>
+      ) : (
+        <>
+          <div className="benchmark-price-section">
+            <div className="benchmark-price-head">
+              <div>
+                <strong>市场价格带分位（{batch.currency}）</strong>
+                <span>
+                  {price
+                    ? hypothesis.confirmedPriceCents
+                      ? `已确认售价 ${moneyIn(batch.currency, hypothesis.confirmedPriceCents)} · 位于 ${price.hypothesisPricePosition ? priceBandLabel[price.hypothesisPricePosition] : "—"}`
+                      : `AI 建议价 ${moneyIn(batch.currency, hypothesis.recommendedPriceCents)}（未确认）· 位于 ${price.hypothesisPricePosition ? priceBandLabel[price.hypothesisPricePosition] : "—"}`
+                    : "需录入有效竞品价格后计算分位"}
+                </span>
+              </div>
+              {price ? (
+                <a href={`#confirm-price-${hypothesis.id}`} className="button ghost">
+                  参考 P50（{moneyIn(batch.currency, price.p50)}）去确认售价 ↓
+                </a>
+              ) : null}
+            </div>
+
+            {price ? (
+              <div className="benchmark-percentile-grid">
+                <div><span>Min 最低</span><strong>{moneyIn(batch.currency, price.min)}</strong></div>
+                <div><span>P25</span><strong>{moneyIn(batch.currency, price.p25)}</strong></div>
+                <div className="highlight"><span>P50 中位价</span><strong>{moneyIn(batch.currency, price.p50)}</strong></div>
+                <div><span>P75</span><strong>{moneyIn(batch.currency, price.p75)}</strong></div>
+                <div><span>P90</span><strong>{moneyIn(batch.currency, price.p90)}</strong></div>
+                <div><span>Max 最高</span><strong>{moneyIn(batch.currency, price.max)}</strong></div>
+              </div>
+            ) : null}
+
+            <div className="benchmark-distribution-row">
+              <span>
+                评分 P50：<strong>{distribution.ratingP50 !== null ? `${distribution.ratingP50}★` : "—"}</strong>
+              </span>
+              <span>
+                评论数 P50：
+                <strong>
+                  {distribution.reviewCountP50 !== null
+                    ? compactNumber(distribution.reviewCountP50)
+                    : "—"}
+                </strong>
+              </span>
+              <span>
+                BSR P50：<strong>{distribution.bsrP50 !== null ? `#${compactNumber(distribution.bsrP50)}` : "未录入"}</strong>
+              </span>
+            </div>
+          </div>
+
+          <div className="benchmark-contradiction-list">
+            <div className="benchmark-subhead">
+              <strong>假设 vs 市场证据 · 3 行证伪矩阵</strong>
+              <small>确定性交叉核对，只做风险揭示，不替代门禁</small>
+            </div>
+            {contradictions.map((row) => {
+              const meta = verdictMeta[row.verdict];
+              return (
+                <article className={`benchmark-contradiction-row verdict-${row.verdict}`} key={row.field}>
+                  <div className="benchmark-contradiction-claim">
+                    <span className="eyebrow">{fieldLabel[row.field] ?? row.field}</span>
+                    <strong>{row.assertion}</strong>
+                  </div>
+                  <div className="benchmark-contradiction-evidence">
+                    <p>{row.note}</p>
+                  </div>
+                  <div className="benchmark-contradiction-verdict">
+                    <span className={`badge ${meta.badge}`}>{meta.label}</span>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+
+          {themes.length > 0 ? (
+            <div className="benchmark-themes">
+              <div className="benchmark-subhead">
+                <strong>高频差评主题（按权重与样本数排序）</strong>
+                <small>点击来源可回溯原始评论页</small>
+              </div>
+              <div className="benchmark-theme-grid">
+                {themes.slice(0, 4).map((theme) => (
+                  <div className="benchmark-theme-card" key={theme.theme}>
+                    <div className="benchmark-theme-top">
+                      <strong>{theme.theme}</strong>
+                      <span className="badge badge-neutral">{theme.sampleSize} 样本</span>
+                    </div>
+                    {theme.quote ? <p>“{theme.quote}”</p> : null}
+                    {theme.sourceUrl ? (
+                      <a href={theme.sourceUrl} target="_blank" rel="noreferrer">查看评论来源 ↗</a>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </>
+      )}
+    </section>
+  );
+}
+
 function CompetitorEntryForm({
   hypothesisId,
   runId,
@@ -1306,7 +1500,7 @@ function CompetitorEntryForm({
   currency: string;
 }) {
   return (
-    <details className="entry-panel card ai-entry-panel">
+    <details className="entry-panel card ai-entry-panel" id={`competitor-entry-${hypothesisId}`}>
       <summary><span><strong>录入真实竞品</strong><small>链接、价格、评论数、评分与观察时间</small></span><span>＋</span></summary>
       <form action={recordCompetitorAction} className="entry-form form-grid">
         <input type="hidden" name="runId" value={runId} />

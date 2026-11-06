@@ -21,6 +21,7 @@ export type ListingPreflightResult = {
   errorCount: number;
   warningCount: number;
   findings: PreflightFinding[];
+  benchmarkAdvisories?: PreflightFinding[];
   metrics: {
     titleChars: number;
     bulletCount: number;
@@ -144,7 +145,7 @@ function isMostlyUppercase(value: string) {
   return uppercase / letters.length > 0.75;
 }
 
-function findRiskyClaims(value: string) {
+export function findRiskyClaims(value: string) {
   const patterns: Array<{ code: string; pattern: RegExp }> = [
     { code: "BEST", pattern: /\b(?:best|#1|number one)\b/gi },
     { code: "GUARANTEE", pattern: /\b(?:guaranteed|guarantee)\b/gi },

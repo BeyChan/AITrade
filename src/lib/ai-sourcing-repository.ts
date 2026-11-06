@@ -13,6 +13,12 @@ import {
 } from "./ai-sourcing.ts";
 import { calculateEconomics } from "./economics.ts";
 import {
+  buildCompetitorBenchmark,
+  evaluateConfirmedPriceAdvisory,
+  type CompetitorBenchmark,
+  type ReviewInsightInput,
+} from "./competitor-insights.ts";
+import {
   parseSupplierCandidatePayload,
   type ParsedSupplierCandidate,
   type SupplierCandidateParseResult,
@@ -74,6 +80,8 @@ export type AICompetitorSnapshot = {
   variationCount: number | null;
   observedAt: string;
 };
+
+export type AIReviewInsight = ReviewInsightInput;
 
 export type AISupplierShortlist = {
   id: string;
@@ -181,6 +189,8 @@ export type AISelectionDecision = DecisionEvaluation & {
 export type AISourcingHypothesisDetail = AISourcingHypothesis & {
   evidence: AIOpportunityEvidence[];
   competitors: AICompetitorSnapshot[];
+  reviewInsights: AIReviewInsight[];
+  benchmark: CompetitorBenchmark;
   shortlist: AISupplierShortlist[];
   quotes: AISupplierQuote[];
   supplierDiscoveryRuns: AISupplierDiscoveryRun[];
@@ -294,6 +304,7 @@ type EvidenceRow = {
 type CompetitorRow = {
   id: string;
   hypothesis_id: string;
+  evidence_id?: string | null;
   asin: string | null;
   title: string;
   source_url: string;
@@ -306,6 +317,19 @@ type CompetitorRow = {
   seller_count: number | null;
   variation_count: number | null;
   observed_at: string;
+};
+
+type ReviewInsightRow = {
+  id: string;
+  hypothesis_id: string;
+  competitor_snapshot_id: string | null;
+  evidence_id: string;
+  theme: string;
+  sentiment: "negative" | "neutral" | "positive";
+  sample_size: number;
+  representative_quote: string;
+  source_url?: string | null;
+  observed_at?: string | null;
 };
 
 type ShortlistRow = {
@@ -712,6 +736,7 @@ export async function getAISourcingBatch(runId: string): Promise<AISourcingBatch
     hypothesisRows,
     evidenceRows,
     competitorRows,
+    reviewInsightRows,
     shortlistRows,
     quoteRows,
     supplierDiscoveryRunRows,
@@ -733,6 +758,15 @@ export async function getAISourcingBatch(runId: string): Promise<AISourcingBatch
       `SELECT c.* FROM competitor_snapshots c
        JOIN opportunity_hypotheses h ON h.id = c.hypothesis_id
        WHERE h.run_id = $1 ORDER BY c.observed_at DESC`,
+      [runId],
+    ),
+    db.query<ReviewInsightRow>(
+      `SELECT ri.*, e.source_url, e.observed_at
+       FROM review_insights ri
+       JOIN opportunity_hypotheses h ON h.id = ri.hypothesis_id
+       LEFT JOIN opportunity_evidence e ON e.id = ri.evidence_id
+       WHERE h.run_id = $1
+       ORDER BY ri.sample_size DESC, ri.created_at DESC`,
       [runId],
     ),
     db.query<ShortlistRow>(
@@ -775,38 +809,72 @@ export async function getAISourcingBatch(runId: string): Promise<AISourcingBatch
 
   const evidenceByHypothesis = groupBy(evidenceRows.rows, (row) => row.hypothesis_id);
   const competitorByHypothesis = groupBy(competitorRows.rows, (row) => row.hypothesis_id);
+  const reviewInsightsByHypothesis = groupBy(reviewInsightRows.rows, (row) => row.hypothesis_id);
   const shortlistByHypothesis = groupBy(shortlistRows.rows, (row) => row.hypothesis_id);
   const quotesByHypothesis = groupBy(quoteRows.rows, (row) => row.hypothesis_id);
   const supplierDiscoveryRunsByHypothesis = groupBy(supplierDiscoveryRunRows.rows, (row) => row.hypothesis_id);
   const supplierCandidatesByHypothesis = groupBy(supplierCandidateRows.rows, (row) => row.hypothesis_id);
   const tasksByHypothesis = groupBy(taskRows.rows, (row) => row.hypothesis_id);
   const decisionByHypothesis = new Map(decisionRows.rows.map((row) => [row.hypothesis_id, mapDecision(row)]));
+  const mappedBatch = mapBatch(batch);
 
   const hypotheses = hypothesisRows.rows.map((row) => {
+    const mappedHyp = mapHypothesis(row);
     const evidence = (evidenceByHypothesis.get(row.id) ?? []).map(mapEvidence);
     const competitors = (competitorByHypothesis.get(row.id) ?? []).map(mapCompetitor);
+    const reviewInsights = (reviewInsightsByHypothesis.get(row.id) ?? []).map(mapReviewInsight);
     const shortlist = (shortlistByHypothesis.get(row.id) ?? []).map(mapShortlist);
     const quotes = (quotesByHypothesis.get(row.id) ?? []).map(mapQuote);
     const supplierDiscoveryRuns = (supplierDiscoveryRunsByHypothesis.get(row.id) ?? []).map(mapSupplierDiscoveryRun);
     const supplierCandidates = (supplierCandidatesByHypothesis.get(row.id) ?? []).map(mapSupplierCandidate);
     const tasks = (tasksByHypothesis.get(row.id) ?? []).map(mapTask);
+    const decision = decisionByHypothesis.get(row.id) ?? null;
+    const bestQuote = quotes.find((q) => q.currency === mappedBatch.currency) ?? quotes[0] ?? null;
+    const benchmark = buildCompetitorBenchmark({
+      snapshots: competitors,
+      insights: reviewInsights,
+      scope: {
+        runId: mappedBatch.id,
+        hypothesisId: mappedHyp.id,
+        caseId: mappedHyp.productCaseId,
+        marketCode: mappedBatch.marketCode,
+        platformCode: mappedBatch.platformCode,
+        currency: mappedBatch.currency,
+      },
+      hypothesis: {
+        concept: mappedHyp.concept,
+        targetUser: mappedHyp.targetUser,
+        painPoint: mappedHyp.painPoint,
+        differentiator: mappedHyp.differentiator,
+        recommendedPriceCents: mappedHyp.recommendedPriceCents,
+        confirmedPriceCents: mappedHyp.confirmedPriceCents,
+        expectedMarginRate: mappedHyp.expectedMarginRate,
+        bestQuoteLandedCostCents: bestQuote?.landedCostCents ?? decision?.landedCostCents ?? null,
+        bestQuoteId: bestQuote?.id ?? decision?.bestQuoteId ?? null,
+      },
+    });
+    const reviewSampleTotal = reviewInsights.length > 0
+      ? reviewInsights.reduce((sum, item) => sum + item.sampleSize, 0)
+      : evidence.reduce((sum, item) => {
+          if (item.evidenceType !== "review_insight") return sum;
+          const value = Number(item.rawSnapshot.reviewSampleSize ?? item.rawSnapshot.sampleSize ?? 0);
+          return sum + (Number.isFinite(value) ? value : 0);
+        }, 0);
     return {
-      ...mapHypothesis(row),
+      ...mappedHyp,
       evidence,
       competitors,
+      reviewInsights,
+      benchmark,
       shortlist,
       quotes,
       supplierDiscoveryRuns,
       supplierCandidates,
       tasks,
-      decision: decisionByHypothesis.get(row.id) ?? null,
+      decision,
       counts: {
         competitors: competitors.length,
-        reviewSamples: evidence.reduce((sum, item) => {
-          if (item.evidenceType !== "review_insight") return sum;
-          const value = Number(item.rawSnapshot.reviewSampleSize ?? item.rawSnapshot.sampleSize ?? 0);
-          return sum + (Number.isFinite(value) ? value : 0);
-        }, 0),
+        reviewSamples: reviewSampleTotal,
         suppliers: shortlist.length,
         supplierCandidates: supplierCandidates.length,
         quotes: quotes.length,
@@ -816,7 +884,7 @@ export async function getAISourcingBatch(runId: string): Promise<AISourcingBatch
     };
   });
 
-  return { ...mapBatch(batch), createdBy: batch.created_by, hypotheses };
+  return { ...mappedBatch, createdBy: batch.created_by, hypotheses };
 }
 
 export async function selectHypothesisForValidation(hypothesisId: string, actor: string) {
@@ -876,7 +944,39 @@ export async function confirmHypothesisPrice(input: {
       [randomUUID(), actor, input.hypothesisId, JSON.stringify({ priceCents: input.priceCents, sourceUrl, externalActions: "none" })],
     );
   });
-  return refreshAISelectionDecision(input.hypothesisId);
+  const decision = await refreshAISelectionDecision(input.hypothesisId);
+  const [context, competitorRows] = await Promise.all([
+    loadHypothesisContext(input.hypothesisId),
+    db.query<CompetitorRow>(
+      "SELECT * FROM competitor_snapshots WHERE hypothesis_id = $1 ORDER BY observed_at DESC",
+      [input.hypothesisId],
+    ),
+  ]);
+  let priceAdvisory: string | null = null;
+  if (context && competitorRows.rows.length > 0) {
+    const benchmark = buildCompetitorBenchmark({
+      snapshots: competitorRows.rows.map(mapCompetitor),
+      insights: [],
+      scope: {
+        runId: context.hypothesis.runId,
+        hypothesisId: input.hypothesisId,
+        marketCode: context.batch.marketCode,
+        platformCode: context.batch.platformCode,
+        currency: context.batch.currency,
+      },
+      hypothesis: {
+        concept: context.hypothesis.concept,
+        targetUser: context.hypothesis.targetUser,
+        painPoint: context.hypothesis.painPoint,
+        differentiator: context.hypothesis.differentiator,
+        recommendedPriceCents: context.hypothesis.recommendedPriceCents,
+        confirmedPriceCents: input.priceCents,
+        expectedMarginRate: context.hypothesis.expectedMarginRate,
+      },
+    });
+    priceAdvisory = evaluateConfirmedPriceAdvisory(input.priceCents, benchmark.price, context.batch.currency);
+  }
+  return { ...decision, priceAdvisory };
 }
 
 export async function recordOpportunityEvidence(input: {
@@ -1706,6 +1806,119 @@ export function getBatchSiteLabel(batch: Pick<AISourcingBatchSummary, "marketNam
   return `${batch.marketName}站 · ${batch.platformName}`;
 }
 
+export type CaseBenchmarkLookupResult = {
+  status: "ok" | "none" | "ambiguous";
+  benchmark: CompetitorBenchmark | null;
+  candidates: Array<{
+    hypothesisId: string;
+    runId: string;
+    concept: string;
+    marketCode: string;
+    platformCode: string;
+    currency: string;
+  }>;
+};
+
+/**
+ * 内容页反查入口：product_cases.id -> opportunity_hypotheses -> snapshots + insights。
+ * 不复制、不快照；若一个 case 关联多个假设且未显式指定 hypothesisId，返回 ambiguous 由人工选择。
+ */
+export async function loadCaseCompetitorBenchmark(
+  caseId: string,
+  selectedHypothesisId?: string | null,
+): Promise<CaseBenchmarkLookupResult> {
+  const db = await getDb();
+  const hypRows = await db.query<
+    HypothesisRow & {
+      market_code: string;
+      platform_code: string;
+      currency: string;
+    }
+  >(
+    `SELECT h.*, b.market_code, b.platform_code, b.currency
+     FROM opportunity_hypotheses h
+     JOIN ai_sourcing_runs r ON r.id = h.run_id
+     JOIN sourcing_briefs b ON b.id = r.brief_id
+     WHERE h.product_case_id = $1
+        OR h.id = (
+          SELECT source_record_id FROM product_cases
+          WHERE id = $1 AND source_code = 'ai_sourcing'
+        )
+     ORDER BY h.created_at DESC`,
+    [caseId],
+  );
+
+  const candidates = hypRows.rows.map((row) => ({
+    hypothesisId: row.id,
+    runId: row.run_id,
+    concept: row.concept,
+    marketCode: row.market_code,
+    platformCode: row.platform_code,
+    currency: row.currency,
+  }));
+
+  if (hypRows.rows.length === 0) {
+    return { status: "none", benchmark: null, candidates: [] };
+  }
+
+  const chosenRow = selectedHypothesisId
+    ? hypRows.rows.find((row) => row.id === selectedHypothesisId) ?? null
+    : hypRows.rows.length === 1
+      ? hypRows.rows[0]!
+      : null;
+
+  if (!chosenRow) {
+    return { status: "ambiguous", benchmark: null, candidates };
+  }
+
+  const [competitorRows, reviewInsightRows, quoteRows] = await Promise.all([
+    db.query<CompetitorRow>(
+      "SELECT * FROM competitor_snapshots WHERE hypothesis_id = $1 ORDER BY observed_at DESC",
+      [chosenRow.id],
+    ),
+    db.query<ReviewInsightRow>(
+      `SELECT ri.*, e.source_url, e.observed_at
+       FROM review_insights ri
+       LEFT JOIN opportunity_evidence e ON e.id = ri.evidence_id
+       WHERE ri.hypothesis_id = $1
+       ORDER BY ri.sample_size DESC, ri.created_at DESC`,
+      [chosenRow.id],
+    ),
+    db.query<QuoteRow>(
+      "SELECT * FROM sourcing_supplier_quotes WHERE hypothesis_id = $1 ORDER BY landed_cost_cents ASC LIMIT 1",
+      [chosenRow.id],
+    ),
+  ]);
+
+  const mappedHyp = mapHypothesis(chosenRow);
+  const bestQuote = quoteRows.rows[0] ? mapQuote(quoteRows.rows[0]) : null;
+  const benchmark = buildCompetitorBenchmark({
+    snapshots: competitorRows.rows.map(mapCompetitor),
+    insights: reviewInsightRows.rows.map(mapReviewInsight),
+    scope: {
+      runId: chosenRow.run_id,
+      hypothesisId: chosenRow.id,
+      caseId,
+      marketCode: chosenRow.market_code,
+      platformCode: chosenRow.platform_code,
+      currency: chosenRow.currency,
+    },
+    hypothesis: {
+      concept: mappedHyp.concept,
+      targetUser: mappedHyp.targetUser,
+      painPoint: mappedHyp.painPoint,
+      differentiator: mappedHyp.differentiator,
+      recommendedPriceCents: mappedHyp.recommendedPriceCents,
+      confirmedPriceCents: mappedHyp.confirmedPriceCents,
+      expectedMarginRate: mappedHyp.expectedMarginRate,
+      bestQuoteLandedCostCents: bestQuote?.landedCostCents ?? null,
+      bestQuoteId: bestQuote?.id ?? null,
+    },
+  });
+
+  return { status: "ok", benchmark, candidates };
+}
+
 async function loadHypothesisContext(hypothesisId: string) {
   const db = await getDb();
   const result = await db.query<HypothesisRow & {
@@ -1943,6 +2156,21 @@ function mapCompetitor(row: CompetitorRow): AICompetitorSnapshot {
     sellerCount: row.seller_count === null ? null : Number(row.seller_count),
     variationCount: row.variation_count === null ? null : Number(row.variation_count),
     observedAt: row.observed_at,
+  };
+}
+
+function mapReviewInsight(row: ReviewInsightRow): AIReviewInsight {
+  return {
+    id: row.id,
+    hypothesisId: row.hypothesis_id,
+    competitorSnapshotId: row.competitor_snapshot_id,
+    evidenceId: row.evidence_id,
+    theme: row.theme,
+    sentiment: row.sentiment,
+    sampleSize: Number(row.sample_size),
+    representativeQuote: row.representative_quote ?? "",
+    sourceUrl: row.source_url ?? null,
+    observedAt: row.observed_at ?? null,
   };
 }
 

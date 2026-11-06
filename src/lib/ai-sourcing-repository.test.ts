@@ -11,10 +11,14 @@ process.env.AI_PROVIDER = "template";
 
 const { getDb } = await import("./db.ts");
 const {
+  confirmHypothesisPrice,
   createAISourcingBatch,
   deleteAISourcingBatch,
   getAISourcingBatch,
   listAISourcingBatches,
+  loadCaseCompetitorBenchmark,
+  recordCompetitorEvidence,
+  recordOpportunityEvidence,
   recordSupplierCandidates,
   rejectSupplierCandidate,
   selectHypothesisForValidation,
@@ -299,4 +303,100 @@ test("visible-page candidates stay outside supplier counts until manually verifi
   const finalHypothesis = finalBatch?.hypotheses.find((item) => item.id === hypothesisId);
   assert.equal(finalHypothesis?.supplierCandidates.length, 10);
   assert.equal(finalHypothesis?.supplierDiscoveryRuns.length, 2);
+});
+
+test("competitor benchmark hydrates review insights, advises on >P90 price, and resolves case benchmark ok/none/ambiguous", async () => {
+  const db = await getDb();
+  const created = await createAISourcingBatch({
+    marketCode: "US",
+    platformCode: "amazon",
+    category: "宠物清洁",
+    brief: "验证宠物饮水器的竞品价格带与差评缺口传承",
+    actor: "测试运营",
+  });
+  const batch = await getAISourcingBatch(created.runId);
+  const h1 = batch?.hypotheses[0]?.id;
+  const h2 = batch?.hypotheses[1]?.id;
+  assert.ok(h1 && h2);
+  await selectHypothesisForValidation(h1, "测试运营");
+
+  const nowIso = new Date().toISOString();
+  for (let i = 0; i < 6; i += 1) {
+    await recordCompetitorEvidence({
+      hypothesisId: h1,
+      asin: `B0BENCH0${i}`,
+      title: `Pet Water Fountain ${i + 1}`,
+      sourceUrl: `https://www.amazon.com/dp/B0BENCH0${i}`,
+      priceCents: 1800 + i * 200,
+      rating: 4.1,
+      reviewCount: 150 + i * 20,
+      observedAt: nowIso,
+      actor: "测试运营",
+    });
+  }
+  await recordOpportunityEvidence({
+    hypothesisId: h1,
+    evidenceType: "review_insight",
+    sourceType: "review_page",
+    sourceUrl: "https://www.amazon.com/product-reviews/B0BENCH00",
+    title: "水泵夜间噪音偏大且拆洗繁琐",
+    summary: "用户反馈夜间噪音明显",
+    observedAt: nowIso,
+    reviewSampleSize: 40,
+    representativeQuote: "Pump gets loud at night and has too many tiny crevices to clean.",
+    sentiment: "negative",
+    actor: "测试运营",
+  });
+
+  const confirmed = await confirmHypothesisPrice({
+    hypothesisId: h1,
+    priceCents: 3999,
+    sourceUrl: "https://www.amazon.com/dp/B0BENCH05",
+    actor: "测试运营",
+  });
+  assert.ok(confirmed.priceAdvisory?.includes("P90"));
+
+  const hydratedBatch = await getAISourcingBatch(created.runId);
+  const hydratedH1 = hydratedBatch?.hypotheses.find((item) => item.id === h1);
+  assert.ok(hydratedH1);
+  assert.equal(hydratedH1.reviewInsights.length, 1);
+  assert.equal(hydratedH1.benchmark.coverage.dedupedCount, 6);
+  assert.equal(hydratedH1.benchmark.themes[0]?.sampleSize, 40);
+
+  const unlinkedCaseId = randomUUID();
+  await db.query(
+    `INSERT INTO product_cases
+      (id, asin, marketplace, category, title, competitor_price_cents, owner, evidence_score, is_demo)
+     VALUES ($1, 'B0UNLINKED', 'US', '宠物清洁', '无关联商品', 2499, '测试运营', 75, FALSE)`,
+    [unlinkedCaseId],
+  );
+  const noneResult = await loadCaseCompetitorBenchmark(unlinkedCaseId);
+  assert.equal(noneResult.status, "none");
+
+  const linkedCaseId = randomUUID();
+  await db.query(
+    `INSERT INTO product_cases
+      (id, asin, marketplace, category, title, competitor_price_cents, owner, evidence_score, source_code, source_record_id, is_demo)
+     VALUES ($1, 'B0LINKED01', 'US', '宠物清洁', '关联商品', 2499, '测试运营', 82, 'ai_sourcing', $2, FALSE)`,
+    [linkedCaseId, h1],
+  );
+  await db.query(
+    "UPDATE opportunity_hypotheses SET product_case_id = $1 WHERE id = $2",
+    [linkedCaseId, h1],
+  );
+  const okResult = await loadCaseCompetitorBenchmark(linkedCaseId);
+  assert.equal(okResult.status, "ok");
+  assert.ok(okResult.benchmark);
+  assert.equal(okResult.benchmark.scope.hypothesisId, h1);
+  assert.equal(okResult.benchmark.coverage.dedupedCount, 6);
+
+  await db.query(
+    "UPDATE opportunity_hypotheses SET product_case_id = $1 WHERE id = $2",
+    [linkedCaseId, h2],
+  );
+  const ambiguousResult = await loadCaseCompetitorBenchmark(linkedCaseId);
+  assert.equal(ambiguousResult.status, "ambiguous");
+
+  const resolvedResult = await loadCaseCompetitorBenchmark(linkedCaseId, h1);
+  assert.equal(resolvedResult.status, "ok");
 });

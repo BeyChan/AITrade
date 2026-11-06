@@ -7,8 +7,24 @@ import {
   saveProductDefinitionAction,
   uploadMainImageAction,
 } from "@/app/actions";
+import { ProposalMeta } from "@/components/ai-proposal-card";
 import { StatusBadge } from "@/components/badges";
-import { money, shortDate } from "@/lib/format";
+import { CopyDraftButton } from "@/components/copy-draft-button";
+import { generateStructuredJSON } from "@/lib/ai-provider";
+import {
+  loadCaseCompetitorBenchmark,
+  type CaseBenchmarkLookupResult,
+} from "@/lib/ai-sourcing-repository";
+import {
+  buildTemplateBenchmarkBullets,
+  classifyPricePosition,
+  evaluateBenchmarkAdvisories,
+  textsShareDomainConcept,
+  validateBenchmarkBulletProposal,
+  type BenchmarkBulletProposal,
+  type CompetitorBenchmark,
+} from "@/lib/competitor-insights";
+import { money, moneyIn, shortDate } from "@/lib/format";
 import { emptyListingContent, normalizeListingContent, preflightListing } from "@/lib/listing";
 import { getContentDetail } from "@/lib/repository";
 
@@ -16,17 +32,46 @@ export const dynamic = "force-dynamic";
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string; notice?: string }>;
+  searchParams: Promise<{
+    error?: string;
+    notice?: string;
+    hypothesisId?: string;
+    proposeBullets?: string;
+    applyProposal?: string;
+  }>;
 };
 
 export default async function ContentStudioPage({ params, searchParams }: PageProps) {
   const [{ id }, query] = await Promise.all([params, searchParams]);
-  const detail = await getContentDetail(id);
+  const [detail, benchmarkLookup] = await Promise.all([
+    getContentDetail(id),
+    loadCaseCompetitorBenchmark(id, query.hypothesisId),
+  ]);
   if (!detail) notFound();
 
   const { productCase, costModel, selection, selectedSupplierName, profile, assets, listing, listingReviews, auditLogs } = detail;
   const content = listing ? normalizeListingContent(listing.content) : emptyListingContent();
-  const preflight = listing ? preflightListing(content) : null;
+  const benchmark = benchmarkLookup.status === "ok" ? benchmarkLookup.benchmark : null;
+  const profileForBenchmark = profile
+    ? {
+        productName: profile.product_name,
+        targetCustomer: profile.target_customer,
+        coreDifferentiator: profile.core_differentiator,
+        specifications: profile.specifications,
+        packageContents: profile.package_contents,
+        claimsToAvoid: profile.claims_to_avoid,
+      }
+    : null;
+  const benchmarkAdvisories = benchmark ? evaluateBenchmarkAdvisories(content, benchmark, profileForBenchmark) : [];
+  const preflight = listing
+    ? { ...preflightListing(content), benchmarkAdvisories }
+    : null;
+  const bulletProposalResult = benchmark
+    ? await resolveBenchmarkBulletProposals(benchmark, profileForBenchmark, query.proposeBullets === "1")
+    : null;
+  const effectiveBullets = query.applyProposal === "1" && bulletProposalResult && bulletProposalResult.bullets.length > 0
+    ? content.bullets.map((existing, idx) => bulletProposalResult.bullets[idx]?.bullet ?? existing)
+    : content.bullets;
   const mainImages = assets.filter((asset) => asset.asset_type === "main_image");
   const approvedImages = mainImages.filter((asset) => asset.status === "approved");
   const latestMainImage = mainImages[0] ?? null;
@@ -121,28 +166,41 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
 
           <div className="detail-grid">
             <div className="stack">
+              <ContentBenchmarkCard
+                caseId={productCase.id}
+                salePriceCents={costModel?.assumptions.salePriceCents ?? productCase.competitor_price_cents}
+                benchmarkLookup={benchmarkLookup}
+                profile={profile}
+                draftText={[content.title, ...content.bullets, content.description].join(" ")}
+              />
+
               <section className="section">
                 <div className="section-header">
                   <div>
                     <h2>1. 商品定义</h2>
                     <p>先把产品事实、目标用户和禁用声明固定下来，再写标题与卖点。</p>
                   </div>
-                  {profile ? <span className="badge badge-success">已保存</span> : <span className="badge status-review_pending">待完成</span>}
+                  <div className="button-row">
+                    {!profile && benchmark ? (
+                      <span className="badge badge-neutral">已从选品假设预填草稿 · 保存后生效</span>
+                    ) : null}
+                    {profile ? <span className="badge badge-success">已保存</span> : <span className="badge status-review_pending">待完成</span>}
+                  </div>
                 </div>
                 <form action={saveProductDefinitionAction} className="stack">
                   <input type="hidden" name="caseId" value={productCase.id} />
                   <div className="form-grid">
                     <div className="field">
                       <label htmlFor="productName">商品名称</label>
-                      <input id="productName" name="productName" required defaultValue={profile?.product_name ?? ""} placeholder="例：静音可拆洗宠物饮水器" />
+                      <input id="productName" name="productName" required defaultValue={profile?.product_name ?? (productCase.title || benchmark?.hypothesisSummary.concept || "")} placeholder="例：静音可拆洗宠物饮水器" />
                     </div>
                     <div className="field">
                       <label htmlFor="targetCustomer">目标用户</label>
-                      <input id="targetCustomer" name="targetCustomer" required defaultValue={profile?.target_customer ?? ""} placeholder="例：养猫或小型犬、对夜间噪音敏感的家庭" />
+                      <input id="targetCustomer" name="targetCustomer" required defaultValue={profile?.target_customer ?? benchmark?.hypothesisSummary.targetUser ?? ""} placeholder="例：养猫或小型犬、对夜间噪音敏感的家庭" />
                     </div>
                     <div className="field full">
                       <label htmlFor="coreDifferentiator">核心差异点</label>
-                      <textarea id="coreDifferentiator" name="coreDifferentiator" required defaultValue={profile?.core_differentiator ?? ""} placeholder="只写已有样品、供应商或证据能够支持的事实。" />
+                      <textarea id="coreDifferentiator" name="coreDifferentiator" required defaultValue={profile?.core_differentiator ?? benchmark?.hypothesisSummary.differentiator ?? ""} placeholder="只写已有样品、供应商或证据能够支持的事实。" />
                     </div>
                     <div className="field full">
                       <label htmlFor="specifications">规格、材质与关键尺寸</label>
@@ -251,6 +309,15 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
                   ) : null}
                 </div>
 
+                {bulletProposalResult && bulletProposalResult.bullets.length > 0 ? (
+                  <BenchmarkBulletProposalSection
+                    caseId={productCase.id}
+                    hypothesisId={benchmark?.scope.hypothesisId}
+                    proposal={bulletProposalResult}
+                    applied={query.applyProposal === "1"}
+                  />
+                ) : null}
+
                 <form action={saveListingDraftAction} className="stack">
                   <input type="hidden" name="caseId" value={productCase.id} />
                   <div className="form-grid">
@@ -266,8 +333,8 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
                       <label htmlFor="title">标题 <span className="label-count">建议 40–200 字符</span></label>
                       <textarea id="title" name="title" className="compact-textarea" defaultValue={content.title} required placeholder="品牌 + 核心品类 + 核心功能 + 适用对象" />
                     </div>
-                    {content.bullets.map((bullet, index) => (
-                      <div className="field full" key={index}>
+                    {effectiveBullets.map((bullet, index) => (
+                      <div className="field full" key={`${index}-${query.applyProposal === "1" ? "applied" : "saved"}`}>
                         <label htmlFor={`bullet-${index}`}>五点描述 {index + 1} <span className="label-count">最多 500 字符</span></label>
                         <textarea id={`bullet-${index}`} name="bullet" defaultValue={bullet} required placeholder="一条只表达一个购买理由。" />
                       </div>
@@ -323,6 +390,22 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
                     ) : (
                       <div className="empty-inline success">没有发现确定性问题。仍需人工核对品牌、商标、认证和声明依据。</div>
                     )}
+                    {preflight.benchmarkAdvisories && preflight.benchmarkAdvisories.length > 0 ? (
+                      <div className="benchmark-advisory-box">
+                        <div className="benchmark-advisory-head">
+                          <strong>竞品对标提示（只提示不阻断）</strong>
+                          <span className="badge badge-neutral">不计入预检分 · 不阻断人工确认</span>
+                        </div>
+                        <div className="finding-list">
+                          {preflight.benchmarkAdvisories.map((advisory, index) => (
+                            <div className="finding warning" key={`${advisory.code}-${index}`}>
+                              <span className="badge status-review_pending">对标提示</span>
+                              <span>{advisory.message}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
                   </>
                 ) : (
                   <div className="empty-inline">保存第一版 Listing 草稿后，这里会显示预检明细。</div>
@@ -460,4 +543,328 @@ function auditSummary(action: string, details: Record<string, unknown>) {
   }
   if (action === "listing.content_approved") return ` · v${String(details.version ?? "—")} · 未外部发布`;
   return "";
+}
+
+async function resolveBenchmarkBulletProposals(
+  benchmark: CompetitorBenchmark,
+  profile: {
+    productName?: string | null;
+    targetCustomer?: string | null;
+    coreDifferentiator?: string | null;
+    specifications?: string | null;
+    packageContents?: string | null;
+    claimsToAvoid?: string | null;
+  } | null,
+  requestModel: boolean,
+): Promise<BenchmarkBulletProposal | null> {
+  const fallbackProposal = buildTemplateBenchmarkBullets(benchmark, profile);
+  if (!requestModel) {
+    return fallbackProposal;
+  }
+
+  try {
+    const generated = await generateStructuredJSON({
+      systemPrompt:
+        "你是跨境电商 Listing 五点卖点对标助理。请仅根据提供的差评缺口证据和已核验商品定义，输出 JSON 格式的五点卖点草稿提案。严禁使用 best/#1/guaranteed/100%/FDA approved 等违规词。每条必须原样引用提供的 sourceQuote 与 evidenceRefs。",
+      userPrompt: JSON.stringify({
+        productName: profile?.productName || benchmark.hypothesisSummary.concept,
+        targetCustomer: profile?.targetCustomer || benchmark.hypothesisSummary.targetUser,
+        coreDifferentiator: profile?.coreDifferentiator || benchmark.hypothesisSummary.differentiator,
+        specifications: profile?.specifications || "",
+        claimsToAvoid: profile?.claimsToAvoid || "",
+        reviewGaps: benchmark.themes.slice(0, 5).map((theme) => ({
+          theme: theme.theme,
+          sourceQuote: theme.quote || theme.theme,
+          evidenceRefs: theme.evidenceRefs.length > 0 ? theme.evidenceRefs : [benchmark.scope.hypothesisId],
+        })),
+        outputSchema: {
+          summary: "五点提案总结",
+          bullets: [
+            {
+              theme: "回应的差评主题",
+              bullet: "卖点草稿（20-450字符）",
+              sourceQuote: "必须原样取自输入中的 sourceQuote",
+              evidenceRefs: ["必须取自输入中的 evidenceRefs"],
+              confidence: 0.82,
+            },
+          ],
+        },
+      }),
+      timeoutMs: 18_000,
+      maxTokens: 1_600,
+    });
+
+    const parsed = JSON.parse(generated.content) as unknown;
+    return validateBenchmarkBulletProposal(parsed, benchmark, {
+      source: "model",
+      provider: generated.provider,
+      model: generated.model,
+    });
+  } catch (error) {
+    if (!fallbackProposal) return null;
+    return {
+      ...fallbackProposal,
+      generation: {
+        source: "template",
+        fallback: true,
+        providerError: error instanceof Error ? error.message : "模型调用失败，已回退确定性模板",
+      },
+    };
+  }
+}
+
+function ContentBenchmarkCard({
+  caseId,
+  salePriceCents,
+  benchmarkLookup,
+  profile,
+  draftText,
+}: {
+  caseId: string;
+  salePriceCents: number;
+  benchmarkLookup: CaseBenchmarkLookupResult;
+  profile: {
+    product_name: string;
+    target_customer: string;
+    core_differentiator: string;
+    claims_to_avoid: string;
+  } | null;
+  draftText: string;
+}) {
+  if (benchmarkLookup.status === "none" || !benchmarkLookup.benchmark) {
+    return (
+      <section className="section content-benchmark-card">
+        <div className="section-header">
+          <div>
+            <div className="eyebrow">竞品对标与差评缺口</div>
+            <h2>0. 竞品对标参考</h2>
+            <p>当前商品未关联 AI 选品机会假设，或尚未录入竞品与差评证据。</p>
+          </div>
+          <span className="badge badge-neutral">无可用竞品证据</span>
+        </div>
+        <div className="empty-inline">
+          <span>无关联竞品数据时，商品定义、主图检查、Listing 草稿与确定性预检均可正常独立使用。</span>
+          <Link href="/ai-sourcing" className="button ghost">去选品验证补充证据 →</Link>
+        </div>
+      </section>
+    );
+  }
+
+  if (benchmarkLookup.status === "ambiguous") {
+    return (
+      <section className="section content-benchmark-card">
+        <div className="section-header">
+          <div>
+            <div className="eyebrow">竞品对标与差评缺口</div>
+            <h2>0. 竞品对标参考</h2>
+            <p>检测到多个关联选品假设，请人工选择要用于内容对标的证据来源。</p>
+          </div>
+          <span className="badge status-review_pending">需人工选择证据源</span>
+        </div>
+        <div className="benchmark-ambiguous-list">
+          {benchmarkLookup.candidates.map((candidate) => (
+            <div className="benchmark-ambiguous-item" key={candidate.hypothesisId}>
+              <div>
+                <strong>{candidate.concept}</strong>
+                <span>{candidate.marketCode} · {candidate.platformCode} · {candidate.currency}</span>
+              </div>
+              <Link
+                href={`/cases/${encodeURIComponent(caseId)}/content?hypothesisId=${encodeURIComponent(candidate.hypothesisId)}`}
+                className="button secondary"
+              >
+                选用此假设对标 →
+              </Link>
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  const { benchmark } = benchmarkLookup;
+  const { price, coverage, themes, hypothesisSummary, scope } = benchmark;
+  const priceBandLabel: Record<string, string> = {
+    below_p25: "低于 P25（低价切入）",
+    p25_to_p50: "P25–P50（主流偏低）",
+    p50_to_p75: "P50–P75（主流价格带）",
+    p75_to_p90: "P75–P90（中高溢价带）",
+    above_p90: "高于 P90（高溢价风险区）",
+  };
+  const currentBand = price && salePriceCents > 0 ? classifyPricePosition(salePriceCents, price) : null;
+  const differentiatorAligned = profile?.core_differentiator && hypothesisSummary.differentiator
+    ? textsShareDomainConcept(profile.core_differentiator, hypothesisSummary.differentiator)
+    : null;
+
+  return (
+    <section className="section content-benchmark-card" aria-label="竞品对标与差评缺口卡">
+      <div className="section-header">
+        <div>
+          <div className="eyebrow">竞品对标与差评缺口 · 只读证据传承</div>
+          <h2>0. 竞品对标与差评缺口卡</h2>
+          <p>来自选品假设「{hypothesisSummary.concept}」的真实竞品价格带与差评痛点，写作商品定义和五点描述时可直接对照。</p>
+        </div>
+        <div className="button-row">
+          <span className="info-pill">
+            {coverage.dedupedCount} 去重竞品 · {coverage.themeCount} 差评主题
+          </span>
+          <Link
+            href={`/ai-sourcing/${encodeURIComponent(scope.runId)}?tab=hypotheses&hypothesisId=${encodeURIComponent(scope.hypothesisId)}`}
+            className="button ghost"
+          >
+            回看选品证据 ↗
+          </Link>
+        </div>
+      </div>
+
+      <div className="content-benchmark-grid">
+        <article className="content-benchmark-col">
+          <span className="eyebrow">价格带与定位</span>
+          <h3>竞品价格带（{scope.currency}）</h3>
+          {price ? (
+            <>
+              <div className="content-benchmark-prices">
+                <div><span>P25</span><strong>{moneyIn(scope.currency, price.p25)}</strong></div>
+                <div className="highlight"><span>P50 中位</span><strong>{moneyIn(scope.currency, price.p50)}</strong></div>
+                <div><span>P75</span><strong>{moneyIn(scope.currency, price.p75)}</strong></div>
+                <div><span>P90</span><strong>{moneyIn(scope.currency, price.p90)}</strong></div>
+              </div>
+              <p className="muted">
+                当前商品售价 <strong>{money(salePriceCents)}</strong>
+                {currentBand ? ` · 位于 ${priceBandLabel[currentBand]}` : ""}
+              </p>
+            </>
+          ) : (
+            <p className="muted">当前关联假设尚未录入有效竞品价格。</p>
+          )}
+        </article>
+
+        <article className="content-benchmark-col">
+          <span className="eyebrow">差评缺口清单 TOP {Math.min(3, themes.length)}</span>
+          <h3>必须在卖点中回应的痛点</h3>
+          {themes.length > 0 ? (
+            <div className="content-gap-list">
+              {themes.slice(0, 3).map((theme) => {
+                const covered = draftText.trim().length > 0 && textsShareDomainConcept(theme.theme, draftText);
+                return (
+                  <div className="content-gap-item" key={theme.theme}>
+                    <div className="content-gap-head">
+                      <strong>{theme.theme}</strong>
+                      <span className={`badge ${covered ? "badge-success" : "status-review_pending"}`}>
+                        {covered ? "✓ 草稿已回应" : `${theme.sampleSize} 样本 · 待回应`}
+                      </span>
+                    </div>
+                    {theme.quote ? <small>“{theme.quote}”</small> : null}
+                    {theme.sourceUrl ? (
+                      <a href={theme.sourceUrl} target="_blank" rel="noreferrer">来源链接 ↗</a>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="muted">当前关联假设尚未录入差评主题。</p>
+          )}
+        </article>
+
+        <article className="content-benchmark-col">
+          <span className="eyebrow">差异化一致性与红线</span>
+          <h3>立项主张 vs 商品定义</h3>
+          <div className="content-alignment-box">
+            <div>
+              <small>选品差异化假设</small>
+              <p>{hypothesisSummary.differentiator || "未记录"}</p>
+            </div>
+            <div>
+              <small>当前商品定义差异点</small>
+              <p>{profile?.core_differentiator || "尚未保存商品定义（已为您自动预填下方表单）"}</p>
+            </div>
+            {differentiatorAligned !== null ? (
+              <span className={`badge ${differentiatorAligned ? "badge-success" : "status-review_pending"}`}>
+                {differentiatorAligned ? "✓ 差异点与选品证据一致" : "提醒：与选品阶段差异化主张偏离"}
+              </span>
+            ) : null}
+            {profile?.claims_to_avoid ? (
+              <div className="content-claims-avoid">
+                <small>禁用声明红线</small>
+                <strong>{profile.claims_to_avoid}</strong>
+              </div>
+            ) : null}
+          </div>
+        </article>
+      </div>
+    </section>
+  );
+}
+
+function BenchmarkBulletProposalSection({
+  caseId,
+  hypothesisId,
+  proposal,
+  applied,
+}: {
+  caseId: string;
+  hypothesisId?: string;
+  proposal: BenchmarkBulletProposal;
+  applied: boolean;
+}) {
+  const baseQuery = new URLSearchParams();
+  if (hypothesisId) baseQuery.set("hypothesisId", hypothesisId);
+
+  const applyParams = new URLSearchParams(baseQuery);
+  applyParams.set("applyProposal", "1");
+
+  const modelParams = new URLSearchParams(baseQuery);
+  modelParams.set("proposeBullets", "1");
+
+  return (
+    <div className="benchmark-proposal-box">
+      <div className="benchmark-proposal-head">
+        <div>
+          <span className="eyebrow">对标五点草稿提案 · 人工确认前不落库</span>
+          <strong>{proposal.summary}</strong>
+          <p>每条提案均绑定真实差评原文或已核验规格，且经过确定性合规过滤（不含夸大/违规对比词）。</p>
+        </div>
+        <div className="button-row">
+          <Link
+            href={`/cases/${encodeURIComponent(caseId)}/content?${applyParams.toString()}#bullet-0`}
+            className="button secondary"
+          >
+            {applied ? "✓ 已带入下方表单（请核对后保存）" : "带入下方五点表单预览"}
+          </Link>
+          <Link
+            href={`/cases/${encodeURIComponent(caseId)}/content?${modelParams.toString()}`}
+            className="button ghost"
+          >
+            用 AI 模型润色提案
+          </Link>
+        </div>
+      </div>
+
+      {proposal.generation.providerError ? (
+        <small className="muted">提示：{proposal.generation.providerError}</small>
+      ) : null}
+
+      <div className="benchmark-proposal-list">
+        {proposal.bullets.map((item) => (
+          <article className="benchmark-proposal-item" key={item.index}>
+            <div className="benchmark-proposal-item-top">
+              <div>
+                <span className="badge badge-neutral">卖点提案 #{item.index}</span>
+                <strong>回应痛点：{item.theme}</strong>
+              </div>
+              <CopyDraftButton text={item.bullet} />
+            </div>
+            <p className="benchmark-proposal-bullet">{item.bullet}</p>
+            <ProposalMeta
+              generation={proposal.generation}
+              confidence={item.confidence}
+              sourceQuote={item.sourceQuote}
+              targetLabel={`证据 #${item.evidenceRefs[0]?.slice(0, 8) ?? "已关联"}`}
+              statusLabel="需人工复核后保存"
+            />
+          </article>
+        ))}
+      </div>
+    </div>
+  );
 }

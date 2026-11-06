@@ -1,5 +1,5 @@
 import { listAISourcingBatches } from "@/lib/ai-sourcing-repository";
-import { listCases } from "@/lib/repository";
+import { listSourcingCases } from "@/lib/repository";
 import type { WorkContextItem } from "@/lib/work-context-types";
 
 export type { WorkContextItem } from "@/lib/work-context-types";
@@ -28,7 +28,7 @@ function batchNextHref(batch: { id: string; goCount: number }) {
 export async function loadWorkContext(): Promise<WorkContextItem[]> {
   const [batches, cases] = await Promise.allSettled([
     listAISourcingBatches(),
-    listCases(),
+    listSourcingCases(),
   ]);
 
   const batchItems: WorkContextItem[] = (batches.status === "fulfilled" ? batches.value : [])
@@ -44,18 +44,20 @@ export async function loadWorkContext(): Promise<WorkContextItem[]> {
     }));
 
   const caseItems: WorkContextItem[] = (cases.status === "fulfilled" ? cases.value : [])
-    .filter((item) => item.status === "approved")
-    .sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())
     .slice(0, 6)
-    .map((item) => ({
-      id: item.id,
-      kind: "case",
-      label: item.title,
-      stage: "已立项",
-      href: `/cases/${encodeURIComponent(item.id)}`,
-      nextLabel: "查看商品",
-      nextHref: `/cases/${encodeURIComponent(item.id)}`,
-    }));
+    .map((item) => {
+      const hasSelection = Boolean(item.selection);
+      const id = encodeURIComponent(item.productCase.id);
+      return {
+        id: item.productCase.id,
+        kind: "case",
+        label: item.productCase.title,
+        stage: hasSelection ? "内容与上架" : "待定标",
+        href: `/cases/${id}`,
+        nextLabel: hasSelection ? "制作内容" : "去定标",
+        nextHref: hasSelection ? `/cases/${id}/content` : `/cases/${id}/sourcing`,
+      };
+    });
 
   return [...batchItems, ...caseItems];
 }
