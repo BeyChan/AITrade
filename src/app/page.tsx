@@ -4,6 +4,7 @@ import { createAISourcingBatchAction } from "@/app/actions";
 import { CategoryRecommender } from "@/components/category-recommender";
 import { GenerateResearchButton } from "@/components/generate-research-button";
 import { getAIProviderStatus } from "@/lib/ai-provider";
+import { buildAiProposalDigest, loadPendingAiProposals } from "@/lib/ai-proposals/digest";
 import { listAISourcingBatches } from "@/lib/ai-sourcing-repository";
 import { money, percent, shortDate } from "@/lib/format";
 import { getSiteOptions, listCasesForSite, listSourcingCases } from "@/lib/repository";
@@ -37,11 +38,15 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     throw new Error("缺少可用的国家或平台配置");
   }
 
-  const [cases, batches, sourcingCases, provider] = await Promise.all([
+  const [cases, batches, sourcingCases, provider, proposals] = await Promise.all([
     listCasesForSite(selectedMarket.code, selectedPlatform.code),
     listAISourcingBatches(selectedMarket.code, selectedPlatform.code),
     listSourcingCases(),
     getAIProviderStatus(),
+    // AI 提案只是首页的补充信息；取数失败时降级为空，不阻塞工作台。
+    loadPendingAiProposals({ limit: 4 }).catch(() =>
+      buildAiProposalDigest([], { warnings: ["AI 提案暂时不可用"] }),
+    ),
   ]);
 
   const siteLabel = `${selectedMarket.name}站 · ${selectedPlatform.name}`;
@@ -114,8 +119,8 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           </div>
           <h1>今天先处理什么</h1>
           <p>
-            {attentionTasks.length > 0
-              ? `当前有 ${attentionTasks.length} 类事项需要你处理。先补齐证据、报价和定标，再推进内容制作。`
+            {attentionTasks.length > 0 || proposals.total > 0
+              ? `当前有 ${attentionTasks.length} 类事项${proposals.total > 0 ? `、${proposals.total} 条 AI 提案待确认` : ""}。先补齐证据、报价和定标，再推进内容制作。`
               : "当前没有必须人工处理的事项，可以查看商品进度或发起新一轮选品研究。"}
           </p>
           <div className="dashboard-hero-actions">
@@ -209,6 +214,30 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           </div>
           <p>系统只推进已满足确定性规则的事项，例外必须由你确认。</p>
         </div>
+
+        {proposals.total > 0 ? (
+          <div className="dashboard-proposal-stream">
+            <div className="dashboard-proposal-head">
+              <strong>{proposals.total} 条 AI 提案待确认</strong>
+              <span>按业务对象汇总，点击回到原对象处理；确认前不写入业务表</span>
+            </div>
+            <div className="dashboard-proposal-list">
+              {proposals.groups.map((group) => (
+                <Link href={group.href} className="dashboard-proposal-item" key={group.key}>
+                  <span className="dashboard-proposal-count">{group.count}</span>
+                  <span className="dashboard-proposal-copy">
+                    <strong>{group.title}</strong>
+                    <small>{group.summary} · {group.reason}</small>
+                  </span>
+                  <span className="dashboard-proposal-arrow" aria-hidden="true">→</span>
+                </Link>
+              ))}
+            </div>
+            {proposals.warnings.length > 0 ? (
+              <small className="dashboard-proposal-warning">{proposals.warnings.join("；")}</small>
+            ) : null}
+          </div>
+        ) : null}
 
         {attentionTasks.length > 0 ? (
           <div className="dashboard-task-grid">
