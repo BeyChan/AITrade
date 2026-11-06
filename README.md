@@ -13,11 +13,13 @@
 → 内容确认与发布前检查
 ```
 
-![AITrade 工作台](docs/assets/aitrade-workspace-sidebar.png)
+> 截图对应当前界面。**改动 UI 后请运行 `npm run screenshots` 重拍，并把 `docs/assets/` 的变更随该次提交一起提交**，避免 README 长期落后于实际界面。
 
-![商品内容工作台](docs/assets/aitrade-content-studio.png)
+![选品工作台首页：今天先处理什么](docs/assets/aitrade-workspace-sidebar.png)
 
-![供应商报价与成本比较](docs/assets/aitrade-sourcing.png)
+![供应商询价：立项商品与定标进度](docs/assets/aitrade-sourcing.png)
+
+![内容工作台：立项商品的制作状态与进入条件](docs/assets/aitrade-content-studio.png)
 
 ## 主要功能
 
@@ -164,7 +166,20 @@ npm run typecheck  # TypeScript 检查
 npm test           # 单元测试
 npm run build      # 生产构建
 npm run db:reset   # 清空本地数据库
+npm run report:dry-run -- --help   # 报表计算管线试算（不写库）
+npm run screenshots   # 重拍 README 截图（需先启动 npm run dev）
 ```
+
+`npm run screenshots` 用本机无头 Chrome 对三个稳定路由（`/`、`/sourcing`、`/content`）重拍 `docs/assets/` 的三张图，脚本见 `scripts/capture-screenshots.sh`，可用 `BASE_URL` / `OUT_DIR` / `CHROME` / `WIDTH` / `HEIGHT` 覆盖。`next.config.ts` 已关闭开发指示器，截图里不会带上 dev 角标。
+
+P3.0 计算管线可以脱离数据库试算平台导出报表：
+
+```bash
+npm run report:dry-run -- --settlement <结算 TSV> --inventory <库存 TSV> \
+  --config <口径 JSON> --out <结果 JSON>
+```
+
+口径参数（本位币、汇率、站点时区、成本模型版本、观察窗口、最小分母等）必须在 config 中显式给出；脚本不内置阈值、不写库、不建表、不生成行动建议，未知行进入待处理队列并输出警告。列名依据平台公开报表规范，**仍需按 [当前方案](docs/current-plan.md) 7.4 用一份真实导出核对**；合成样例见 `src/lib/operations-pipeline.test.ts`。
 
 代码图谱是可选的开发辅助，产物 `graphify-out/` 已加入 `.gitignore`：
 
@@ -192,8 +207,12 @@ src/lib/ai-provider.ts   模型调用与模板回退
 src/lib/ai-sourcing.ts   假设校验与确定性门禁
 src/lib/ingestion.ts     导入、去重、快照与运行记录
 src/lib/economics.ts     单位经济计算
-src/lib/operations-metrics.ts    经营口径确定性计算（纯函数，尚未接入报表）
+src/lib/operations-metrics.ts    经营口径确定性计算（纯函数）
 src/lib/operations-settlement.ts  报表导入契约校验与结算行归集（纯函数）
+src/lib/report-adapters.ts        平台报表列名与解析归一化（公开规范，待真实导出核对）
+src/lib/operations-pipeline.ts    报表 → 归集 → 预测对齐 → 库存天数的纯计算管线
+scripts/report-dry-run.ts        报表试算 CLI（只读文件、输出 JSON，不写库）
+scripts/capture-screenshots.sh   用无头 Chrome 重拍 README 截图
 src/lib/listing.ts       Listing 预检
 src/lib/channels.ts      国家与平台字段映射
 db/schema.sql            PostgreSQL 兼容表结构
