@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AITrade 供应商采集</title>
+    <style>
+      :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #203526; background: #f4f8f5; }
+      * { box-sizing: border-box; }
+      body { width: 390px; margin: 0; padding: 16px; }
+      h1 { margin: 0; font-size: 18px; }
+      p { margin: 6px 0 0; color: #637269; font-size: 12px; line-height: 1.55; }
+      label { display: grid; gap: 6px; margin-top: 14px; color: #36513f; font-size: 12px; font-weight: 700; }
+      textarea { width: 100%; min-height: 138px; padding: 10px; resize: vertical; border: 1px solid #ccd9d0; border-radius: 9px; color: #26372d; background: #fff; font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+      button { width: 100%; margin-top: 10px; padding: 10px 12px; border: 0; border-radius: 9px; color: #fff; background: #23513a; cursor: pointer; font-size: 12px; font-weight: 800; }
+      button.secondary { color: #244b35; background: #e3ece6; }
+      button:disabled { cursor: wait; opacity: .65; }
+      .status { min-height: 34px; margin-top: 10px; padding: 9px 10px; border-radius: 8px; color: #53645a; background: #e9efeb; font-size: 11px; line-height: 1.5; }
+      .status.error { color: #8a302c; background: #fbecea; }
+      .status.success { color: #235c3d; background: #e7f5ec; }
+      .current { margin-top: 12px; padding: 10px; border: 1px solid #d8e4dc; border-radius: 9px; background: #fff; font-size: 11px; line-height: 1.55; word-break: break-all; }
+    </style>
+  </head>
+  <body>
+    <h1>1688 当前页采集</h1>
+    <p>只采集你当前打开页面里已经显示的商品卡；不登录、不翻页、不后台运行、不绕过验证码。</p>
+    <label>
+      当前方向配置（从 AITrade 页面复制）
+      <textarea id="config" spellcheck="false" placeholder="粘贴 AITrade 页面复制的扩展配置"></textarea>
+    </label>
+    <button id="save" class="secondary" type="button">保存配置</button>
+    <div id="current" class="current">尚未配置研究批次</div>
+    <button id="capture" type="button">采集当前页并导入 AITrade</button>
+    <div id="status" class="status" role="status" aria-live="polite">等待操作</div>
+    <script src="scraper.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

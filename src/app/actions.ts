@@ -27,6 +27,7 @@ import {
   recordCompetitorEvidence,
   recordOpportunityEvidence,
   recordSupplierCandidates,
+  rejectSupplierCandidate,
   selectHypothesisForValidation,
   shortlistSupplierCandidate,
 } from "@/lib/ai-sourcing-repository";
@@ -227,7 +228,7 @@ export async function selectHypothesisAction(formData: FormData) {
     redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
   }
   revalidateAISourcing(runId);
-  redirect(aiSourcingDetailPath(runId, "notice", "已加入验证并生成 8 项证据任务；系统不会自动联系供应商"));
+  redirect(aiSourcingDetailPath(runId, "notice", "已开始找供应商并生成 8 项验证任务；系统不会自动联系供应商"));
 }
 
 export async function recordOpportunityEvidenceAction(formData: FormData) {
@@ -377,6 +378,23 @@ export async function shortlistSupplierCandidateAction(formData: FormData) {
 
   revalidateAISourcing(runId);
   redirect(aiSourcingDetailPath(runId, "notice", "候选已人工核验并加入短名单；下一步可生成 RFQ 草稿"));
+}
+
+export async function rejectSupplierCandidateAction(formData: FormData) {
+  const runId = String(formData.get("runId") || "").trim();
+  let outcome: Awaited<ReturnType<typeof rejectSupplierCandidate>>;
+  try {
+    outcome = await rejectSupplierCandidate({
+      candidateId: String(formData.get("candidateId") || ""),
+      actor: String(formData.get("actor") || ""),
+      reason: String(formData.get("reason") || ""),
+    });
+  } catch (error) {
+    redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
+  }
+
+  revalidateAISourcing(runId);
+  redirect(aiSourcingDetailPath(runId, "notice", `候选已排除：${outcome.reason}。排除记录已写入审计日志`));
 }
 
 export async function generateSupplierDraftAction(formData: FormData) {

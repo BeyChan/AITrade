@@ -1241,6 +1241,56 @@ export async function shortlistSupplierCandidate(input: {
   return outcome;
 }
 
+export async function rejectSupplierCandidate(input: {
+  candidateId: string;
+  actor: string;
+  reason: string;
+}) {
+  const candidateId = input.candidateId.trim();
+  if (!candidateId) throw new Error("缺少候选 ID");
+  const actor = input.actor.trim().slice(0, 80) || "采购人员";
+  const reason = input.reason.trim().slice(0, 300) || "人工排除";
+  const db = await getDb();
+
+  return db.transaction(async (tx) => {
+    const candidateResult = await tx.query<SupplierCandidateRow>(
+      `SELECT * FROM supplier_candidates WHERE id = $1 FOR UPDATE`,
+      [candidateId],
+    );
+    const candidate = candidateResult.rows[0];
+    if (!candidate) throw new Error("供应商候选不存在");
+    if (candidate.status === "rejected") throw new Error("该候选已经排除");
+    if (candidate.status === "shortlisted") throw new Error("已加入短名单的候选不能直接排除");
+
+    await tx.query(
+      `UPDATE supplier_candidates
+       SET status = 'rejected', updated_at = NOW()
+       WHERE id = $1 AND status = 'candidate'`,
+      [candidateId],
+    );
+    await tx.query(
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
+       VALUES ($1, $2, 'ai_sourcing.supplier_candidate_rejected', 'supplier_candidate', $3, $4::jsonb)`,
+      [
+        randomUUID(),
+        actor,
+        candidateId,
+        JSON.stringify({
+          hypothesisId: candidate.hypothesis_id,
+          reason,
+          externalActions: "none",
+        }),
+      ],
+    );
+
+    return {
+      candidateId,
+      hypothesisId: candidate.hypothesis_id,
+      reason,
+    };
+  });
+}
+
 export async function recordAISupplierQuote(input: {
   hypothesisId: string;
   supplierName: string;

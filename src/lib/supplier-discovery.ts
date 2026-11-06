@@ -1,3 +1,5 @@
+import iconv from "iconv-lite";
+
 export type SupplierLead = {
   role: string;
   query: string;
@@ -85,7 +87,7 @@ export function buildSupplierLeads(input: SupplierLeadInput): SupplierLead[] {
 }
 
 export function supplier1688SearchUrl(query: string) {
-  return `https://s.1688.com/selloffer/offer_search.htm?keywords=${encodeURIComponent(query)}`;
+  return `https://s.1688.com/selloffer/offer_search.htm?keywords=${encodeGbkQuery(cleanText(query))}`;
 }
 
 export function supplierAlibabaSearchUrl(query: string) {
@@ -115,4 +117,21 @@ function cleanText(value: string | undefined) {
 
 function queryKey(value: string) {
   return value.normalize("NFKC").toLocaleLowerCase("zh-CN").replace(/\s+/g, "");
+}
+
+function encodeGbkQuery(value: string) {
+  const bytes = iconv.encode(value.normalize("NFKC"), "gbk");
+  return Array.from(bytes, (byte) => {
+    const isUnreserved =
+      (byte >= 0x30 && byte <= 0x39) ||
+      (byte >= 0x41 && byte <= 0x5a) ||
+      (byte >= 0x61 && byte <= 0x7a) ||
+      byte === 0x2d ||
+      byte === 0x2e ||
+      byte === 0x5f ||
+      byte === 0x7e;
+    return isUnreserved
+      ? String.fromCharCode(byte)
+      : `%${byte.toString(16).toUpperCase().padStart(2, "0")}`;
+  }).join("");
 }

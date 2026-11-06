@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { connection } from "next/server";
 import { AppSidebar } from "@/components/app-sidebar";
 import { TopbarSiteScope } from "@/components/topbar-site-scope";
 import { getSiteOptions } from "@/lib/repository";
@@ -11,6 +12,8 @@ export const metadata: Metadata = {
 };
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  // PGlite is process-local and must not be opened by parallel build workers.
+  await connection();
   const options = await getSiteOptions();
   const markets = options.markets.map(({ code, name, currency }) => ({ code, name, currency }));
   const platforms = options.platforms.map(({ code, name }) => ({ code, name }));

@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "AITrade 1688 供应商采集",
+  "version": "1.0.0",
+  "description": "用户点击后采集当前 1688 搜索结果页的可见商品卡，并导入本地 AITrade 研究批次。",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": [
+    "https://*.1688.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "action": {
+    "default_title": "采集 1688 当前页到 AITrade",
+    "default_popup": "popup.html"
+  }
+}

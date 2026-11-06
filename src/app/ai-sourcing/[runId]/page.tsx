@@ -5,6 +5,11 @@ import { CopyDraftButton } from "@/components/copy-draft-button";
 import { CostBackCalculator } from "@/components/cost-back-calculator";
 import { HashOpenDetails } from "@/components/hash-open-details";
 import {
+  SupplierCandidateComparison,
+  SupplierCandidateImportForm,
+  SupplierCaptureTools,
+} from "@/components/supplier-candidate-workspace";
+import {
   confirmHypothesisPriceAction,
   generateSupplierDraftAction,
   promoteHypothesisAction,
@@ -12,7 +17,7 @@ import {
   recordAISupplierQuoteAction,
   recordCompetitorAction,
   recordOpportunityEvidenceAction,
-  recordSupplierCandidatesAction,
+  rejectSupplierCandidateAction,
   selectHypothesisAction,
   shortlistSupplierCandidateAction,
 } from "@/app/actions";
@@ -48,7 +53,14 @@ export const dynamic = "force-dynamic";
 
 type PageProps = {
   params: Promise<{ runId: string }>;
-  searchParams: Promise<{ market?: string; platform?: string; notice?: string; error?: string }>;
+  searchParams: Promise<{
+    market?: string;
+    platform?: string;
+    notice?: string;
+    error?: string;
+    capture?: string;
+    hypothesisId?: string;
+  }>;
 };
 
 export default async function AISourcingDetailPage({ params, searchParams }: PageProps) {
@@ -74,7 +86,11 @@ export default async function AISourcingDetailPage({ params, searchParams }: Pag
     ? Math.round(batch.hypotheses.reduce((sum, item) => sum + (item.decision?.evidenceCompleteness ?? 0), 0) / batch.hypotheses.length)
     : 0;
   const observedAt = dateTimeInputValue(new Date());
+  const requestedHypothesisId = batch.hypotheses.some((item) => item.id === query.hypothesisId)
+    ? query.hypothesisId
+    : undefined;
   const defaultHypothesisId =
+    requestedHypothesisId ??
     batch.hypotheses.find((item) => item.decision?.decision === "GO")?.id ??
     batch.hypotheses.find((item) => item.selectedForValidation)?.id ??
     batch.hypotheses[0]?.id;
@@ -180,6 +196,7 @@ export default async function AISourcingDetailPage({ params, searchParams }: Pag
             aiInboxCounts={aiInboxCounts.get(hypothesis.id) ?? null}
             observedAt={observedAt}
             defaultOpen={hypothesis.id === defaultHypothesisId}
+            autoReadClipboard={query.capture === "clipboard" && query.hypothesisId === hypothesis.id}
           />
         ))}
       </div>
@@ -207,6 +224,7 @@ function HypothesisCard({
   aiInboxCounts,
   observedAt,
   defaultOpen,
+  autoReadClipboard,
 }: {
   batch: BatchType;
   hypothesis: AISourcingHypothesisDetail;
@@ -214,6 +232,7 @@ function HypothesisCard({
   aiInboxCounts: AiInboxHypothesisTaskCounts | null;
   observedAt: string;
   defaultOpen: boolean;
+  autoReadClipboard: boolean;
 }) {
   const decision = hypothesis.decision;
   const supplierByShortlistId = new Map(hypothesis.shortlist.map((item) => [item.id, item]));
@@ -275,36 +294,13 @@ function HypothesisCard({
           <div><span>证据完整度</span><strong>{decision?.evidenceCompleteness ?? 0}%</strong></div>
         </div>
 
-      <section className="ai-supplier-discovery">
-        <div className="ai-supplier-discovery-head">
-          <div>
-            <strong>供应商找货线索</strong>
-            <span>每张卡对应一种搜索思路。搜索命中只是候选供应商，需要继续核对主体、产品匹配和报价。</span>
-          </div>
-          <span className="badge badge-neutral">5 组线索</span>
-        </div>
-        <div className="ai-supplier-lead-grid">
-          {supplierLeads.map((lead) => (
-            <article className="ai-supplier-lead" key={lead.role}>
-              <div className="ai-supplier-lead-copy">
-                <span>{lead.role}</span>
-                <strong>{lead.query}</strong>
-                <p>{lead.note}</p>
-              </div>
-              <div className="ai-supplier-lead-links">
-                <a href={supplier1688SearchUrl(lead.query)} target="_blank" rel="noreferrer">1688 ↗</a>
-                <a href={supplierAlibabaSearchUrl(lead.query)} target="_blank" rel="noreferrer">Alibaba ↗</a>
-                <a href={supplierGoogleSearchUrl(lead.query)} target="_blank" rel="noreferrer">Google 查工厂 ↗</a>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <SupplierCandidateCapture
+      <SupplierDiscoveryWorkspace
         runId={batch.id}
         hypothesis={hypothesis}
+        supplierDrafts={supplierDrafts}
+        supplierLeads={supplierLeads}
         defaultQuery={supplierLeads[0]?.query ?? hypothesis.concept}
+        autoReadClipboard={autoReadClipboard}
       />
 
       <div className="ai-query-grid ai-query-grid-two">
@@ -327,20 +323,7 @@ function HypothesisCard({
         {hypothesis.mainRisks.map((risk) => <span className="risk-chip" key={risk}>{risk}</span>)}
       </div>
 
-      {!hypothesis.selectedForValidation ? (
-        <div className="ai-next-step">
-          <div>
-            <strong>下一步：加入验证</strong>
-            <p>加入后将生成 8 项验证任务；系统不会自动采集、联系供应商或下单。</p>
-          </div>
-          <form action={selectHypothesisAction} className="button-row">
-            <input type="hidden" name="runId" value={batch.id} />
-            <input type="hidden" name="hypothesisId" value={hypothesis.id} />
-            <input name="actor" aria-label="加入验证的负责人" placeholder="负责人" defaultValue="运营人员" maxLength={80} required />
-            <button type="submit" className="button primary">加入验证</button>
-          </form>
-        </div>
-      ) : (
+      {hypothesis.selectedForValidation ? (
         <>
           <DecisionPanel decision={decision} hypothesis={hypothesis} currency={batch.currency} />
 
@@ -542,128 +525,206 @@ function HypothesisCard({
             )}
           </div>
         </>
-      )}
+      ) : null}
       </div>
     </HashOpenDetails>
   );
 }
 
-function SupplierCandidateCapture({
+function SupplierDiscoveryWorkspace({
   runId,
   hypothesis,
+  supplierDrafts,
+  supplierLeads,
   defaultQuery,
+  autoReadClipboard,
 }: {
   runId: string;
   hypothesis: AISourcingHypothesisDetail;
+  supplierDrafts: SupplierDraft[];
+  supplierLeads: ReturnType<typeof buildSupplierLeads>;
   defaultQuery: string;
+  autoReadClipboard: boolean;
 }) {
+  if (!hypothesis.selectedForValidation) {
+    return (
+      <section className="ai-discovery-start">
+        <div className="ai-discovery-start-copy">
+          <span className="eyebrow">Start supplier discovery</span>
+          <h3>开始找供应商</h3>
+          <p>先确认负责人，再生成验证任务并启用 1688 采集、候选对比、人工核验和 RFQ 草稿。</p>
+        </div>
+        <form action={selectHypothesisAction} className="ai-discovery-start-form">
+          <input type="hidden" name="runId" value={runId} />
+          <input type="hidden" name="hypothesisId" value={hypothesis.id} />
+          <label>
+            <span>负责人</span>
+            <input name="actor" aria-label="找供应商负责人" placeholder="例如：采购小王" defaultValue="采购人员" maxLength={80} required />
+          </label>
+          <button type="submit" className="button primary">开始找供应商</button>
+        </form>
+        <div className="ai-discovery-start-safety">
+          <span>用户点击才采集</span>
+          <span>人工核验后入短名单</span>
+          <span>不自动联系或发送</span>
+        </div>
+      </section>
+    );
+  }
+
   const latestRun = hypothesis.supplierDiscoveryRuns[0] ?? null;
-  const candidates = hypothesis.supplierCandidates.slice(0, 10);
+  const activeCandidates = hypothesis.supplierCandidates.filter((candidate) => candidate.status !== "rejected");
+  const rejectedCandidates = hypothesis.supplierCandidates.filter((candidate) => candidate.status === "rejected");
+  const rankedCandidates = activeCandidates.slice(0, 10);
+  const pinnedShortlist = activeCandidates.filter(
+    (candidate) => candidate.status === "shortlisted" && !rankedCandidates.some((item) => item.id === candidate.id),
+  );
+  const candidates = [...pinnedShortlist, ...rankedCandidates];
   const shortlistedCount = hypothesis.supplierCandidates.filter((candidate) => candidate.status === "shortlisted").length;
-  const captureExample = `{
-  "source": "1688_visible_page",
-  "pageUrl": "https://s.1688.com/...",
-  "candidates": [
+  const hasRfqDraft = supplierDrafts.some((draft) => draft.draftType === "rfq");
+  const discoverySteps = [
+    { label: "选择方向", detail: hypothesis.concept, state: "done" },
     {
-      "title": "商品标题",
-      "supplierName": "供应商名称",
-      "offerUrl": "https://detail.1688.com/offer/123456789.html",
-      "supplierUrl": "https://shop.example.1688.com/",
-      "price": "¥35.80-42.00",
-      "moq": "2件起批",
-      "badges": ["超级工厂", "深度验厂", "48小时发货"],
-      "location": "广东 深圳",
-      "sourceText": "当前商品卡可见文本"
-    }
-  ]
-}`;
+      label: "采集 1688",
+      detail: latestRun ? `最近采集 ${shortDate(latestRun.capturedAt)}` : "打开搜索结果页后点击采集",
+      state: latestRun ? "done" : "active",
+    },
+    {
+      label: "人工核验",
+      detail: shortlistedCount > 0 ? `已入短名单 ${shortlistedCount} 个` : "对比后核验供应商和产品",
+      state: shortlistedCount > 0 ? "done" : latestRun ? "active" : "todo",
+    },
+    {
+      label: "生成 RFQ",
+      detail: hasRfqDraft ? "已有内部草稿，待人工复制" : "短名单供应商可一键生成",
+      state: hasRfqDraft ? "done" : shortlistedCount > 0 ? "active" : "todo",
+    },
+  ];
 
   return (
-    <section className="ai-candidate-capture">
-      <div className="ai-candidate-capture-head">
-        <div>
-          <span className="eyebrow">User-triggered capture</span>
-          <strong>当前页候选 · TOP 10 · 人工核验后进入短名单</strong>
-          <p>你打开目标 1688 搜索结果页并触发采集；系统只处理当前可见页数据，不后台抓取、不翻页、不登录，也不绕过验证码。</p>
-        </div>
-        <div className="ai-candidate-capture-badges">
-          <span className="badge badge-neutral">{hypothesis.counts.supplierCandidates} 个候选</span>
-          <span className="badge badge-success">{shortlistedCount} 个已核验</span>
-        </div>
+    <>
+      <div className="ai-discovery-progress" aria-label="供应商发现流程">
+        {discoverySteps.map((step, index) => (
+          <div className={step.state} key={step.label}>
+            <span>0{index + 1}</span>
+            <div><strong>{step.label}</strong><small>{step.detail}</small></div>
+          </div>
+        ))}
       </div>
 
-      <form action={recordSupplierCandidatesAction} className="ai-candidate-capture-form">
-        <input type="hidden" name="runId" value={runId} />
-        <input type="hidden" name="hypothesisId" value={hypothesis.id} />
-        <div className="field">
-          <label>本次搜索词</label>
-          <input name="query" defaultValue={defaultQuery} maxLength={500} required disabled={!hypothesis.selectedForValidation} />
+      <section className="ai-supplier-discovery">
+        <div className="ai-supplier-discovery-head">
+          <div>
+            <strong>① 选择搜索方向</strong>
+            <span>先从一种搜索思路开始。搜索命中只是候选，后续仍需核对主体、产品匹配和报价。</span>
+          </div>
+          <span className="badge badge-neutral">{supplierLeads.length} 组线索</span>
         </div>
-        <div className="field">
-          <label>采集人</label>
-          <input name="actor" defaultValue="采购人员" maxLength={80} required disabled={!hypothesis.selectedForValidation} />
-        </div>
-        <div className="field full">
-          <label>当前页候选数据（JSON 或页面文本）</label>
-          <textarea
-            name="payload"
-            rows={7}
-            required
-            maxLength={500_000}
-            disabled={!hypothesis.selectedForValidation}
-            placeholder={'粘贴当前搜索结果页商品卡的 JSON 或纯文本。每条至少需要标题，以及商品链接或供应商主页链接。'}
-          />
-        </div>
-        <div className="field full ai-candidate-capture-actions">
-          <span>
-            {hypothesis.selectedForValidation
-              ? "解析后会做确定性去重和评分。候选本身不会进入报价门禁，也不会自动联系供应商。"
-              : "请先点击下方“加入验证”，再加入当前页候选。"}
-          </span>
-          <button className="button primary" type="submit" disabled={!hypothesis.selectedForValidation}>
-            解析并生成 TOP 10
-          </button>
-        </div>
-      </form>
-
-      <details className="ai-capture-format">
-        <summary>查看采集格式与半自动接入方式</summary>
-        <div>
-          <p>第一版支持浏览器采集器或人工复制的当前页 JSON；纯文本只要包含商品标题、价格和商品链接也能解析。后续可在同一接口上接 Chrome MV3 扩展，仍保持“用户点击才采集当前页”的权限边界。</p>
-          <pre>{captureExample}</pre>
-        </div>
-      </details>
-
-      {latestRun ? (
-        <div className="ai-candidate-run-summary">
-          <div><span>最近采集</span><strong>{shortDate(latestRun.capturedAt)}</strong></div>
-          <div><span>识别</span><strong>{latestRun.receivedCount}</strong></div>
-          <div><span>去重</span><strong>{latestRun.duplicateCount}</strong></div>
-          <div><span>TOP</span><strong>{latestRun.topCount}</strong></div>
-          <div><span>触发方式</span><strong>用户触发</strong></div>
-          {latestRun.warnings.length > 0 ? (
-            <div className="ai-candidate-run-warnings">
-              {latestRun.warnings.map((warning) => <span key={warning}>{warning}</span>)}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      {candidates.length > 0 ? (
-        <div className="ai-candidate-grid">
-          {candidates.map((candidate, index) => (
-            <SupplierCandidateCard
-              candidate={candidate}
-              index={index}
-              runId={runId}
-              key={candidate.id}
-            />
+        <div className="ai-supplier-lead-grid">
+          {supplierLeads.map((lead) => (
+            <article className="ai-supplier-lead" key={lead.role}>
+              <div className="ai-supplier-lead-copy">
+                <span>{lead.role}</span>
+                <strong>{lead.query}</strong>
+                <p>{lead.note}</p>
+              </div>
+              <div className="ai-supplier-lead-links">
+                <a href={supplier1688SearchUrl(lead.query)} target="_blank" rel="noreferrer">打开 1688 ↗</a>
+                <a href={supplierAlibabaSearchUrl(lead.query)} target="_blank" rel="noreferrer">Alibaba ↗</a>
+                <a href={supplierGoogleSearchUrl(lead.query)} target="_blank" rel="noreferrer">Google 查工厂 ↗</a>
+              </div>
+            </article>
           ))}
         </div>
-      ) : (
-        <div className="empty-inline">还没有候选。打开 1688 搜索结果页，采集当前可见商品卡后粘贴到上方。</div>
-      )}
-    </section>
+      </section>
+
+      <section className="ai-candidate-capture">
+        <div className="ai-candidate-capture-head">
+          <div>
+            <span className="eyebrow">User-triggered capture</span>
+            <strong>② 采集 1688 当前页 · 自动生成 TOP 10</strong>
+            <p>用户点击才采集，只处理当前可见商品卡；不后台抓取、不自动翻页、不登录，也不绕过验证码。</p>
+          </div>
+          <div className="ai-candidate-capture-badges">
+            <span className="badge badge-neutral">{activeCandidates.length} 个待筛选</span>
+            <span className="badge badge-success">{shortlistedCount} 个已核验</span>
+            {rejectedCandidates.length > 0 ? <span className="badge badge-danger">{rejectedCandidates.length} 个已排除</span> : null}
+          </div>
+        </div>
+
+        <SupplierCaptureTools runId={runId} hypothesisId={hypothesis.id} query={defaultQuery} />
+
+        <div className="ai-manual-capture-head">
+          <div><strong>方式三：手动粘贴或读取剪贴板</strong><span>书签自动复制后会优先尝试读取；浏览器询问剪贴板权限时请允许。</span></div>
+        </div>
+
+        <SupplierCandidateImportForm
+          runId={runId}
+          hypothesisId={hypothesis.id}
+          defaultQuery={defaultQuery}
+          autoReadClipboard={autoReadClipboard}
+        />
+
+        {latestRun ? (
+          <div className="ai-candidate-run-summary">
+            <div><span>最近采集</span><strong>{shortDate(latestRun.capturedAt)}</strong></div>
+            <div><span>识别</span><strong>{latestRun.receivedCount}</strong></div>
+            <div><span>去重</span><strong>{latestRun.duplicateCount}</strong></div>
+            <div><span>TOP</span><strong>{latestRun.topCount}</strong></div>
+            <div><span>触发方式</span><strong>用户触发</strong></div>
+            {latestRun.warnings.length > 0 ? (
+              <div className="ai-candidate-run-warnings">
+                {latestRun.warnings.map((warning) => <span key={warning}>{warning}</span>)}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="ai-candidate-review-head">
+          <div>
+            <strong>③ 对比并人工核验</strong>
+            <span>先对比，再打开来源核验。只有勾选人工核验的候选才进入短名单，其他候选可排除。</span>
+          </div>
+          <span className="badge badge-neutral">TOP {Math.min(10, activeCandidates.length)}</span>
+        </div>
+
+        <SupplierCandidateComparison candidates={candidates} />
+
+        {candidates.length > 0 ? (
+          <div className="ai-candidate-grid">
+            {candidates.map((candidate) => (
+              <SupplierCandidateCard
+                candidate={candidate}
+                index={activeCandidates.findIndex((item) => item.id === candidate.id)}
+                runId={runId}
+                hypothesisId={hypothesis.id}
+                key={candidate.id}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="empty-inline">还没有候选。打开 1688 搜索结果页，用扩展或书签采集当前可见商品卡。</div>
+        )}
+
+        {rejectedCandidates.length > 0 ? (
+          <details className="ai-rejected-candidates">
+            <summary>
+              <span>已排除 {rejectedCandidates.length} 个候选</span>
+              <small>默认隐藏，保留记录以便复核</small>
+            </summary>
+            <div className="ai-rejected-candidate-list">
+              {rejectedCandidates.map((candidate) => (
+                <div key={candidate.id}>
+                  <strong>{candidate.title}</strong>
+                  <span>{candidate.supplierName} · {candidate.score} 分</span>
+                  {candidate.offerUrl ? <a href={candidate.offerUrl} target="_blank" rel="noreferrer">查看来源 ↗</a> : null}
+                </div>
+              ))}
+            </div>
+          </details>
+        ) : null}
+      </section>
+    </>
   );
 }
 
@@ -671,16 +732,18 @@ function SupplierCandidateCard({
   candidate,
   index,
   runId,
+  hypothesisId,
 }: {
   candidate: AISupplierCandidate;
   index: number;
   runId: string;
+  hypothesisId: string;
 }) {
   return (
     <article className={`ai-candidate-card ${candidate.status === "shortlisted" ? "shortlisted" : ""}`}>
       <div className="ai-candidate-card-head">
         <div>
-          <span className="ai-candidate-rank">TOP {index + 1}</span>
+          <span className="ai-candidate-rank">{index < 10 ? `TOP ${index + 1}` : "已入短名单"}</span>
           <h3>{candidate.title}</h3>
           <p>{candidate.supplierName} · {candidate.platform}</p>
         </div>
@@ -729,30 +792,59 @@ function SupplierCandidateCard({
         <div className="ai-candidate-shortlisted">
           <strong>✓ 已人工核验并加入短名单</strong>
           <span>{candidate.verifiedBy ?? "采购人员"} · {candidate.verifiedAt ? shortDate(candidate.verifiedAt) : "已记录"}</span>
-          <small>可在下方“供应商内部草稿”中选择该供应商生成 RFQ；系统不会发送。</small>
+          <small>RFQ 只会生成内部草稿；请核对内容后自行复制到沟通渠道，系统不会发送。</small>
+          {candidate.shortlistId ? (
+            <form action={generateSupplierDraftAction} className="ai-candidate-quick-rfq">
+              <input type="hidden" name="runId" value={runId} />
+              <input type="hidden" name="hypothesisId" value={hypothesisId} />
+              <input type="hidden" name="draftType" value="rfq" />
+              <input type="hidden" name="supplierShortlistId" value={candidate.shortlistId} />
+              <input name="actor" aria-label="RFQ 草稿生成人" defaultValue="采购人员" maxLength={80} required />
+              <button type="submit" className="button primary">生成 RFQ 草稿</button>
+            </form>
+          ) : null}
         </div>
       ) : (
-        <form action={shortlistSupplierCandidateAction} className="ai-candidate-verify-form">
-          <input type="hidden" name="runId" value={runId} />
-          <input type="hidden" name="candidateId" value={candidate.id} />
-          <div className="field">
-            <label>核验后的供应商名称</label>
-            <input name="supplierName" defaultValue={candidate.supplierName} maxLength={180} required />
-          </div>
-          <div className="field">
-            <label>人工核验人</label>
-            <input name="actor" defaultValue="采购人员" maxLength={80} required />
-          </div>
-          <div className="field full">
-            <label>产品匹配说明</label>
-            <textarea name="productMatch" rows={2} maxLength={500} required placeholder="写明你已核对的材质、规格、结构、包装或差异" />
-          </div>
-          <label className="ai-candidate-verified-check full">
-            <input type="checkbox" name="verified" value="true" required />
-            <span>我已打开来源并人工核验供应商主体、产品一致性和公开信息</span>
-          </label>
-          <button className="button primary full" type="submit">已人工核验，加入短名单</button>
-        </form>
+        <>
+          <form action={shortlistSupplierCandidateAction} className="ai-candidate-verify-form">
+            <input type="hidden" name="runId" value={runId} />
+            <input type="hidden" name="candidateId" value={candidate.id} />
+            <div className="field">
+              <label>核验后的供应商名称</label>
+              <input name="supplierName" defaultValue={candidate.supplierName} maxLength={180} required />
+            </div>
+            <div className="field">
+              <label>人工核验人</label>
+              <input name="actor" defaultValue="采购人员" maxLength={80} required />
+            </div>
+            <div className="field full">
+              <label>产品匹配说明</label>
+              <textarea name="productMatch" rows={2} maxLength={500} required placeholder="写明你已核对的材质、规格、结构、包装或差异" />
+            </div>
+            <label className="ai-candidate-verified-check full">
+              <input type="checkbox" name="verified" value="true" required />
+              <span>我已打开来源并人工核验供应商主体、产品一致性和公开信息</span>
+            </label>
+            <button className="button primary full" type="submit">已人工核验，加入短名单</button>
+          </form>
+
+          <details className="ai-candidate-reject">
+            <summary>不匹配，排除该候选</summary>
+            <form action={rejectSupplierCandidateAction}>
+              <input type="hidden" name="runId" value={runId} />
+              <input type="hidden" name="candidateId" value={candidate.id} />
+              <div className="field">
+                <label>排除原因</label>
+                <input name="reason" maxLength={300} required placeholder="例如：材质不符 / MOQ 过高 / 无法核验主体" />
+              </div>
+              <div className="field">
+                <label>操作人</label>
+                <input name="actor" defaultValue="采购人员" maxLength={80} required />
+              </div>
+              <button type="submit" className="button danger">确认排除</button>
+            </form>
+          </details>
+        </>
       )}
     </article>
   );

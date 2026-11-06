@@ -16,6 +16,7 @@ const {
   getAISourcingBatch,
   listAISourcingBatches,
   recordSupplierCandidates,
+  rejectSupplierCandidate,
   selectHypothesisForValidation,
   shortlistSupplierCandidate,
 } = await import("./ai-sourcing-repository.ts");
@@ -256,6 +257,34 @@ test("visible-page candidates stay outside supplier counts until manually verifi
     }),
     /已加入短名单/,
   );
+
+  const rejectedCandidate = hypothesisAfter.supplierCandidates.find((item) => item.status === "candidate");
+  assert.ok(rejectedCandidate);
+  await assert.rejects(
+    () => rejectSupplierCandidate({
+      candidateId: candidate.id,
+      actor: "测试采购",
+      reason: "已加入短名单后不能排除",
+    }),
+    /已加入短名单/,
+  );
+  const rejected = await rejectSupplierCandidate({
+    candidateId: rejectedCandidate.id,
+    actor: "测试采购",
+    reason: "MOQ 与首单预算不匹配",
+  });
+  assert.equal(rejected.candidateId, rejectedCandidate.id);
+  const afterRejection = await getAISourcingBatch(created.runId);
+  const rejectedState = afterRejection?.hypotheses
+    .find((item) => item.id === hypothesisId)
+    ?.supplierCandidates.find((item) => item.id === rejectedCandidate.id);
+  assert.equal(rejectedState?.status, "rejected");
+  const rejectionAudit = await db.query<{ details: Record<string, unknown> }>(
+    `SELECT details FROM audit_logs
+     WHERE action = 'ai_sourcing.supplier_candidate_rejected' AND entity_id = $1`,
+    [rejectedCandidate.id],
+  );
+  assert.equal(rejectionAudit.rows[0]?.details.reason, "MOQ 与首单预算不匹配");
 
   const repeated = await recordSupplierCandidates({
     hypothesisId,

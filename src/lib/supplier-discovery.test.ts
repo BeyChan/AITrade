@@ -39,3 +39,14 @@ test("supplier links are free search entry points", () => {
   const google = new URL(supplierGoogleSearchUrl(query));
   assert.match(google.searchParams.get("q") ?? "", /工厂 OEM wholesale supplier/);
 });
+
+test("1688 search keywords use GBK percent encoding", () => {
+  assert.equal(
+    supplier1688SearchUrl("宠物除毛刷 硅胶"),
+    "https://s.1688.com/selloffer/offer_search.htm?keywords=%B3%E8%CE%EF%B3%FD%C3%AB%CB%A2%20%B9%E8%BD%BA",
+  );
+  assert.equal(
+    supplier1688SearchUrl("  OEM 宠物梳  "),
+    "https://s.1688.com/selloffer/offer_search.htm?keywords=OEM%20%B3%E8%CE%EF%CA%E1",
+  );
+});
