@@ -17,7 +17,7 @@
 - 候选品、供应商、报价支持 CSV 或人工录入，保留来源与原始快照。
 - Listing 草稿、多站点版本、本地发布预检；导入与决策全量留痕。
 
-完整能力、数据模型与路线见 [当前方案](docs/current-plan.md)；AI 模块实现见 `src/lib/ai-inbox/`、`src/lib/ai-supplier-assistant/`。
+AI 模块实现见 `src/lib/ai-inbox/`、`src/lib/ai-supplier-assistant/`。
 
 ## 快速开始
 
@@ -63,7 +63,7 @@ npm run report:dry-run -- --help   # 报表试算（只读、不写库）
 npm run screenshots # 改 UI 后重拍截图，图片随提交一起更新
 ```
 
-报表试算的口径参数由 `--config` 显式给出，不内置阈值；列名依据平台公开规范，仍需用真实导出核对，见 [当前方案](docs/current-plan.md) 7.4。代码图谱重建用 `graphify extract . --code-only` 与 `graphify cluster-only . --no-label`，不要用 `graphify update .`。
+报表试算的口径参数由 `--config` 显式给出，不内置阈值；列名依据平台公开规范，仍需用真实导出核对。代码图谱重建用 `graphify extract . --code-only` 与 `graphify cluster-only . --no-label`，不要用 `graphify update .`。
 
 ## 项目结构
 
@@ -73,5 +73,3 @@ src/lib/        确定性计算、导入、AI 提取与报表管线
 scripts/        报表试算 CLI 与截图脚本
 db/schema.sql   表结构
 ```
-
-更多细节见 [当前方案](docs/current-plan.md)。
