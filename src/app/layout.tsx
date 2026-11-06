@@ -3,7 +3,9 @@ import { Suspense } from "react";
 import { connection } from "next/server";
 import { AppSidebar } from "@/components/app-sidebar";
 import { TopbarSiteScope } from "@/components/topbar-site-scope";
+import { WorkContextBar } from "@/components/work-context-bar";
 import { getSiteOptions } from "@/lib/repository";
+import { loadWorkContext } from "@/lib/work-context";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -14,7 +16,10 @@ export const metadata: Metadata = {
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   // PGlite is process-local and must not be opened by parallel build workers.
   await connection();
-  const options = await getSiteOptions();
+  const [options, workContext] = await Promise.all([
+    getSiteOptions(),
+    loadWorkContext().catch(() => []),
+  ]);
   const markets = options.markets.map(({ code, name, currency }) => ({ code, name, currency }));
   const platforms = options.platforms.map(({ code, name }) => ({ code, name }));
 
@@ -30,6 +35,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
               <Suspense fallback={<div className="topbar-inner" />}>
                 <TopbarSiteScope markets={markets} platforms={platforms} />
               </Suspense>
+              <WorkContextBar items={workContext} />
             </header>
             <main>{children}</main>
           </div>

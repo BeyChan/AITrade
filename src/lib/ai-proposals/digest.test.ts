@@ -97,7 +97,10 @@ test("proposals on the same business object collapse into one todo with a busine
   assert.deepEqual(group.kinds, ["evidence_extraction", "supplier_draft", "supplier_candidate"]);
   assert.match(group.summary, /证据提取 1 条/);
   assert.match(group.summary, /供应商候选 2 条/);
-  assert.equal(group.href, "/ai-sourcing/run-1#hypothesis-hyp-1");
+  assert.equal(
+    group.href,
+    "/ai-sourcing/run-1?tab=hypotheses&hypothesisId=hyp-1#hypothesis-hyp-1",
+  );
   assert.deepEqual(digest.byKind, {
     evidence_extraction: 1,
     supplier_draft: 1,
@@ -194,4 +197,22 @@ test("kind labels cover every kind so the UI never renders an undefined label", 
   for (const kind of ["evidence_extraction", "supplier_draft", "supplier_candidate"] as const) {
     assert.ok(AI_PROPOSAL_KIND_LABELS[kind]);
   }
+});
+
+test("proposal links land on the matching step, and candidates point at their own card", () => {
+  const candidateDigest = buildAiProposalDigest(
+    normalizeProposalRows({ candidates: [candidateRow()] }),
+  );
+  assert.equal(
+    candidateDigest.groups[0].href,
+    "/ai-sourcing/run-1?tab=suppliers&hypothesisId=hyp-1#candidate-cand-1",
+  );
+
+  const draftDigest = buildAiProposalDigest(
+    normalizeProposalRows({ drafts: [draftRow()] }),
+  );
+  assert.equal(
+    draftDigest.groups[0].href,
+    "/ai-sourcing/run-1?tab=quotes&hypothesisId=hyp-1#hypothesis-hyp-1",
+  );
 });

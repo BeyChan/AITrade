@@ -15,7 +15,7 @@ export default async function ContentWorkbenchPage() {
     <div className="page">
       <section className="hero">
         <div>
-          <div className="eyebrow">Content &amp; listing studio</div>
+          <div className="eyebrow">内容与上架工作台</div>
           <h1>内容工作台</h1>
           <p>集中管理已立项商品的主图、商品定义、Listing 草稿与发布预检。未完成供应商定标的商品只能查看状态，不能开始内容制作。</p>
         </div>

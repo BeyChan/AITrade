@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { cookies } from "next/headers";
 import type { CSSProperties } from "react";
 import { CopyDraftButton } from "@/components/copy-draft-button";
+import { DetailTabCookie } from "@/components/detail-tab-cookie";
+import { ProposalMeta } from "@/components/ai-proposal-card";
 import { CostBackCalculator } from "@/components/cost-back-calculator";
 import { HashOpenDetails } from "@/components/hash-open-details";
 import {
@@ -51,6 +54,21 @@ import {
 
 export const dynamic = "force-dynamic";
 
+/** 详情页按步骤分区，避免一个长页面堆满所有操作。 */
+const DETAIL_TABS = [
+  { key: "overview", label: "概览", hint: "批次进展与机会方向" },
+  { key: "hypotheses", label: "验证证据", hint: "补任务、录证据、核对竞品" },
+  { key: "suppliers", label: "找供应商", hint: "采集、对比、人工核验" },
+  { key: "quotes", label: "报价与 RFQ", hint: "真实报价、成本倒推、内部草稿" },
+  { key: "decision", label: "门禁结论", hint: "确定性结论与转立项" },
+] as const;
+
+type DetailTab = (typeof DETAIL_TABS)[number]["key"];
+
+function parseDetailTab(value: string | undefined): DetailTab {
+  return DETAIL_TABS.find((tab) => tab.key === value)?.key ?? "overview";
+}
+
 type PageProps = {
   params: Promise<{ runId: string }>;
   searchParams: Promise<{
@@ -60,11 +78,12 @@ type PageProps = {
     error?: string;
     capture?: string;
     hypothesisId?: string;
+    tab?: string;
   }>;
 };
 
 export default async function AISourcingDetailPage({ params, searchParams }: PageProps) {
-  const [{ runId }, query] = await Promise.all([params, searchParams]);
+  const [{ runId }, query, cookieStore] = await Promise.all([params, searchParams, cookies()]);
   const [batch, supplierDrafts, aiInboxCounts] = await Promise.all([
     getAISourcingBatch(runId),
     listSupplierDraftsByRun(runId),
@@ -94,16 +113,25 @@ export default async function AISourcingDetailPage({ params, searchParams }: Pag
     batch.hypotheses.find((item) => item.decision?.decision === "GO")?.id ??
     batch.hypotheses.find((item) => item.selectedForValidation)?.id ??
     batch.hypotheses[0]?.id;
+  const savedTab = cookieStore.get("aitrade_detail_tab")?.value;
+  const activeTab = parseDetailTab(query.tab ?? savedTab);
+  const activeTabMeta = DETAIL_TABS.find((tab) => tab.key === activeTab) ?? DETAIL_TABS[0];
+  const tabHref = (key: DetailTab) => {
+    const search = new URLSearchParams({ tab: key });
+    if (requestedHypothesisId) search.set("hypothesisId", requestedHypothesisId);
+    return `/ai-sourcing/${encodeURIComponent(runId)}?${search.toString()}`;
+  };
 
   return (
     <div className="page ai-sourcing-detail-page">
+      <DetailTabCookie tab={activeTab} />
       <div className="breadcrumb">
-        <Link href={`/?market=${encodeURIComponent(batch.marketCode)}&platform=${encodeURIComponent(batch.platformCode)}`}>AI 选品</Link> / 验证批次
+        <Link href="/">工作台</Link> / <Link href="/ai-sourcing">选品验证</Link> / 批次详情
       </div>
 
       <div className="title-row">
         <div>
-          <div className="eyebrow">Evidence-first validation</div>
+          <div className="eyebrow">证据优先的选品验证</div>
           <h1>{batch.category} · 选品验证</h1>
           <div className="title-meta">
             <span className="badge badge-neutral">{siteLabel}</span>
@@ -126,9 +154,26 @@ export default async function AISourcingDetailPage({ params, searchParams }: Pag
         </div>
       ) : null}
 
+      <nav className="ai-detail-tabs" aria-label="验证步骤">
+        {DETAIL_TABS.map((tab, index) => (
+          <Link
+            key={tab.key}
+            href={tabHref(tab.key)}
+            className={`ai-detail-tab${activeTab === tab.key ? " active" : ""}`}
+            aria-current={activeTab === tab.key ? "step" : undefined}
+          >
+            <span>0{index + 1}</span>
+            <strong>{tab.label}</strong>
+            <small>{tab.hint}</small>
+          </Link>
+        ))}
+      </nav>
+
+      {activeTab === "overview" ? (
+        <>
       <section className="ai-batch-overview">
         <div>
-          <span className="eyebrow" style={{ color: "var(--lime)" }}>Research brief</span>
+          <span className="eyebrow" style={{ color: "var(--lime)" }}>研究简报</span>
           <h2>{batch.brief}</h2>
           <p>创建人 {batch.createdBy} · {shortDate(batch.createdAt)} · {batch.provider} / {batch.model}</p>
         </div>
@@ -186,12 +231,37 @@ export default async function AISourcingDetailPage({ params, searchParams }: Pag
         ))}
       </div>
 
+          <HypothesisSummaryList batch={batch} />
+
+      <section className="panel ai-guardrail-panel">
+        <div className="panel-header">
+          <div>
+            <div className="eyebrow">流程护栏</div>
+            <h2>这套流程不会替你虚构事实</h2>
+            <p>AI 仅生成假设；销量、评论、竞品、供应商、报价、专利和利润都必须有来源。系统不会自动联系供应商、下单、付款或发布 Listing。</p>
+          </div>
+          <span className="badge badge-success">externalActions: none</span>
+        </div>
+      </section>
+        </>
+      ) : (
+        <>
+          <div className="ai-tab-intro">
+            <div>
+              <span className="eyebrow">当前步骤</span>
+              <strong>{activeTabMeta.label}</strong>
+              <span>{activeTabMeta.hint}</span>
+            </div>
+            <Link href={tabHref("overview")} className="button ghost">返回概览</Link>
+          </div>
+
       <div className="ai-hypothesis-list">
         {batch.hypotheses.map((hypothesis) => (
           <HypothesisCard
             key={hypothesis.id}
             batch={batch}
             hypothesis={hypothesis}
+            tab={activeTab}
             supplierDrafts={draftsByHypothesis.get(hypothesis.id) ?? []}
             aiInboxCounts={aiInboxCounts.get(hypothesis.id) ?? null}
             observedAt={observedAt}
@@ -201,21 +271,48 @@ export default async function AISourcingDetailPage({ params, searchParams }: Pag
         ))}
       </div>
 
-      <section className="panel ai-guardrail-panel">
-        <div className="panel-header">
-          <div>
-            <div className="eyebrow">Guardrails</div>
-            <h2>这套流程不会替你虚构事实</h2>
-            <p>AI 仅生成假设；销量、评论、竞品、供应商、报价、专利和利润都必须有来源。系统不会自动联系供应商、下单、付款或发布 Listing。</p>
-          </div>
-          <span className="badge badge-success">externalActions: none</span>
-        </div>
-      </section>
+        </>
+      )}
     </div>
   );
 }
 
 type BatchType = NonNullable<Awaited<ReturnType<typeof getAISourcingBatch>>>;
+
+function HypothesisSummaryList({ batch }: { batch: BatchType }) {
+  return (
+    <section className="panel ai-hypothesis-summary-list">
+      <div className="panel-header">
+        <div>
+          <div className="eyebrow">机会方向</div>
+          <h2>{batch.hypotheses.length} 个待验证方向</h2>
+          <p>选一个方向，按顺序补证据、找供应商，最后看门禁结论。</p>
+        </div>
+        <Link className="button secondary" href={`/ai-sourcing/${encodeURIComponent(batch.id)}?tab=hypotheses`}>
+          从验证证据开始 →
+        </Link>
+      </div>
+      <div className="ai-summary-rows">
+        {batch.hypotheses.map((hypothesis) => (
+          <div className="ai-summary-row" key={hypothesis.id}>
+            <span className="ai-hypothesis-rank">0{hypothesis.position}</span>
+            <div className="ai-summary-main">
+              <strong>{hypothesis.concept}</strong>
+              <small>{hypothesis.targetUser} · 证据 {hypothesis.decision?.evidenceCompleteness ?? 0}%</small>
+            </div>
+            <DecisionBadge decision={hypothesis.decision} />
+            <Link
+              className="button secondary"
+              href={`/ai-sourcing/${encodeURIComponent(batch.id)}?tab=hypotheses&hypothesisId=${encodeURIComponent(hypothesis.id)}#hypothesis-${encodeURIComponent(hypothesis.id)}`}
+            >
+              继续 →
+            </Link>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 function HypothesisCard({
   batch,
@@ -225,6 +322,7 @@ function HypothesisCard({
   observedAt,
   defaultOpen,
   autoReadClipboard,
+  tab,
 }: {
   batch: BatchType;
   hypothesis: AISourcingHypothesisDetail;
@@ -233,8 +331,23 @@ function HypothesisCard({
   observedAt: string;
   defaultOpen: boolean;
   autoReadClipboard: boolean;
+  tab: DetailTab;
 }) {
   const decision = hypothesis.decision;
+  const notStartedNotice = (
+    <div className="notice warn ai-tab-notice">
+      <div>
+        <strong>这个方向还没加入验证</strong>
+        <span>先到「找供应商」确认负责人，系统才会开放证据、报价和门禁录入。</span>
+      </div>
+      <Link
+        className="button secondary"
+        href={`/ai-sourcing/${encodeURIComponent(batch.id)}?tab=suppliers&hypothesisId=${encodeURIComponent(hypothesis.id)}#hypothesis-${encodeURIComponent(hypothesis.id)}`}
+      >
+        去开始 →
+      </Link>
+    </div>
+  );
   const supplierByShortlistId = new Map(hypothesis.shortlist.map((item) => [item.id, item]));
   const supplierLeads = buildSupplierLeads({
     concept: hypothesis.concept,
@@ -294,6 +407,7 @@ function HypothesisCard({
           <div><span>证据完整度</span><strong>{decision?.evidenceCompleteness ?? 0}%</strong></div>
         </div>
 
+      {tab === "suppliers" ? (
       <SupplierDiscoveryWorkspace
         runId={batch.id}
         hypothesis={hypothesis}
@@ -302,7 +416,11 @@ function HypothesisCard({
         defaultQuery={supplierLeads[0]?.query ?? hypothesis.concept}
         autoReadClipboard={autoReadClipboard}
       />
+      ) : null}
 
+      {tab === "hypotheses" ? (
+        hypothesis.selectedForValidation ? (
+          <>
       <div className="ai-query-grid ai-query-grid-two">
         <QueryGroup
           title={`${batch.platformName} · ${batch.marketCode} 竞品词`}
@@ -323,31 +441,11 @@ function HypothesisCard({
         {hypothesis.mainRisks.map((risk) => <span className="risk-chip" key={risk}>{risk}</span>)}
       </div>
 
-      {hypothesis.selectedForValidation ? (
-        <>
-          <DecisionPanel decision={decision} hypothesis={hypothesis} currency={batch.currency} />
-
-          <CostBackCalculator
-            platformCode={batch.platformCode}
-            platformName={batch.platformName}
-            currency={batch.currency}
-            recommendedPriceCents={hypothesis.recommendedPriceCents}
-            confirmedPriceCents={hypothesis.confirmedPriceCents}
-            suggestedMarginRate={hypothesis.expectedMarginRate}
-            quotes={hypothesis.quotes.map((quote) => ({
-              ...quote,
-              supplierName: supplierByShortlistId.get(quote.supplierShortlistId)?.supplierName,
-            }))}
-            priceEntryHref={`#confirm-price-${hypothesis.id}`}
-            quoteEntryHref={`#supplier-quote-${hypothesis.id}`}
-            fxRateToUsd={batch.fxRateToUsd}
-          />
-
           <div className="ai-validation-grid">
             <section className="ai-validation-summary">
               <div className="ai-validation-summary-head">
                 <div>
-                  <span className="eyebrow">Validation tasks</span>
+                  <span className="eyebrow">验证任务</span>
                   <h3>{hypothesis.counts.completedTasks} / {hypothesis.counts.totalTasks} 项任务完成</h3>
                 </div>
                 <span className="info-pill">{hypothesis.counts.competitors} 竞品 · {hypothesis.counts.reviewSamples} 差评样本</span>
@@ -369,7 +467,7 @@ function HypothesisCard({
             <section className="ai-recorded-evidence">
               <div className="ai-validation-summary-head">
                 <div>
-                  <span className="eyebrow">Recorded evidence</span>
+                  <span className="eyebrow">已录入证据</span>
                   <h3>已录入证据</h3>
                 </div>
                 <span className="info-pill">{hypothesis.evidence.length} 条</span>
@@ -395,7 +493,7 @@ function HypothesisCard({
 
           <section className="ai-smart-intake-card">
             <div>
-              <span className="eyebrow">AI-assisted evidence</span>
+              <span className="eyebrow">AI 辅助录入</span>
               <h3>AI 智能录入</h3>
               <p>把竞品页面、评论、CSV 或供应商报价文本整理成可追溯字段。AI 只提取，人工确认后才写入当前机会。</p>
             </div>
@@ -427,17 +525,11 @@ function HypothesisCard({
             <SupplierQuoteEntryForm hypothesisId={hypothesis.id} runId={batch.id} observedAt={observedAt} currency={batch.currency} />
           </div>
 
-          <SupplierAssistantPanel
-            runId={batch.id}
-            hypothesis={hypothesis}
-            drafts={supplierDrafts}
-          />
-
           {hypothesis.competitors.length > 0 ? (
             <section className="ai-record-block">
               <div className="ai-validation-summary-head">
                 <div>
-                  <span className="eyebrow">Competitor snapshots</span>
+                  <span className="eyebrow">真实竞品快照</span>
                   <h3>真实竞品快照</h3>
                 </div>
                 <span className="info-pill">{hypothesis.competitors.length} 个</span>
@@ -458,12 +550,34 @@ function HypothesisCard({
               </div>
             </section>
           ) : null}
+          </>
+        ) : notStartedNotice
+      ) : null}
+
+      {tab === "quotes" ? (
+        hypothesis.selectedForValidation ? (
+          <>
+          <CostBackCalculator
+            platformCode={batch.platformCode}
+            platformName={batch.platformName}
+            currency={batch.currency}
+            recommendedPriceCents={hypothesis.recommendedPriceCents}
+            confirmedPriceCents={hypothesis.confirmedPriceCents}
+            suggestedMarginRate={hypothesis.expectedMarginRate}
+            quotes={hypothesis.quotes.map((quote) => ({
+              ...quote,
+              supplierName: supplierByShortlistId.get(quote.supplierShortlistId)?.supplierName,
+            }))}
+            priceEntryHref={`#confirm-price-${hypothesis.id}`}
+            quoteEntryHref={`#supplier-quote-${hypothesis.id}`}
+            fxRateToUsd={batch.fxRateToUsd}
+          />
 
           {hypothesis.quotes.length > 0 ? (
             <section className="ai-record-block">
               <div className="ai-validation-summary-head">
                 <div>
-                  <span className="eyebrow">Verified quotes</span>
+                  <span className="eyebrow">已核验报价</span>
                   <h3>真实供应商报价</h3>
                 </div>
                 <span className="info-pill">{hypothesis.quotes.length} 份 · 按到岸成本排序</span>
@@ -505,6 +619,21 @@ function HypothesisCard({
             </section>
           ) : null}
 
+          <SupplierAssistantPanel
+            runId={batch.id}
+            hypothesis={hypothesis}
+            drafts={supplierDrafts}
+          />
+          </>
+        ) : notStartedNotice
+      ) : null}
+
+      {tab === "decision" ? (
+        hypothesis.selectedForValidation ? (
+          <>
+          <DecisionPanel decision={decision} hypothesis={hypothesis} currency={batch.currency} />
+
+
           <div className="ai-promotion-bar">
             <div>
               <strong>{decision?.decision === "GO" ? "门禁已通过，可以转入商品立项" : "门禁尚未通过，不能转入商品立项"}</strong>
@@ -524,7 +653,8 @@ function HypothesisCard({
               </form>
             )}
           </div>
-        </>
+          </>
+        ) : notStartedNotice
       ) : null}
       </div>
     </HashOpenDetails>
@@ -550,7 +680,7 @@ function SupplierDiscoveryWorkspace({
     return (
       <section className="ai-discovery-start">
         <div className="ai-discovery-start-copy">
-          <span className="eyebrow">Start supplier discovery</span>
+          <span className="eyebrow">开始找供应商</span>
           <h3>开始找供应商</h3>
           <p>先确认负责人，再生成验证任务并启用 1688 采集、候选对比、人工核验和 RFQ 草稿。</p>
         </div>
@@ -641,7 +771,7 @@ function SupplierDiscoveryWorkspace({
       <section className="ai-candidate-capture">
         <div className="ai-candidate-capture-head">
           <div>
-            <span className="eyebrow">User-triggered capture</span>
+            <span className="eyebrow">用户触发采集</span>
             <strong>② 采集 1688 当前页 · 自动生成 TOP 10</strong>
             <p>用户点击才采集，只处理当前可见商品卡；不后台抓取、不自动翻页、不登录，也不绕过验证码。</p>
           </div>
@@ -740,7 +870,10 @@ function SupplierCandidateCard({
   hypothesisId: string;
 }) {
   return (
-    <article className={`ai-candidate-card ${candidate.status === "shortlisted" ? "shortlisted" : ""}`}>
+    <article
+      id={`candidate-${candidate.id}`}
+      className={`ai-candidate-card ${candidate.status === "shortlisted" ? "shortlisted" : ""}`}
+    >
       <div className="ai-candidate-card-head">
         <div>
           <span className="ai-candidate-rank">{index < 10 ? `TOP ${index + 1}` : "已入短名单"}</span>
@@ -752,6 +885,13 @@ function SupplierCandidateCard({
           <span>匹配分</span>
         </div>
       </div>
+
+      <ProposalMeta
+        generation={{ source: "manual" }}
+        sourceQuote={candidate.sourceText}
+        statusLabel={candidate.status === "shortlisted" ? "已人工核验" : "待人工核验"}
+        targetLabel={candidate.supplierName}
+      />
 
       <div className="ai-candidate-score-parts">
         {candidate.scoreParts.map((part) => (
@@ -870,7 +1010,7 @@ function DecisionPanel({
     <section className="ai-decision-panel">
       <div className="ai-decision-main">
         <div>
-          <span className="eyebrow">Deterministic gate</span>
+          <span className="eyebrow">确定性门禁</span>
           <h3>{decision.decision === "GO" ? "可以转入商品立项" : decision.decision === "NO-GO" ? "当前方向应停止" : "继续补证据或调整成本"}</h3>
           <p>{decision.blockers.length ? `还有 ${decision.blockers.length} 项未通过。系统不会用模型判断替代这些确定性门槛。` : "所有确定性门槛均已通过。"}</p>
         </div>
@@ -954,7 +1094,7 @@ function SupplierAssistantPanel({
     <section className="ai-supplier-assistant ai-record-block">
       <div className="ai-validation-summary-head">
         <div>
-          <span className="eyebrow">AI supplier assistant</span>
+          <span className="eyebrow">供应商内部草稿</span>
           <h3>供应商内部草稿</h3>
           <p>AI 只润色主题和开场；缺失信息由确定性程序追加为问题。草稿仅供内部复核，系统不会发送。</p>
         </div>
@@ -1017,10 +1157,18 @@ function SupplierAssistantPanel({
 
                 <div className="ai-draft-meta">
                   <span>{supplier?.supplierName ?? "未指定供应商"}</span>
-                  <span>{draft.generationMode === "model_polished" ? "模型润色" : "确定性模板"}</span>
-                  <span>{draft.provider} / {draft.model}</span>
                   <span>{shortDate(draft.createdAt)} · {draft.createdBy}</span>
                 </div>
+
+                <ProposalMeta
+                  generation={{
+                    source: draft.generationMode === "model_polished" ? "model" : "template",
+                    provider: draft.provider,
+                    model: draft.model,
+                  }}
+                  statusLabel={draft.status === "reviewed" ? "已人工审阅" : "待人工审阅 · 未发送"}
+                  targetLabel={supplier?.supplierName ?? "未指定供应商"}
+                />
 
                 <div className="ai-draft-subject">
                   <span>主题</span>

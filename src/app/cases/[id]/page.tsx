@@ -166,7 +166,7 @@ export default async function CaseDetailPage({ params }: PageProps) {
 
         <aside className="stack">
           <section className="action-card">
-            <div className="eyebrow" style={{ color: "var(--lime)" }}>Next action</div>
+            <div className="eyebrow" style={{ color: "var(--lime)" }}>下一步</div>
             <h2>下一步</h2>
             <p>候选品已直接进入立项，不再经过人工确认。先补齐真实证据和供应商报价，再根据确定性门禁决定是否继续备货。</p>
             <div className="button-row">

@@ -18,7 +18,7 @@ export default async function AISourcingBatchListPage({ searchParams }: PageProp
     <div className="page ai-sourcing-page ai-batch-list-page">
       <section className="ai-batch-overview ai-batch-list-overview">
         <div>
-          <span className="eyebrow" style={{ color: "var(--lime)" }}>Research library</span>
+          <span className="eyebrow" style={{ color: "var(--lime)" }}>研究批次</span>
           <h2>所有研究批次</h2>
           <p>统一查看所有国家和平台的研究记录，按创建时间倒序完整展示。打开批次可继续补充证据、报价并执行确定性决策。</p>
           <div className="button-row ai-batch-list-actions">
@@ -39,7 +39,7 @@ export default async function AISourcingBatchListPage({ searchParams }: PageProp
       <section className="panel">
         <div className="panel-header">
           <div>
-            <div className="eyebrow">Research pipeline</div>
+            <div className="eyebrow">研究流程</div>
             <h2>研究批次列表</h2>
             <p>删除批次会移除关联的候选假设、证据、供应商短名单和报价；已转商品立项的数据保留。</p>
           </div>

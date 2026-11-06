@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { createAISourcingBatchAction } from "@/app/actions";
 import { CategoryRecommender } from "@/components/category-recommender";
+import { ProposalCard } from "@/components/ai-proposal-card";
 import { GenerateResearchButton } from "@/components/generate-research-button";
 import { getAIProviderStatus } from "@/lib/ai-provider";
 import { buildAiProposalDigest, loadPendingAiProposals } from "@/lib/ai-proposals/digest";
@@ -72,11 +73,32 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const researchRequestKey = randomUUID();
 
   const attentionTasks = [
+    ...(proposals.total > 0 ? [{
+      label: "待确认 AI 提案",
+      value: proposals.total,
+      detail: proposals.groups[0]?.reason ?? "模型产出等待人工确认，确认前不会写入业务表",
+      href: proposals.groups[0]?.href ?? "/ai-inbox",
+      action: "去确认",
+    }] : []),
+    ...(proposals.byKind.supplier_draft > 0 ? [{
+      label: "待审 RFQ 草稿",
+      value: proposals.byKind.supplier_draft,
+      detail: "内部草稿仅供人工复制，系统不会发送给供应商",
+      href: activeBatch ? `/ai-sourcing/${activeBatch.id}?tab=quotes` : "/ai-sourcing",
+      action: "审阅草稿",
+    }] : []),
+    ...(batchGoCount > 0 ? [{
+      label: "待决策门禁",
+      value: batchGoCount,
+      detail: "已有方向通过确定性门禁，等待人工决定是否立项",
+      href: activeBatch ? `/ai-sourcing/${activeBatch.id}?tab=decision` : "/ai-sourcing",
+      action: "查看结论",
+    }] : []),
     {
       label: "待补证据",
       value: pendingVerificationCount,
       detail: activeBatch ? `「${activeBatch.category}」还有方向未完成验证` : "从研究批次继续验证机会",
-      href: activeBatch ? `/ai-sourcing/${activeBatch.id}` : newResearchHref,
+      href: activeBatch ? `/ai-sourcing/${activeBatch.id}?tab=hypotheses` : newResearchHref,
       action: "继续验证",
     },
     {
@@ -119,13 +141,13 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           </div>
           <h1>今天先处理什么</h1>
           <p>
-            {attentionTasks.length > 0 || proposals.total > 0
-              ? `当前有 ${attentionTasks.length} 类事项${proposals.total > 0 ? `、${proposals.total} 条 AI 提案待确认` : ""}。先补齐证据、报价和定标，再推进内容制作。`
+            {attentionTasks.length > 0
+              ? `今天有 ${attentionTasks.length} 类待办。按顺序处理，每一项都能直接跳到要操作的位置。`
               : "当前没有必须人工处理的事项，可以查看商品进度或发起新一轮选品研究。"}
           </p>
           <div className="dashboard-hero-actions">
             <Link href={newResearchHref} className="button primary">新建选品研究</Link>
-            <Link href="/sourcing" className="button secondary">查看供应商询价</Link>
+            <Link href="#today-queue" className="button secondary">查看今日待办</Link>
           </div>
         </div>
 
@@ -140,7 +162,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                 <span><strong>{activeBatch.selectedCount}</strong> 个验证中</span>
                 <span><strong>{activeBatch.goCount}</strong> 个 GO</span>
               </div>
-              <Link href={`/ai-sourcing/${activeBatch.id}`} className="dashboard-text-link">打开验证批次 →</Link>
+              <Link href={`/ai-sourcing/${activeBatch.id}?tab=hypotheses`} className="dashboard-text-link">继续验证 →</Link>
             </>
           ) : (
             <>
@@ -155,82 +177,35 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       {query.notice ? <div className="notice"><strong>已完成：</strong>{query.notice}</div> : null}
       {query.error ? <div className="notice warn"><strong>未完成：</strong>{query.error}</div> : null}
 
-      <section className="dashboard-flow" aria-label="当前业务阶段">
-        <Link href={activeBatch ? `/ai-sourcing/${activeBatch.id}` : "/ai-sourcing"} className="dashboard-flow-step">
-          <span className="dashboard-step-number">01</span>
-          <span className="dashboard-step-copy">
-            <strong>选品验证</strong>
-            <small>
-              {pendingVerificationCount > 0
-                ? `${pendingVerificationCount} 个方向待继续验证`
-                : batches.length > 0
-                  ? `${batches.length} 个研究批次`
-                  : "生成并验证机会方向"}
-            </small>
-          </span>
-          <span className="dashboard-step-arrow" aria-hidden="true">→</span>
-        </Link>
-        <Link href="/sourcing" className="dashboard-flow-step">
-          <span className="dashboard-step-number">02</span>
-          <span className="dashboard-step-copy">
-            <strong>供应商询价</strong>
-            <small>
-              {pendingQuoteCases.length > 0
-                ? `${pendingQuoteCases.length} 个商品待报价`
-                : pendingAwardCases.length > 0
-                  ? `${pendingAwardCases.length} 个商品待定标`
-                  : "报价、比较与人工定标"}
-            </small>
-          </span>
-          <span className="dashboard-step-arrow" aria-hidden="true">→</span>
-        </Link>
-        <Link href="/content" className="dashboard-flow-step">
-          <span className="dashboard-step-number">03</span>
-          <span className="dashboard-step-copy">
-            <strong>内容与上架</strong>
-            <small>
-              {contentReadyCases.length > 0
-                ? `${contentReadyCases.length} 个商品可制作内容`
-                : "完成定标后解锁内容制作"}
-            </small>
-          </span>
-          <span className="dashboard-step-arrow" aria-hidden="true">→</span>
-        </Link>
-        <Link href="/data-sources" className="dashboard-flow-step">
-          <span className="dashboard-step-number">04</span>
-          <span className="dashboard-step-copy">
-            <strong>数据导入</strong>
-            <small>{approvedCases.length} 个已立项商品 · CSV 与渠道数据</small>
-          </span>
-          <span className="dashboard-step-arrow" aria-hidden="true">→</span>
-        </Link>
-      </section>
-
-      <section className="dashboard-attention" aria-labelledby="attention-title">
+      <section className="dashboard-attention" id="today-queue" aria-labelledby="attention-title">
         <div className="dashboard-section-head">
           <div>
-            <span className="dashboard-kicker">下一步</span>
+            <span className="dashboard-kicker">今日待办</span>
             <h2 id="attention-title">需要你处理</h2>
           </div>
-          <p>系统只推进已满足确定性规则的事项，例外必须由你确认。</p>
+          <p>按动作分组，每条都直接跳到要操作的位置；AI 产出必须人工确认后才写入业务表。</p>
         </div>
 
         {proposals.total > 0 ? (
           <div className="dashboard-proposal-stream">
             <div className="dashboard-proposal-head">
-              <strong>{proposals.total} 条 AI 提案待确认</strong>
+              <strong>AI 提案明细 · {proposals.total} 条</strong>
               <span>按业务对象汇总，点击回到原对象处理；确认前不写入业务表</span>
             </div>
             <div className="dashboard-proposal-list">
-              {proposals.groups.map((group) => (
-                <Link href={group.href} className="dashboard-proposal-item" key={group.key}>
-                  <span className="dashboard-proposal-count">{group.count}</span>
-                  <span className="dashboard-proposal-copy">
-                    <strong>{group.title}</strong>
-                    <small>{group.summary} · {group.reason}</small>
-                  </span>
-                  <span className="dashboard-proposal-arrow" aria-hidden="true">→</span>
-                </Link>
+              {proposals.groups.slice(0, 3).map((group) => (
+                <ProposalCard
+                  key={group.key}
+                  kindLabel="AI 提案"
+                  title={group.title}
+                  count={group.count}
+                  summary={group.summary}
+                  reason={group.reason}
+                  generation={group.generation}
+                  statusLabel="待人工确认"
+                  href={group.href}
+                  actionLabel="去处理"
+                />
               ))}
             </div>
             {proposals.warnings.length > 0 ? (
@@ -241,14 +216,14 @@ export default async function DashboardPage({ searchParams }: PageProps) {
 
         {attentionTasks.length > 0 ? (
           <div className="dashboard-task-grid">
-            {attentionTasks.map((task) => (
+            {attentionTasks.slice(0, 6).map((task) => (
               <article className="dashboard-task-card" key={task.label}>
                 <div className="dashboard-task-count">
                   <span>{task.label}</span>
                   <strong>{task.value}</strong>
                 </div>
                 <p>{task.detail}</p>
-                <Link href={task.href} className="dashboard-text-link">{task.action} →</Link>
+                <Link href={task.href} className="button secondary">{task.action} →</Link>
               </article>
             ))}
           </div>
@@ -274,9 +249,9 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       <section className="panel dashboard-recent" id="opportunities">
         <div className="panel-header">
           <div>
-            <span className="dashboard-kicker">商品进度</span>
-            <h2>最近商品</h2>
-            <p>只显示最近更新的 5 个商品，继续处理时直接进入对应阶段。</p>
+            <span className="dashboard-kicker">进行中的对象</span>
+            <h2>商品进度</h2>
+            <p>最近更新的 5 个商品，每项都标出当前阶段和下一步，点「继续」直接回到该步骤。</p>
           </div>
           <Link href="/content" className="button ghost">查看全部商品</Link>
         </div>
@@ -326,10 +301,10 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                     <small>{result ? `${percent(result.marginRate)} 净利率` : "待建成本模型"}</small>
                   </div>
                   <div className="dashboard-product-next">
-                    <span>下一步</span>
+                    <span>当前阶段</span>
                     <span className={`badge ${nextStep.className}`}>{nextStep.label}</span>
                   </div>
-                  <Link href={nextStep.href} className="button ghost">继续 →</Link>
+                  <Link href={nextStep.href} className="button secondary">继续 →</Link>
                 </article>
               );
             })}

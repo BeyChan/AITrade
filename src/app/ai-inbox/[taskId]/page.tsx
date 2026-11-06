@@ -99,7 +99,7 @@ export default async function AiInboxTaskPage({ params, searchParams }: PageProp
 
       <div className="title-row ai-inbox-detail-title">
         <div>
-          <div className="eyebrow">Evidence review</div>
+          <div className="eyebrow">证据审核</div>
           <h1>{task.targetHypothesisConcept ?? "目标机会已删除"}</h1>
           <p className="muted ai-inbox-subtitle">
             {DOCUMENT_TYPE_LABELS[documentType]} · {SOURCE_KIND_LABELS[task.sourceKind]} · {artifact?.fileName ?? `${artifact?.contentText.length ?? 0} 个字符`}
@@ -271,7 +271,7 @@ export default async function AiInboxTaskPage({ params, searchParams }: PageProp
           </section>
 
           <section className="section ai-inbox-guardrail">
-            <div className="eyebrow">External actions disabled</div>
+            <div className="eyebrow">不执行外部动作</div>
             <h3>没有外部发送按钮</h3>
             <p>本页不会联系供应商、发送邮件、发布 Listing、改价、采购或付款。应用动作只写本地业务表，并留下审计记录。</p>
           </section>

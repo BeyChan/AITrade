@@ -51,6 +51,8 @@ export type AiProposalGroup = {
   summary: string;
   /** 组内最紧急一条的理由，作为首页可见的解释。 */
   reason: string;
+  /** 组内最紧急一条的生成方式，首页统一卡片据此展示「模型 / 模板 / 人工」。 */
+  generation: ProposalGeneration;
   href: string;
   latestAt: string;
   urgency: number;
@@ -116,7 +118,14 @@ function generationOf(input: {
 
 function businessObjectHref(item: PendingAiProposal): string {
   if (item.hypothesisId && item.runId) {
-    return `/ai-sourcing/${encodeURIComponent(item.runId)}#hypothesis-${encodeURIComponent(item.hypothesisId)}`;
+    // 直接落到该业务对象所在的步骤，而不是长页面顶部。
+    const tab = item.kind === "supplier_candidate" ? "suppliers"
+      : item.kind === "supplier_draft" ? "quotes"
+        : "hypotheses";
+    const anchor = item.kind === "supplier_candidate" && item.target.entityType === "supplier_candidate"
+      ? `#candidate-${encodeURIComponent(item.target.entityId)}`
+      : `#hypothesis-${encodeURIComponent(item.hypothesisId)}`;
+    return `/ai-sourcing/${encodeURIComponent(item.runId)}?tab=${tab}&hypothesisId=${encodeURIComponent(item.hypothesisId)}${anchor}`;
   }
   return item.fallbackHref;
 }
@@ -163,6 +172,7 @@ export function buildAiProposalDigest(
         .map((kind) => `${AI_PROPOSAL_KIND_LABELS[kind]} ${counts.get(kind) ?? 0} 条`)
         .join(" · "),
       reason: primary.reason,
+      generation: primary.generation,
       href: businessObjectHref(primary),
       latestAt: sorted.reduce((latest, item) => (timestamp(item.createdAt) > timestamp(latest) ? item.createdAt : latest), sorted[0].createdAt),
       urgency: urgencyOf(primary),

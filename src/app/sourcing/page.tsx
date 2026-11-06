@@ -15,7 +15,7 @@ export default async function SourcingPage() {
     <div className="page">
       <section className="hero">
         <div>
-          <div className="eyebrow">Supplier sourcing</div>
+          <div className="eyebrow">供应商询价</div>
           <h1>供应商询价</h1>
           <p>已立项商品进入供应商报价阶段。系统统一计算到岸成本和综合分，推荐方案只作为建议；最终定标、定样、下单和付款必须由人确认。</p>
         </div>

@@ -8218,3 +8218,296 @@ tbody tr:last-child td {
     padding-right: 16px;
   }
 }
+
+/* 全局对象条：当前对象 / 阶段 / 下一步 */
+.work-context-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 0 28px;
+  border-top: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow-x: auto;
+}
+
+.work-context-label,
+.work-context-hint {
+  color: var(--muted);
+  flex: none;
+}
+
+.work-context-name {
+  color: var(--ink);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 320px;
+}
+
+.work-context-name:hover,
+.work-context-next:hover {
+  color: var(--green);
+}
+
+.work-context-stage {
+  flex: none;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--green-soft);
+  color: var(--green);
+  font-size: 11px;
+}
+
+.work-context-divider {
+  flex: none;
+  width: 1px;
+  height: 14px;
+  background: var(--line);
+}
+
+.work-context-next {
+  flex: none;
+  color: var(--green);
+  font-weight: 600;
+}
+
+@media (max-width: 720px) {
+  .work-context-bar {
+    padding: 0 16px;
+    gap: 8px;
+  }
+
+  .work-context-name {
+    max-width: 150px;
+  }
+}
+
+/* 选品验证详情页：按步骤分区 */
+.ai-detail-tabs {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin: 22px 0 26px;
+}
+
+.ai-detail-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+}
+
+.ai-detail-tab:hover {
+  border-color: var(--green);
+}
+
+.ai-detail-tab.active {
+  border-color: var(--green);
+  background: var(--green-soft);
+}
+
+.ai-detail-tab > span,
+.ai-detail-tab small {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.ai-detail-tab strong {
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.ai-detail-tab.active strong {
+  color: var(--green);
+}
+
+.ai-tab-intro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  margin-bottom: 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+}
+
+.ai-tab-intro > div {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ai-tab-intro strong {
+  font-size: 15px;
+}
+
+.ai-tab-intro > div > span:last-child {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ai-hypothesis-summary-list {
+  margin-bottom: 22px;
+}
+
+.ai-summary-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+}
+
+.ai-summary-main {
+  min-width: 0;
+}
+
+.ai-summary-main strong {
+  display: block;
+  font-size: 14px;
+}
+
+.ai-summary-main small {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ai-tab-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 18px 0;
+}
+
+.ai-tab-notice > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ai-tab-notice span {
+  font-size: 12px;
+}
+
+@media (max-width: 900px) {
+  .ai-detail-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .ai-detail-tabs {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-summary-row {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+
+  .ai-summary-row > :nth-child(3),
+  .ai-summary-row > :nth-child(4) {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+
+/* 统一 AI 产出卡：生成方式 / 置信度 / 原文 / 归属 / 人审边界 */
+.ai-proposal-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+}
+
+.ai-proposal-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ai-proposal-card-head > div {
+  min-width: 0;
+}
+
+.ai-proposal-kind {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.ai-proposal-card-head strong {
+  font-size: 14px;
+}
+
+.ai-proposal-reason,
+.ai-proposal-summary {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.ai-proposal-summary {
+  color: var(--ink);
+}
+
+.ai-proposal-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.ai-proposal-chip {
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--canvas);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.ai-proposal-quote {
+  flex-basis: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.ai-proposal-card-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.ai-proposal-card-actions small {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.ai-draft-meta + .ai-proposal-meta,
+.ai-candidate-card-head + .ai-proposal-meta {
+  margin: 2px 0 10px;
+}

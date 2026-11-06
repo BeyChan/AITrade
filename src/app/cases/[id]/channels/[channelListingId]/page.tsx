@@ -47,7 +47,7 @@ export default async function ChannelTargetPage({ params, searchParams }: PagePr
 
       <div className="title-row">
         <div>
-          <div className="eyebrow">Channel listing workspace</div>
+          <div className="eyebrow">渠道上架工作台</div>
           <h1>{target.market.code} × {target.platform.name}</h1>
           <div className="title-meta">
             <span className="badge status-researching">{target.market.locale}</span>
@@ -278,7 +278,7 @@ export default async function ChannelTargetPage({ params, searchParams }: PagePr
 
         <aside className="stack">
           <section className={approved ? "action-card" : "action-card"}>
-            <div className="eyebrow" style={{ color: "var(--lime)" }}>Human content gate</div>
+            <div className="eyebrow" style={{ color: "var(--lime)" }}>人工内容审核</div>
             <h2>{approved ? "该版本已内容确认" : "人工确认本地内容"}</h2>
             {approved ? (
               <>
@@ -316,7 +316,7 @@ export default async function ChannelTargetPage({ params, searchParams }: PagePr
           </section>
 
           <section className="section">
-            <div className="eyebrow">Launch readiness gate</div>
+            <div className="eyebrow">上架就绪检查</div>
             <h3>{launch.label}</h3>
             <p className="muted">{launch.description}</p>
             <div className="selection-side-meta">
@@ -364,7 +364,7 @@ export default async function ChannelTargetPage({ params, searchParams }: PagePr
           </section>
 
           <section className="section">
-            <div className="eyebrow">Target audit</div>
+            <div className="eyebrow">目标审计</div>
             <h3>目标审计</h3>
             {target.auditLogs.length ? (
               <div className="timeline">

@@ -31,7 +31,7 @@ export default async function ChannelMatrixPage({ params, searchParams }: PagePr
 
       <div className="title-row">
         <div>
-          <div className="eyebrow">Market × channel matrix</div>
+          <div className="eyebrow">站点 × 渠道矩阵</div>
           <h1>{productCase.title}</h1>
           <div className="title-meta">
             <StatusBadge status={productCase.status} />
@@ -126,7 +126,7 @@ export default async function ChannelMatrixPage({ params, searchParams }: PagePr
         </section>
 
         <aside className="section channel-boundary-card">
-          <div className="eyebrow">Connector boundary</div>
+          <div className="eyebrow">连接边界</div>
           <h3>什么是“已经上架”？</h3>
           <p>本页不产生平台上架。只有真实连接店铺、平台 dry-run、发布确认和外部回执都完成后，才应出现 external ID。</p>
           <div className="gate-list">

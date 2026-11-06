@@ -42,7 +42,7 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
 
       <div className="title-row">
         <div>
-          <div className="eyebrow">Content &amp; listing studio</div>
+          <div className="eyebrow">内容与上架工作台</div>
           <h1>{productCase.title}</h1>
           <div className="title-meta">
             <StatusBadge status={productCase.status} />
@@ -84,7 +84,7 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
         <>
           <section className="content-context">
             <div>
-              <span className="eyebrow" style={{ color: "var(--lime)" }}>Selected source</span>
+              <span className="eyebrow" style={{ color: "var(--lime)" }}>已选素材</span>
               <h2>{selectedSupplierName ?? "已定标供应商"}</h2>
               <p>内容工作台已解锁。商品定义、主图与 Listing 都必须使用经过人工确认的事实，不得把竞品图片或未核验声明当成自有素材。</p>
             </div>
@@ -354,7 +354,7 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
 
             <aside className="stack">
               <section className="listing-preview">
-                <div className="eyebrow" style={{ color: "var(--lime)" }}>Listing preview</div>
+                <div className="eyebrow" style={{ color: "var(--lime)" }}>上架预览</div>
                 {latestMainImage ? <img src={latestMainImage.file_url} alt="Listing 主图预览" className="preview-image" /> : <div className="preview-image-placeholder">MAIN IMAGE</div>}
                 <div className="preview-brand">{content.brand || "BRAND"}</div>
                 <h3>{content.title || "保存草稿后显示标题"}</h3>
@@ -367,7 +367,7 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
               </section>
 
               <section className="action-card">
-                <div className="eyebrow" style={{ color: "var(--lime)" }}>Human content gate</div>
+                <div className="eyebrow" style={{ color: "var(--lime)" }}>人工内容审核</div>
                 <h2>{contentApproved ? "内容已人工确认" : "人工内容确认"}</h2>
                 {contentApproved ? (
                   <>

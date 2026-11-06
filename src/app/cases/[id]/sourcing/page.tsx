@@ -88,7 +88,7 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
       {selection && selectedQuote ? (
         <section className="selection-result">
           <div>
-            <div className="eyebrow" style={{ color: "var(--lime)" }}>Decision recorded</div>
+            <div className="eyebrow" style={{ color: "var(--lime)" }}>已记录定标</div>
             <h2>{selectedQuote.supplier.name}</h2>
             <p>
               人工定标完成。报价到岸成本 {money(selectedScore?.landedCostCents ?? 0)} 已写入新的成本模型，
@@ -257,7 +257,7 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
 
         <aside className="stack">
           <section className="action-card">
-            <div className="eyebrow" style={{ color: "var(--lime)" }}>Human decision</div>
+            <div className="eyebrow" style={{ color: "var(--lime)" }}>人工决策</div>
             <h2>{selection ? "定标已完成" : "人工选定供应商"}</h2>
             {selection && selectedQuote ? (
               <>

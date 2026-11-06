@@ -62,7 +62,7 @@ export default function ImportPage() {
       <div className="breadcrumb"><Link href="/">AI 选品</Link> / 导入候选品</div>
       <section className="hero">
         <div>
-          <div className="eyebrow">CSV intake · {site.market} × {site.platform}</div>
+          <div className="eyebrow">CSV 导入 · {site.market} × {site.platform}</div>
           <h1>导入 {site.market} 站点候选品</h1>
           <p>本次导入固定归属于首页选中的国家站点。CSV 中的 marketplace 会以当前站点覆盖，避免同一批候选品被错误归到其他市场。</p>
         </div>

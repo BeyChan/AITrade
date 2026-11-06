@@ -36,7 +36,7 @@ export default async function ConnectionsPage() {
 
       <section className="hero connection-hero">
         <div>
-          <div className="eyebrow">P1.1 · Connector verification</div>
+          <div className="eyebrow">连接核验</div>
           <h1>店铺连接先验证，<br />再开放任何写动作。</h1>
           <p>
             这里只执行官方 API 的只读授权检查：Amazon 验证 LWA 与 Seller API，Shopify 读取店铺基本信息，eBay 只验证应用凭证。

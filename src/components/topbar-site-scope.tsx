@@ -52,15 +52,18 @@ export function TopbarSiteScope({ markets, platforms }: TopbarSiteScopeProps) {
 }
 
 function getSectionLabel(pathname: string) {
-  if (pathname === "/") return "AI 选品";
-  if (pathname === "/content") return "内容工作台";
-  if (pathname === "/ai-inbox" || pathname.startsWith("/ai-inbox/")) return "AI 证据收件箱";
-  if (pathname === "/import") return "导入数据";
-  if (pathname.startsWith("/cases/")) return "商品工作台";
-  if (pathname === "/ai-sourcing" || pathname.startsWith("/ai-sourcing/")) return "AI 选品验证";
-  if (pathname === "/sourcing") return "供应商询价";
-  if (pathname === "/data-sources") return "数据源";
-  if (pathname === "/connections") return "连接中心";
-  if (pathname === "/settings") return "系统设置";
+  if (pathname === "/") return "工作台";
+  if (pathname.startsWith("/ai-sourcing")) return "选品验证";
+  if (pathname.startsWith("/ai-inbox")) return "证据收件箱";
+  if (pathname.startsWith("/cases/")) {
+    if (/\/sourcing(\/|$)/.test(pathname)) return "供应商 · 商品详情";
+    if (/\/content(\/|$)|\/channels(\/|$)/.test(pathname)) return "内容与上架 · 商品详情";
+    return "商品工作台";
+  }
+  if (pathname === "/import" || pathname.startsWith("/data-sources")) return "数据导入";
+  if (pathname.startsWith("/sourcing")) return "供应商";
+  if (pathname.startsWith("/content") || pathname.startsWith("/approvals")) return "内容与上架";
+  if (pathname.startsWith("/connections")) return "连接中心";
+  if (pathname.startsWith("/settings")) return "系统设置";
   return "AITrade";
 }

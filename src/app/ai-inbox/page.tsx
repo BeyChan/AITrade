@@ -230,7 +230,7 @@ export default async function AiInboxPage({ searchParams }: PageProps) {
             </ul>
           </section>
           <section className="section ai-inbox-ledger-note">
-            <div className="eyebrow">Audit trail</div>
+            <div className="eyebrow">审计留痕</div>
             <h3>每次都留下记录</h3>
             <p>原始文本、内容哈希、模型调用、字段来源、人工审核和应用动作都会保留，便于追查“这个数字从哪里来”。</p>
           </section>

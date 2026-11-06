@@ -6,21 +6,19 @@ import { usePathname } from "next/navigation";
 type NavItem = {
   href: string;
   label: string;
-  icon: "ai" | "sourcing" | "content" | "data" | "settings" | "connection";
-  children?: Array<{
-    href: string;
-    label: string;
-  }>;
+  icon: "ai" | "verify" | "sourcing" | "content" | "inbox" | "data" | "settings" | "connection";
 };
 
 const NAV_ITEMS: NavItem[] = [
-  { href: "/", label: "选品", icon: "ai" },
-  { href: "/sourcing", label: "供应商询价", icon: "sourcing" },
+  { href: "/", label: "工作台", icon: "ai" },
+  { href: "/ai-sourcing", label: "选品验证", icon: "verify" },
+  { href: "/sourcing", label: "供应商", icon: "sourcing" },
   { href: "/content", label: "内容与上架", icon: "content" },
-  { href: "/data-sources", label: "数据导入", icon: "data" },
+  { href: "/ai-inbox", label: "证据收件箱", icon: "inbox" },
 ];
 
 const UTILITY_ITEMS: NavItem[] = [
+  { href: "/data-sources", label: "数据导入", icon: "data" },
   { href: "/connections", label: "连接中心", icon: "connection" },
   { href: "/settings", label: "系统设置", icon: "settings" },
 ];
@@ -44,6 +42,24 @@ function NavIcon({ name }: { name: NavItem["icon"] }) {
         <path d="m12 3 1.1 3.2a4.2 4.2 0 0 0 2.7 2.7L19 10l-3.2 1.1a4.2 4.2 0 0 0-2.7 2.7L12 17l-1.1-3.2a4.2 4.2 0 0 0-2.7-2.7L5 10l3.2-1.1a4.2 4.2 0 0 0 2.7-2.7L12 3Z" />
         <path d="m18.5 16 .6 1.9a2 2 0 0 0 1.3 1.3l1.6.8-1.6.8a2 2 0 0 0-1.3 1.3l-.6 1.9-.6-1.9a2 2 0 0 0-1.3-1.3l-1.6-.8 1.6-.8a2 2 0 0 0 1.3-1.3l.6-1.9Z" />
         <path d="M4 17.5h3M5.5 16v3" />
+      </svg>
+    );
+  }
+
+  if (name === "verify") {
+    return (
+      <svg {...common}>
+        <circle cx="11" cy="11" r="7" />
+        <path d="m16.5 16.5 4 4M8 11h6M11 8v6" />
+      </svg>
+    );
+  }
+
+  if (name === "inbox") {
+    return (
+      <svg {...common}>
+        <path d="M3.5 13.5h4l1.5 2.5h6l1.5-2.5h4" />
+        <path d="M5.5 5.5h13l2 8v5H3.5v-5l2-8Z" />
       </svg>
     );
   }
@@ -107,61 +123,39 @@ function NavIcon({ name }: { name: NavItem["icon"] }) {
   );
 }
 
-function isActiveRoute(pathname: string, href: string) {
-  if (href === "/") {
-    if (pathname === "/" || pathname.startsWith("/ai-sourcing")) return true;
-    if (!pathname.startsWith("/cases/")) return false;
-    return !pathname.includes("/sourcing") &&
-      !pathname.includes("/content") &&
-      !pathname.includes("/channels");
+function activeHrefForPath(pathname: string) {
+  if (pathname === "/") return "/";
+  if (pathname.startsWith("/ai-sourcing")) return "/ai-sourcing";
+  if (pathname.startsWith("/ai-inbox")) return "/ai-inbox";
+  if (pathname.startsWith("/cases/")) {
+    if (/\/sourcing(\/|$)/.test(pathname)) return "/sourcing";
+    if (/\/content(\/|$)|\/channels(\/|$)/.test(pathname)) return "/content";
+    return "/";
   }
-  if (href === "/sourcing") {
-    return pathname === "/sourcing" ||
-      (pathname.startsWith("/cases/") && pathname.includes("/sourcing"));
-  }
-  if (href === "/content") {
-    return pathname === "/content" ||
-      (pathname.startsWith("/cases/") &&
-        (pathname.includes("/content") || pathname.includes("/channels")));
-  }
-  if (href === "/data-sources") {
-    return pathname === "/data-sources" || pathname === "/import";
-  }
-  return pathname === href || pathname.startsWith(`${href}/`);
+  if (pathname === "/import") return "/data-sources";
+  if (pathname.startsWith("/data-sources")) return "/data-sources";
+  if (pathname.startsWith("/sourcing")) return "/sourcing";
+  if (pathname.startsWith("/content")) return "/content";
+  if (pathname.startsWith("/approvals")) return "/content";
+  if (pathname.startsWith("/connections")) return "/connections";
+  if (pathname.startsWith("/settings")) return "/settings";
+  return "";
 }
 
 function SidebarItemLink({ item, pathname }: { item: NavItem; pathname: string }) {
-  const active = isActiveRoute(pathname, item.href) ||
-    item.children?.some((child) => isActiveRoute(pathname, child.href)) === true;
+  const activeHref = activeHrefForPath(pathname);
+  const active = activeHref === item.href;
 
   return (
     <div className={`sidebar-item${active ? " active" : ""}`}>
       <Link
         href={item.href}
         className={`sidebar-link${active ? " active" : ""}`}
-        aria-current={pathname === item.href ? "page" : undefined}
+        aria-current={activeHref === item.href && pathname === item.href ? "page" : undefined}
       >
         <span className="sidebar-icon"><NavIcon name={item.icon} /></span>
         <span>{item.label}</span>
       </Link>
-      {item.children?.length ? (
-        <ul className="sidebar-subnav">
-          {item.children.map((child) => {
-            const childActive = isActiveRoute(pathname, child.href);
-            return (
-              <li key={child.href}>
-                <Link
-                  href={child.href}
-                  className={`sidebar-sublink${childActive ? " active" : ""}`}
-                  aria-current={childActive ? "page" : undefined}
-                >
-                  {child.label}
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
     </div>
   );
 }
