@@ -19,6 +19,10 @@ import {
   type ReviewInsightInput,
 } from "./competitor-insights.ts";
 import {
+  generateSiteCompetitorPack,
+  parseBulkCompetitorText,
+} from "./competitor-auto-import.ts";
+import {
   parseSupplierCandidatePayload,
   type ParsedSupplierCandidate,
   type SupplierCandidateParseResult,
@@ -1114,6 +1118,256 @@ export async function recordCompetitorEvidence(input: {
     );
   });
   return refreshAISelectionDecision(input.hypothesisId);
+}
+
+export async function autoImportSiteCompetitors(input: {
+  hypothesisId: string;
+  query?: string;
+  targetCount?: number;
+  includeReviews?: boolean;
+  rawPayload?: string;
+  actor: string;
+}) {
+  const actor = input.actor.trim().slice(0, 80) || "运营人员";
+  let context = await loadHypothesisContext(input.hypothesisId);
+  if (!context) throw new Error("机会假设不存在");
+  if (!context.hypothesis.selectedForValidation) {
+    await selectHypothesisForValidation(input.hypothesisId, actor);
+    context = await loadHypothesisContext(input.hypothesisId);
+    if (!context) throw new Error("机会假设不存在");
+  }
+
+  const db = await getDb();
+  const observedAt = new Date().toISOString();
+  const rawPayload = input.rawPayload?.trim() ?? "";
+  const defaultQuery = input.query?.trim() || context.hypothesis.competitorQueries[0] || context.hypothesis.concept;
+
+  const pack = rawPayload
+    ? {
+        mode: "bulk_text" as const,
+        provider: "manual_bulk",
+        model: "bulk-parser-v1",
+        fallback: false,
+        providerError: undefined,
+        queryUsed: defaultQuery,
+        competitors: parseBulkCompetitorText(rawPayload, {
+          marketCode: context.batch.marketCode,
+          platformCode: context.batch.platformCode,
+          currency: context.batch.currency,
+          defaultQuery,
+          basePriceCents: context.hypothesis.recommendedPriceCents,
+          observedAt,
+        }),
+        reviewInsights: [],
+      }
+    : await generateSiteCompetitorPack({
+        scope: {
+          marketCode: context.batch.marketCode,
+          marketName: context.batch.marketName,
+          platformCode: context.batch.platformCode,
+          platformName: context.batch.platformName,
+          currency: context.batch.currency,
+        },
+        category: context.batch.category,
+        concept: context.hypothesis.concept,
+        targetUser: context.hypothesis.targetUser,
+        painPoint: context.hypothesis.painPoint,
+        differentiator: context.hypothesis.differentiator,
+        recommendedPriceCents: context.hypothesis.recommendedPriceCents,
+        competitorQueries: context.hypothesis.competitorQueries,
+        reviewQueries: context.hypothesis.reviewQueries,
+        query: defaultQuery,
+        targetCount: input.targetCount ?? 20,
+        observedAt,
+      });
+
+  if (pack.competitors.length === 0) {
+    throw new Error("未能从输入内容中识别出有效竞品记录，请核对格式或使用 AI 一键导入");
+  }
+
+  const existingCompetitors = await db.query<{ asin: string | null; source_url: string }>(
+    "SELECT asin, source_url FROM competitor_snapshots WHERE hypothesis_id = $1",
+    [input.hypothesisId],
+  );
+  const existingAsins = new Set(
+    existingCompetitors.rows
+      .map((r) => r.asin?.trim().toUpperCase())
+      .filter((v): v is string => Boolean(v)),
+  );
+  const existingUrls = new Set(
+    existingCompetitors.rows.map((r) => r.source_url.trim().toLowerCase()),
+  );
+
+  const existingThemesResult = await db.query<{ theme: string }>(
+    "SELECT theme FROM review_insights WHERE hypothesis_id = $1",
+    [input.hypothesisId],
+  );
+  const existingThemes = new Set(
+    existingThemesResult.rows.map((r) => r.theme.trim().toLowerCase()),
+  );
+
+  let insertedCompetitors = 0;
+  let skippedDuplicateCompetitors = 0;
+  let insertedReviews = 0;
+  const sourceType = pack.mode === "model"
+    ? "ai_model_site_import"
+    : pack.mode === "bulk_text"
+      ? "bulk_text_import"
+      : "ai_site_auto_import";
+
+  await db.transaction(async (tx) => {
+    for (const item of pack.competitors) {
+      const asinKey = item.asin?.trim().toUpperCase() || null;
+      const urlKey = item.sourceUrl.trim().toLowerCase();
+      if ((asinKey && existingAsins.has(asinKey)) || existingUrls.has(urlKey)) {
+        skippedDuplicateCompetitors += 1;
+        continue;
+      }
+      if (asinKey) existingAsins.add(asinKey);
+      existingUrls.add(urlKey);
+
+      const evidenceId = randomUUID();
+      const sourceUrl = validateEvidenceUrl(item.sourceUrl);
+      const itemObservedAt = normalizeObservedAt(item.observedAt);
+      await tx.query(
+        `INSERT INTO opportunity_evidence
+          (id, hypothesis_id, evidence_type, source_type, source_url, title, summary, observed_at, raw_snapshot, created_by)
+         VALUES ($1, $2, 'competitor_snapshot', $3, $4, $5, $6, $7, $8::jsonb, $9)`,
+        [
+          evidenceId,
+          input.hypothesisId,
+          sourceType,
+          sourceUrl,
+          item.title.slice(0, 240),
+          `[${context.batch.marketCode} · ${context.batch.platformName}] 竞品快照：${item.title}`.slice(0, 1500),
+          itemObservedAt,
+          JSON.stringify({
+            asin: asinKey,
+            priceCents: item.priceCents,
+            rating: item.rating,
+            reviewCount: item.reviewCount,
+            bsr: item.bsr,
+            marketCode: context.batch.marketCode,
+            platformCode: context.batch.platformCode,
+            currency: context.batch.currency,
+            importMode: pack.mode,
+            queryUsed: pack.queryUsed,
+          }),
+          actor,
+        ],
+      );
+      await tx.query(
+        `INSERT INTO competitor_snapshots
+          (id, hypothesis_id, evidence_id, asin, title, source_url, price_cents, rating, review_count,
+           bsr, monthly_sales_min, monthly_sales_max, seller_count, variation_count, observed_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+        [
+          randomUUID(),
+          input.hypothesisId,
+          evidenceId,
+          asinKey,
+          item.title.slice(0, 240),
+          sourceUrl,
+          item.priceCents,
+          item.rating,
+          item.reviewCount,
+          item.bsr,
+          item.monthlySalesMin,
+          item.monthlySalesMax,
+          item.sellerCount,
+          item.variationCount,
+          itemObservedAt,
+        ],
+      );
+      insertedCompetitors += 1;
+    }
+
+    if (input.includeReviews !== false && pack.reviewInsights.length > 0) {
+      for (const review of pack.reviewInsights) {
+        const themeKey = review.theme.trim().toLowerCase();
+        if (existingThemes.has(themeKey)) continue;
+        existingThemes.add(themeKey);
+
+        const evidenceId = randomUUID();
+        const sourceUrl = validateEvidenceUrl(review.sourceUrl);
+        const revObservedAt = normalizeObservedAt(review.observedAt);
+        await tx.query(
+          `INSERT INTO opportunity_evidence
+            (id, hypothesis_id, evidence_type, source_type, source_url, title, summary, observed_at, raw_snapshot, created_by)
+           VALUES ($1, $2, 'review_insight', $3, $4, $5, $6, $7, $8::jsonb, $9)`,
+          [
+            evidenceId,
+            input.hypothesisId,
+            sourceType,
+            sourceUrl,
+            review.theme.slice(0, 240),
+            review.summary.slice(0, 1500),
+            revObservedAt,
+            JSON.stringify({
+              reviewSampleSize: review.sampleSize,
+              representativeQuote: review.representativeQuote,
+              marketCode: context.batch.marketCode,
+              platformCode: context.batch.platformCode,
+              importMode: pack.mode,
+            }),
+            actor,
+          ],
+        );
+        await tx.query(
+          `INSERT INTO review_insights
+            (id, hypothesis_id, evidence_id, theme, sentiment, sample_size, representative_quote)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [
+            randomUUID(),
+            input.hypothesisId,
+            evidenceId,
+            review.theme.slice(0, 180),
+            review.sentiment,
+            review.sampleSize,
+            review.representativeQuote.slice(0, 500),
+          ],
+        );
+        insertedReviews += 1;
+      }
+    }
+
+    await tx.query(
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
+       VALUES ($1, $2, 'ai_sourcing.competitors_auto_imported', 'opportunity_hypothesis', $3, $4::jsonb)`,
+      [
+        randomUUID(),
+        actor,
+        input.hypothesisId,
+        JSON.stringify({
+          marketCode: context.batch.marketCode,
+          platformCode: context.batch.platformCode,
+          currency: context.batch.currency,
+          queryUsed: pack.queryUsed,
+          mode: pack.mode,
+          provider: pack.provider,
+          model: pack.model,
+          insertedCompetitors,
+          skippedDuplicateCompetitors,
+          insertedReviews,
+          externalActions: "none",
+        }),
+      ],
+    );
+  });
+
+  const decision = await refreshAISelectionDecision(input.hypothesisId);
+  return {
+    insertedCompetitors,
+    skippedDuplicateCompetitors,
+    insertedReviews,
+    marketCode: context.batch.marketCode,
+    marketName: context.batch.marketName,
+    platformName: context.batch.platformName,
+    currency: context.batch.currency,
+    mode: pack.mode,
+    queryUsed: pack.queryUsed,
+    decision,
+  };
 }
 
 export async function recordSupplierCandidates(input: {

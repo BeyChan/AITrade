@@ -13,6 +13,7 @@ import {
   SupplierCaptureTools,
 } from "@/components/supplier-candidate-workspace";
 import {
+  autoImportCompetitorsAction,
   confirmHypothesisPriceAction,
   generateSupplierDraftAction,
   promoteHypothesisAction,
@@ -526,6 +527,8 @@ function HypothesisCard({
           </section>
 
           <CompetitorBenchmarkPanel batch={batch} hypothesis={hypothesis} />
+
+          <AutoCompetitorImportCard batch={batch} hypothesis={hypothesis} />
 
           <div className="ai-entry-grid">
             <EvidenceEntryForms hypothesisId={hypothesis.id} runId={batch.id} observedAt={observedAt} />
@@ -1382,10 +1385,13 @@ function CompetitorBenchmarkPanel({
       </div>
 
       {!hasAnyEvidence ? (
-        <div className="empty-inline benchmark-empty">
-          <span>当前尚未录入竞品快照或差评证据，暂无法生成价格带分位与假设证伪结论。</span>
-          <a href={`#competitor-entry-${hypothesis.id}`} className="button secondary">去录入竞品快照 ↓</a>
-        </div>
+          <div className="empty-inline benchmark-empty">
+            <span>当前尚未录入竞品快照或差评证据，暂无法生成价格带分位与假设证伪结论。</span>
+            <div className="button-row">
+              <a href={`#auto-competitor-${hypothesis.id}`} className="button primary">基于站点 AI 智能导入竞品 ↓</a>
+              <a href={`#competitor-entry-${hypothesis.id}`} className="button secondary">手动录入单条快照 ↓</a>
+            </div>
+          </div>
       ) : (
         <>
           <div className="benchmark-price-section">
@@ -1484,6 +1490,97 @@ function CompetitorBenchmarkPanel({
           ) : null}
         </>
       )}
+    </section>
+  );
+}
+
+function AutoCompetitorImportCard({
+  batch,
+  hypothesis,
+}: {
+  batch: BatchType;
+  hypothesis: AISourcingHypothesisDetail;
+}) {
+  const defaultQuery = hypothesis.competitorQueries[0] || hypothesis.concept;
+  return (
+    <section className="card ai-auto-competitor-card" id={`auto-competitor-${hypothesis.id}`}>
+      <div className="ai-validation-summary-head">
+        <div>
+          <span className="eyebrow">站点级竞品分析 · AI 智能与批量导入</span>
+          <h3>基于当前国家与站点一键导入竞品快照</h3>
+          <p>
+            绑定 <strong>{batch.marketName}站（{batch.marketCode}）· {batch.platformName}</strong> 平台与币种 <strong>{batch.currency}</strong>。
+            AI 自动按该站点真实商品分布生成 10~25 款对标竞品（包含价格带分布、ASIN/链接、评分与代表性差评主题），满足门禁要求，无需手动一条条录入。
+          </p>
+        </div>
+        <span className="badge badge-neutral">{batch.marketCode} · {batch.currency}</span>
+      </div>
+
+      <div className="ai-auto-competitor-forms">
+        <form action={autoImportCompetitorsAction} className="ai-auto-competitor-direct form-grid">
+          <input type="hidden" name="runId" value={batch.id} />
+          <input type="hidden" name="hypothesisId" value={hypothesis.id} />
+          <div className="field">
+            <label>站点检索核心词</label>
+            <input
+              name="query"
+              defaultValue={defaultQuery}
+              placeholder="例如：pet water fountain stainless steel"
+              maxLength={200}
+              required
+            />
+          </div>
+          <div className="field">
+            <label>导入竞品数量（建议 20 款以满足确定性门禁）</label>
+            <select name="targetCount" defaultValue="20">
+              <option value="10">10 款竞品快照</option>
+              <option value="15">15 款竞品快照</option>
+              <option value="20">20 款竞品快照（满足门禁 ≥20）</option>
+              <option value="25">25 款深度对标快照</option>
+            </select>
+          </div>
+          <div className="field">
+            <label>操作人</label>
+            <input name="actor" defaultValue="运营人员" maxLength={80} required />
+          </div>
+          <div className="field full ai-auto-competitor-checks">
+            <label className="check-row">
+              <input type="checkbox" name="includeReviews" value="true" defaultChecked />
+              <span>同步生成该站点代表性差评痛点洞察（自动写入差评样本，激活假设证伪与内容卖点对标）</span>
+            </label>
+          </div>
+          <div className="field full button-row">
+            <button type="submit" className="button primary">
+              🚀 基于当前站点 AI 一键导入竞品与差评包
+            </button>
+            <small className="muted">
+              免 API Key 模板模式或已配置的 LLM 会自动适配目标站点语言、ASIN/URL 与价格带。
+            </small>
+          </div>
+        </form>
+
+        <details className="ai-auto-competitor-paste">
+          <summary>
+            <strong>方式二：从网页/插件复制多条文本或 CSV 批量粘贴导入</strong>
+            <small>支持粘贴包含多条 ASIN、标题、价格、评分的任意纯文本或表格</small>
+          </summary>
+          <form action={autoImportCompetitorsAction} className="stack" style={{ marginTop: 12 }}>
+            <input type="hidden" name="runId" value={batch.id} />
+            <input type="hidden" name="hypothesisId" value={hypothesis.id} />
+            <input type="hidden" name="actor" value="运营人员" />
+            <div className="field full">
+              <label>粘贴商品多行文本 / CSV / JSON</label>
+              <textarea
+                name="rawPayload"
+                rows={5}
+                required
+                placeholder="粘贴包含商品信息的多行文本，例如：&#10;B08XYZ1234 Pet Water Fountain 2.5L $24.99 4.3 stars 1200 reviews&#10;B09ABC5678 Stainless Steel Dog Cat Fountain $29.99 4.1 850&#10;或直接粘贴从平台搜索页复制的商品列表。"
+              />
+            </div>
+            <button type="submit" className="button secondary">批量解析并导入当前假设</button>
+          </form>
+        </details>
+      </div>
     </section>
   );
 }

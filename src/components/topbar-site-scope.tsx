@@ -38,7 +38,7 @@ export function TopbarSiteScope({ markets, platforms }: TopbarSiteScopeProps) {
   return (
     <div className="topbar-inner">
       <div className="topbar-context">{sectionLabel}</div>
-      {pathname === "/" && selectedMarket && selectedPlatform ? (
+      {(pathname === "/" || pathname.startsWith("/competitors")) && selectedMarket && selectedPlatform ? (
         <SiteScopeSwitcher
           markets={markets}
           platforms={platforms}
@@ -54,6 +54,7 @@ export function TopbarSiteScope({ markets, platforms }: TopbarSiteScopeProps) {
 function getSectionLabel(pathname: string) {
   if (pathname === "/") return "工作台";
   if (pathname.startsWith("/ai-sourcing")) return "选品验证";
+  if (pathname.startsWith("/competitors")) return "竞品对比";
   if (pathname.startsWith("/ai-inbox")) return "证据收件箱";
   if (pathname.startsWith("/cases/")) {
     if (/\/sourcing(\/|$)/.test(pathname)) return "供应商 · 商品详情";

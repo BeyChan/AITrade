@@ -8624,6 +8624,42 @@ tbody tr:last-child td {
   background: #f9fcf9;
 }
 
+/* AI 竞品自动导入卡片 */
+.ai-auto-competitor-card {
+  padding: 18px 20px;
+  border: 1px solid #d0e4d6;
+  border-radius: 14px;
+  background: #fbfdfb;
+}
+
+.ai-auto-competitor-direct {
+  margin-top: 14px;
+}
+
+.ai-auto-competitor-checks {
+  margin-top: 2px;
+}
+
+.ai-auto-competitor-paste {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.ai-auto-competitor-paste summary {
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ai-auto-competitor-paste summary small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .benchmark-coverage-strip {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));

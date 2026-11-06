@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 
 type MarketOption = {
@@ -30,6 +30,7 @@ export function SiteScopeSwitcher({
   variant = "default",
 }: SiteScopeSwitcherProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const [market, setMarket] = useState(selectedMarket);
   const [platform, setPlatform] = useState(selectedPlatform);
   const [isPending, startTransition] = useTransition();
@@ -45,8 +46,9 @@ export function SiteScopeSwitcher({
 
   function changeScope(nextMarket: string, nextPlatform: string) {
     const params = new URLSearchParams({ market: nextMarket, platform: nextPlatform });
+    const targetPath = pathname.startsWith("/competitors") ? "/competitors" : pathname === "/" ? "/" : pathname;
     startTransition(() => {
-      router.push(`/?${params.toString()}`, { scroll: false });
+      router.push(`${targetPath}?${params.toString()}`, { scroll: false });
     });
   }
 

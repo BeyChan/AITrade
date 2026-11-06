@@ -11,6 +11,7 @@ process.env.AI_PROVIDER = "template";
 
 const { getDb } = await import("./db.ts");
 const {
+  autoImportSiteCompetitors,
   confirmHypothesisPrice,
   createAISourcingBatch,
   deleteAISourcingBatch,
@@ -399,4 +400,51 @@ test("competitor benchmark hydrates review insights, advises on >P90 price, and 
 
   const resolvedResult = await loadCaseCompetitorBenchmark(linkedCaseId, h1);
   assert.equal(resolvedResult.status, "ok");
+});
+
+test("autoImportSiteCompetitors imports batch competitors and review insights based on site and query", async () => {
+  const created = await createAISourcingBatch({
+    marketCode: "DE",
+    platformCode: "amazon",
+    category: "宠物清洁",
+    brief: "验证德国站宠物饮水机竞品",
+    actor: "测试运营",
+  });
+  const batch = await getAISourcingBatch(created.runId);
+  const hypothesisId = batch?.hypotheses[0]?.id;
+  assert.ok(hypothesisId);
+
+  const outcome = await autoImportSiteCompetitors({
+    hypothesisId,
+    query: "Katzenbrunnen Edelstahl",
+    targetCount: 20,
+    includeReviews: true,
+    actor: "测试运营",
+  });
+
+  assert.equal(outcome.marketCode, "DE");
+  assert.equal(outcome.currency, "EUR");
+  assert.equal(outcome.insertedCompetitors, 20);
+  assert.ok(outcome.insertedReviews >= 2);
+
+  const updatedBatch = await getAISourcingBatch(created.runId);
+  const h = updatedBatch?.hypotheses.find((item) => item.id === hypothesisId);
+  assert.ok(h);
+  assert.equal(h.competitors.length, 20);
+  assert.ok(h.reviewInsights.length >= 2);
+  assert.equal(h.benchmark.coverage.dedupedCount, 20);
+  assert.ok(h.benchmark.price !== null);
+  assert.equal(h.benchmark.scope.marketCode, "DE");
+  assert.equal(h.benchmark.scope.currency, "EUR");
+  assert.ok(h.competitors.every((c) => c.sourceUrl.includes("amazon.de")));
+
+  // Repeated import with duplicate ASINs/URLs skips existing without error
+  const second = await autoImportSiteCompetitors({
+    hypothesisId,
+    query: "Katzenbrunnen Edelstahl",
+    targetCount: 20,
+    actor: "测试运营",
+  });
+  assert.equal(second.insertedCompetitors, 0);
+  assert.equal(second.skippedDuplicateCompetitors, 20);
 });

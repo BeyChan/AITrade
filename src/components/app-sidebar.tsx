@@ -6,12 +6,13 @@ import { usePathname } from "next/navigation";
 type NavItem = {
   href: string;
   label: string;
-  icon: "ai" | "verify" | "sourcing" | "content" | "inbox" | "data" | "settings" | "connection";
+  icon: "ai" | "verify" | "competitor" | "sourcing" | "content" | "inbox" | "data" | "settings" | "connection";
 };
 
 const NAV_ITEMS: NavItem[] = [
   { href: "/", label: "工作台", icon: "ai" },
   { href: "/ai-sourcing", label: "选品验证", icon: "verify" },
+  { href: "/competitors", label: "竞品对比", icon: "competitor" },
   { href: "/sourcing", label: "供应商", icon: "sourcing" },
   { href: "/content", label: "内容与上架", icon: "content" },
   { href: "/ai-inbox", label: "证据收件箱", icon: "inbox" },
@@ -51,6 +52,17 @@ function NavIcon({ name }: { name: NavItem["icon"] }) {
       <svg {...common}>
         <circle cx="11" cy="11" r="7" />
         <path d="m16.5 16.5 4 4M8 11h6M11 8v6" />
+      </svg>
+    );
+  }
+
+  if (name === "competitor") {
+    return (
+      <svg {...common}>
+        <path d="m16 16 3-8 3 8a3 3 0 0 1-6 0ZM2 16l3-8 3 8a3 3 0 0 1-6 0Z" />
+        <path d="M7 21h10" />
+        <path d="M12 3v18" />
+        <path d="M3 7h18" />
       </svg>
     );
   }
@@ -126,6 +138,7 @@ function NavIcon({ name }: { name: NavItem["icon"] }) {
 function activeHrefForPath(pathname: string) {
   if (pathname === "/") return "/";
   if (pathname.startsWith("/ai-sourcing")) return "/ai-sourcing";
+  if (pathname.startsWith("/competitors")) return "/competitors";
   if (pathname.startsWith("/ai-inbox")) return "/ai-inbox";
   if (pathname.startsWith("/cases/")) {
     if (/\/sourcing(\/|$)/.test(pathname)) return "/sourcing";

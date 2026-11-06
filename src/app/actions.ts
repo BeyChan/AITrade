@@ -19,6 +19,7 @@ import {
 } from "@/lib/ai-supplier-assistant/repository";
 import { isSupplierDraftType } from "@/lib/ai-supplier-assistant/schema";
 import {
+  autoImportSiteCompetitors,
   confirmHypothesisPrice,
   createAISourcingBatch,
   deleteAISourcingBatch,
@@ -288,6 +289,30 @@ export async function recordCompetitorAction(formData: FormData) {
   }
   revalidateAISourcing(runId);
   redirect(aiSourcingDetailPath(runId, "notice", "真实竞品快照已记录并重新计算门禁"));
+}
+
+export async function autoImportCompetitorsAction(formData: FormData) {
+  const runId = String(formData.get("runId") || "");
+  const hypothesisId = String(formData.get("hypothesisId") || "");
+  const targetCount = positiveIntegerOrNull(formData.get("targetCount")) ?? 20;
+  let outcome: Awaited<ReturnType<typeof autoImportSiteCompetitors>>;
+  try {
+    outcome = await autoImportSiteCompetitors({
+      hypothesisId,
+      query: String(formData.get("query") || ""),
+      targetCount,
+      includeReviews: formData.get("includeReviews") !== "false",
+      rawPayload: String(formData.get("rawPayload") || ""),
+      actor: String(formData.get("actor") || "运营人员"),
+    });
+  } catch (error) {
+    redirect(`/ai-sourcing/${encodeURIComponent(runId)}?tab=hypotheses&hypothesisId=${encodeURIComponent(hypothesisId)}&error=${encodeURIComponent(errorMessage(error))}#hypothesis-${encodeURIComponent(hypothesisId)}`);
+  }
+  revalidateAISourcing(runId);
+  const reviewNote = outcome.insertedReviews > 0 ? `、${outcome.insertedReviews} 组差评洞察` : "";
+  const dupNote = outcome.skippedDuplicateCompetitors > 0 ? `（跳过重复 ${outcome.skippedDuplicateCompetitors} 条）` : "";
+  const message = `已基于 ${outcome.marketName}站 · ${outcome.platformName} (${outcome.currency}) 自动导入 ${outcome.insertedCompetitors} 个竞品快照${reviewNote}${dupNote}，竞品画像与门禁已更新`;
+  redirect(`/ai-sourcing/${encodeURIComponent(runId)}?tab=hypotheses&hypothesisId=${encodeURIComponent(hypothesisId)}&notice=${encodeURIComponent(message)}#hypothesis-${encodeURIComponent(hypothesisId)}`);
 }
 
 export async function confirmHypothesisPriceAction(formData: FormData) {
