@@ -15,8 +15,10 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   const markets = options.markets.map(({ code, name, currency }) => ({ code, name, currency }));
   const platforms = options.platforms.map(({ code, name }) => ({ code, name }));
 
+  // 浏览器扩展（如沉浸式翻译）会在 hydration 前往 <html> 注入 data-* 属性，
+  // 造成与服务端 HTML 不一致的误报；仅抑制该元素的属性差异警告。
   return (
-    <html lang="zh-CN">
+    <html lang="zh-CN" suppressHydrationWarning>
       <body>
         <div className="app-shell">
           <AppSidebar />
