@@ -66,4 +66,5 @@ export type CompetitorComparisonReport = {
     differentiator: string;
     recommendedPriceCents: number;
   };
+  productIndex?: import("./competitiveness").ProductIndexScore;
 };

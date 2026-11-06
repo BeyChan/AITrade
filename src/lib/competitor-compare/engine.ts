@@ -1,6 +1,7 @@
 import { generateStructuredJSON } from "../ai-provider.ts";
 import { loadAIProviderConfig } from "../app-settings.ts";
 import { extractTitleFromUrl, parseCompetitorInputs } from "./parser.ts";
+import { calculateProductIndex } from "./competitiveness.ts";
 import type {
   ComparisonPriceStats,
   CompetitorComparisonReport,
@@ -154,7 +155,7 @@ export async function analyzeCompetitors(input: {
         const prices = parsedJson.competitors.map((c) => Number(c.priceCents) || 2999);
         const priceStats = calculatePriceStats(prices, currency);
 
-        return {
+        const reportData = {
           id: `comp_cmp_${Date.now()}`,
           title: parsedJson.title || `${parsedJson.category || rawProducts[0]?.brand || "商品"} 竞品横向洞察研报`,
           marketCode,
@@ -195,6 +196,11 @@ export async function analyzeCompetitors(input: {
             targetMarginPercent: 35,
           },
           hypothesisBridge: parsedJson.hypothesisBridge,
+        };
+
+        return {
+          ...reportData,
+          productIndex: calculateProductIndex(reportData),
         };
       }
     } catch (err) {
@@ -247,7 +253,7 @@ export async function analyzeCompetitors(input: {
   const prices = generatedCompetitors.map((c) => c.priceCents);
   const priceStats = calculatePriceStats(prices, currency);
 
-  return {
+  const reportData = {
     id: `comp_cmp_${Date.now()}`,
     title: `${primaryTitle.slice(0, 30)} 竞品横向洞察研报`,
     marketCode,
@@ -258,7 +264,7 @@ export async function analyzeCompetitors(input: {
     competitors: generatedCompetitors,
     priceStats,
     summary: {
-      marketMaturity: "mature",
+      marketMaturity: "mature" as const,
       commonStrengths: ["主打实用性与满足海外主流日常需求", "轻量化设计降低买家使用疲劳"],
       commonWeaknesses: ["长期使用后受力件或消耗件存在买家抱怨", "包装保护普遍偏简易"],
       marketVacuum: "在中端价位段提供做工用料更扎实、关键受力结构加固的升级款。",
@@ -276,5 +282,10 @@ export async function analyzeCompetitors(input: {
       differentiator: "加固结构与更优选材",
       recommendedPriceCents: priceStats.p50,
     },
+  };
+
+  return {
+    ...reportData,
+    productIndex: calculateProductIndex(reportData),
   };
 }

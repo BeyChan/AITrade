@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import type { CompetitorComparisonReport, CompetitorProfile } from "@/lib/competitor-compare/types";
+import { calculateProductIndex } from "@/lib/competitor-compare/competitiveness";
 import {
   convertReportToHypothesisAction,
   deleteComparisonReportAction,
@@ -40,6 +41,7 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
   const [statusMsg, setStatusMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [convertBatchId, setConvertBatchId] = useState<string | null>(null);
+  const [showIndexHelp, setShowIndexHelp] = useState(false);
 
   const currentReport = reports.find((r) => r.id === selectedReportId) || reports[0] || null;
 
@@ -336,6 +338,210 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
               </button>
             </div>
           </section>
+
+          {/* 0. 科学量化：商品指数 (Product Index, 0~100 分) */}
+          {(() => {
+            const index = currentReport.productIndex || calculateProductIndex(currentReport);
+            const isS = index.grade === "S";
+            const isA = index.grade === "A";
+            const isB = index.grade === "B";
+
+            const themeColor = isS
+              ? "var(--green)"
+              : isA
+              ? "#1d6a3a"
+              : isB
+              ? "var(--amber)"
+              : "var(--red)";
+            const themeBg = isS
+              ? "var(--green-soft)"
+              : isA
+              ? "#edf7f1"
+              : isB
+              ? "var(--amber-soft)"
+              : "var(--red-soft)";
+
+            return (
+              <section className="panel" style={{ padding: "24px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px" }}>
+                  <div>
+                    <div className="eyebrow" style={{ color: themeColor }}>
+                      QUANTITATIVE RETAIL MODEL · 科学量化判定
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "4px" }}>
+                      <h4 style={{ margin: 0, fontSize: "18px", color: "var(--ink)", fontWeight: 800 }}>
+                        商品指数 (Product Index)
+                      </h4>
+                      <button
+                        type="button"
+                        onClick={() => setShowIndexHelp((prev) => !prev)}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: "var(--muted)",
+                          fontSize: "12px",
+                          cursor: "pointer",
+                          textDecoration: "underline",
+                          padding: "2px 4px",
+                        }}
+                      >
+                        {showIndexHelp ? "收起说明 ▲" : "ℹ️ 与机会分(Opportunity Score)的区别说明 ▼"}
+                      </button>
+                    </div>
+                  </div>
+                  <span
+                    className={`badge ${isS ? "badge-success" : isA ? "badge-success" : isB ? "badge-warn" : "badge-danger"}`}
+                    style={{ fontSize: "12px", padding: "4px 10px", borderRadius: "8px" }}
+                  >
+                    决策建议: {index.decision}
+                  </span>
+                </div>
+
+                {/* 指标关系说明抽屉 */}
+                {showIndexHelp && (
+                  <div
+                    style={{
+                      background: "#f0f4f1",
+                      border: "1px solid var(--line)",
+                      borderRadius: "10px",
+                      padding: "12px 16px",
+                      marginBottom: "16px",
+                      fontSize: "12px",
+                      lineHeight: "1.6",
+                      color: "var(--ink)",
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, marginBottom: "4px", color: "var(--green)" }}>
+                      📌 双指标分工与业务漏斗流转说明：
+                    </div>
+                    <div>
+                      <strong>1. 商品指数 (本页面，0~100 分)：</strong>
+                      面向外部赛道与竞品攻防，衡量 <em>赛道垄断度(HHI)、评论阻力、价格战内卷度与真实差评改良胜算</em>。回答“这品类对手弱不弱、有没有切入机会”。
+                    </div>
+                    <div>
+                      <strong>2. 机会分 (选品工作台，0~100 分)：</strong>
+                      面向内部财务可行性，需在拿到 <em>1688 源头采购报价、FBA 头程与关税</em> 后，对到岸成本、净利率和压力测试利润进行确定性核验。回答“拿到这批货能否真赚钱”。
+                    </div>
+                    <div style={{ color: "var(--muted)", marginTop: "4px" }}>
+                      💡 <strong>建议工作流：</strong>当前竞品对比「商品指数」评级达到 A/S 级时，点击右上方【沉淀为选品假设】，系统将自动带入竞品数据前往 1688 询价并核算最终的财务「机会分」。
+                    </div>
+                  </div>
+                )}
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "280px 1fr",
+                    gap: "24px",
+                    alignItems: "center",
+                    background: "#f8faf8",
+                    padding: "20px",
+                    borderRadius: "14px",
+                    border: "1px solid var(--line)",
+                  }}
+                >
+                  {/* 左侧：大分值与总评 */}
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      textAlign: "center",
+                      borderRight: "1px solid var(--line)",
+                      paddingRight: "20px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: "96px",
+                        height: "96px",
+                        borderRadius: "50%",
+                        background: themeBg,
+                        border: `3px solid ${themeColor}`,
+                        display: "flex",
+                        flexDirection: "column",
+                        justifyContent: "center",
+                        alignItems: "center",
+                        boxShadow: "0 4px 14px rgba(0,0,0,0.04)",
+                        marginBottom: "12px",
+                      }}
+                    >
+                      <span style={{ fontSize: "32px", fontWeight: 900, color: themeColor, lineHeight: 1 }}>
+                        {index.totalScore}
+                      </span>
+                      <span style={{ fontSize: "11px", fontWeight: 700, color: themeColor, marginTop: "2px" }}>
+                        {index.grade} 级 · 得分
+                      </span>
+                    </div>
+
+                    <div style={{ fontSize: "14px", fontWeight: 800, color: "var(--ink)", marginBottom: "6px" }}>
+                      {index.headline}
+                    </div>
+                    <p style={{ margin: 0, fontSize: "12px", color: "var(--muted)", lineHeight: "1.45" }}>
+                      {index.summaryText}
+                    </p>
+                  </div>
+
+                  {/* 右侧：5 大量化支柱得分明细 */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                    {Object.values(index.pillars).map((p) => {
+                      const percent = Math.round((p.score / p.max) * 100);
+                      return (
+                        <div key={p.key} style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: "12px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                              <strong style={{ color: "var(--ink)" }}>{p.label}</strong>
+                              <span
+                                style={{
+                                  fontSize: "11px",
+                                  padding: "1px 6px",
+                                  borderRadius: "4px",
+                                  background: "#e8ede9",
+                                  color: "var(--muted)",
+                                  fontFamily: "ui-monospace, monospace",
+                                }}
+                              >
+                                {p.metricValue}
+                              </span>
+                            </div>
+                            <div>
+                              <strong style={{ color: themeColor }}>{p.score}</strong>
+                              <span style={{ color: "var(--muted)" }}> / {p.max} 分</span>
+                            </div>
+                          </div>
+
+                          {/* 进度条 */}
+                          <div
+                            style={{
+                              width: "100%",
+                              height: "6px",
+                              background: "#e5eae6",
+                              borderRadius: "3px",
+                              overflow: "hidden",
+                            }}
+                          >
+                            <div
+                              style={{
+                                width: `${percent}%`,
+                                height: "100%",
+                                background: themeColor,
+                                borderRadius: "3px",
+                                transition: "width 0.4s ease",
+                              }}
+                            />
+                          </div>
+
+                          <div style={{ fontSize: "11px", color: "var(--muted)", lineHeight: "1.35" }}>
+                            {p.explanation}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </section>
+            );
+          })()}
 
           {/* 1. 价格分位数带与大盘基准 */}
           <section className="panel" style={{ padding: "20px 24px" }}>

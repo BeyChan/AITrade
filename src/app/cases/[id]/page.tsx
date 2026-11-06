@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { updateCostModelAction } from "@/app/actions";
 import { RecommendationBadge, StatusBadge } from "@/components/badges";
+import { OpportunityScoreHelp } from "@/components/opportunity-score-help";
 import { money, percent, shortDate } from "@/lib/format";
 import { opportunityScore, recommendationFor } from "@/lib/economics";
 import { getCaseDetail } from "@/lib/repository";
@@ -42,6 +43,7 @@ export default async function CaseDetailPage({ params }: PageProps) {
             <span className="badge badge-neutral">{productCase.marketplace}</span>
             <span className="badge badge-neutral">{productCase.category}</span>
             <span className="muted">机会分 {score} · 负责人 {productCase.owner}</span>
+            <OpportunityScoreHelp score={score} />
           </div>
         </div>
         <div className="button-row">

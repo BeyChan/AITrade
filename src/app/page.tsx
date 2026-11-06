@@ -4,6 +4,7 @@ import { createAISourcingBatchAction } from "@/app/actions";
 import { CategoryRecommender } from "@/components/category-recommender";
 import { ProposalCard } from "@/components/ai-proposal-card";
 import { GenerateResearchButton } from "@/components/generate-research-button";
+import { OpportunityScoreHelp } from "@/components/opportunity-score-help";
 import { getAIProviderStatus } from "@/lib/ai-provider";
 import { buildAiProposalDigest, loadPendingAiProposals } from "@/lib/ai-proposals/digest";
 import { listAISourcingBatches } from "@/lib/ai-sourcing-repository";
@@ -290,7 +291,9 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                     </div>
                   </div>
                   <div className="dashboard-product-metric">
-                    <span>选品分</span>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: "2px" }}>
+                      选品分 <OpportunityScoreHelp score={item.opportunityScore} />
+                    </span>
                     <strong>{item.opportunityScore}</strong>
                   </div>
                   <div className="dashboard-product-metric">
