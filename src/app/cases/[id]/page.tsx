@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { updateCostModelAction } from "@/app/actions";
 import { RecommendationBadge, StatusBadge } from "@/components/badges";
+import { CaseStepper } from "@/components/case-stepper";
 import { OpportunityScoreHelp } from "@/components/opportunity-score-help";
 import { money, percent, shortDate } from "@/lib/format";
 import { opportunityScore, recommendationFor } from "@/lib/economics";
@@ -33,6 +34,14 @@ export default async function CaseDetailPage({ params }: PageProps) {
   return (
     <div className="page">
       <div className="breadcrumb"><Link href="/">AI 选品</Link> / {productCase.asin}</div>
+
+      <CaseStepper
+        caseId={productCase.id}
+        hasCostModel={Boolean(costModel)}
+        hasSupplierSelection={hasSupplierSelection}
+        hasApprovedContent={detail.productCase.status === "approved" && hasSupplierSelection}
+        status={productCase.status}
+      />
 
       <div className="title-row">
         <div>

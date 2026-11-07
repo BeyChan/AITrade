@@ -9,6 +9,7 @@ import {
 } from "@/app/actions";
 import { ProposalMeta } from "@/components/ai-proposal-card";
 import { StatusBadge } from "@/components/badges";
+import { CaseStepper } from "@/components/case-stepper";
 import { CopyDraftButton } from "@/components/copy-draft-button";
 import { generateStructuredJSON } from "@/lib/ai-provider";
 import {
@@ -94,6 +95,15 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
       <div className="breadcrumb">
         <Link href="/">AI 选品</Link> / <Link href={`/cases/${productCase.id}`}>{productCase.asin}</Link> / <Link href={`/cases/${productCase.id}/channels`}>上市矩阵</Link> / 默认内容工作台
       </div>
+
+      <CaseStepper
+        caseId={productCase.id}
+        hasCostModel={Boolean(costModel)}
+        hasSupplierSelection={Boolean(selection)}
+        hasApprovedContent={Boolean(preflight?.passed)}
+        selectedSupplierName={selectedSupplierName ?? null}
+        status={productCase.status}
+      />
 
       <div className="title-row">
         <div>

@@ -103,6 +103,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
   const [targetPriceVal, setTargetPriceVal] = useState<number>(39.99);
   const [isPromoting, setIsPromoting] = useState(false);
   const [promotedCaseId, setPromotedCaseId] = useState<string | null>(null);
+  const [showPromotionSuccess, setShowPromotionSuccess] = useState(false);
 
   useEffect(() => {
     getAvailableCasesAction(currentMarket, currentPlatform).then((cases) => {
@@ -322,6 +323,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
       });
       if (res.success && res.caseId) {
         setPromotedCaseId(res.caseId);
+        setShowPromotionSuccess(true);
         setStatusMsg({ type: "success", text: "已成功正式立项为新商品 (Case)！数据已同步至商品案卷库。" });
       } else {
         setStatusMsg({ type: "error", text: res.error || "立项失败" });
@@ -1753,6 +1755,52 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
             当前站点暂无竞品对比报告。系统不会自动生成示例数据 —— 请在上方输入链接、点击「填入示例」，或用浏览器扩展采集真实商品页。
           </p>
         </section>
+      )}
+
+      {/* 正式立项成功承接模态弹窗 */}
+      {showPromotionSuccess && (promotedCaseId || currentReport?.promotedCaseId) && (
+        <div className="promotion-modal-overlay" role="dialog" aria-modal="true">
+          <div className="promotion-modal-card">
+            <div className="promotion-modal-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                <polyline points="22 4 12 14.01 9 11.01" />
+              </svg>
+            </div>
+            <h3>🎉 正式商品立项成功！</h3>
+            <p>
+              已从竞品研报建立全新商品案卷。竞品 ASIN 矩阵、反制五点文案与 1688 询价草案均已安全沉淀至案卷档案。
+            </p>
+            <div className="promotion-modal-meta">
+              <div><span>目标售价</span><strong>${targetPriceVal}</strong></div>
+              <div><span>1688 实报</span><strong>¥{quoteCostRmb}</strong></div>
+              <div><span>机会分</span><strong>{calcOppScore} 分</strong></div>
+            </div>
+            <div className="promotion-modal-actions">
+              <Link
+                href={`/cases/${promotedCaseId || currentReport?.promotedCaseId}/sourcing`}
+                className="button primary"
+                style={{ justifyContent: "center" }}
+              >
+                立即前往 1688 询价与定标 →
+              </Link>
+              <Link
+                href={`/cases/${promotedCaseId || currentReport?.promotedCaseId}`}
+                className="button secondary"
+                style={{ justifyContent: "center" }}
+              >
+                查看商品案卷与财务模型
+              </Link>
+              <button
+                type="button"
+                onClick={() => setShowPromotionSuccess(false)}
+                className="button ghost"
+              >
+                留在当前研报
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

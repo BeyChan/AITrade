@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createChannelTargetAction } from "@/app/actions";
 import { StatusBadge } from "@/components/badges";
+import { CaseStepper } from "@/components/case-stepper";
 import { getChannelProfile } from "@/lib/channels";
 import { shortDate } from "@/lib/format";
 import { getChannelMatrix } from "@/lib/repository";
@@ -28,6 +29,14 @@ export default async function ChannelMatrixPage({ params, searchParams }: PagePr
       <div className="breadcrumb">
         <Link href="/">AI 选品</Link> / <Link href={`/cases/${productCase.id}`}>{productCase.asin}</Link> / 上市矩阵
       </div>
+
+      <CaseStepper
+        caseId={productCase.id}
+        hasCostModel={true}
+        hasSupplierSelection={true}
+        hasApprovedContent={approvedTargets > 0}
+        status={productCase.status}
+      />
 
       <div className="title-row">
         <div>

@@ -2,8 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createSupplierQuoteAction, selectSupplierQuoteAction } from "@/app/actions";
 import { StatusBadge } from "@/components/badges";
+import { CaseStepper } from "@/components/case-stepper";
 import { money, percent, shortDate } from "@/lib/format";
-import { getSourcingDetail } from "@/lib/repository";
+import { getSourcingDetail, listSupplierDirectory } from "@/lib/repository";
 import { SupplierMatrixPk } from "@/components/supplier-matrix-pk";
 
 export const dynamic = "force-dynamic";
@@ -14,10 +15,15 @@ type PageProps = {
 };
 
 export default async function SourcingDetailPage({ params, searchParams }: PageProps) {
-  const [{ id }, query] = await Promise.all([params, searchParams]);
+  const [{ id }, query, directoryData] = await Promise.all([
+    params,
+    searchParams,
+    listSupplierDirectory().catch(() => ({ suppliers: [] })),
+  ]);
   const detail = await getSourcingDetail(id);
   if (!detail) notFound();
 
+  const directorySuppliers = directoryData.suppliers || [];
   const { productCase, costModel, quotes, scoredQuotes, selection, auditLogs } = detail;
   const selectedQuote = quotes.find((quote) => quote.id === selection?.quote_id) ?? null;
   const selectedScore = scoredQuotes.find((quote) => quote.id === selection?.quote_id) ?? null;
@@ -30,6 +36,15 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
       <div className="breadcrumb">
         <Link href="/">AI 选品</Link> / <Link href={`/cases/${productCase.id}`}>{productCase.asin}</Link> / 供应商询价
       </div>
+
+      <CaseStepper
+        caseId={productCase.id}
+        hasCostModel={Boolean(costModel)}
+        hasSupplierSelection={Boolean(selection)}
+        hasApprovedContent={Boolean(selection)}
+        selectedSupplierName={selectedQuote?.supplier.name ?? null}
+        status={productCase.status}
+      />
 
       <div className="title-row">
         <div>
@@ -217,7 +232,27 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
                 <input type="hidden" name="caseId" value={productCase.id} />
                 <div className="form-section-label">供应商信息</div>
                 <div className="form-grid">
-                  <div className="field"><label htmlFor="supplierName">供应商名称 *</label><input id="supplierName" name="supplierName" required placeholder="例如：宁波某日用品厂" disabled={!canSource} /></div>
+                  <div className="field">
+                    <label htmlFor="supplierName">
+                      供应商名称 * {directorySuppliers.length > 0 ? <small style={{ color: "var(--green)", fontWeight: 500 }}>（已关联企业资产库，支持快速检索）</small> : null}
+                    </label>
+                    <input
+                      id="supplierName"
+                      name="supplierName"
+                      list="existing-suppliers"
+                      required
+                      placeholder="输入或从资产库选择，如：宁波某日用品厂"
+                      disabled={!canSource}
+                      autoComplete="off"
+                    />
+                    <datalist id="existing-suppliers">
+                      {directorySuppliers.map((s) => (
+                        <option key={s.id} value={s.name}>
+                          {s.platform || "1688"} · 历史合作 {s.quoteCount} 次 {s.selectionCount > 0 ? "· 曾中标" : ""}
+                        </option>
+                      ))}
+                    </datalist>
+                  </div>
                   <div className="field"><label htmlFor="supplierPlatform">来源平台</label><input id="supplierPlatform" name="supplierPlatform" placeholder="1688 / Alibaba / 展会 / 人工" disabled={!canSource} /></div>
                   <div className="field"><label htmlFor="country">国家或地区</label><input id="country" name="country" placeholder="CN" disabled={!canSource} /></div>
                   <div className="field"><label htmlFor="contact">联系人 / 联系方式</label><input id="contact" name="contact" placeholder="姓名、微信或邮箱" disabled={!canSource} /></div>

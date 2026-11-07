@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCaseDetail, getContentDetail } from "@/lib/repository";
+import { CaseStepper } from "@/components/case-stepper";
 import { emptyListingContent, normalizeListingContent } from "@/lib/listing";
 import { opportunityScore, recommendationFor } from "@/lib/economics";
 import { money, percent } from "@/lib/format";
@@ -45,6 +46,16 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
 
   return (
     <div style={{ maxWidth: "860px", margin: "0 auto", padding: "32px 24px" }}>
+      <div className="no-print" style={{ marginBottom: "20px" }}>
+        <CaseStepper
+          caseId={productCase.id}
+          hasCostModel={Boolean(costModel)}
+          hasSupplierSelection={detail.hasSupplierSelection}
+          hasApprovedContent={Boolean(contentDetail?.listing)}
+          status={productCase.status}
+        />
+      </div>
+
       {/* 顶部操作工具栏 (打印时自动隐藏) */}
       <div
         className="no-print"
