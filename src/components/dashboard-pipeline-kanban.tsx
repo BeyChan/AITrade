@@ -101,8 +101,8 @@ export function DashboardPipelineKanban({
       focusTask: stage1Task,
       badgeColor: "#3766a6",
       badgeBg: "#e8f0fc",
-      viewAllHref: "/competitors",
-      items: stage1Items.slice(0, 6).map((r) => ({
+      viewAllHref: `/competitors?market=${encodeURIComponent(marketCode)}&platform=${encodeURIComponent(platformCode)}`,
+      items: stage1Items.slice(0, 4).map((r) => ({
         id: r.id,
         title: r.title,
         tag: `${r.competitors.length} 款竞品`,
@@ -123,7 +123,7 @@ export function DashboardPipelineKanban({
       badgeColor: "#a96610",
       badgeBg: "#fff3d9",
       viewAllHref: "/sourcing",
-      items: stage2Items.slice(0, 6).map((c) => ({
+      items: stage2Items.slice(0, 4).map((c) => ({
         id: c.id,
         title: c.title,
         tag: c.category || "待分类",
@@ -143,8 +143,8 @@ export function DashboardPipelineKanban({
       focusTask: stage3Task,
       badgeColor: "#9333ea",
       badgeBg: "#f3e8ff",
-      viewAllHref: "/#opportunities",
-      items: stage3Items.slice(0, 6).map((c) => {
+      viewAllHref: "/sourcing",
+      items: stage3Items.slice(0, 4).map((c) => {
         const res = c.costModel?.results;
         return {
           id: c.id,
@@ -168,7 +168,7 @@ export function DashboardPipelineKanban({
       badgeColor: "#1f7a55",
       badgeBg: "#e2f5ea",
       viewAllHref: "/content",
-      items: stage4Items.slice(0, 6).map((c) => ({
+      items: stage4Items.slice(0, 4).map((c) => ({
         id: c.id,
         title: c.title,
         tag: `已立项 · ${c.asin}`,
@@ -189,7 +189,7 @@ export function DashboardPipelineKanban({
       badgeColor: "#10251c",
       badgeBg: "#dfe6e0",
       viewAllHref: "/content",
-      items: stage5Items.slice(0, 6).map((c) => ({
+      items: stage5Items.slice(0, 4).map((c) => ({
         id: c.id,
         title: c.title,
         tag: "Flat File 就绪",

@@ -5,6 +5,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { SandboxBanner } from "@/components/sandbox-banner";
 import { TopbarSiteScope } from "@/components/topbar-site-scope";
 import { WorkContextBar } from "@/components/work-context-bar";
+import { GlobalSearch } from "@/components/global-search";
 import { getAppMode } from "@/lib/app-mode";
 import { getSiteOptions } from "@/lib/repository";
 import { loadWorkContext } from "@/lib/work-context";
@@ -42,6 +43,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
               <WorkContextBar items={workContext} />
             </header>
             <main>{children}</main>
+            <GlobalSearch />
           </div>
         </div>
       </body>
