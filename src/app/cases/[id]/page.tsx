@@ -43,7 +43,7 @@ export default async function CaseDetailPage({ params }: PageProps) {
             <span className="badge badge-neutral">{productCase.marketplace}</span>
             <span className="badge badge-neutral">{productCase.category}</span>
             <span className="muted">机会分 {score} · 负责人 {productCase.owner}</span>
-            <OpportunityScoreHelp score={score} />
+            <OpportunityScoreHelp />
           </div>
         </div>
         <div className="button-row">

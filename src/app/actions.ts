@@ -45,9 +45,57 @@ import {
   reviewMainImageAsset,
   saveChannelListingVersion,
   selectSupplierQuote,
+  setCaseLifecycle,
   upsertProductDefinition,
 } from "@/lib/repository";
 import { deleteStoredImage, saveImageUpload } from "@/lib/storage";
+
+/** 只接受站内相对路径，避免 returnPath 被用作开放重定向 */
+function safeReturnPath(value: FormDataEntryValue | null): string {
+  const raw = String(value ?? "").trim();
+  if (!raw.startsWith("/") || raw.startsWith("//") || /[\r\n]/.test(raw)) return "/";
+  return raw;
+}
+
+function withQuery(path: string, key: "notice" | "error", message: string): string {
+  const sep = path.includes("?") ? "&" : "?";
+  return `${path}${sep}${key}=${encodeURIComponent(message)}`;
+}
+
+export async function archiveCaseAction(formData: FormData) {
+  const caseId = String(formData.get("caseId") || "").trim();
+  const reason = String(formData.get("reason") || "").trim();
+  const actor = String(formData.get("actor") || "运营人员").trim();
+  const returnPath = safeReturnPath(formData.get("returnPath"));
+  if (!caseId) redirect(withQuery(returnPath, "error", "缺少商品标识"));
+
+  try {
+    await setCaseLifecycle({ caseId, action: "archive", actor, reason });
+  } catch (error) {
+    redirect(withQuery(returnPath, "error", errorMessage(error)));
+  }
+  revalidatePath("/");
+  revalidatePath("/content");
+  revalidatePath(`/cases/${caseId}`);
+  redirect(withQuery(returnPath, "notice", "商品已终止并归档，证据与报价全部保留；可在「已终止」中恢复"));
+}
+
+export async function restoreCaseAction(formData: FormData) {
+  const caseId = String(formData.get("caseId") || "").trim();
+  const actor = String(formData.get("actor") || "运营人员").trim();
+  const returnPath = safeReturnPath(formData.get("returnPath"));
+  if (!caseId) redirect(withQuery(returnPath, "error", "缺少商品标识"));
+
+  try {
+    await setCaseLifecycle({ caseId, action: "restore", actor });
+  } catch (error) {
+    redirect(withQuery(returnPath, "error", errorMessage(error)));
+  }
+  revalidatePath("/");
+  revalidatePath("/content");
+  revalidatePath(`/cases/${caseId}`);
+  redirect(withQuery(returnPath, "notice", "商品已恢复为已立项，重新出现在进度与内容工作台"));
+}
 
 export async function createAISourcingBatchAction(formData: FormData) {
   const marketCode = String(formData.get("marketCode") || "").trim().toUpperCase();
@@ -288,7 +336,7 @@ export async function recordCompetitorAction(formData: FormData) {
     redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
   }
   revalidateAISourcing(runId);
-  redirect(aiSourcingDetailPath(runId, "notice", "真实竞品快照已记录并重新计算门禁"));
+  redirect(aiSourcingDetailPath(runId, "notice", "已核实竞品证据已记录并重新计算门禁"));
 }
 
 export async function autoImportCompetitorsAction(formData: FormData) {

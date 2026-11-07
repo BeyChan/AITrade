@@ -9097,3 +9097,60 @@ tbody tr:last-child td {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---- 可访问性与操作反馈 ---- */
+/* 键盘焦点必须可见：原样式表只依赖浏览器默认 outline，窄屏与自定义控件上几乎看不出来 */
+:where(a, button, input, select, textarea, summary, [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* 表单提交是整页刷新：把结果条固定在视口顶部，避免用户在页面底部提交后看不到反馈而重复提交 */
+.notice {
+  position: sticky;
+  top: 10px;
+  z-index: 30;
+  box-shadow: 0 6px 18px rgba(24, 44, 32, 0.09);
+}
+
+label {
+  cursor: pointer;
+}
+
+/* 商品进度行：继续 + 终止共占最后一列，避免改变原有 grid 列数 */
+.dashboard-product-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.dashboard-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 同一排操作按钮统一尺寸：避免「继续 / 终止 / 查看详情 / 恢复」高低不齐 */
+.dashboard-product-actions .button,
+.dashboard-row-actions .button {
+  min-height: 34px;
+  padding: 0 11px;
+  font-size: 12px;
+  line-height: 1;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.dashboard-terminated summary::marker {
+  color: var(--muted);
+}
+
+@media (max-width: 720px) {
+  .dashboard-product-actions {
+    justify-content: flex-start;
+  }
+}

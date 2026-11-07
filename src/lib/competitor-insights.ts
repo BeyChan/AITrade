@@ -17,10 +17,31 @@ export type CompetitorBenchmarkScope = {
   currency: string;
 };
 
+/**
+ * 由 AI 或本地模板批量生成的竞品记录来源标记。
+ * 这些记录只能当作待核实的假设素材：不得计入 GO 门禁的竞品数、
+ * 不得进入真实价格分位、不得被冠以「真实竞品」。
+ */
+export const SYNTHETIC_COMPETITOR_SOURCES = [
+  "ai_model_site_import",
+  "ai_site_auto_import",
+  "ai_generated",
+  "template",
+  "demo",
+  "synthetic",
+] as const;
+
+export function isSyntheticCompetitorSource(sourceType: string | null | undefined): boolean {
+  if (!sourceType) return false; // 历史数据无标记：按人工/采集证据处理，避免误伤
+  return (SYNTHETIC_COMPETITOR_SOURCES as readonly string[]).includes(sourceType.trim().toLowerCase());
+}
+
 export type CompetitorSnapshotInput = {
   id: string;
   hypothesisId: string;
   evidenceId?: string | null;
+  /** 来自 opportunity_evidence.source_type，用于区分人工/采集证据与 AI 合成素材 */
+  sourceType?: string | null;
   asin: string | null;
   title: string;
   sourceUrl: string;
@@ -42,6 +63,8 @@ export type ReviewInsightInput = {
   id: string;
   hypothesisId: string;
   evidenceId: string;
+  /** 来自 opportunity_evidence.source_type；AI 合成的差评主题不进入对标证据 */
+  sourceType?: string | null;
   competitorSnapshotId: string | null;
   theme: string;
   sentiment: "negative" | "neutral" | "positive";
@@ -131,6 +154,8 @@ export type CompetitorBenchmark = CompetitorProfile & {
   contradictions: HypothesisContradiction[];
   p50Economics: EconomicsResults | null;
   hypothesisSummary: HypothesisAnchorInput;
+  /** 因 AI/模板合成而被排除、未参与画像与价格分位计算的快照数 */
+  excludedSyntheticCount?: number;
 };
 
 export type BenchmarkBulletDraftItem = {
@@ -465,7 +490,11 @@ export function buildCompetitorBenchmark(input: {
   const targetPriceCents = input.hypothesis.confirmedPriceCents && input.hypothesis.confirmedPriceCents > 0
     ? input.hypothesis.confirmedPriceCents
     : input.hypothesis.recommendedPriceCents;
-  const profile = buildCompetitorProfile(input.snapshots, input.insights, input.scope, {
+  // AI / 模板合成的竞品数值与差评原话都不是证据：不参与覆盖度、去重、价格分位与主题归纳
+  const verifiedSnapshots = input.snapshots.filter((s) => !isSyntheticCompetitorSource(s.sourceType));
+  const verifiedInsights = input.insights.filter((i) => !isSyntheticCompetitorSource(i.sourceType));
+  const excludedSyntheticCount = input.snapshots.length - verifiedSnapshots.length;
+  const profile = buildCompetitorProfile(verifiedSnapshots, verifiedInsights, input.scope, {
     now: input.now,
     targetPriceCents,
   });
@@ -475,6 +504,7 @@ export function buildCompetitorBenchmark(input: {
     contradictions,
     p50Economics,
     hypothesisSummary: input.hypothesis,
+    excludedSyntheticCount,
   };
 }
 

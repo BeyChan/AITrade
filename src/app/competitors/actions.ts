@@ -3,14 +3,16 @@
 import { revalidatePath } from "next/cache";
 import { analyzeCompetitors } from "@/lib/competitor-compare/engine";
 import {
+  confirmComparisonReport,
   deleteComparisonReport,
   getComparisonReportById,
   saveComparisonReport,
 } from "@/lib/competitor-compare/storage";
 import { createAISourcingBatch } from "@/lib/ai-sourcing-repository";
-import { generateAntiListingContent, type AntiListingResult } from "@/lib/competitor-compare/anti-listing";
+import { countVerifyPlaceholders, generateAntiListingContent, type AntiListingResult } from "@/lib/competitor-compare/anti-listing";
 import { generateSupplierRfqFromCompetitors, type SupplierRfqDraft } from "@/lib/competitor-compare/supplier-rfq";
-import { createListingDraft, listCasesForSite } from "@/lib/repository";
+import { createListingDraft, getContentDetail, listCasesForSite } from "@/lib/repository";
+import type { ListingDraftContent } from "@/lib/listing";
 import type { CompetitorComparisonReport } from "@/lib/competitor-compare/types";
 
 export type AnalysisActionResult = {
@@ -61,11 +63,28 @@ export async function deleteComparisonReportAction(reportId: string) {
   }
 }
 
+/** 显式人审：确认后才允许把研报转入选品池或写入商品草稿 */
+export async function confirmComparisonReportAction(
+  reportId: string,
+  actor: string,
+): Promise<{ success: boolean; error?: string; provenance?: string }> {
+  if (!actor.trim()) return { success: false, error: "请填写核对人" };
+  const report = await getComparisonReportById(reportId);
+  if (!report) return { success: false, error: "未找到对应的竞品对比报告" };
+  const updated = await confirmComparisonReport(reportId);
+  if (!updated) return { success: false, error: "确认失败，请刷新后重试" };
+  revalidatePath("/competitors");
+  return { success: true, provenance: updated.provenance };
+}
+
 export async function convertReportToHypothesisAction(reportId: string) {
   try {
     const report = await getComparisonReportById(reportId);
     if (!report) {
       return { success: false, error: "未找到对应的竞品对比报告" };
+    }
+    if (report.reviewStatus !== "confirmed") {
+      return { success: false, error: "请先在研报中点击「我已核对，确认可用」，再转入选品池" };
     }
 
     const bridge = report.hypothesisBridge;
@@ -75,6 +94,8 @@ export async function convertReportToHypothesisAction(reportId: string) {
       `核心痛点：${bridge?.painPoint || report.summary.commonWeaknesses.join("；")}`,
       `差异化切入：${bridge?.differentiator || report.summary.attackVector}`,
       `对标竞品数：${report.competitors.length} 款，价格带 P50：${((report.priceStats.p50 || 2999) / 100).toFixed(2)} ${report.currency}`,
+      `来源：${report.provenance}；已由人工核对。其中 AI / 模板推断的价格、评分与评论数仍属待核实字段，需在选品验证中补录真实证据。`,
+      `价格分位真实样本：${report.priceStats.verifiedSampleCount} 条（其余为示意值，不作为定价依据）`,
     ].join("\n");
 
     const result = await createAISourcingBatch({
@@ -157,10 +178,27 @@ export async function getAvailableCasesAction(
 
 export async function applyAntiListingToCaseAction(
   caseId: string,
+  reportId: string,
   antiListing: AntiListingResult,
-  brand?: string,
-): Promise<{ success: boolean; caseId?: string; version?: number; error?: string }> {
+  actor: string,
+): Promise<{
+  success: boolean;
+  caseId?: string;
+  version?: number;
+  findings?: Array<{ severity: string; message: string }>;
+  error?: string;
+}> {
   try {
+    const report = await getComparisonReportById(reportId);
+    if (!report) return { success: false, error: "未找到对应的竞品对比报告" };
+    if (report.reviewStatus !== "confirmed") {
+      return { success: false, error: "请先在研报中点击「我已核对，确认可用」，再写入商品草稿" };
+    }
+
+    const detail = await getContentDetail(caseId);
+    if (!detail) return { success: false, error: "目标商品不存在" };
+    // 只覆盖标题、五点与描述；品牌与搜索词沿用现有草稿，避免被空值洗掉
+    const existing = (detail.listing?.content ?? {}) as Partial<ListingDraftContent>;
     const bullets = antiListing.bullets.map((b) => `${b.headline} ${b.content}`);
     const description = antiListing.aplusModules && antiListing.aplusModules.length > 0
       ? antiListing.aplusModules.map((m) => `### ${m.title}\n${m.description}`).join("\n\n")
@@ -169,17 +207,36 @@ export async function applyAntiListingToCaseAction(
     const result = await createListingDraft(
       caseId,
       {
-        brand: brand || "Brand",
+        brand: String(existing.brand ?? "").trim(),
         title: antiListing.antiTitle,
         bullets,
         description,
-        searchTerms: "",
+        searchTerms: String(existing.searchTerms ?? "").trim(),
       },
-      "竞品对比工作台",
+      actor.trim() || "竞品对比工作台",
     );
 
+    const placeholders = countVerifyPlaceholders(antiListing);
+    const draftWarnings: Array<{ severity: string; message: string }> = placeholders > 0
+      ? [{
+          severity: "warning",
+          message: `本次写入含 ${placeholders} 处 [VERIFY: …] 待核实占位，属于内部草稿；请按打样实测与检测报告填实后再发布，不得直接上架。`,
+        }]
+      : [];
+
     revalidatePath(`/cases/${caseId}/content`);
-    return { success: true, caseId, version: result.version };
+    return {
+      success: true,
+      caseId,
+      version: result.version,
+      findings: [
+        ...draftWarnings,
+        ...(result.preflight?.findings ?? []).map((f) => ({
+          severity: f.severity,
+          message: f.message,
+        })),
+      ],
+    };
   } catch (err) {
     return {
       success: false,

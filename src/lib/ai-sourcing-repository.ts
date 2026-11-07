@@ -15,6 +15,8 @@ import { calculateEconomics } from "./economics.ts";
 import {
   buildCompetitorBenchmark,
   evaluateConfirmedPriceAdvisory,
+  isSyntheticCompetitorSource,
+  SYNTHETIC_COMPETITOR_SOURCES,
   type CompetitorBenchmark,
   type ReviewInsightInput,
 } from "./competitor-insights.ts";
@@ -68,9 +70,13 @@ export type AIOpportunityEvidence = {
   createdAt: string;
 };
 
+/** 合成证据来源（AI / 本地模板）不计入门禁与真实价格分位 */
+const SYNTHETIC_SOURCE_SQL = SYNTHETIC_COMPETITOR_SOURCES.map((s) => `'${s}'`).join(", ");
+
 export type AICompetitorSnapshot = {
   id: string;
   hypothesisId: string;
+  sourceType?: string | null;
   asin: string | null;
   title: string;
   sourceUrl: string;
@@ -203,6 +209,10 @@ export type AISourcingHypothesisDetail = AISourcingHypothesis & {
   decision: AISelectionDecision | null;
   counts: {
     competitors: number;
+    /** 人工录入 / 浏览器采集，可计入 GO 门禁 */
+    verifiedCompetitors?: number;
+    /** AI / 本地模板合成，仅作待核实素材 */
+    syntheticCompetitors?: number;
     reviewSamples: number;
     suppliers: number;
     supplierCandidates: number;
@@ -309,6 +319,7 @@ type CompetitorRow = {
   id: string;
   hypothesis_id: string;
   evidence_id?: string | null;
+  source_type?: string | null;
   asin: string | null;
   title: string;
   source_url: string;
@@ -334,6 +345,7 @@ type ReviewInsightRow = {
   representative_quote: string;
   source_url?: string | null;
   observed_at?: string | null;
+  source_type?: string | null;
 };
 
 type ShortlistRow = {
@@ -759,13 +771,14 @@ export async function getAISourcingBatch(runId: string): Promise<AISourcingBatch
       [runId],
     ),
     db.query<CompetitorRow>(
-      `SELECT c.* FROM competitor_snapshots c
+      `SELECT c.*, e.source_type FROM competitor_snapshots c
        JOIN opportunity_hypotheses h ON h.id = c.hypothesis_id
+       LEFT JOIN opportunity_evidence e ON e.id = c.evidence_id
        WHERE h.run_id = $1 ORDER BY c.observed_at DESC`,
       [runId],
     ),
     db.query<ReviewInsightRow>(
-      `SELECT ri.*, e.source_url, e.observed_at
+      `SELECT ri.*, e.source_url, e.observed_at, e.source_type
        FROM review_insights ri
        JOIN opportunity_hypotheses h ON h.id = ri.hypothesis_id
        LEFT JOIN opportunity_evidence e ON e.id = ri.evidence_id
@@ -857,8 +870,9 @@ export async function getAISourcingBatch(runId: string): Promise<AISourcingBatch
         bestQuoteId: bestQuote?.id ?? decision?.bestQuoteId ?? null,
       },
     });
-    const reviewSampleTotal = reviewInsights.length > 0
-      ? reviewInsights.reduce((sum, item) => sum + item.sampleSize, 0)
+    const verifiedReviewInsights = reviewInsights.filter((item) => !isSyntheticCompetitorSource(item.sourceType));
+    const reviewSampleTotal = verifiedReviewInsights.length > 0
+      ? verifiedReviewInsights.reduce((sum, item) => sum + item.sampleSize, 0)
       : evidence.reduce((sum, item) => {
           if (item.evidenceType !== "review_insight") return sum;
           const value = Number(item.rawSnapshot.reviewSampleSize ?? item.rawSnapshot.sampleSize ?? 0);
@@ -878,6 +892,8 @@ export async function getAISourcingBatch(runId: string): Promise<AISourcingBatch
       decision,
       counts: {
         competitors: competitors.length,
+        verifiedCompetitors: competitors.filter((c) => !isSyntheticCompetitorSource(c.sourceType)).length,
+        syntheticCompetitors: competitors.filter((c) => isSyntheticCompetitorSource(c.sourceType)).length,
         reviewSamples: reviewSampleTotal,
         suppliers: shortlist.length,
         supplierCandidates: supplierCandidates.length,
@@ -952,7 +968,9 @@ export async function confirmHypothesisPrice(input: {
   const [context, competitorRows] = await Promise.all([
     loadHypothesisContext(input.hypothesisId),
     db.query<CompetitorRow>(
-      "SELECT * FROM competitor_snapshots WHERE hypothesis_id = $1 ORDER BY observed_at DESC",
+      `SELECT c.*, e.source_type FROM competitor_snapshots c
+       LEFT JOIN opportunity_evidence e ON e.id = c.evidence_id
+       WHERE c.hypothesis_id = $1 ORDER BY c.observed_at DESC`,
       [input.hypothesisId],
     ),
   ]);
@@ -1753,16 +1771,26 @@ export async function refreshAISelectionDecision(hypothesisId: string): Promise<
   const context = await loadHypothesisContext(hypothesisId);
   if (!context) throw new Error("机会假设不存在");
   const [counts, reviews, quotes, patent, logistics] = await Promise.all([
-    db.query<{ competitors: string | number; suppliers: string | number; quotes: string | number }>(
+    db.query<{ competitors: string | number; synthetic_competitors: string | number; suppliers: string | number; quotes: string | number }>(
       `SELECT
-        (SELECT COUNT(*) FROM competitor_snapshots WHERE hypothesis_id = $1) AS competitors,
+        (SELECT COUNT(*) FROM competitor_snapshots c
+          LEFT JOIN opportunity_evidence e ON e.id = c.evidence_id
+          WHERE c.hypothesis_id = $1
+            AND COALESCE(e.source_type, '') NOT IN (${SYNTHETIC_SOURCE_SQL})) AS competitors,
+        (SELECT COUNT(*) FROM competitor_snapshots c
+          JOIN opportunity_evidence e ON e.id = c.evidence_id
+          WHERE c.hypothesis_id = $1
+            AND e.source_type IN (${SYNTHETIC_SOURCE_SQL})) AS synthetic_competitors,
         (SELECT COUNT(*) FROM supplier_shortlists WHERE hypothesis_id = $1) AS suppliers,
         (SELECT COUNT(*) FROM sourcing_supplier_quotes WHERE hypothesis_id = $1) AS quotes`,
       [hypothesisId],
     ),
     db.query<{ sample_count: string | number }>(
-      `SELECT COALESCE(SUM(sample_size), 0) AS sample_count
-       FROM review_insights WHERE hypothesis_id = $1`,
+      `SELECT COALESCE(SUM(ri.sample_size), 0) AS sample_count
+       FROM review_insights ri
+       LEFT JOIN opportunity_evidence e ON e.id = ri.evidence_id
+       WHERE ri.hypothesis_id = $1
+         AND COALESCE(e.source_type, '') NOT IN (${SYNTHETIC_SOURCE_SQL})`,
       [hypothesisId],
     ),
     db.query<QuoteRow>(
@@ -1856,7 +1884,12 @@ export async function refreshAISelectionDecision(hypothesisId: string): Promise<
     await tx.query(
       `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
        VALUES ($1, 'system', 'ai_sourcing.decision_evaluated', 'opportunity_hypothesis', $2, $3::jsonb)`,
-      [randomUUID(), hypothesisId, JSON.stringify({ decision: decision.decision, evidenceCompleteness: decision.evidenceCompleteness })],
+      [randomUUID(), hypothesisId, JSON.stringify({
+        decision: decision.decision,
+        evidenceCompleteness: decision.evidenceCompleteness,
+        verifiedCompetitors: Number(count?.competitors ?? 0),
+        syntheticCompetitorsExcluded: Number(count?.synthetic_competitors ?? 0),
+      })],
     );
   });
 
@@ -1922,7 +1955,7 @@ export async function promoteHypothesisToProductCase(hypothesisId: string, actor
         context.batch.category,
         context.hypothesis.concept,
         confirmedPrice,
-        `由 AI 选品验证批次转入；真实竞品 ${context.counts.competitors} 个，差评样本 ${context.counts.reviewSamples} 条，供应商 ${context.counts.suppliers} 家，报价 ${context.counts.quotes} 份。决策证据完整度 ${decision.evidenceCompleteness}%。`,
+        `由 AI 选品验证批次转入；已核实竞品 ${context.counts.competitors} 个${(context.counts.syntheticCompetitors ?? 0) > 0 ? `（另有 ${context.counts.syntheticCompetitors} 条 AI/模板合成素材，不计入证据与门禁）` : ""}，差评样本 ${context.counts.reviewSamples} 条，供应商 ${context.counts.suppliers} 家，报价 ${context.counts.quotes} 份。决策证据完整度 ${decision.evidenceCompleteness}%。`,
         owner,
         decision.evidenceCompleteness,
         hypothesisId,
@@ -2127,11 +2160,13 @@ export async function loadCaseCompetitorBenchmark(
 
   const [competitorRows, reviewInsightRows, quoteRows] = await Promise.all([
     db.query<CompetitorRow>(
-      "SELECT * FROM competitor_snapshots WHERE hypothesis_id = $1 ORDER BY observed_at DESC",
+      `SELECT c.*, e.source_type FROM competitor_snapshots c
+       LEFT JOIN opportunity_evidence e ON e.id = c.evidence_id
+       WHERE c.hypothesis_id = $1 ORDER BY c.observed_at DESC`,
       [chosenRow.id],
     ),
     db.query<ReviewInsightRow>(
-      `SELECT ri.*, e.source_url, e.observed_at
+      `SELECT ri.*, e.source_url, e.observed_at, e.source_type
        FROM review_insights ri
        LEFT JOIN opportunity_evidence e ON e.id = ri.evidence_id
        WHERE ri.hypothesis_id = $1
@@ -2203,10 +2238,20 @@ async function loadHypothesisContext(hypothesisId: string) {
   const row = result.rows[0];
   if (!row) return null;
   const hypothesis = mapHypothesis(row);
-  const counts = await db.query<{ competitors: string | number; review_samples: string | number; suppliers: string | number; quotes: string | number }>(
+  const counts = await db.query<{ competitors: string | number; synthetic_competitors: string | number; review_samples: string | number; suppliers: string | number; quotes: string | number }>(
     `SELECT
-       (SELECT COUNT(*) FROM competitor_snapshots WHERE hypothesis_id = $1) AS competitors,
-       (SELECT COALESCE(SUM(sample_size), 0) FROM review_insights WHERE hypothesis_id = $1) AS review_samples,
+       (SELECT COUNT(*) FROM competitor_snapshots c
+          LEFT JOIN opportunity_evidence e ON e.id = c.evidence_id
+          WHERE c.hypothesis_id = $1
+            AND COALESCE(e.source_type, '') NOT IN (${SYNTHETIC_SOURCE_SQL})) AS competitors,
+       (SELECT COUNT(*) FROM competitor_snapshots c
+          JOIN opportunity_evidence e ON e.id = c.evidence_id
+          WHERE c.hypothesis_id = $1
+            AND e.source_type IN (${SYNTHETIC_SOURCE_SQL})) AS synthetic_competitors,
+       (SELECT COALESCE(SUM(ri.sample_size), 0) FROM review_insights ri
+          LEFT JOIN opportunity_evidence e ON e.id = ri.evidence_id
+          WHERE ri.hypothesis_id = $1
+            AND COALESCE(e.source_type, '') NOT IN (${SYNTHETIC_SOURCE_SQL})) AS review_samples,
        (SELECT COUNT(*) FROM supplier_shortlists WHERE hypothesis_id = $1) AS suppliers,
        (SELECT COUNT(*) FROM sourcing_supplier_quotes WHERE hypothesis_id = $1) AS quotes`,
     [hypothesisId],
@@ -2228,6 +2273,7 @@ async function loadHypothesisContext(hypothesisId: string) {
     batch,
     counts: {
       competitors: Number(count?.competitors ?? 0),
+      syntheticCompetitors: Number(count?.synthetic_competitors ?? 0),
       reviewSamples: Number(count?.review_samples ?? 0),
       suppliers: Number(count?.suppliers ?? 0),
       quotes: Number(count?.quotes ?? 0),
@@ -2398,6 +2444,7 @@ function mapCompetitor(row: CompetitorRow): AICompetitorSnapshot {
   return {
     id: row.id,
     hypothesisId: row.hypothesis_id,
+    sourceType: row.source_type ?? null,
     asin: row.asin,
     title: row.title,
     sourceUrl: row.source_url,
@@ -2425,6 +2472,7 @@ function mapReviewInsight(row: ReviewInsightRow): AIReviewInsight {
     representativeQuote: row.representative_quote ?? "",
     sourceUrl: row.source_url ?? null,
     observedAt: row.observed_at ?? null,
+    sourceType: row.source_type ?? null,
   };
 }
 

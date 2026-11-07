@@ -701,7 +701,7 @@ function ContentBenchmarkCard({
         <div>
           <div className="eyebrow">竞品对标与差评缺口 · 只读证据传承</div>
           <h2>0. 竞品对标与差评缺口卡</h2>
-          <p>来自选品假设「{hypothesisSummary.concept}」的真实竞品价格带与差评痛点，写作商品定义和五点描述时可直接对照。</p>
+          <p>来自选品假设「{hypothesisSummary.concept}」的已核实竞品价格带与差评痛点（AI 合成素材已排除），写作商品定义和五点描述时可直接对照。</p>
         </div>
         <div className="button-row">
           <span className="info-pill">

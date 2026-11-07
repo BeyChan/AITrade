@@ -470,7 +470,7 @@ export function evaluateSourcingDecision(input: DecisionEvidenceInput): Decision
     ),
     gate(
       "competitors",
-      "真实竞品快照",
+      "已核实竞品证据",
       `≥ ${thresholds.minCompetitors}`,
       String(input.competitorCount),
       input.competitorCount >= thresholds.minCompetitors,

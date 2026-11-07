@@ -2,15 +2,63 @@ import { generateStructuredJSON } from "../ai-provider.ts";
 import { loadAIProviderConfig } from "../app-settings.ts";
 import { extractTitleFromUrl, parseCompetitorInputs } from "./parser.ts";
 import { calculateProductIndex } from "./competitiveness.ts";
-import type {
-  ComparisonPriceStats,
-  CompetitorComparisonReport,
-  CompetitorProfile,
+import {
+  COMPETITOR_NUMERIC_FIELDS,
+  isVerifiedCompetitorField,
+  type ComparisonPriceStats,
+  type CompetitorComparisonReport,
+  type CompetitorInputItem,
+  type CompetitorNumericField,
+  type CompetitorProfile,
+  type CompetitorProvenance,
 } from "./types.ts";
 
-function calculatePriceStats(prices: number[], currency: string): ComparisonPriceStats {
+type PriceSample = Pick<CompetitorProfile, "priceCents" | "fieldProvenance">;
+
+type CapturedValues = NonNullable<CompetitorInputItem["captured"]>;
+
+/** 把浏览器采集到的真实数值标成 captured，其余字段标记推断来源 */
+function fieldProvenanceFor(
+  inferred: CompetitorProvenance,
+  captured: CapturedValues | undefined,
+): NonNullable<CompetitorProfile["fieldProvenance"]> {
+  const result: NonNullable<CompetitorProfile["fieldProvenance"]> = {};
+  for (const field of COMPETITOR_NUMERIC_FIELDS) {
+    const hasCaptured = captured ? typeof captured[field] === "number" && Number.isFinite(captured[field]) : false;
+    result[field] = hasCaptured ? "captured" : inferred;
+  }
+  return result;
+}
+
+/** 采集值优先，AI / 模板不得覆盖真实观察值 */
+function numericValue(
+  field: CompetitorNumericField,
+  inferred: unknown,
+  fallback: number,
+  captured: CapturedValues | undefined,
+): number {
+  // 评分保留一位小数；其余都是整数型计数 / 金额（分）
+  const normalize = (value: number) => field === "rating"
+    ? Math.round(value * 10) / 10
+    : Math.round(value);
+  const observed = captured?.[field];
+  if (typeof observed === "number" && Number.isFinite(observed)) return normalize(observed);
+  const parsed = Number(inferred);
+  return Number.isFinite(parsed) && parsed > 0 ? normalize(parsed) : fallback;
+}
+
+function calculatePriceStats(profiles: PriceSample[], currency: string): ComparisonPriceStats {
+  const verifiedPrices = profiles
+    .filter((p) => isVerifiedCompetitorField(p, "priceCents"))
+    .map((p) => p.priceCents)
+    .filter((n) => Number.isFinite(n) && n > 0);
+  // 有真实样本时只用真实样本；一条都没有时保留一组「示意」分位供页面排版，
+  // 但 verifiedSampleCount = 0，UI 必须标为待核实且禁止用于定价判断。
+  const prices = verifiedPrices.length > 0
+    ? verifiedPrices
+    : profiles.map((p) => p.priceCents).filter((n) => Number.isFinite(n) && n > 0);
   if (prices.length === 0) {
-    return { min: 0, p25: 0, p50: 0, p75: 0, p90: 0, max: 0, currency };
+    return { min: 0, p25: 0, p50: 0, p75: 0, p90: 0, max: 0, currency, verifiedSampleCount: 0 };
   }
   const sorted = [...prices].sort((a, b) => a - b);
   const getPercentile = (p: number) => {
@@ -30,7 +78,22 @@ function calculatePriceStats(prices: number[], currency: string): ComparisonPric
     p90: getPercentile(0.9),
     max: sorted[sorted.length - 1]!,
     currency,
+    verifiedSampleCount: verifiedPrices.length,
   };
+}
+
+/** 按 ASIN / URL 匹配浏览器采集值；只采到一条时默认作用于首个商品 */
+function resolveCaptured(
+  item: CompetitorInputItem,
+  list: CompetitorInputItem[] | undefined,
+  index: number,
+): CapturedValues | undefined {
+  if (!list || list.length === 0) return undefined;
+  const matched = list.find((entry) =>
+    (item.asin && entry.asin && entry.asin.toUpperCase() === item.asin.toUpperCase())
+    || (item.url && entry.url && entry.url === item.url),
+  );
+  return (matched ?? (list.length === 1 && index === 0 ? list[0] : undefined))?.captured;
 }
 
 export async function analyzeCompetitors(input: {
@@ -39,6 +102,10 @@ export async function analyzeCompetitors(input: {
   platformCode?: string;
   currency?: string;
   skipModel?: boolean;
+  /** 浏览器扩展在前台采集到的真实数值，优先级高于 AI / 模板推断 */
+  capturedInputs?: CompetitorInputItem[];
+  /** 采集到的五点描述 / 买家差评原文等文本证据，只作为分析素材，不参与条目拆分 */
+  evidenceText?: string;
 }): Promise<CompetitorComparisonReport> {
   const marketCode = (input.marketCode || "US").toUpperCase();
   const platformCode = (input.platformCode || "amazon").toLowerCase();
@@ -46,6 +113,12 @@ export async function analyzeCompetitors(input: {
 
   const parsedInputs = parseCompetitorInputs(input.rawInputs);
   const inputStrings = parsedInputs.map((p) => p.url || p.asin || p.title || p.raw);
+
+  // 前台采集的文本证据（五点描述、买家差评原文）只作为分析上下文，
+  // 绝不能混进 rawInputs —— 解析器按换行拆行，会把一个商品拆成多个「竞品」。
+  const capturedBullets = (input.capturedInputs ?? []).flatMap((item) => item.captured?.bullets ?? []);
+  const capturedReviews = (input.capturedInputs ?? []).flatMap((item) => item.captured?.criticalReviews ?? []);
+  const evidenceText = (input.evidenceText ?? "").trim();
 
   // 整理传入的商品基础条目
   const rawProducts = parsedInputs.map((item, idx) => {
@@ -70,8 +143,12 @@ export async function analyzeCompetitors(input: {
       url: cleanUrl,
       rawInput: item.raw,
       index: idx,
+      captured: resolveCaptured(item, input.capturedInputs, idx),
     };
   });
+  const hasCapturedData = rawProducts.some((product) =>
+    product.captured && COMPETITOR_NUMERIC_FIELDS.some((field) => typeof product.captured?.[field] === "number"),
+  );
 
   // 1. 全部交给 AI 进行端到端智能识别与对比（无任何本地硬编码正则分类）
   const isTest = process.env.NODE_ENV === "test";
@@ -84,6 +161,7 @@ export async function analyzeCompetitors(input: {
 请直接阅读用户提供的竞品链接或商品标题信息，自动识别该商品的真实品类、真实品牌与产品特征。
 全面剖析竞品的核心卖点（为什么卖得好）、真实买家差评痛点（致命缺点与退货原因）、规格参数，并推导竞争格局与攻防进攻策略。
 所有分析必须严格聚焦于用户实际提供的具体商品，严禁输出任何不相关的其他品类。
+【事实红线】不要编造售价、评分、评论数、销量、BSR 等可核查数值：输入里没有明确给出就输出 null，系统会把它们标为「待核实」。严禁编造认证、实验室测试次数、保修年限、倍数性能对比、绝对化宣传等无法核实的事实；这类内容一律不要写进文案。
 
 目标国家站点：${marketCode}，平台：${platformCode}，币种：${currency}。
 只输出严格符合以下结构的合法 JSON：
@@ -96,11 +174,11 @@ export async function analyzeCompetitors(input: {
       "title": "地道商品全名",
       "brand": "品牌名",
       "sourceUrl": "来源链接",
-      "priceCents": 2999, // 建议价格或参考售价（单位：分）
-      "rating": 4.3,
-      "reviewCount": 1200,
-      "bsr": 1800,
-      "monthlySalesEst": 600,
+      "priceCents": null, // 仅在输入中明确给出真实售价时填写（单位：分），否则 null
+      "rating": null,
+      "reviewCount": null,
+      "bsr": null,
+      "monthlySalesEst": null,
       "pricePosition": "budget" | "mid_market" | "premium",
       "features": ["3条切中买家满意度的核心亮点与卖点"],
       "drawbacks": ["2-3条该款商品在买家真实差评中高频出现的致命痛点或设计缺陷"],
@@ -142,6 +220,12 @@ export async function analyzeCompetitors(input: {
           marketCode,
           platformCode,
           currency,
+          capturedEvidence: {
+            bullets: capturedBullets,
+            criticalReviews: capturedReviews,
+            rawText: evidenceText,
+            note: "以上为浏览器在前台采集的真实文本；其余数值若未给出不得编造。",
+          },
         }),
         timeoutMs: 30_000,
         maxTokens: 3_500,
@@ -152,8 +236,30 @@ export async function analyzeCompetitors(input: {
       };
 
       if (parsedJson.competitors && Array.isArray(parsedJson.competitors) && parsedJson.competitors.length > 0) {
-        const prices = parsedJson.competitors.map((c) => Number(c.priceCents) || 2999);
-        const priceStats = calculatePriceStats(prices, currency);
+        const competitors: CompetitorProfile[] = parsedJson.competitors.map((c, idx) => {
+          const captured = rawProducts[idx]?.captured;
+          return {
+            id: `c_${idx}_${Date.now()}`,
+            asin: c.asin || rawProducts[idx]?.asin || "ASIN",
+            title: c.title || rawProducts[idx]?.title || "竞品",
+            brand: c.brand || rawProducts[idx]?.brand || "品牌",
+            sourceUrl: c.sourceUrl || rawProducts[idx]?.url || "",
+            priceCents: numericValue("priceCents", c.priceCents, 2999, captured),
+            currency,
+            rating: numericValue("rating", c.rating, 4.3, captured),
+            reviewCount: numericValue("reviewCount", c.reviewCount, 800, captured),
+            bsr: numericValue("bsr", c.bsr, 1500, captured),
+            monthlySalesEst: numericValue("monthlySalesEst", c.monthlySalesEst, 500, captured),
+            pricePosition: c.pricePosition || (idx === 0 ? "budget" : idx === 1 ? "mid_market" : "premium"),
+            features: Array.isArray(c.features) && c.features.length > 0 ? c.features : ["实用便携", "设计合理"],
+            drawbacks: Array.isArray(c.drawbacks) && c.drawbacks.length > 0 ? c.drawbacks : ["细节做工有待提升"],
+            specifications: c.specifications || {},
+            targetAudience: c.targetAudience || "主流消费者",
+            verdict: c.verdict || "表现均衡的主流竞品",
+            fieldProvenance: fieldProvenanceFor("ai_generated", captured),
+          };
+        });
+        const priceStats = calculatePriceStats(competitors, currency);
 
         const reportData = {
           id: `comp_cmp_${Date.now()}`,
@@ -163,25 +269,7 @@ export async function analyzeCompetitors(input: {
           currency,
           createdAt: new Date().toISOString(),
           rawInputs: inputStrings,
-          competitors: parsedJson.competitors.map((c, idx) => ({
-            id: `c_${idx}_${Date.now()}`,
-            asin: c.asin || rawProducts[idx]?.asin || "ASIN",
-            title: c.title || rawProducts[idx]?.title || "竞品",
-            brand: c.brand || rawProducts[idx]?.brand || "品牌",
-            sourceUrl: c.sourceUrl || rawProducts[idx]?.url || "",
-            priceCents: Math.round(Number(c.priceCents) || 2999),
-            currency,
-            rating: Number(c.rating) || 4.3,
-            reviewCount: Number(c.reviewCount) || 800,
-            bsr: Number(c.bsr) || 1500,
-            monthlySalesEst: Number(c.monthlySalesEst) || 500,
-            pricePosition: c.pricePosition || (idx === 0 ? "budget" : idx === 1 ? "mid_market" : "premium"),
-            features: Array.isArray(c.features) && c.features.length > 0 ? c.features : ["实用便携", "设计合理"],
-            drawbacks: Array.isArray(c.drawbacks) && c.drawbacks.length > 0 ? c.drawbacks : ["细节做工有待提升"],
-            specifications: c.specifications || {},
-            targetAudience: c.targetAudience || "主流消费者",
-            verdict: c.verdict || "表现均衡的主流竞品",
-          })),
+          competitors,
           priceStats,
           summary: parsedJson.summary || {
             marketMaturity: "mature",
@@ -196,6 +284,8 @@ export async function analyzeCompetitors(input: {
             targetMarginPercent: 35,
           },
           hypothesisBridge: parsedJson.hypothesisBridge,
+          provenance: (hasCapturedData ? "captured" : "ai_generated") as CompetitorProvenance,
+          reviewStatus: "pending" as const,
         };
 
         return {
@@ -221,12 +311,13 @@ export async function analyzeCompetitors(input: {
       title: item.title,
       brand: item.brand,
       sourceUrl: item.url,
-      priceCents,
+      priceCents: numericValue("priceCents", undefined, priceCents, item.captured),
       currency,
-      rating: 4.2 + (idx * 0.1),
-      reviewCount: 800 + (idx * 600),
-      bsr: 1500 - (idx * 300),
-      monthlySalesEst: 400 + (idx * 250),
+      rating: numericValue("rating", undefined, 4.2 + (idx * 0.1), item.captured),
+      reviewCount: numericValue("reviewCount", undefined, 800 + (idx * 600), item.captured),
+      bsr: numericValue("bsr", undefined, 1500 - (idx * 300), item.captured),
+      monthlySalesEst: numericValue("monthlySalesEst", undefined, 400 + (idx * 250), item.captured),
+      fieldProvenance: fieldProvenanceFor("template", item.captured),
       pricePosition: idx === 0 ? "budget" : idx === 1 ? "mid_market" : "premium",
       features: [
         `${item.brand} 主打实用性与日常高频需求设计`,
@@ -250,8 +341,7 @@ export async function analyzeCompetitors(input: {
     };
   });
 
-  const prices = generatedCompetitors.map((c) => c.priceCents);
-  const priceStats = calculatePriceStats(prices, currency);
+  const priceStats = calculatePriceStats(generatedCompetitors, currency);
 
   const reportData = {
     id: `comp_cmp_${Date.now()}`,
@@ -266,7 +356,10 @@ export async function analyzeCompetitors(input: {
     summary: {
       marketMaturity: "mature" as const,
       commonStrengths: ["主打实用性与满足海外主流日常需求", "轻量化设计降低买家使用疲劳"],
-      commonWeaknesses: ["长期使用后受力件或消耗件存在买家抱怨", "包装保护普遍偏简易"],
+      // 有前台采集的真实差评就直接用原文，避免模板凭空编造痛点
+      commonWeaknesses: capturedReviews.length > 0
+        ? capturedReviews.slice(0, 3).map((text) => text.slice(0, 140))
+        : ["（模板示意）长期使用后受力件或消耗件存在买家抱怨", "（模板示意）包装保护普遍偏简易，待采集真实差评替换"],
       marketVacuum: "在中端价位段提供做工用料更扎实、关键受力结构加固的升级款。",
       attackVector: `针对 ${primaryTitle.slice(0, 20)} 的核心买家差评痛点进行结构加强，定价锚定中位线直击热销榜。`,
     },
@@ -282,6 +375,8 @@ export async function analyzeCompetitors(input: {
       differentiator: "加固结构与更优选材",
       recommendedPriceCents: priceStats.p50,
     },
+    provenance: (hasCapturedData ? "captured" : "template") as CompetitorProvenance,
+    reviewStatus: "pending" as const,
   };
 
   return {

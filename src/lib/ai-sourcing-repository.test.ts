@@ -432,11 +432,17 @@ test("autoImportSiteCompetitors imports batch competitors and review insights ba
   assert.ok(h);
   assert.equal(h.competitors.length, 20);
   assert.ok(h.reviewInsights.length >= 2);
-  assert.equal(h.benchmark.coverage.dedupedCount, 20);
-  assert.ok(h.benchmark.price !== null);
+  // AI / 模板批量导入的是待核实素材：入库可查，但不得进入竞品画像、价格分位与 GO 门禁
+  assert.ok(h.competitors.every((c) => c.sourceType === "ai_site_auto_import"));
+  assert.equal(h.benchmark.coverage.dedupedCount, 0);
+  assert.equal(h.benchmark.excludedSyntheticCount, 20);
+  assert.equal(h.benchmark.price, null);
   assert.equal(h.benchmark.scope.marketCode, "DE");
   assert.equal(h.benchmark.scope.currency, "EUR");
   assert.ok(h.competitors.every((c) => c.sourceUrl.includes("amazon.de")));
+  const competitorGate = outcome.decision.gates.find((gate) => gate.key === "competitors");
+  assert.equal(competitorGate?.passed, false);
+  assert.equal(competitorGate?.actual, "0");
 
   // Repeated import with duplicate ASINs/URLs skips existing without error
   const second = await autoImportSiteCompetitors({

@@ -2,12 +2,19 @@
 
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
-import type { CompetitorComparisonReport, CompetitorProfile } from "@/lib/competitor-compare/types";
+import {
+  isVerifiedCompetitorField,
+  MAX_COMPARISON_REPORTS,
+  type CompetitorComparisonReport,
+  type CompetitorProvenance,
+  type CompetitorProfile,
+} from "@/lib/competitor-compare/types";
 import type { AntiListingResult } from "@/lib/competitor-compare/anti-listing";
 import type { SupplierRfqDraft } from "@/lib/competitor-compare/supplier-rfq";
 import { calculateProductIndex } from "@/lib/competitor-compare/competitiveness";
 import {
   applyAntiListingToCaseAction,
+  confirmComparisonReportAction,
   convertReportToHypothesisAction,
   deleteComparisonReportAction,
   generateAntiListingAction,
@@ -18,9 +25,32 @@ import {
 
 type Props = {
   initialReports: CompetitorComparisonReport[];
+  initialReportId?: string;
   currentMarket: string;
   currentPlatform: string;
 };
+
+const PROVENANCE_LABELS: Record<CompetitorProvenance, string> = {
+  captured: "浏览器采集",
+  manual: "人工录入",
+  ai_generated: "AI 推断",
+  template: "本地模板",
+  demo: "演示示例",
+  unknown: "来源未知",
+};
+
+const PROVENANCE_VERIFIED: CompetitorProvenance[] = ["captured", "manual"];
+
+/** 客户端安全：只做字符串统计，不引入服务端专用的文案生成模块 */
+function countDraftPlaceholders(result: AntiListingResult | null): number {
+  if (!result) return 0;
+  const texts = [
+    result.antiTitle,
+    ...result.bullets.flatMap((b) => [b.headline, b.content, b.counterTarget]),
+    ...(result.aplusModules ?? []).flatMap((m) => [m.title, m.description, m.visualSuggestion]),
+  ];
+  return texts.reduce((sum, text) => sum + (text.split("[VERIFY:").length - 1), 0);
+}
 
 const SAMPLE_PRESETS = [
   {
@@ -36,10 +66,14 @@ https://www.amazon.com/dp/B09V7N86G5 (Renpho Active Pocket Massage Gun)`,
   },
 ];
 
-export function CompetitorClient({ initialReports, currentMarket, currentPlatform }: Props) {
+export function CompetitorClient({ initialReports, initialReportId, currentMarket, currentPlatform }: Props) {
   const [reports, setReports] = useState<CompetitorComparisonReport[]>(initialReports);
+  const siteReports = reports.filter((report) =>
+    report.marketCode.toUpperCase() === currentMarket.toUpperCase()
+    && report.platformCode.toLowerCase() === currentPlatform.toLowerCase(),
+  );
   const [selectedReportId, setSelectedReportId] = useState<string | null>(
-    initialReports[0]?.id || null,
+    initialReportId || siteReports[0]?.id || null,
   );
 
   const [rawInputs, setRawInputs] = useState("");
@@ -58,6 +92,9 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
   const [selectedCaseId, setSelectedCaseId] = useState("");
   const [isApplyingCase, setIsApplyingCase] = useState(false);
   const [appliedSuccessCaseId, setAppliedSuccessCaseId] = useState<string | null>(null);
+  const [applyFindings, setApplyFindings] = useState<Array<{ severity: string; message: string }>>([]);
+  const [isConfirming, setIsConfirming] = useState(false);
+  const [reviewer, setReviewer] = useState("");
 
   useEffect(() => {
     getAvailableCasesAction(currentMarket, currentPlatform).then((cases) => {
@@ -66,7 +103,9 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
     });
   }, [currentMarket, currentPlatform]);
 
-  const currentReport = reports.find((r) => r.id === selectedReportId) || reports[0] || null;
+  const currentReport = siteReports.find((r) => r.id === selectedReportId) || siteReports[0] || null;
+  const isConfirmed = currentReport?.reviewStatus === "confirmed";
+  const isEstimated = (currentReport?.priceStats.verifiedSampleCount ?? 0) === 0;
 
   const handleRunAnalysis = (e: React.FormEvent) => {
     e.preventDefault();
@@ -100,9 +139,37 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
       await deleteComparisonReportAction(id);
       setReports((prev) => prev.filter((r) => r.id !== id));
       if (selectedReportId === id) {
-        setSelectedReportId(reports.find((r) => r.id !== id)?.id || null);
+        setSelectedReportId(siteReports.find((r) => r.id !== id)?.id || null);
       }
     });
+  };
+
+  const handleConfirmReport = async (reportId: string) => {
+    const actor = reviewer.trim()
+      || (typeof window !== "undefined" ? window.prompt("请填写核对人（用于留痕）", "")?.trim() || "" : "");
+    if (!actor) {
+      setStatusMsg({ type: "error", text: "请填写核对人后再确认" });
+      return;
+    }
+    setIsConfirming(true);
+    setStatusMsg(null);
+    try {
+      const res = await confirmComparisonReportAction(reportId, actor);
+      if (res.success) {
+        setReviewer(actor);
+        setReports((prev) => prev.map((r) => (
+          r.id === reportId ? { ...r, reviewStatus: "confirmed" as const } : r
+        )));
+        setStatusMsg({
+          type: "success",
+          text: "已记录人工核对。AI / 模板推断的数值仍属待核实，请在选品验证中补录真实证据。",
+        });
+      } else {
+        setStatusMsg({ type: "error", text: res.error || "确认失败" });
+      }
+    } finally {
+      setIsConfirming(false);
+    }
   };
 
   const handleConvertToHypothesis = (reportId: string) => {
@@ -161,13 +228,27 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
   };
 
   const handleApplyToCase = async () => {
-    if (!selectedCaseId || !antiListing) return;
+    if (!selectedCaseId || !antiListing || !currentReport) return;
     setIsApplyingCase(true);
+    setApplyFindings([]);
     try {
-      const res = await applyAntiListingToCaseAction(selectedCaseId, antiListing);
+      const res = await applyAntiListingToCaseAction(
+        selectedCaseId,
+        currentReport.id,
+        antiListing,
+        reviewer.trim() || "竞品对比工作台",
+      );
       if (res.success) {
         setAppliedSuccessCaseId(selectedCaseId);
-        setStatusMsg({ type: "success", text: `已成功将反制 Listing 写入选品商品 (版本 v${res.version})！` });
+        const findings = res.findings || [];
+        setApplyFindings(findings);
+        const blocking = findings.filter((f) => f.severity === "error");
+        setStatusMsg({
+          type: blocking.length > 0 ? "error" : "success",
+          text: blocking.length > 0
+            ? `已写入草稿 v${res.version}，但发布预检发现 ${blocking.length} 项阻断问题，请到内容工作台修正`
+            : `已写入草稿 v${res.version}（品牌与搜索词沿用原草稿），发布预检结果见下方`,
+        });
       } else {
         setStatusMsg({ type: "error", text: res.error || "回填 Listing 失败" });
       }
@@ -193,6 +274,10 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
     const md = [
       `# ${report.title}`,
       `**国家/平台**: ${report.marketCode} · ${report.platformCode} | **币种**: ${report.currency} | **分析时间**: ${new Date(report.createdAt).toLocaleString()}`,
+      `**来源**: ${PROVENANCE_LABELS[report.provenance]} | **核对状态**: ${report.reviewStatus === "confirmed" ? "已人工核对" : "待人工核对"} | **真实价格样本**: ${report.priceStats.verifiedSampleCount} 条`,
+      report.priceStats.verifiedSampleCount === 0
+        ? "> 警告：下列价格分位为 AI / 模板示意值，无真实采集样本，不可用于定价或选品门禁。"
+        : "> 价格分位仅使用浏览器采集 / 人工录入的真实售价；其余数值仍可能含 AI 推断，需按字段核实。",
       "",
       "## 一、价格分位与大盘分布",
       `- 最低价 (Min): ${(report.priceStats.min / 100).toFixed(2)} ${report.currency}`,
@@ -267,8 +352,8 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
               输入链接，自动生成竞品对比研报
             </h2>
             <p style={{ margin: 0, color: "var(--muted)", fontSize: "13px" }}>
-              输入 1~4 个竞品链接或 ASIN。系统结合当前右上角选定站点（{currentMarket} · {currentPlatform}），
-              由 AI 提取核心特点、挖掘真实差评痛点并计算价格分位数矩阵。
+              输入 1~4 个竞品链接或 ASIN（当前站点 {currentMarket} · {currentPlatform}）。AI 只辅助整理特点与差评线索；
+              价格、评分、评论数等会标注来源，推断值需人工核实后才可用于定价与选品判断。
             </p>
           </div>
           <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
@@ -327,11 +412,16 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
 
       {/* 历史对比记录胶囊切换条 */}
       {reports.length > 0 && (
-        <div style={{ display: "flex", gap: "8px", overflowX: "auto", paddingBottom: "2px", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: "8px", overflowX: "auto", paddingBottom: "2px", alignItems: "center", flexWrap: "wrap" }}>
           <span style={{ fontSize: "12px", color: "var(--muted)", whiteSpace: "nowrap", fontWeight: 600 }}>
-            对比历史:
+            对比历史（{currentMarket} · {currentPlatform}）:
           </span>
-          {reports.map((r) => {
+          {siteReports.length === 0 && (
+            <span style={{ fontSize: "12px", color: "var(--muted)" }}>
+              当前站点暂无研报；本地最多保留最近 {MAX_COMPARISON_REPORTS} 条。
+            </span>
+          )}
+          {siteReports.map((r) => {
             const isSelected = selectedReportId === r.id;
             return (
               <div
@@ -376,6 +466,11 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
               </div>
             );
           })}
+          {reports.length >= MAX_COMPARISON_REPORTS && (
+            <span style={{ fontSize: "11px", color: "var(--muted)", whiteSpace: "nowrap" }}>
+              仅保留最近 {MAX_COMPARISON_REPORTS} 条，更早的研报会被覆盖
+            </span>
+          )}
         </div>
       )}
 
@@ -402,13 +497,40 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
                 <span className="badge badge-neutral" style={{ fontSize: "11px" }}>
                   {currentReport.marketCode} · {currentReport.platformCode.toUpperCase()}
                 </span>
+                <span
+                  className={`badge ${PROVENANCE_VERIFIED.includes(currentReport.provenance) ? "badge-success" : "badge-warn"}`}
+                  style={{ fontSize: "11px" }}
+                  title="报告整体来源"
+                >
+                  {PROVENANCE_LABELS[currentReport.provenance]}
+                </span>
+                <span className={`badge ${isConfirmed ? "badge-success" : "badge-warn"}`} style={{ fontSize: "11px" }}>
+                  {isConfirmed ? "已人工核对" : "待人工核对"}
+                </span>
                 <span style={{ fontSize: "12px", color: "var(--muted)" }}>
                   {new Date(currentReport.createdAt).toLocaleDateString()}
                 </span>
               </div>
+              <div style={{ fontSize: "12px", color: "var(--muted)", marginTop: "6px" }}>
+                真实采集价格样本 {currentReport.priceStats.verifiedSampleCount} 条 / 共 {currentReport.competitors.length} 款
+                {isEstimated ? "；当前无真实价格样本，分位仅为示意值" : "；分位仅使用真实采集价格"}
+                {isConfirmed ? "" : "。请核对后再转入选品池或写入商品草稿"}
+              </div>
             </div>
 
             <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+              {!isConfirmed && (
+                <button
+                  type="button"
+                  className="button primary"
+                  disabled={isConfirming}
+                  onClick={() => handleConfirmReport(currentReport.id)}
+                  style={{ fontSize: "12px", padding: "6px 14px", height: "34px", borderRadius: "10px" }}
+                  title="记录核对人后，才允许把研报转入选品池或写入商品草稿"
+                >
+                  {isConfirming ? "记录中..." : "我已核对，确认可用"}
+                </button>
+              )}
               <button
                 type="button"
                 className="button secondary"
@@ -441,7 +563,8 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
               <button
                 type="button"
                 className="button primary"
-                disabled={isPending}
+                disabled={isPending || !isConfirmed}
+                title={isConfirmed ? "转入选品池" : "请先点击「我已核对，确认可用」"}
                 onClick={() => handleConvertToHypothesis(currentReport.id)}
                 style={{ fontSize: "12px", padding: "6px 14px", height: "34px", borderRadius: "10px" }}
               >
@@ -457,10 +580,10 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
                 <div>
                   <div className="eyebrow" style={{ color: "var(--green)" }}>ANTI-COMPETITOR LISTING STUDIO · 反制竞品内容</div>
                   <h4 style={{ margin: "4px 0 0 0", fontSize: "17px", color: "var(--ink)", fontWeight: 800 }}>
-                    规避差评痛点 · 差异化爆款五点描述 (Bullet Points)
+                    规避差评痛点 · 差异化五点描述草稿 (Bullet Points)
                   </h4>
                   <p style={{ margin: "4px 0 0 0", color: "var(--muted)", fontSize: "12px" }}>
-                    针对竞品高频致命差评（如断裂、操作生涩、松脱）进行靶向反击，直接可用于亚马逊后台 Listing 或 A+ 页面！
+                    针对买家差评给出改良方向草稿；认证、测试次数、性能倍数、保修等一律以占位呈现，须在打样与检测后据实替换才可发布。
                   </p>
                 </div>
                 <div style={{ display: "flex", gap: "8px" }}>
@@ -482,6 +605,17 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
                   </button>
                 </div>
               </div>
+
+              {countDraftPlaceholders(antiListing) > 0 && (
+                <div
+                  className="result-box warning"
+                  role="status"
+                  style={{ marginBottom: "16px", fontSize: "12px", lineHeight: "1.5" }}
+                >
+                  <strong>待核实占位：{countDraftPlaceholders(antiListing)} 处。</strong>{" "}
+                  这是一份文案骨架，不是可直接发布的成品。所有 [VERIFY: …] 需按打样实测、检测报告与平台合规要求填实；含占位的文案只能作为内部草稿保存，不得直接上架或对外投放。
+                </div>
+              )}
 
               {/* 反制标题 */}
               <div style={{ background: "#ffffff", padding: "12px 14px", borderRadius: "10px", border: "1px solid var(--line)", marginBottom: "16px" }}>
@@ -532,7 +666,7 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
               {antiListing.aplusModules && antiListing.aplusModules.length > 0 && (
                 <div style={{ background: "#f5f8f5", padding: "14px", borderRadius: "10px", border: "1px solid var(--line)", marginBottom: "16px" }}>
                   <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--ink)", marginBottom: "8px" }}>
-                    🖼️ A+ 页面“我优敌劣”视觉对比模块建议：
+                    🖼️ A+ 页面差异化模块构想（只描述本品，不贬损竞品）：
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "10px" }}>
                     {antiListing.aplusModules.map((m, mi) => (
@@ -594,11 +728,12 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
                       <button
                         type="button"
                         className="button primary"
-                        disabled={isApplyingCase || !selectedCaseId}
+                        disabled={isApplyingCase || !selectedCaseId || !isConfirmed}
+                        title={isConfirmed ? "写入商品草稿（保留原品牌与搜索词）" : "请先在研报标题栏点击「我已核对，确认可用」"}
                         onClick={handleApplyToCase}
                         style={{ fontSize: "12px", padding: "6px 14px", height: "34px", borderRadius: "8px" }}
                       >
-                        {isApplyingCase ? "写入中..." : "确认写入商品"}
+                        {isApplyingCase ? "写入中..." : isConfirmed ? "确认写入商品" : "需先核对研报"}
                       </button>
                     </>
                   ) : (
@@ -614,6 +749,22 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
                     </Link>
                   )}
                 </div>
+                {applyFindings.length > 0 && (
+                  <div
+                    className="result-box warning"
+                    style={{ marginTop: "12px", fontSize: "12px", lineHeight: "1.5" }}
+                    role="status"
+                  >
+                    <strong>发布预检结果（写入的是草稿，尚未发布）：</strong>
+                    <ul style={{ margin: "6px 0 0 0", paddingLeft: "18px" }}>
+                      {applyFindings.map((finding, i) => (
+                        <li key={i} style={{ color: finding.severity === "error" ? "var(--red)" : "var(--ink)" }}>
+                          [{finding.severity === "error" ? "阻断" : "提示"}] {finding.message}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             </section>
           )}
@@ -628,7 +779,7 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
                     🏭 针对竞品痛点的工厂开模/打样采购定制单 ({rfqData.productName})
                   </h4>
                   <p style={{ margin: "4px 0 0 0", color: "var(--muted)", fontSize: "12px" }}>
-                    将海外买家差评转化为工业制造标准与材质要求，发给工厂一眼便知是专业采购！
+                    把买家差评转成工程问询项；MOQ、认证、测试与验收参数均由工厂回填，不预设既成事实。
                   </p>
                 </div>
                 <div style={{ display: "flex", gap: "8px" }}>
@@ -663,10 +814,21 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
                 </div>
               </div>
 
+              {!rfqData.priceBasisVerified && (
+                <div
+                  className="result-box warning"
+                  role="status"
+                  style={{ marginBottom: "16px", fontSize: "12px", lineHeight: "1.5" }}
+                >
+                  <strong>目标采购单价仅作议价起点。</strong>{" "}
+                  当前研报的竞品售价未经人工核实（真实价格样本 0 条），该价格由示意分位推导，不代表市场行情；正式询价前请先补录或采集真实竞品售价。
+                </div>
+              )}
+
               {/* 改良部件与工业标准列表 */}
               <div style={{ marginBottom: "16px" }}>
                 <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--ink)", marginBottom: "8px" }}>
-                  🛠️ 核心结构改良与材质工艺标准要求：
+                  🛠️ 待工厂确认的改良项与工艺要求：
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                   {rfqData.criticalImprovements.map((item, idx) => (
@@ -795,7 +957,7 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
                     className={`badge ${isS ? "badge-success" : isA ? "badge-success" : isB ? "badge-warn" : "badge-danger"}`}
                     style={{ fontSize: "12px", padding: "4px 10px", borderRadius: "8px" }}
                   >
-                    决策建议: {index.decision}
+                    参考评级（非选品门禁）: {index.decision}
                   </span>
                 </div>
 
@@ -825,7 +987,10 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
                       面向内部财务可行性，需在拿到 <em>1688 源头采购报价、FBA 头程与关税</em> 后，对到岸成本、净利率和压力测试利润进行确定性核验。回答“拿到这批货能否真赚钱”。
                     </div>
                     <div style={{ color: "var(--muted)", marginTop: "4px" }}>
-                      💡 <strong>建议工作流：</strong>当前竞品对比「商品指数」评级达到 A/S 级时，点击右上方【沉淀为选品假设】，系统将自动带入竞品数据前往 1688 询价并核算最终的财务「机会分」。
+                      💡 <strong>边界：</strong>商品指数只描述赛道竞争格局，<strong>不参与 GO / HOLD / NO-GO 门禁</strong>；GO 由选品验证链路的真实报价、真实竞品证据与确定性成本规则共同决定。若本报告数值来自 AI 或模板，评级仅作示意。
+                    </div>
+                    <div style={{ color: "var(--muted)", marginTop: "4px" }}>
+                      <strong>建议工作流：</strong>先用浏览器扩展采集真实售价与差评，人工核对后再点击【沉淀为选品假设】，前往 1688 询价并核算财务「机会分」。
                     </div>
                   </div>
                 )}
@@ -953,9 +1118,21 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
                 <h4 style={{ margin: "2px 0 0 0", fontSize: "15px", color: "var(--ink)" }}>价格分位数带与统计基准</h4>
               </div>
               <span style={{ fontSize: "12px", color: "var(--muted)" }}>
-                样本覆盖: <strong>{currentReport.competitors.length}</strong> 款有效对标竞品
+                真实采集样本: <strong>{currentReport.priceStats.verifiedSampleCount}</strong> 款
+                / 共 {currentReport.competitors.length} 款对标商品
               </span>
             </div>
+
+            {isEstimated && (
+              <div
+                className="notice warn"
+                style={{ marginBottom: "14px", fontSize: "12px", lineHeight: "1.5" }}
+                role="status"
+              >
+                <strong>待核实 · 不可用于定价判断：</strong>
+                当前没有任何浏览器采集或人工录入的真实售价，下列分位来自 AI / 本地模板的示意值，也不会计入选品门禁。请用扩展采集真实价格或在此研报基础上人工补录。
+              </div>
+            )}
 
             <div
               style={{
@@ -1148,6 +1325,11 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
                           ({item.reviewCount.toLocaleString()} 评 · 约 {item.monthlySalesEst} 件/月)
                         </span>
                       </div>
+                      {!isVerifiedCompetitorField(item, "priceCents") && (
+                        <div style={{ fontSize: "11px", color: "var(--amber)", marginTop: "-8px", marginBottom: "12px" }}>
+                          售价、评分、评论数、销量为推断值（待核实），不计入价格分位与选品门禁
+                        </div>
+                      )}
 
                       {/* 核心卖点 */}
                       <div style={{ marginBottom: "14px" }}>
@@ -1355,7 +1537,7 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
       ) : (
         <section className="panel" style={{ padding: "48px 24px", textAlign: "center" }}>
           <p style={{ color: "var(--muted)", fontSize: "14px", margin: 0 }}>
-            暂无已生成的竞品对比报告。请在上方输入链接或点击“填入示例”，即可生成多维横向 PK 报告。
+            当前站点暂无竞品对比报告。系统不会自动生成示例数据 —— 请在上方输入链接、点击「填入示例」，或用浏览器扩展采集真实商品页。
           </p>
         </section>
       )}

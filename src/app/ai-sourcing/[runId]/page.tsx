@@ -46,6 +46,7 @@ import {
   type AiInboxHypothesisTaskCounts,
 } from "@/lib/ai-inbox/repository";
 import { compactNumber, moneyIn, percent, shortDate } from "@/lib/format";
+import { isSyntheticCompetitorSource } from "@/lib/competitor-insights";
 import {
   buildSupplierLeads,
   supplier1688SearchUrl,
@@ -216,16 +217,19 @@ export default async function AISourcingDetailPage({ params, searchParams }: Pag
         </article>
       </section>
 
-      <div className="ai-workflow-strip" aria-label="选品验证流程">
+      <p className="muted" style={{ fontSize: "12px", margin: "0 0 8px" }}>
+        下方为流程示意，不代表当前进度；各假设的真实进度请看验证任务与 GO 门禁面板。
+      </p>
+      <div className="ai-workflow-strip" aria-label="选品验证流程示意（非当前进度）">
         {[
           ["01", "AI 假设"],
-          ["02", "真实证据"],
+          ["02", "人工核实证据"],
           ["03", "供应商报价"],
           ["04", "确定性门禁"],
           ["05", "GO 转立项"],
           ["06", "定标与内容"],
-        ].map(([step, label], index) => (
-          <div className={index === 0 ? "active" : ""} key={step}>
+        ].map(([step, label]) => (
+          <div key={step}>
             <span>{step}</span>
             <strong>{label}</strong>
           </div>
@@ -541,17 +545,32 @@ function HypothesisCard({
             <section className="ai-record-block">
               <div className="ai-validation-summary-head">
                 <div>
-                  <span className="eyebrow">真实竞品快照</span>
-                  <h3>真实竞品快照</h3>
+                  <span className="eyebrow">COMPETITOR EVIDENCE · 竞品证据</span>
+                  <h3>
+                    竞品快照（{hypothesis.competitors.filter((c) => !isSyntheticCompetitorSource(c.sourceType)).length} 条已核实
+                    {hypothesis.competitors.some((c) => isSyntheticCompetitorSource(c.sourceType))
+                      ? ` · ${hypothesis.competitors.filter((c) => isSyntheticCompetitorSource(c.sourceType)).length} 条待核实素材`
+                      : ""}）
+                  </h3>
                 </div>
                 <span className="info-pill">{hypothesis.competitors.length} 个</span>
               </div>
+              {hypothesis.competitors.some((c) => isSyntheticCompetitorSource(c.sourceType)) ? (
+                <div className="result-box warning" style={{ marginBottom: "12px", fontSize: "12px", lineHeight: "1.5" }} role="status">
+                  <strong>标为「AI / 模板素材」的记录由系统生成，不是市场事实</strong>，不计入 GO 门禁的竞品数、差评样本与价格分位。请用下方「录入真实竞品」或浏览器采集扩展补录真实证据后再做决策。
+                </div>
+              ) : null}
               <div className="ai-competitor-grid">
                 {hypothesis.competitors.slice(0, 10).map((competitor) => (
                   <a href={competitor.sourceUrl} target="_blank" rel="noreferrer" className="ai-competitor-card" key={competitor.id}>
                     <div>
                       <strong>{competitor.title}</strong>
-                      <span>{competitor.asin || "无 ASIN"} · {shortDate(competitor.observedAt)}</span>
+                      <span>
+                        {isSyntheticCompetitorSource(competitor.sourceType)
+                          ? <span className="badge badge-neutral" style={{ marginRight: "6px" }}>AI / 模板素材 · 待核实</span>
+                          : <span className="badge badge-success" style={{ marginRight: "6px" }}>已核实证据</span>}
+                        {competitor.asin || "无 ASIN"} · {shortDate(competitor.observedAt)}
+                      </span>
                     </div>
                     <div>
                       <strong>{moneyIn(batch.currency, competitor.priceCents)}</strong>
@@ -560,6 +579,11 @@ function HypothesisCard({
                   </a>
                 ))}
               </div>
+              {hypothesis.competitors.length > 10 ? (
+                <p className="muted" style={{ marginTop: "10px", fontSize: "12px" }}>
+                  仅展示最近 10 条，共 {hypothesis.competitors.length} 条；完整记录保存在数据库中。
+                </p>
+              ) : null}
             </section>
           ) : null}
           </>
@@ -1507,11 +1531,14 @@ function AutoCompetitorImportCard({
       <div className="ai-validation-summary-head">
         <div>
           <span className="eyebrow">站点级竞品分析 · AI 智能与批量导入</span>
-          <h3>基于当前国家与站点一键导入竞品快照</h3>
+          <h3>基于当前国家与站点批量生成竞品素材</h3>
           <p>
             绑定 <strong>{batch.marketName}站（{batch.marketCode}）· {batch.platformName}</strong> 平台与币种 <strong>{batch.currency}</strong>。
-            AI 自动按该站点真实商品分布生成 10~25 款对标竞品（包含价格带分布、ASIN/链接、评分与代表性差评主题），满足门禁要求，无需手动一条条录入。
+            AI / 本地模板按品类推演 10~25 款对标竞品的价格带、ASIN、评分与差评主题，用于快速铺开分析框架。
           </p>
+          <div className="result-box warning" style={{ marginTop: "10px", fontSize: "12px", lineHeight: "1.5" }} role="status">
+            <strong>这些是待核实素材，不是真实市场证据。</strong>批量生成的 ASIN、价格、评分、评论数与差评原话均由系统推演，一律标记为 AI / 模板来源，<strong>不计入 GO 门禁的竞品数与差评样本，也不进入价格分位</strong>。请用下方「粘贴表格批量导入」或浏览器采集扩展补录真实证据；「粘贴表格」导入的内容才作为人工证据参与门禁。
+          </div>
         </div>
         <span className="badge badge-neutral">{batch.marketCode} · {batch.currency}</span>
       </div>
@@ -1531,12 +1558,12 @@ function AutoCompetitorImportCard({
             />
           </div>
           <div className="field">
-            <label>导入竞品数量（建议 20 款以满足确定性门禁）</label>
+            <label>生成竞品素材数量（不计入门禁）</label>
             <select name="targetCount" defaultValue="20">
-              <option value="10">10 款竞品快照</option>
-              <option value="15">15 款竞品快照</option>
-              <option value="20">20 款竞品快照（满足门禁 ≥20）</option>
-              <option value="25">25 款深度对标快照</option>
+              <option value="10">10 款待核实素材</option>
+              <option value="15">15 款待核实素材</option>
+              <option value="20">20 款待核实素材</option>
+              <option value="25">25 款待核实素材</option>
             </select>
           </div>
           <div className="field">

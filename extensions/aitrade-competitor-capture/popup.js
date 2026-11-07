@@ -11,6 +11,38 @@ function setStatus(msg, type) {
   statusBox.className = "status " + type;
 }
 
+function firstNumber(text) {
+  if (!text) return null;
+  var matched = String(text).replace(/,/g, "").match(/\d+(?:\.\d+)?/);
+  if (!matched) return null;
+  var value = Number(matched[0]);
+  return isFinite(value) && value > 0 ? value : null;
+}
+
+// 把前台真实售价换算成「分」，兼容 1,234.56 / 1.234,56 / ¥3,980 等写法
+function parsePriceToCents(text) {
+  if (!text) return null;
+  var cleaned = String(text).replace(/[^\d.,]/g, "");
+  if (!cleaned) return null;
+  var lastComma = cleaned.lastIndexOf(",");
+  var lastDot = cleaned.lastIndexOf(".");
+  var normalized;
+  if (lastComma > lastDot) {
+    normalized = cleaned.slice(lastComma + 1).length <= 2
+      ? cleaned.replace(/\./g, "").replace(",", ".")
+      : cleaned.replace(/[.,]/g, "");
+  } else if (lastDot >= 0) {
+    normalized = cleaned.slice(lastDot + 1).length <= 2
+      ? cleaned.replace(/,/g, "")
+      : cleaned.replace(/[.,]/g, "");
+  } else {
+    normalized = cleaned.replace(/[.,]/g, "");
+  }
+  var value = Number(normalized);
+  if (!isFinite(value) || value <= 0) return null;
+  return Math.round(value * 100);
+}
+
 async function init() {
   try {
     var tabs = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -60,6 +92,7 @@ async function init() {
     if (currentData.bullets && currentData.bullets.length > 0) {
       html.push("<div style='color: #647169; font-size: 11px; margin-top: 4px;'>已提取 " + currentData.bullets.length + " 条五点描述及 " + currentData.criticalReviews.length + " 条真实评价</div>");
     }
+    html.push("<div style='color: #647169; font-size: 11px; margin-top: 4px;'>售价、评分、评论数将作为「已采集」真实值入库；其余推断字段标为待核实，需人工确认后才能使用。</div>");
 
     previewBox.innerHTML = html.join("");
     captureBtn.disabled = false;
@@ -93,14 +126,22 @@ captureBtn.addEventListener("click", async function () {
         platformCode: "amazon",
         currency: currentData.currency,
         rawText: rawText,
+        priceCents: parsePriceToCents(currentData.price),
+        rating: firstNumber(currentData.rating),
+        reviewCount: firstNumber(currentData.reviewCount),
+        bullets: currentData.bullets || [],
+        criticalReviews: currentData.criticalReviews || [],
       }),
     });
 
     var resJson = await response.json();
     if (response.ok && resJson.success) {
-      setStatus("✅ 采集成功！正在打开 AITrade 竞品对比…", "success");
+      setStatus("✅ 采集成功！研报待人工核实，正在打开…", "success");
+      var target = resJson.redirectUrl
+        ? "http://localhost:3000" + resJson.redirectUrl
+        : "http://localhost:3000/competitors";
       setTimeout(function () {
-        chrome.tabs.create({ url: "http://localhost:3000/competitors" });
+        chrome.tabs.create({ url: target });
       }, 800);
     } else {
       throw new Error(resJson.error || "服务端返回异常");

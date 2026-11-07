@@ -3,25 +3,119 @@ import { loadAIProviderConfig } from "../app-settings.ts";
 import type { CompetitorComparisonReport } from "./types.ts";
 
 export type AntiListingBullet = {
-  headline: string; // 大写强调词，如 【HEAVY-DUTY LOCKING MECHANISM】
-  content: string; // 详细五点文案
+  headline: string; // 大写强调词
+  content: string; // 五点文案（含待核实占位）
   counterTarget: string; // 针对性反制的竞品差评痛点
 };
 
 export type AntiListingResult = {
-  antiTitle: string; // 爆款反制差异化标题
-  bullets: AntiListingBullet[]; // 5 条核心反制五点
+  antiTitle: string;
+  bullets: AntiListingBullet[];
   aplusModules: Array<{
     title: string;
     description: string;
-    visualSuggestion: string; // A+ 差异化对比图建议
+    visualSuggestion: string;
   }>;
 };
+
+/** 待核实占位符：所有需实测/需凭证支撑的表述统一用它，写入前必须替换 */
+export const VERIFY_PLACEHOLDER = "[VERIFY:";
+
+/** 统计一份文案里还有多少处未核实的占位，供 UI 与写入前置检查使用 */
+export function countVerifyPlaceholders(result: AntiListingResult): number {
+  const parts = [
+    result.antiTitle,
+    ...result.bullets.flatMap((b) => [b.headline, b.content, b.counterTarget]),
+    ...result.aplusModules.flatMap((m) => [m.title, m.description, m.visualSuggestion]),
+  ];
+  return parts.reduce((sum, text) => sum + (text.split(VERIFY_PLACEHOLDER).length - 1), 0);
+}
+
+/**
+ * AI 输出的后置净化：prompt 是软约束，模型仍可能写出认证、测试次数、倍数、
+ * 保修年限等无法核实的事实。命中的一律换成占位，不静默放行。
+ */
+function scrubUnverifiedClaims(text: string): string {
+  let out = text;
+  const rules: Array<[RegExp, string]> = [
+    [/\b\d+(?:\.\d+)?\s*x\s+(?:superior|better|more|faster|stronger|absorption|performance)/gi, "[VERIFY: 实测倍数与测试方法]"],
+    [/\b\d[\d,]*\s*(?:-\s*)?(?:cycle|cycles|times|tests?|hours?)\b/gi, "[VERIFY: 实测次数与测试条件]"],
+    [/\b\d+\s*[- ]?(?:month|months|year|years)\s+(?:hassle-free\s+)?(?:manufacturer\s+)?(?:warranty|guarantee)\b/gi, "[VERIFY: 实际保修政策]"],
+    [/\b(?:CE|FCC|RoHS|FDA|UL|ISO\s?\d+|certified|certification)\b/gi, "[VERIFY: 有效认证与证书编号]"],
+    [/\b24\/7\b|\blifetime\s+(?:warranty|guarantee|support)\b/gi, "[VERIFY: 实际服务承诺]"],
+    [/\b(?:completely eliminate|flawless|guaranteed|satisfaction guaranteed|100%\s)/gi, "[VERIFY: 请改写为可验证的客观描述] "],
+    [/\b(?:passed|certified by|tested to)\s+[^.,;]{0,60}/gi, "[VERIFY: 检测机构与报告编号]"],
+    [/\bsaves?\s+\d+\s*%/gi, "[VERIFY: 实测节省比例]"],
+  ];
+  for (const [pattern, replacement] of rules) {
+    out = out.replace(pattern, replacement);
+  }
+  return out;
+}
+
+function scrubResult(result: AntiListingResult): AntiListingResult {
+  return {
+    antiTitle: scrubUnverifiedClaims(result.antiTitle),
+    bullets: result.bullets.map((b) => ({
+      headline: scrubUnverifiedClaims(b.headline),
+      content: scrubUnverifiedClaims(b.content),
+      counterTarget: scrubUnverifiedClaims(b.counterTarget),
+    })),
+    aplusModules: result.aplusModules.map((m) => ({
+      title: scrubUnverifiedClaims(m.title),
+      description: scrubUnverifiedClaims(m.description),
+      visualSuggestion: scrubUnverifiedClaims(m.visualSuggestion),
+    })),
+  };
+}
+
+/** 品类无关的确定性草稿骨架：只给结构与占位，不生成任何具体事实 */
+function buildPlaceholderDraft(report: CompetitorComparisonReport): AntiListingResult {
+  const concept = report.hypothesisBridge?.concept || report.title.slice(0, 25);
+  const weaknesses = report.summary.commonWeaknesses;
+  const attackVector = report.summary.attackVector;
+
+  const makeBullet = (headline: string, weakness: string | undefined, index: number): AntiListingBullet => ({
+    headline,
+    content:
+      `针对买家反馈「${weakness?.trim() || `竞品差评 ${index + 1}`}」，本品拟采用 ` +
+      `[VERIFY: 具体的结构/材质/工艺改动]。相关性能参数为 ` +
+      `[VERIFY: 实测数值 + 检测方法 + 报告编号]。占位未替换前不得对外发布。`,
+    counterTarget: weakness?.trim() || `${attackVector || "待补充对标痛点"}`,
+  });
+
+  return {
+    antiTitle: `[DRAFT] ${concept} — [VERIFY: 品类关键词与核心差异化卖点] for ${report.marketCode}`,
+    bullets: [
+      makeBullet("[DESIGN CHANGE 1]", weaknesses[0], 0),
+      makeBullet("[DESIGN CHANGE 2]", weaknesses[1], 1),
+      makeBullet("[DESIGN CHANGE 3]", weaknesses[2], 2),
+      makeBullet("[PACKAGING & INSTRUCTIONS]", weaknesses[3], 3),
+      makeBullet("[AFTER-SALES POLICY]", weaknesses[4], 4),
+    ],
+    aplusModules: [
+      {
+        title: "[VERIFY: A+ 模块 1 标题 — 只描述本品设计]",
+        description: "[VERIFY: 本品结构/材质的可验证说明；如需参数请附检测报告编号]",
+        visualSuggestion: "建议采用产品结构特写与使用场景实拍；图中所有参数需与实测一致。",
+      },
+      {
+        title: "[VERIFY: A+ 模块 2 标题 — 使用方式]",
+        description: "[VERIFY: 真实使用步骤与适用范围，不得写未实测的效率或倍数]",
+        visualSuggestion: "建议使用实拍步骤图，避免出现竞品名称或贬损对比。",
+      },
+      {
+        title: "[VERIFY: A+ 模块 3 标题 — 规格与清单]",
+        description: "[VERIFY: 实际规格、配件清单与保修政策；以工厂与平台确认为准]",
+        visualSuggestion: "建议使用规格表格与配件平铺图，数据须与包装一致。",
+      },
+    ],
+  };
+}
 
 export async function generateAntiListingContent(
   report: CompetitorComparisonReport,
 ): Promise<AntiListingResult> {
-  const brand = report.competitors[0]?.brand || "MyBrand";
   const category = report.hypothesisBridge?.category || report.title;
   const weaknesses = report.summary.commonWeaknesses;
   const attackVector = report.summary.attackVector;
@@ -31,28 +125,30 @@ export async function generateAntiListingContent(
 
   if (config.provider !== "template") {
     try {
-      const systemPrompt = `你是一位顶级亚马逊爆款 Listing 操盘手与文案专家。
-请根据竞品对比中提炼出的【竞品致命差评通病】与【进攻破局策略】，创作一套极具杀伤力的“反制 Listing 文案”。
+      const systemPrompt = `你是一位资深跨境电商 Listing 文案编辑。
+请根据竞品对比中提炼出的【买家差评痛点】与【改良方向】，产出一套「待核实」的反制 Listing 草稿骨架。
 核心原则：
-1. 每一条五点描述（Bullet Point）都要有明确的【反制靶心】，针对买家对竞品吐槽最多的痛点进行定心丸式的防御与超越。
-2. 语言必须是符合目标市场（${report.marketCode} 站点，地道海外英文）的高转化文案。
-3. 提供 3 个适合 A+ 页面的“我优敌劣”差异化对比模块构想。
+1. 每一条五点描述都要有明确的改良靶心，只写设计方向，不写既成事实。
+2. 语言为符合目标市场（${report.marketCode} 站点）的地道海外英文，但凡需实测数据支撑的表述一律写成 "[VERIFY: 具体参数]" 占位。
+3. 提供 3 个 A+ 模块构想，只描述本品设计，不贬损或指名比较竞品。
+
+【合规红线】禁止编造任何未经核实的认证、实验室测试次数、循环寿命、倍数性能对比、保修年限、客服承诺、绝对化用语（best / flawless / completely eliminate / guaranteed）以及具体销量或评分。所有数值、认证、性能、售后承诺都必须以 [VERIFY: ...] 占位，交由运营在打样与检测后据实填写。不得输出平台禁止的主观对比词或医疗/安全功效声明。
 
 只输出合法 JSON，格式如下：
 {
-  "antiTitle": "包含核心关键词与差异化改良点的英文商品标题 (150-180字符)",
+  "antiTitle": "含 [VERIFY: ...] 占位的英文商品标题草稿",
   "bullets": [
     {
-      "headline": "[UPGRADED REINFORCED JOINT]",
-      "content": "地道英文五点描述，详细说明材质结构与测试数据，消除买家对断裂的顾虑...",
-      "counterTarget": "反制竞品【折叠关节反复受力易断裂】的通病"
+      "headline": "[DESIGN CHANGE 1]",
+      "content": "英文五点草稿；只写可验证的设计方向与 [VERIFY: 具体参数] 占位...",
+      "counterTarget": "针对的竞品差评痛点，说明改良方向"
     }
   ],
   "aplusModules": [
     {
-      "title": "A+ 模块标题 (如 Our Upgraded Mechanism vs Common Flimsy Joint)",
-      "description": "模块文案说明",
-      "visualSuggestion": "建议采用左右分栏对比图，左侧高亮特写加厚金属轴承，右侧标红竞品塑料公模"
+      "title": "[VERIFY: A+ 模块标题，只描述本品设计]",
+      "description": "模块说明，参数用 [VERIFY: 实测参数] 占位",
+      "visualSuggestion": "建议采用产品结构特写图与使用场景实拍图"
     }
   ]
 }`;
@@ -73,60 +169,13 @@ export async function generateAntiListingContent(
 
       const parsed = JSON.parse(aiResponse.content) as AntiListingResult;
       if (parsed.antiTitle && Array.isArray(parsed.bullets) && parsed.bullets.length > 0) {
-        return parsed;
+        return scrubResult(parsed);
       }
     } catch (err) {
-      console.warn("AI 反制文案生成失败，启用确定性专业模板:", err);
+      console.warn("AI 反制文案生成失败，启用待核实占位草稿:", err);
     }
   }
 
-  // 确定性高质量反制文案模板（免 Key / 回退模式）
-  const mainConcept = report.hypothesisBridge?.concept || report.title.slice(0, 25);
-  return {
-    antiTitle: `Upgraded Heavy-Duty ${mainConcept} with Reinforced Construction & Dual-Action Efficiency, Designed for ${report.marketCode} Standards`,
-    bullets: [
-      {
-        headline: "[REINFORCED STRUCTURAL DURABILITY]",
-        content: `Engineered with thickened premium alloy and industrial-grade polymer to completely eliminate joint breakage and fatigue failures commonly reported in traditional models. Built to withstand daily rigorous use without wobbling.`,
-        counterTarget: weaknesses[0] || "解决竞品受力部件强度不足、长期使用易断裂的致命通病",
-      },
-      {
-        headline: "[HASSLE-FREE ERGONOMIC OPERATION]",
-        content: `Features an effortless self-cleaning and quick-release mechanism that protects your hands and minimizes physical strain during extended tasks. Smooth gliding action ensures flawless coverage across all surfaces.`,
-        counterTarget: weaknesses[1] || "解决竞品拆装费力、操作机构卡滞生涩的差评缺陷",
-      },
-      {
-        headline: "[PROFESSIONAL-GRADE SURFACE CONTACT]",
-        content: `Custom multi-layer micro-weave composite materials provide 2.5x superior absorption and particle retention compared to basic generic pads. Captures ultra-fine dust and hair effortlessly on both wet and dry passes.`,
-        counterTarget: "吸水与毛发附着力不足、洗后粘扣脱落问题",
-      },
-      {
-        headline: "[COMPACT SPACE-SAVING STAND DESIGN]",
-        content: `Integrated self-standing base allows fast air drying and tidy vertical storage in narrow gaps between appliances or bathroom corners. Keeps your living space clean and clutter-free.`,
-        counterTarget: "解决传统竞品收纳占地、倒放发霉发臭的痛点",
-      },
-      {
-        headline: "[SATISFACTION GUARANTEED & EXTENDED CARE]",
-        content: `Backed by our 12-month hassle-free manufacturer warranty and 24/7 dedicated customer service. Comes complete with extra washable replacement parts for long-term peace of mind.`,
-        counterTarget: "买家对海外新品牌售后无保障与配件缺失的担忧",
-      },
-    ],
-    aplusModules: [
-      {
-        title: "Heavy-Duty Upgraded Joint vs. Conventional Fragile Plastic",
-        description: "Highlighting our precision-molded reinforcement structure that passed 50,000 cycle durability stress tests.",
-        visualSuggestion: "采用左右对比图（Split-Screen Comparison）：左边绿色对勾展示加厚金属轴芯内部解剖结构，右边红色叉号展示竞品单薄塑料卡扣断裂示意图。",
-      },
-      {
-        title: "Advanced Dual-Action Cleaning Efficiency",
-        description: "Demonstrating 360-degree corner navigation and one-stroke fluid containment.",
-        visualSuggestion: "大图特写：展示贴合踢脚线与低矮沙发死角的超薄转轴顺滑度，配合毛发水渍一次性吸净的动效示意。",
-      },
-      {
-        title: "Effortless Self-Standing Air-Dry Footprint",
-        description: "Vertical self-standing mechanism prevents moisture buildup and saves 80% storage footprint.",
-        visualSuggestion: "生活方式实景图（Lifestyle Photo）：展示立于洗衣机旁 10cm 缝隙中的整洁收纳效果，凸显小户型空间友好度。",
-      },
-    ],
-  };
+  // 免 Key / 回退模式：只产出结构与占位，不生成任何品类专属或未经核实的事实
+  return buildPlaceholderDraft(report);
 }

@@ -143,7 +143,8 @@ function activeHrefForPath(pathname: string) {
   if (pathname.startsWith("/cases/")) {
     if (/\/sourcing(\/|$)/.test(pathname)) return "/sourcing";
     if (/\/content(\/|$)|\/channels(\/|$)/.test(pathname)) return "/content";
-    return "/";
+    // 商品详情概览不属于任何一级模块：不高亮「工作台」，避免用户误判所在位置
+    return "";
   }
   if (pathname === "/import") return "/data-sources";
   if (pathname.startsWith("/data-sources")) return "/data-sources";

@@ -46,6 +46,93 @@ import type {
 } from "./types";
 import type { CandidateImportRow } from "./csv";
 
+/**
+ * 商品生命周期：终止是软状态变更，不删任何证据、报价、成本模型与内容草稿。
+ * 归档后首页 / 内容工作台因只取 status='approved' 自动移出，可随时恢复。
+ */
+export async function setCaseLifecycle(input: {
+  caseId: string;
+  action: "archive" | "restore";
+  actor: string;
+  reason?: string;
+}): Promise<void> {
+  const db = await getDb();
+  const actor = input.actor.trim() || "运营人员";
+  const reason = (input.reason ?? "").trim().slice(0, 300);
+  if (input.action === "archive" && !reason) {
+    throw new Error("请填写终止原因，便于后续复盘");
+  }
+
+  await db.transaction(async (tx) => {
+    const current = await tx.query<{ id: string; status: string }>(
+      "SELECT id, status FROM product_cases WHERE id = $1 LIMIT 1",
+      [input.caseId],
+    );
+    const row = current.rows[0];
+    if (!row) throw new Error("商品不存在");
+    const terminated = row.status === "archived" || row.status === "rejected";
+    if (input.action === "archive" && terminated) throw new Error("该商品已终止，无需重复操作");
+    if (input.action === "restore" && !terminated) throw new Error("只有已终止的商品可以恢复");
+
+    await tx.query(
+      "UPDATE product_cases SET status = $1, updated_at = NOW() WHERE id = $2",
+      [input.action === "archive" ? "archived" : "approved", input.caseId],
+    );
+    await tx.query(
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
+       VALUES ($1, $2, $3, 'product_case', $4, $5::jsonb)`,
+      [
+        randomUUID(),
+        actor,
+        input.action === "archive" ? "product_case.archived" : "product_case.restored",
+        input.caseId,
+        JSON.stringify(
+          input.action === "archive"
+            ? { reason, previousStatus: row.status }
+            : { previousStatus: row.status, restoredTo: "approved" },
+        ),
+      ],
+    );
+  });
+}
+
+export type TerminatedCase = {
+  caseItem: EnrichedCase;
+  reason: string;
+  archivedAt: string | null;
+  archivedBy: string | null;
+};
+
+/** 已终止商品 + 最近一次终止原因，供首页「已终止」面板展示与恢复 */
+export async function listTerminatedCases(): Promise<TerminatedCase[]> {
+  const db = await getDb();
+  const cases = await listCases();
+  const terminated = cases.filter((item) => item.status === "archived" || item.status === "rejected");
+  if (terminated.length === 0) return [];
+
+  const logs = await db.query<{
+    entity_id: string;
+    actor: string;
+    details: { reason?: string } | null;
+    created_at: string;
+  }>(
+    `SELECT DISTINCT ON (entity_id) entity_id, actor, details, created_at
+     FROM audit_logs
+     WHERE entity_type = 'product_case' AND action = 'product_case.archived'
+     ORDER BY entity_id, created_at DESC`,
+  );
+  const byCase = new Map(logs.rows.map((row) => [row.entity_id, row]));
+  return terminated.map((caseItem) => {
+    const log = byCase.get(caseItem.id);
+    return {
+      caseItem,
+      reason: log?.details?.reason || "（未记录原因）",
+      archivedAt: log?.created_at ?? null,
+      archivedBy: log?.actor ?? null,
+    };
+  });
+}
+
 export async function listCases(): Promise<EnrichedCase[]> {
   const db = await getDb();
   const cases = await db.query<ProductCaseRow>("SELECT * FROM product_cases ORDER BY created_at DESC");

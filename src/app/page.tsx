@@ -9,7 +9,8 @@ import { getAIProviderStatus } from "@/lib/ai-provider";
 import { buildAiProposalDigest, loadPendingAiProposals } from "@/lib/ai-proposals/digest";
 import { listAISourcingBatches } from "@/lib/ai-sourcing-repository";
 import { money, percent, shortDate } from "@/lib/format";
-import { getSiteOptions, listCasesForSite, listSourcingCases } from "@/lib/repository";
+import { getSiteOptions, listCasesForSite, listSourcingCases, listTerminatedCases } from "@/lib/repository";
+import { RestoreCaseButton, TerminateCaseControl } from "@/components/case-lifecycle-controls";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +41,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     throw new Error("缺少可用的国家或平台配置");
   }
 
-  const [cases, batches, sourcingCases, provider, proposals] = await Promise.all([
+  const [cases, batches, sourcingCases, provider, proposals, terminatedCases] = await Promise.all([
     listCasesForSite(selectedMarket.code, selectedPlatform.code),
     listAISourcingBatches(selectedMarket.code, selectedPlatform.code),
     listSourcingCases(),
@@ -49,6 +50,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     loadPendingAiProposals({ limit: 4 }).catch(() =>
       buildAiProposalDigest([], { warnings: ["AI 提案暂时不可用"] }),
     ),
+    listTerminatedCases(),
   ]);
 
   const siteLabel = `${selectedMarket.name}站 · ${selectedPlatform.name}`;
@@ -71,6 +73,10 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     .sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())
     .slice(0, 5);
   const demoCount = approvedCases.filter((item) => item.is_demo).length;
+  const siteTerminatedCases = terminatedCases.filter(
+    (entry) => entry.caseItem.marketplace.toUpperCase() === selectedMarket.code.toUpperCase(),
+  );
+  const dashboardReturnPath = `/?${siteQuery}`;
   const researchRequestKey = randomUUID();
 
   const attentionTasks = [
@@ -254,7 +260,10 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             <h2>商品进度</h2>
             <p>最近更新的 5 个商品，每项都标出当前阶段和下一步，点「继续」直接回到该步骤。</p>
           </div>
-          <Link href="/content" className="button ghost">查看全部商品</Link>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+            <OpportunityScoreHelp />
+            <Link href="/content" className="button ghost">查看全部商品</Link>
+          </div>
         </div>
 
         {recentCases.length === 0 ? (
@@ -291,9 +300,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                     </div>
                   </div>
                   <div className="dashboard-product-metric">
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: "2px" }}>
-                      选品分 <OpportunityScoreHelp score={item.opportunityScore} />
-                    </span>
+                    <span>选品分</span>
                     <strong>{item.opportunityScore}</strong>
                   </div>
                   <div className="dashboard-product-metric">
@@ -307,12 +314,66 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                     <span>当前阶段</span>
                     <span className={`badge ${nextStep.className}`}>{nextStep.label}</span>
                   </div>
-                  <Link href={nextStep.href} className="button secondary">继续 →</Link>
+                  <div className="dashboard-product-actions">
+                    <Link href={nextStep.href} className="button secondary">继续 →</Link>
+                    <TerminateCaseControl
+                      caseId={item.id}
+                      title={item.title}
+                      returnPath={`${dashboardReturnPath}#opportunities`}
+                    />
+                  </div>
                 </article>
               );
             })}
           </div>
         )}
+
+        {siteTerminatedCases.length > 0 ? (
+          <details className="dashboard-terminated" id="terminated-cases" style={{ borderTop: "1px solid var(--line)" }}>
+            <summary style={{ cursor: "pointer", padding: "14px 22px", fontWeight: 700, fontSize: "13px" }}>
+              已终止（{siteTerminatedCases.length}）· 展开查看原因或恢复
+            </summary>
+            <div style={{ padding: "0 22px 18px" }}>
+              <p className="muted" style={{ fontSize: "12px", lineHeight: "1.5", marginTop: 0 }}>
+                终止只改变商品状态，成本模型、报价、定标、证据与 Listing 草稿全部保留；恢复后重新出现在商品进度与内容工作台。此操作不删除任何数据。
+              </p>
+              {siteTerminatedCases.map((entry) => (
+                <article
+                  key={entry.caseItem.id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: "12px",
+                    flexWrap: "wrap",
+                    padding: "12px 14px",
+                    marginBottom: "8px",
+                    border: "1px solid var(--line)",
+                    borderRadius: "10px",
+                    background: "#fbfcfa",
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <strong style={{ fontSize: "13px" }}>{entry.caseItem.title}</strong>
+                    <div className="muted" style={{ fontSize: "11px", marginTop: "4px" }}>
+                      原因：{entry.reason}
+                      {entry.archivedAt ? ` · ${shortDate(entry.archivedAt)}` : ""}
+                      {entry.archivedBy ? ` · ${entry.archivedBy}` : ""}
+                    </div>
+                  </div>
+                  <div className="dashboard-row-actions">
+                    <Link href={`/cases/${entry.caseItem.id}`} className="button ghost">查看详情</Link>
+                    <RestoreCaseButton
+                      caseId={entry.caseItem.id}
+                      title={entry.caseItem.title}
+                      returnPath={`${dashboardReturnPath}#terminated-cases`}
+                    />
+                  </div>
+                </article>
+              ))}
+            </div>
+          </details>
+        ) : null}
       </section>
 
       <section className="panel dashboard-research-drawer" id="new-research">
