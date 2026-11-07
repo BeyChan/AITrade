@@ -6,6 +6,14 @@ import type { CompetitorComparisonReport } from "@/lib/competitor-compare/types"
 import type { EnrichedCase, SourcingCaseSummary } from "@/lib/types";
 import { money, percent } from "@/lib/format";
 
+export type AttentionTask = {
+  label: string;
+  value: number;
+  detail: string;
+  href: string;
+  action: string;
+};
+
 type Props = {
   marketCode: string;
   platformCode: string;
@@ -13,6 +21,8 @@ type Props = {
   competitorReports: CompetitorComparisonReport[];
   cases: EnrichedCase[];
   sourcingCases: SourcingCaseSummary[];
+  attentionTasks?: AttentionTask[];
+  proposalsTotal?: number;
 };
 
 export function DashboardPipelineKanban({
@@ -22,6 +32,8 @@ export function DashboardPipelineKanban({
   competitorReports,
   cases,
   sourcingCases,
+  attentionTasks = [],
+  proposalsTotal = 0,
 }: Props) {
   const [activeTab, setActiveTab] = useState<"kanban" | "list">("kanban");
 
@@ -64,6 +76,13 @@ export function DashboardPipelineKanban({
     return c.status === "approved" && hasSelectedSupplier && isLaunchReady;
   });
 
+  // 将外层待办精准映射到各业务阶段列头
+  const taskMap = new Map((attentionTasks || []).map((t) => [t.label, t]));
+  const stage1Task = taskMap.get("待确认 AI 提案") || taskMap.get("待补证据");
+  const stage2Task = taskMap.get("待录入报价") || taskMap.get("待审 RFQ 草稿");
+  const stage3Task = taskMap.get("待决策门禁") || taskMap.get("待对比定标");
+  const stage4Task = taskMap.get("待制作内容");
+
   const columns = [
     {
       id: "stage1",
@@ -71,6 +90,7 @@ export function DashboardPipelineKanban({
       title: "竞品初筛",
       subtitle: "链接采集 · 指数测算",
       count: stage1Items.length,
+      focusTask: stage1Task,
       badgeColor: "#3766a6",
       badgeBg: "#e8f0fc",
       items: stage1Items.slice(0, 6).map((r) => ({
@@ -90,6 +110,7 @@ export function DashboardPipelineKanban({
       title: "寻源询价",
       subtitle: "1688 RFQ · 样品询价",
       count: stage2Items.length,
+      focusTask: stage2Task,
       badgeColor: "#a96610",
       badgeBg: "#fff3d9",
       items: stage2Items.slice(0, 6).map((c) => ({
@@ -109,6 +130,7 @@ export function DashboardPipelineKanban({
       title: "财务核准",
       subtitle: "压力测试 · 机会分保本",
       count: stage3Items.length,
+      focusTask: stage3Task,
       badgeColor: "#9333ea",
       badgeBg: "#f3e8ff",
       items: stage3Items.slice(0, 6).map((c) => {
@@ -131,6 +153,7 @@ export function DashboardPipelineKanban({
       title: "内容打磨",
       subtitle: "反制五点 · A+ 视觉",
       count: stage4Items.length,
+      focusTask: stage4Task,
       badgeColor: "#1f7a55",
       badgeBg: "#e2f5ea",
       items: stage4Items.slice(0, 6).map((c) => ({
@@ -150,6 +173,7 @@ export function DashboardPipelineKanban({
       title: "渠道就绪",
       subtitle: "合规检测 · 渠道推送",
       count: stage5Items.length,
+      focusTask: undefined,
       badgeColor: "#10251c",
       badgeBg: "#dfe6e0",
       items: stage5Items.slice(0, 6).map((c) => ({
@@ -320,6 +344,78 @@ export function DashboardPipelineKanban({
                   minHeight: "140px",
                 }}
               >
+                {/* 方案 A: Linear 风格置顶待办行动卡 (与下方卡片完全同宽同构，自然融入) */}
+                {col.focusTask && (
+                  <Link
+                    href={col.focusTask.href}
+                    style={{
+                      background: "linear-gradient(180deg, #f0fdf4 0%, #ffffff 100%)",
+                      border: "1px solid #bbf7d0",
+                      borderRadius: "8px",
+                      padding: "10px 12px",
+                      textDecoration: "none",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "6px",
+                      boxShadow: "0 1px 3px rgba(22, 101, 52, 0.04)",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span
+                        style={{
+                          fontSize: "10px",
+                          fontWeight: 800,
+                          color: "var(--green)",
+                          background: "#dcfce7",
+                          padding: "1px 6px",
+                          borderRadius: "4px",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "3px",
+                        }}
+                      >
+                        ⚡ 待办行动
+                      </span>
+                      <span
+                        style={{
+                          fontSize: "11px",
+                          fontWeight: 800,
+                          color: "#fff",
+                          background: "var(--green)",
+                          borderRadius: "10px",
+                          padding: "0 6px",
+                          lineHeight: "16px",
+                        }}
+                      >
+                        {col.focusTask.value} 项
+                      </span>
+                    </div>
+
+                    <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--ink)", lineHeight: 1.35 }}>
+                      {col.focusTask.label}
+                    </div>
+
+                    <div style={{ fontSize: "10.5px", color: "var(--muted)", lineHeight: 1.3 }}>
+                      {col.focusTask.detail}
+                    </div>
+
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "flex-end",
+                        fontSize: "11px",
+                        fontWeight: 700,
+                        color: "var(--green)",
+                        borderTop: "1px dashed #dcfce7",
+                        paddingTop: "4px",
+                        marginTop: "2px",
+                      }}
+                    >
+                      {col.focusTask.action} →
+                    </div>
+                  </Link>
+                )}
                 {col.items.length > 0 ? (
                   col.items.map((item) => (
                     <div

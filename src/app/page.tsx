@@ -158,7 +158,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           </p>
           <div className="dashboard-hero-actions">
             <Link href={newResearchHref} className="button primary">新建选品研究</Link>
-            <Link href="#today-queue" className="button secondary">查看今日待办</Link>
+            <Link href="#pipeline-kanban" className="button secondary">查看业务推进大盘</Link>
           </div>
         </div>
 
@@ -188,83 +188,25 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       {query.notice ? <div className="notice"><strong>已完成：</strong>{query.notice}</div> : null}
       {query.error ? <div className="notice warn"><strong>未完成：</strong>{query.error}</div> : null}
 
-      <section className="dashboard-attention" id="today-queue" aria-labelledby="attention-title">
-        <div className="dashboard-section-head">
-          <div>
-            <span className="dashboard-kicker">今日待办</span>
-            <h2 id="attention-title">需要你处理</h2>
-          </div>
-          <p>按动作分组，每条都直接跳到要操作的位置；AI 产出必须人工确认后才写入业务表。</p>
-        </div>
-
-        {proposals.total > 0 ? (
-          <div className="dashboard-proposal-stream">
-            <div className="dashboard-proposal-head">
-              <strong>AI 提案明细 · {proposals.total} 条</strong>
-              <span>按业务对象汇总，点击回到原对象处理；确认前不写入业务表</span>
-            </div>
-            <div className="dashboard-proposal-list">
-              {proposals.groups.slice(0, 3).map((group) => (
-                <ProposalCard
-                  key={group.key}
-                  kindLabel="AI 提案"
-                  title={group.title}
-                  count={group.count}
-                  summary={group.summary}
-                  reason={group.reason}
-                  generation={group.generation}
-                  statusLabel="待人工确认"
-                  href={group.href}
-                  actionLabel="去处理"
-                />
-              ))}
-            </div>
-            {proposals.warnings.length > 0 ? (
-              <small className="dashboard-proposal-warning">{proposals.warnings.join("；")}</small>
-            ) : null}
-          </div>
-        ) : null}
-
-        {attentionTasks.length > 0 ? (
-          <div className="dashboard-task-grid">
-            {attentionTasks.slice(0, 6).map((task) => (
-              <article className="dashboard-task-card" key={task.label}>
-                <div className="dashboard-task-count">
-                  <span>{task.label}</span>
-                  <strong>{task.value}</strong>
-                </div>
-                <p>{task.detail}</p>
-                <Link href={task.href} className="button secondary">{task.action} →</Link>
-              </article>
-            ))}
-          </div>
-        ) : (
-          <div className="dashboard-task-empty">
-            <span className="dashboard-check" aria-hidden="true">✓</span>
-            <div>
-              <strong>当前没有必须人工处理的事项</strong>
-              <p>可以查看已立项商品，或发起一轮新的选品研究。</p>
-            </div>
-            <Link href={importHref} className="button secondary">导入候选品</Link>
-          </div>
-        )}
-      </section>
-
       {demoCount > 0 ? (
-        <div className="dashboard-demo-note">
+        <div className="dashboard-demo-note" style={{ marginBottom: "16px" }}>
           <span className="badge demo-badge">演示数据</span>
           <span>当前站点包含 {demoCount} 个演示商品，仅用于验证流程，不代表真实市场结论。</span>
         </div>
       ) : null}
 
-      <DashboardPipelineKanban
-        marketCode={selectedMarket.code}
-        platformCode={selectedPlatform.code}
-        currency={selectedMarket.currency}
-        competitorReports={competitorReports}
-        cases={cases}
-        sourcingCases={sourcingCases}
-      />
+      <div id="pipeline-kanban">
+        <DashboardPipelineKanban
+          marketCode={selectedMarket.code}
+          platformCode={selectedPlatform.code}
+          currency={selectedMarket.currency}
+          competitorReports={competitorReports}
+          cases={cases}
+          sourcingCases={sourcingCases}
+          attentionTasks={attentionTasks}
+          proposalsTotal={proposals.total}
+        />
+      </div>
 
       <section className="panel dashboard-recent" id="opportunities">
         <div className="panel-header">
