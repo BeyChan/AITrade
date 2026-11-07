@@ -81,6 +81,8 @@ export type CaseDetail = {
   productCase: ProductCaseRow;
   costModel: CostModelRow | null;
   hasSupplierSelection: boolean;
+  quoteCount?: number;
+  hasApprovedContent?: boolean;
   evidence: EvidenceRow[];
   auditLogs: AuditRow[];
 };

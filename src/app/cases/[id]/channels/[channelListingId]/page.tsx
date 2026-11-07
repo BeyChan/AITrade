@@ -353,12 +353,19 @@ export default async function ChannelTargetPage({ params, searchParams }: PagePr
                   <label htmlFor="launch-notes">确认说明</label>
                   <textarea id="launch-notes" name="notes" required disabled={!canApproveLaunch} placeholder="记录 dry-run 回执、平台类目、价格库存和放量范围。" />
                 </div>
-                {!canApproveLaunch ? (
-                  <div className="action-warning">
-                    {launch.blockers[0]?.detail ?? "当前状态不允许记录发布队列确认。"} 当前不会调用任何平台 API。
-                  </div>
-                ) : null}
-                <button className="button primary" type="submit" disabled={!canApproveLaunch}>确认进入内部发布队列</button>
+                <div className="notice warn" style={{ margin: "8px 0" }}>
+                  <strong>本机原型发布边界说明：</strong>
+                  本原型系统不直连第三方平台写入接口（如亚马逊 SP-API / TikTok / Shopify 等），不执行自动化在线发布。
+                  商品准备就绪后，请使用上方「批量导出 Flat File」功能下载表格，登录卖家后台批量上传发布。
+                </div>
+                <button
+                  className="button secondary"
+                  type="button"
+                  disabled
+                  title="本机原型不接平台写入，发布请在卖家后台完成"
+                >
+                  平台直接上架（已禁用 · 请使用 Flat File 离线上报）
+                </button>
               </form>
             )}
           </section>

@@ -2,6 +2,7 @@
 
 import { usePathname, useSearchParams } from "next/navigation";
 import { SiteScopeSwitcher } from "@/components/site-scope-switcher";
+import { GlobalSearch } from "@/components/global-search";
 
 type MarketOption = {
   code: string;
@@ -37,8 +38,11 @@ export function TopbarSiteScope({ markets, platforms }: TopbarSiteScopeProps) {
 
   return (
     <div className="topbar-inner">
-      <div className="topbar-context">{sectionLabel}</div>
-      {(pathname === "/" || pathname.startsWith("/competitors")) && selectedMarket && selectedPlatform ? (
+      <div className="topbar-left">
+        <div className="topbar-context">{sectionLabel}</div>
+        <GlobalSearch />
+      </div>
+      {selectedMarket && selectedPlatform ? (
         <SiteScopeSwitcher
           markets={markets}
           platforms={platforms}

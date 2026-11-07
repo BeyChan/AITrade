@@ -46,9 +46,8 @@ export function SiteScopeSwitcher({
 
   function changeScope(nextMarket: string, nextPlatform: string) {
     const params = new URLSearchParams({ market: nextMarket, platform: nextPlatform });
-    const targetPath = pathname.startsWith("/competitors") ? "/competitors" : pathname === "/" ? "/" : pathname;
     startTransition(() => {
-      router.push(`${targetPath}?${params.toString()}`, { scroll: false });
+      router.push(`${pathname}?${params.toString()}`, { scroll: false });
     });
   }
 

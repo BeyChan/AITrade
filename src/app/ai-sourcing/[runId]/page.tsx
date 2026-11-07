@@ -195,26 +195,26 @@ export default async function AISourcingDetailPage({ params, searchParams }: Pag
       </section>
 
       <section className="metrics-grid ai-metrics" aria-label="批次验证概览">
-        <article className="metric-card">
+        <Link href={tabHref("hypotheses")} className="metric-card" title="点击查看所有待验证方向">
           <div className="metric-label">机会假设</div>
           <div className="metric-value">{batch.hypotheses.length}</div>
-          <div className="metric-note">AI 只生成待验证方向</div>
-        </article>
-        <article className="metric-card">
+          <div className="metric-note">AI 只生成待验证方向 · 点击核验 →</div>
+        </Link>
+        <Link href={tabHref("hypotheses")} className="metric-card" title="点击查看已加入验证方向的证据与任务">
           <div className="metric-label">已加入验证</div>
           <div className="metric-value">{selectedCount}</div>
-          <div className="metric-note">加入后开放证据与报价录入</div>
-        </article>
-        <article className="metric-card">
+          <div className="metric-note">加入后开放证据与报价录入 · 点击推进 →</div>
+        </Link>
+        <Link href={tabHref("decision")} className="metric-card" title="点击查看确定性门禁结论与转立项">
           <div className="metric-label">确定性 GO</div>
           <div className="metric-value">{goCount}</div>
-          <div className="metric-note">证据、利润、风险、现金全部达标</div>
-        </article>
-        <article className="metric-card">
+          <div className="metric-note">证据、利润、风险、现金全部达标 · 查看结论 →</div>
+        </Link>
+        <Link href={tabHref("hypotheses")} className="metric-card" title="点击核对证据链完整度">
           <div className="metric-label">平均证据完整度</div>
           <div className="metric-value">{completeness}%</div>
-          <div className="metric-note">竞品、评论、供应商、报价、专利、样品</div>
-        </article>
+          <div className="metric-note">竞品、评论、供应商、报价、专利、样品 →</div>
+        </Link>
       </section>
 
       <p className="muted" style={{ fontSize: "12px", margin: "0 0 8px" }}>
@@ -298,22 +298,27 @@ function HypothesisSummaryList({ batch }: { batch: BatchType }) {
         </Link>
       </div>
       <div className="ai-summary-rows">
-        {batch.hypotheses.map((hypothesis) => (
-          <div className="ai-summary-row" key={hypothesis.id}>
-            <span className="ai-hypothesis-rank">0{hypothesis.position}</span>
-            <div className="ai-summary-main">
-              <strong>{hypothesis.concept}</strong>
-              <small>{hypothesis.targetUser} · 证据 {hypothesis.decision?.evidenceCompleteness ?? 0}%</small>
-            </div>
-            <DecisionBadge decision={hypothesis.decision} />
+        {batch.hypotheses.map((hypothesis) => {
+          const href = `/ai-sourcing/${encodeURIComponent(batch.id)}?tab=hypotheses&hypothesisId=${encodeURIComponent(hypothesis.id)}#hypothesis-${encodeURIComponent(hypothesis.id)}`;
+          return (
             <Link
-              className="button secondary"
-              href={`/ai-sourcing/${encodeURIComponent(batch.id)}?tab=hypotheses&hypothesisId=${encodeURIComponent(hypothesis.id)}#hypothesis-${encodeURIComponent(hypothesis.id)}`}
+              className="ai-summary-row"
+              key={hypothesis.id}
+              href={href}
+              title={`点击进入「${hypothesis.concept}」验证详情`}
             >
-              继续 →
+              <span className="ai-hypothesis-rank">0{hypothesis.position}</span>
+              <div className="ai-summary-main">
+                <strong>{hypothesis.concept}</strong>
+                <small>{hypothesis.targetUser} · 证据 {hypothesis.decision?.evidenceCompleteness ?? 0}%</small>
+              </div>
+              <DecisionBadge decision={hypothesis.decision} />
+              <span className="button secondary">
+                继续 →
+              </span>
             </Link>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );

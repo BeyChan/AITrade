@@ -212,9 +212,9 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       {query.notice ? <div className="notice"><strong>已完成：</strong>{query.notice}</div> : null}
       {query.error ? <div className="notice warn"><strong>未完成：</strong>{query.error}</div> : null}
 
-      {/* 宏观商业大盘 KPI 四联卡片 */}
-      <section className="dashboard-kpi-grid" aria-label="大盘核心经营指标">
-        <article className="dashboard-kpi-card">
+      {/* 宏观商业大盘 KPI 四联卡片（全卡可点击跳转至对应工作区） */}
+      <section className="dashboard-kpi-grid" aria-label="大盘测算潜力指标">
+        <Link href="#pipeline-kanban" className="dashboard-kpi-card" title="点击直达业务推进大盘">
           <div className="kpi-meta">
             <span className="kpi-label">推进中商品</span>
             <span className="kpi-tag tag-blue">Pipeline</span>
@@ -225,14 +225,14 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           </div>
           <div className="kpi-sub">
             {batchGoCount > 0 ? (
-              <span><strong>{batchGoCount}</strong> 款待立项决策</span>
+              <span><strong>{batchGoCount}</strong> 款待立项决策 · 查看看板 ↓</span>
             ) : (
-              <span>全部在办品正常流转中</span>
+              <span>全部在办品正常流转中 · 查看看板 ↓</span>
             )}
           </div>
-        </article>
+        </Link>
 
-        <article className="dashboard-kpi-card">
+        <Link href="#opportunities" className="dashboard-kpi-card" title="点击查看商品测算详情与成本模型">
           <div className="kpi-meta">
             <span className="kpi-label">测算预期月毛利</span>
             <span className="kpi-tag tag-green">Projected</span>
@@ -243,32 +243,32 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             </strong>
           </div>
           <div className="kpi-sub">
-            <span>基于各品月销预估与确定性成本</span>
+            <span>基于各品月销预估与确定性成本 · 查看单品 ↓</span>
           </div>
-        </article>
+        </Link>
 
-        <article className="dashboard-kpi-card">
+        <Link href="#opportunities" className="dashboard-kpi-card" title="点击核对低于 18% 门禁的薄利商品">
           <div className="kpi-meta">
             <span className="kpi-label">平均测算净利率</span>
             <span className="kpi-tag tag-emerald">Margin</span>
           </div>
           <div className="kpi-value-row">
-            <strong className={`kpi-value ${casesWithMargin.length && avgMarginRate < 0.15 ? "warn" : ""}`}>
+            <strong className={`kpi-value ${casesWithMargin.length && avgMarginRate < 0.18 ? "warn" : ""}`}>
               {casesWithMargin.length ? percent(avgMarginRate) : "—"}
             </strong>
           </div>
           <div className="kpi-sub">
             <span>
               {casesWithMargin.length
-                ? avgMarginRate >= 0.15
-                  ? "毛利结构健康 · 达到 15% 门禁"
-                  : "部分低毛利品 · 建议优化采购"
+                ? avgMarginRate >= 0.18
+                  ? "毛利结构健康 · 达到 18% GO 门禁"
+                  : "部分低毛利品 · 低于 18% 门禁线"
                 : "待建成本模型测算"}
             </span>
           </div>
-        </article>
+        </Link>
 
-        <article className="dashboard-kpi-card">
+        <Link href="#pipeline-kanban" className="dashboard-kpi-card" title="点击直达待办事项处理">
           <div className="kpi-meta">
             <span className="kpi-label">今日待办事项</span>
             <span className={`kpi-tag ${attentionTasks.length > 0 ? "tag-amber" : "tag-muted"}`}>
@@ -280,9 +280,9 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             <span className="kpi-unit">项</span>
           </div>
           <div className="kpi-sub">
-            <a href="#pipeline-kanban" className="kpi-link">查看看板阶段分布 ↓</a>
+            <span className="kpi-link">查看看板阶段分布与行动卡 ↓</span>
           </div>
-        </article>
+        </Link>
       </section>
 
       <div id="pipeline-kanban">
@@ -367,7 +367,9 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                 <article className="dashboard-product-row" key={item.id}>
                   <div className="dashboard-product-main">
                     <div className="product-title">
-                      {item.title}
+                      <Link href={`/cases/${item.id}`} className="product-title-link">
+                        {item.title}
+                      </Link>
                       {item.is_demo ? <span className="badge demo-badge">演示</span> : null}
                     </div>
                     <div className="product-meta">

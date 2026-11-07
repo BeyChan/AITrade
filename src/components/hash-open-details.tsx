@@ -20,8 +20,12 @@ export function HashOpenDetails({
       const hash = decodeURIComponent(window.location.hash.slice(1));
       if (!hash || !detailsRef.current) return;
       const target = document.getElementById(hash);
-      if (target && detailsRef.current.contains(target)) {
+      if (target && (target === detailsRef.current || detailsRef.current.contains(target))) {
         detailsRef.current.open = true;
+        // 稍作微任务延时确保展开后几何尺寸已计算
+        requestAnimationFrame(() => {
+          target.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
       }
     };
 

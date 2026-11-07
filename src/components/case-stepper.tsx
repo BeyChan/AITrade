@@ -2,103 +2,92 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { deriveCaseStage, type CaseStageInput } from "@/lib/case-stage";
 
-type StepKey = "overview" | "sourcing" | "content" | "channels" | "report";
-
-type CaseStepperProps = {
-  caseId: string;
-  hasCostModel?: boolean;
-  hasSupplierSelection?: boolean;
-  hasApprovedContent?: boolean;
+type CaseStepperProps = CaseStageInput & {
+  reportId?: string | null;
   selectedSupplierName?: string | null;
-  status?: string;
 };
 
-export function CaseStepper({
-  caseId,
-  hasCostModel = true,
-  hasSupplierSelection = false,
-  hasApprovedContent = false,
-  selectedSupplierName,
-  status,
-}: CaseStepperProps) {
+export function CaseStepper(props: CaseStepperProps) {
   const pathname = usePathname();
+  const stage = deriveCaseStage(props);
+  const { caseId, reportId, selectedSupplierName, status } = props;
   const isTerminated = status === "archived" || status === "rejected";
 
-  const steps: Array<{
-    key: StepKey;
-    label: string;
-    subLabel: string;
-    href: string;
-    isCompleted: boolean;
-    isActive: boolean;
-    isLocked: boolean;
-  }> = [
+  const steps = [
     {
-      key: "overview",
-      label: "1. 财务与成本",
-      subLabel: hasCostModel ? "模型已建" : "待建模型",
-      href: `/cases/${caseId}`,
-      isCompleted: Boolean(hasCostModel),
-      isActive: pathname === `/cases/${caseId}`,
+      key: "stage1",
+      number: "1",
+      name: "竞品初筛",
+      subText: reportId ? "已关联研报" : "案卷立项",
+      href: reportId ? `/competitors?id=${encodeURIComponent(reportId)}` : `/cases/${caseId}`,
+      isCompleted: true, // 既已进入案卷，初筛必已通过
+      isActive: false,
       isLocked: false,
     },
     {
-      key: "sourcing",
-      label: "2. 1688 询价定标",
-      subLabel: hasSupplierSelection ? (selectedSupplierName ? `已定标: ${selectedSupplierName}` : "已完成定标") : "待定标",
+      key: "stage2",
+      number: "2",
+      name: "寻源询价",
+      subText: stage.stepProgress.sourcingQuotes ? `已有 ${(props.quoteCount ?? 0)} 份报价` : "待录入报价",
       href: `/cases/${caseId}/sourcing`,
-      isCompleted: Boolean(hasSupplierSelection),
-      isActive: pathname.startsWith(`/cases/${caseId}/sourcing`),
+      isCompleted: stage.stepProgress.sourcingQuotes,
+      isActive: pathname.startsWith(`/cases/${caseId}/sourcing`) && !stage.stepProgress.supplierAwarded,
       isLocked: isTerminated,
     },
     {
-      key: "content",
-      label: "3. 内容与预检",
-      subLabel: hasApprovedContent ? "预检通过" : hasSupplierSelection ? "制作中" : "需先定标",
+      key: "stage3",
+      number: "3",
+      name: "财务核准",
+      subText: stage.stepProgress.supplierAwarded
+        ? (selectedSupplierName ? `已定标: ${selectedSupplierName}` : "已核准定标")
+        : "待对比定标",
+      href: `/cases/${caseId}/sourcing`,
+      isCompleted: stage.stepProgress.supplierAwarded,
+      isActive: pathname === `/cases/${caseId}` || (pathname.startsWith(`/cases/${caseId}/sourcing`) && stage.key === "stage3_financial"),
+      isLocked: !stage.stepProgress.sourcingQuotes && status !== "review_pending",
+    },
+    {
+      key: "stage4",
+      number: "4",
+      name: "内容打磨",
+      subText: stage.stepProgress.contentApproved ? "内容终审通过" : stage.stepProgress.supplierAwarded ? "制作与预检中" : "需先定标",
       href: `/cases/${caseId}/content`,
-      isCompleted: Boolean(hasApprovedContent),
+      isCompleted: stage.stepProgress.contentApproved,
       isActive: pathname.startsWith(`/cases/${caseId}/content`),
-      isLocked: !hasSupplierSelection && !hasApprovedContent,
+      isLocked: !stage.stepProgress.supplierAwarded,
     },
     {
-      key: "channels",
-      label: "4. 多渠道上市",
-      subLabel: "店铺发布矩阵",
+      key: "stage5",
+      number: "5",
+      name: "渠道就绪",
+      subText: stage.stepProgress.contentApproved ? "Flat File 导出" : "待内容终审",
       href: `/cases/${caseId}/channels`,
-      isCompleted: false,
+      isCompleted: stage.stepProgress.channelReady,
       isActive: pathname.startsWith(`/cases/${caseId}/channels`),
-      isLocked: !hasSupplierSelection,
-    },
-    {
-      key: "report",
-      label: "5. 决策战报",
-      subLabel: "A4 打印 / 导出",
-      href: `/cases/${caseId}/report`,
-      isCompleted: Boolean(hasSupplierSelection && hasCostModel),
-      isActive: pathname.startsWith(`/cases/${caseId}/report`),
-      isLocked: false,
+      isLocked: !stage.stepProgress.contentApproved,
     },
   ];
 
   return (
-    <nav className="case-stepper" aria-label="商品生命周期阶段向导">
+    <nav className="case-stepper" aria-label="商品全生命周期五阶流水线">
       <div className="case-stepper-track">
         {steps.map((step, idx) => {
           const content = (
             <div className="case-step-content">
               <span className="case-step-indicator">
                 {step.isCompleted ? (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
                 ) : (
-                  <span className="case-step-dot" />
+                  <span className="case-step-num">{step.number}</span>
                 )}
               </span>
               <div className="case-step-text">
-                <strong className="case-step-title">{step.label}</strong>
-                <small className="case-step-sub">{step.subLabel}</small>
+                <strong className="case-step-title">{step.name}</strong>
+                <small className="case-step-sub">{step.subText}</small>
               </div>
             </div>
           );
@@ -113,7 +102,7 @@ export function CaseStepper({
           return (
             <div key={step.key} className={className}>
               {step.isLocked ? (
-                <div className="case-step-link disabled" title="需完成前置步骤解锁">
+                <div className="case-step-link disabled" title="需先完成前置阶段">
                   {content}
                 </div>
               ) : (
@@ -125,6 +114,17 @@ export function CaseStepper({
             </div>
           );
         })}
+
+        {/* 独立决策战报出口 */}
+        <div className="case-step-report-entry">
+          <Link
+            href={`/cases/${caseId}/report`}
+            className={`case-report-btn ${pathname.startsWith(`/cases/${caseId}/report`) ? "active" : ""}`}
+            title="查看或打印立项决策评审战报 (A4 PDF)"
+          >
+            <span>🖨️ 决策战报</span>
+          </Link>
+        </div>
       </div>
     </nav>
   );

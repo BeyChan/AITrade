@@ -5,6 +5,7 @@ import { useState } from "react";
 import type { CompetitorComparisonReport } from "@/lib/competitor-compare/types";
 import type { EnrichedCase, SourcingCaseSummary } from "@/lib/types";
 import { money, percent } from "@/lib/format";
+import { deriveCaseStage } from "@/lib/case-stage";
 
 export type AttentionTask = {
   label: string;
@@ -45,42 +46,50 @@ export function DashboardPipelineKanban({
     (r) => r.marketCode === marketCode && r.platformCode === platformCode && !r.promotedCaseId,
   );
 
-  // 严格互斥状态机：过滤已否决案卷，确保每个商品案卷在 Stage 2~5 有且仅归属于一个唯一阶段
+  // 严格互斥状态机：过滤已否决案卷，通过单一真源 deriveCaseStage 归类至唯一阶段
   const activeCases = cases.filter((c) => c.status !== "rejected");
 
-  // 2. 寻源询价阶段：已立项但尚无任何 1688/源头工厂报价
-  const stage2Items = activeCases.filter((c) => {
-    const s = sourcingMap.get(c.id);
-    return c.status === "approved" && (!s || s.quoteCount === 0);
-  });
+  const stageMap = new Map(
+    activeCases.map((c) => {
+      const s = sourcingMap.get(c.id);
+      const stage = deriveCaseStage({
+        caseId: c.id,
+        status: c.status,
+        quoteCount: s?.quoteCount ?? 0,
+        hasSelection: Boolean(s?.selection),
+        hasApprovedContent: Boolean(c.hasApprovedContent),
+      });
+      return [c.id, stage];
+    }),
+  );
 
-  // 3. 财务与立项核准阶段：待立项评审 (review_pending) 或 已有多家报价但尚未定标决标
-  const stage3Items = activeCases.filter((c) => {
-    const s = sourcingMap.get(c.id);
-    if (c.status === "review_pending") return true;
-    return c.status === "approved" && s && s.quoteCount > 0 && !s.selection;
-  });
+  // 2. 寻源询价阶段
+  const stage2Items = activeCases.filter((c) => stageMap.get(c.id)?.key === "stage2_sourcing");
 
-  // 4. 内容制作打磨阶段：已定标供应商，但 Listing 尚未通过人工内容终审 (content_approved)
-  const stage4Items = activeCases.filter((c) => {
-    const s = sourcingMap.get(c.id);
-    const hasSelectedSupplier = Boolean(s?.selection);
-    return c.status === "approved" && hasSelectedSupplier && !c.hasApprovedContent;
-  });
+  // 3. 财务核准阶段
+  const stage3Items = activeCases.filter((c) => stageMap.get(c.id)?.key === "stage3_financial");
 
-  // 5. 渠道就绪阶段：已定标工厂且真实通过人工内容终审 (hasApprovedContent = true)，具备 Flat File 导出与发布资格
-  const stage5Items = activeCases.filter((c) => {
-    const s = sourcingMap.get(c.id);
-    const hasSelectedSupplier = Boolean(s?.selection);
-    return c.status === "approved" && hasSelectedSupplier && Boolean(c.hasApprovedContent);
-  });
+  // 4. 内容打磨阶段
+  const stage4Items = activeCases.filter((c) => stageMap.get(c.id)?.key === "stage4_content");
 
-  // 将外层待办精准映射到各业务阶段列头（优先通过显式 stage 属性强类型匹配）
-  const taskMap = new Map((attentionTasks || []).map((t) => [t.label, t]));
-  const stage1Task = attentionTasks.find((t) => t.stage === "stage1") || taskMap.get("待确认 AI 提案") || taskMap.get("待补证据");
-  const stage2Task = attentionTasks.find((t) => t.stage === "stage2") || taskMap.get("待录入报价") || taskMap.get("待审 RFQ 草稿");
-  const stage3Task = attentionTasks.find((t) => t.stage === "stage3") || taskMap.get("待决策门禁") || taskMap.get("待对比定标");
-  const stage4Task = attentionTasks.find((t) => t.stage === "stage4") || taskMap.get("待制作内容");
+  // 5. 渠道就绪阶段
+  const stage5Items = activeCases.filter((c) => stageMap.get(c.id)?.key === "stage5_channels");
+
+  // 将外层待办精准映射到各业务阶段列头（纯强类型 stage 匹配，杜绝字符串 fallback 漂移）
+  const stage1Task = attentionTasks.find((t) => t.stage === "stage1");
+  const stage2Task = attentionTasks.find((t) => t.stage === "stage2");
+  const stage3Task = attentionTasks.find((t) => t.stage === "stage3");
+  const stage4Task = attentionTasks.find((t) => t.stage === "stage4");
+  const stage5Task = stage5Items.length > 0
+    ? {
+        label: "可导出官方 Flat File",
+        value: stage5Items.length,
+        detail: "已通过终审，可导出亚马逊批量上传模板至后台发布",
+        href: `/cases/${stage5Items[0].id}/channels`,
+        action: "去导出",
+        stage: "stage5" as const,
+      }
+    : undefined;
 
   const columns = [
     {
@@ -92,6 +101,7 @@ export function DashboardPipelineKanban({
       focusTask: stage1Task,
       badgeColor: "#3766a6",
       badgeBg: "#e8f0fc",
+      viewAllHref: "/competitors",
       items: stage1Items.slice(0, 6).map((r) => ({
         id: r.id,
         title: r.title,
@@ -112,6 +122,7 @@ export function DashboardPipelineKanban({
       focusTask: stage2Task,
       badgeColor: "#a96610",
       badgeBg: "#fff3d9",
+      viewAllHref: "/sourcing",
       items: stage2Items.slice(0, 6).map((c) => ({
         id: c.id,
         title: c.title,
@@ -132,6 +143,7 @@ export function DashboardPipelineKanban({
       focusTask: stage3Task,
       badgeColor: "#9333ea",
       badgeBg: "#f3e8ff",
+      viewAllHref: "/#opportunities",
       items: stage3Items.slice(0, 6).map((c) => {
         const res = c.costModel?.results;
         return {
@@ -155,6 +167,7 @@ export function DashboardPipelineKanban({
       focusTask: stage4Task,
       badgeColor: "#1f7a55",
       badgeBg: "#e2f5ea",
+      viewAllHref: "/content",
       items: stage4Items.slice(0, 6).map((c) => ({
         id: c.id,
         title: c.title,
@@ -170,25 +183,26 @@ export function DashboardPipelineKanban({
       id: "stage5",
       stepNum: "5",
       title: "渠道就绪",
-      subtitle: "合规检测 · 渠道推送",
+      subtitle: "Flat File · 本地预检",
       count: stage5Items.length,
-      focusTask: undefined,
+      focusTask: stage5Task,
       badgeColor: "#10251c",
       badgeBg: "#dfe6e0",
+      viewAllHref: "/content",
       items: stage5Items.slice(0, 6).map((c) => ({
         id: c.id,
         title: c.title,
-        tag: "SP-API / CSV",
+        tag: "Flat File 就绪",
         metricLabel: "置信度",
         metricVal: `${c.evidence_score}%`,
-        href: `/content`,
-        actionText: "查看上架矩阵 →",
+        href: `/cases/${c.id}/channels`,
+        actionText: "批量导出 Flat File →",
       })),
       emptyText: "暂无已完成准备的商品",
     },
   ];
 
-  const totalActive = stage1Items.length + stage2Items.length + stage3Items.length + stage4Items.length + stage5Items.length;
+  const totalActiveCases = stage2Items.length + stage3Items.length + stage4Items.length + stage5Items.length;
 
   return (
     <section className="panel" style={{ padding: "24px", marginBottom: "24px" }}>
@@ -209,7 +223,7 @@ export function DashboardPipelineKanban({
               LIFECYCLE PIPELINE · 操盘手业务大盘
             </span>
             <span className="badge badge-success" style={{ fontSize: "11px", margin: 0, lineHeight: 1, display: "inline-flex", alignItems: "center" }}>
-              活跃管道: {totalActive} 项
+              活跃管道: {totalActiveCases} 项
             </span>
           </div>
           <h2 style={{ margin: "2px 0 0 0", fontSize: "18px", color: "var(--ink)", fontWeight: 800 }}>
@@ -482,6 +496,29 @@ export function DashboardPipelineKanban({
                   >
                     {col.emptyText}
                   </div>
+                )}
+
+                {/* 数量超过展示上限时提供全部项目直达 */}
+                {col.count > col.items.length && (
+                  <Link
+                    href={col.viewAllHref}
+                    style={{
+                      display: "block",
+                      textAlign: "center",
+                      padding: "8px 10px",
+                      borderRadius: "6px",
+                      background: "#edf4ef",
+                      color: "var(--green)",
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      textDecoration: "none",
+                      border: "1px dashed #c0dcce",
+                      transition: "all 0.15s ease",
+                      marginTop: "2px",
+                    }}
+                  >
+                    查看全部 {col.count} 个项目 →
+                  </Link>
                 )}
               </div>
             </div>

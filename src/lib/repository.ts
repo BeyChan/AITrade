@@ -227,19 +227,29 @@ export async function getCaseDetail(caseId: string): Promise<CaseDetail | null> 
   const productCase = productCases.rows[0];
   if (!productCase) return null;
 
-  const [costs, evidence, selections, audits] = await Promise.all([
+  const [costs, evidence, selections, audits, quotes, approvedListings] = await Promise.all([
     db.query<CostModelRow>("SELECT * FROM cost_models WHERE case_id = $1 ORDER BY version DESC LIMIT 1", [caseId]),
     db.query<EvidenceRow>("SELECT * FROM case_evidence WHERE case_id = $1 ORDER BY captured_at DESC", [caseId]),
     db.query<{ id: string }>("SELECT id FROM supplier_selections WHERE case_id = $1 LIMIT 1", [caseId]),
     db.query<AuditRow>("SELECT * FROM audit_logs WHERE entity_type = 'product_case' AND entity_id = $1 ORDER BY created_at DESC LIMIT 12", [
       caseId,
     ]),
+    db.query<{ count: string }>(
+      "SELECT COUNT(*)::text as count FROM quotes q JOIN rfqs r ON r.id = q.rfq_id WHERE r.case_id = $1",
+      [caseId],
+    ),
+    db.query<{ id: string }>(
+      "SELECT id FROM listings WHERE case_id = $1 AND (status = 'content_approved' OR status = 'published') LIMIT 1",
+      [caseId],
+    ),
   ]);
 
   return {
     productCase,
     costModel: costs.rows[0] ?? null,
     hasSupplierSelection: Boolean(selections.rows[0]),
+    quoteCount: Number(quotes.rows[0]?.count ?? 0),
+    hasApprovedContent: Boolean(approvedListings.rows[0]),
     evidence: evidence.rows,
     auditLogs: audits.rows,
   };
