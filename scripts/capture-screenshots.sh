@@ -31,6 +31,7 @@ firstCaseId="${FIRST_CASE_ID:-e237c6bd-1dc6-4602-9ff5-ada329fb1c59}"
 # 输出文件名 | 路由。
 shots=(
   "aitrade-workspace-sidebar.png|/"
+  "aitrade-cases.png|/cases"
   "aitrade-competitors.png|/competitors"
   "aitrade-report-pdf.png|/cases/${firstCaseId}/report"
   "aitrade-sourcing.png|/sourcing"

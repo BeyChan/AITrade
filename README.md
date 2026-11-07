@@ -4,6 +4,8 @@
 
 ![选品工作台 5 阶看板](docs/assets/aitrade-workspace-sidebar.png)
 
+![商品工作台案卷总库](docs/assets/aitrade-cases.png)
+
 ![竞品对比工作台](docs/assets/aitrade-competitors.png)
 
 ![立项决策评审报告与 PDF 导出](docs/assets/aitrade-report-pdf.png)
