@@ -83,6 +83,18 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const dashboardReturnPath = `/?${siteQuery}`;
   const researchRequestKey = randomUUID();
 
+  // 宏观商业经营指标计算
+  const casesWithMargin = approvedCases.filter((item) => item.costModel?.results?.marginRate != null);
+  const avgMarginRate = casesWithMargin.length
+    ? casesWithMargin.reduce((sum, item) => sum + (item.costModel?.results?.marginRate ?? 0), 0) / casesWithMargin.length
+    : 0;
+
+  const totalMonthlyMarginCents = approvedCases.reduce((sum, item) => {
+    const profit = item.costModel?.results?.netProfitCents ?? 0;
+    const sales = item.monthly_sales_estimate || 0;
+    return sum + profit * sales;
+  }, 0);
+
   const attentionTasks = [
     ...(proposals.total > 0 ? [{
       label: "待确认 AI 提案",
@@ -156,6 +168,11 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             <span>当前工作区</span>
             <strong>{siteLabel}</strong>
             <small>{selectedMarket.currency}</small>
+            {demoCount > 0 ? (
+              <span className="dashboard-demo-badge" title="当前工作区包含演示样板数据">
+                DEMO 样板 ({demoCount})
+              </span>
+            ) : null}
           </div>
           <h1>今天先处理什么</h1>
           <p>
@@ -195,12 +212,78 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       {query.notice ? <div className="notice"><strong>已完成：</strong>{query.notice}</div> : null}
       {query.error ? <div className="notice warn"><strong>未完成：</strong>{query.error}</div> : null}
 
-      {demoCount > 0 ? (
-        <div className="dashboard-demo-note" style={{ marginBottom: "16px" }}>
-          <span className="badge demo-badge">演示数据</span>
-          <span>当前站点包含 {demoCount} 个演示商品，仅用于验证流程，不代表真实市场结论。</span>
-        </div>
-      ) : null}
+      {/* 宏观商业大盘 KPI 四联卡片 */}
+      <section className="dashboard-kpi-grid" aria-label="大盘核心经营指标">
+        <article className="dashboard-kpi-card">
+          <div className="kpi-meta">
+            <span className="kpi-label">推进中商品</span>
+            <span className="kpi-tag tag-blue">Pipeline</span>
+          </div>
+          <div className="kpi-value-row">
+            <strong className="kpi-value">{approvedCases.length}</strong>
+            <span className="kpi-unit">款</span>
+          </div>
+          <div className="kpi-sub">
+            {batchGoCount > 0 ? (
+              <span><strong>{batchGoCount}</strong> 款待立项决策</span>
+            ) : (
+              <span>全部在办品正常流转中</span>
+            )}
+          </div>
+        </article>
+
+        <article className="dashboard-kpi-card">
+          <div className="kpi-meta">
+            <span className="kpi-label">测算预期月毛利</span>
+            <span className="kpi-tag tag-green">Projected</span>
+          </div>
+          <div className="kpi-value-row">
+            <strong className={`kpi-value ${totalMonthlyMarginCents < 0 ? "negative" : ""}`}>
+              {totalMonthlyMarginCents > 0 ? money(totalMonthlyMarginCents) : "—"}
+            </strong>
+          </div>
+          <div className="kpi-sub">
+            <span>基于各品月销预估与确定性成本</span>
+          </div>
+        </article>
+
+        <article className="dashboard-kpi-card">
+          <div className="kpi-meta">
+            <span className="kpi-label">平均测算净利率</span>
+            <span className="kpi-tag tag-emerald">Margin</span>
+          </div>
+          <div className="kpi-value-row">
+            <strong className={`kpi-value ${casesWithMargin.length && avgMarginRate < 0.15 ? "warn" : ""}`}>
+              {casesWithMargin.length ? percent(avgMarginRate) : "—"}
+            </strong>
+          </div>
+          <div className="kpi-sub">
+            <span>
+              {casesWithMargin.length
+                ? avgMarginRate >= 0.15
+                  ? "毛利结构健康 · 达到 15% 门禁"
+                  : "部分低毛利品 · 建议优化采购"
+                : "待建成本模型测算"}
+            </span>
+          </div>
+        </article>
+
+        <article className="dashboard-kpi-card">
+          <div className="kpi-meta">
+            <span className="kpi-label">今日待办事项</span>
+            <span className={`kpi-tag ${attentionTasks.length > 0 ? "tag-amber" : "tag-muted"}`}>
+              {attentionTasks.length > 0 ? "Action Required" : "All Clear"}
+            </span>
+          </div>
+          <div className="kpi-value-row">
+            <strong className="kpi-value">{attentionTasks.reduce((s, t) => s + t.value, 0)}</strong>
+            <span className="kpi-unit">项</span>
+          </div>
+          <div className="kpi-sub">
+            <a href="#pipeline-kanban" className="kpi-link">查看看板阶段分布 ↓</a>
+          </div>
+        </article>
+      </section>
 
       <div id="pipeline-kanban">
         <DashboardPipelineKanban
@@ -229,17 +312,45 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         </div>
 
         {recentCases.length === 0 ? (
-          <div className="empty-state">
-            <h3>{siteLabel}还没有已立项商品</h3>
-            <p>
-              {mode === "live"
-                ? "当前处于真实数据模式，暂无已立项真实商品。您可以导入候选品、启动选品研究，或随时在左下角开启「模拟沙盒」体验演示数据。"
-                : "先完成一轮证据与报价验证；只有确定性 GO 才能转入商品立项。"}
-            </p>
-            <div className="dashboard-empty-actions">
-              <Link href={newResearchHref} className="button primary">新建选品研究</Link>
-              <Link href={importHref} className="button secondary">导入候选品</Link>
-            </div>
+          <div className="empty-state dashboard-onboarding-empty">
+            {mode === "live" ? (
+              <div className="onboarding-guide">
+                <div className="onboarding-header">
+                  <span className="badge badge-success">真实生产模式</span>
+                  <h3>{siteLabel} 暂无真实立项商品</h3>
+                  <p>您已切入真实数据模式，当前彻底隔离演示样本。通过以下 3 步开始真实跨境业务流转：</p>
+                </div>
+                <div className="onboarding-steps">
+                  <div className="onboarding-step-card">
+                    <span className="step-num">1</span>
+                    <strong>导入竞品与候选品</strong>
+                    <p>上传已调研的 ASIN 竞品清单或线下整理的 CSV 选品数据表</p>
+                    <Link href={importHref} className="button secondary">去导入数据 →</Link>
+                  </div>
+                  <div className="onboarding-step-card">
+                    <span className="step-num">2</span>
+                    <strong>发起 AI 选品研究</strong>
+                    <p>针对具体类目输入门槛条件，生成 5 个经证伪推演的候选方向</p>
+                    <Link href={newResearchHref} className="button primary">新建选品研究 →</Link>
+                  </div>
+                  <div className="onboarding-step-card">
+                    <span className="step-num">3</span>
+                    <strong>随时查看演示样板</strong>
+                    <p>如需复习全生命周期流程，可在左下角侧边栏随时切回「演示模式」</p>
+                    <Link href="/connections" className="button ghost">检查店铺连接 →</Link>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <>
+                <h3>{siteLabel}还没有已立项商品</h3>
+                <p>先完成一轮证据与报价验证；只有确定性 GO 才能转入商品立项。</p>
+                <div className="dashboard-empty-actions">
+                  <Link href={newResearchHref} className="button primary">新建选品研究</Link>
+                  <Link href={importHref} className="button secondary">导入候选品</Link>
+                </div>
+              </>
+            )}
           </div>
         ) : (
           <div className="dashboard-product-list">
