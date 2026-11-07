@@ -170,27 +170,20 @@ export function DashboardPipelineKanban({
         }}
       >
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <span className="eyebrow" style={{ color: "var(--green)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
+            <span className="eyebrow" style={{ color: "var(--green)", margin: 0, lineHeight: 1 }}>
               LIFECYCLE PIPELINE · 操盘手业务大盘
             </span>
-            <span className="badge badge-success" style={{ fontSize: "11px" }}>
+            <span className="badge badge-success" style={{ fontSize: "11px", margin: 0, lineHeight: 1, display: "inline-flex", alignItems: "center" }}>
               活跃管道: {totalActive} 项
             </span>
           </div>
-          <h2 style={{ margin: "4px 0 0 0", fontSize: "18px", color: "var(--ink)", fontWeight: 800 }}>
+          <h2 style={{ margin: "2px 0 0 0", fontSize: "18px", color: "var(--ink)", fontWeight: 800 }}>
             全生命周期业务推进看板 ({marketCode} 站 · {platformCode.toUpperCase()})
           </h2>
         </div>
 
         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-          <Link
-            href="/competitors"
-            className="button secondary"
-            style={{ fontSize: "12px", padding: "6px 12px", height: "34px", borderRadius: "8px" }}
-          >
-            + 录入竞品对比
-          </Link>
           <div
             style={{
               display: "inline-flex",

@@ -27,6 +27,8 @@ import {
 import { money, moneyIn, shortDate } from "@/lib/format";
 import { emptyListingContent, normalizeListingContent, preflightListing } from "@/lib/listing";
 import { getContentDetail } from "@/lib/repository";
+import { ComplianceRadarCard } from "@/components/compliance-radar-card";
+import { scanListingCompliance } from "@/lib/compliance-radar";
 
 export const dynamic = "force-dynamic";
 
@@ -78,6 +80,14 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
   const latestHumanReview = listingReviews.find((review) => review.review_type === "human_content_review") ?? null;
   const contentApproved = listing?.status === "content_approved";
   const canApprove = Boolean(listing && preflight?.passed && approvedImages.length && !contentApproved);
+
+  const complianceRadar = scanListingCompliance({
+    brand: content.brand,
+    title: content.title,
+    bullets: effectiveBullets,
+    description: content.description,
+    searchTerms: content.searchTerms,
+  });
 
   return (
     <div className="page">
@@ -174,6 +184,8 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
                 profile={profile}
                 draftText={[content.title, ...content.bullets, content.description].join(" ")}
               />
+
+              <ComplianceRadarCard radar={complianceRadar} />
 
               <section className="section">
                 <div className="section-header">

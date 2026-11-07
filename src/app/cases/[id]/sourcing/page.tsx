@@ -4,6 +4,7 @@ import { createSupplierQuoteAction, selectSupplierQuoteAction } from "@/app/acti
 import { StatusBadge } from "@/components/badges";
 import { money, percent, shortDate } from "@/lib/format";
 import { getSourcingDetail } from "@/lib/repository";
+import { SupplierMatrixPk } from "@/components/supplier-matrix-pk";
 
 export const dynamic = "force-dynamic";
 
@@ -105,6 +106,18 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
           </div>
         </section>
       ) : null}
+
+      <SupplierMatrixPk
+        caseId={productCase.id}
+        marketplace={productCase.marketplace}
+        currency={productCase.marketplace === "AU" ? "AUD" : "USD"}
+        quotes={quotes}
+        scoredQuotes={scoredQuotes}
+        selectedQuoteId={selection?.quote_id ?? null}
+        canSource={canSource}
+        onSelectAction={selectSupplierQuoteAction}
+        onCreate1688Action={createSupplierQuoteAction}
+      />
 
       <section className="section">
         <div className="section-header">
