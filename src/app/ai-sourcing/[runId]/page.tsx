@@ -24,6 +24,7 @@ import {
   rejectSupplierCandidateAction,
   selectHypothesisAction,
   shortlistSupplierCandidateAction,
+  toggleValidationTaskAction,
 } from "@/app/actions";
 import {
   getAISourcingBatch,
@@ -462,22 +463,157 @@ function HypothesisCard({
             <section className="ai-validation-summary">
               <div className="ai-validation-summary-head">
                 <div>
-                  <span className="eyebrow">验证任务</span>
+                  <span className="eyebrow">验证任务 · 商业核验清单</span>
                   <h3>{hypothesis.counts.completedTasks} / {hypothesis.counts.totalTasks} 项任务完成</h3>
                 </div>
                 <span className="info-pill">{hypothesis.counts.competitors} 竞品 · {hypothesis.counts.reviewSamples} 差评样本</span>
               </div>
+
+              {/* 任务推进与完成指引 */}
+              <div
+                style={{
+                  padding: "10px 14px",
+                  borderRadius: "8px",
+                  background: "#f0f7f2",
+                  border: "1px solid #d4e8db",
+                  marginBottom: "12px",
+                  fontSize: "12px",
+                  lineHeight: "1.6",
+                }}
+              >
+                <div style={{ fontWeight: 700, color: "var(--green)", display: "flex", alignItems: "center", gap: "6px", marginBottom: "4px" }}>
+                  <span>💡</span>
+                  <span>如何一步步完成这 8 项验证任务？</span>
+                </div>
+                <div style={{ color: "#374151" }}>
+                  <strong>① 单独勾选完成：</strong>线下或第三方已完成的核验（如已做样品实测、已查专利），点击任务右侧<strong>「标记完成」</strong>或左侧<strong>○</strong>即可单独完成。<br />
+                  <strong>② 数据达标自动完成：</strong>在下方录入真实竞品（≥20项）、差评（≥50项）、供应商（≥10家）、真实报价（≥3份），系统检测达标后将自动点亮完成。<br />
+                  <strong>③ 门禁联动：</strong>任务完成度与真实证据链共同决定 <strong>GO / HOLD 门禁</strong>，门禁达标后方可转入正式商品立项。
+                </div>
+              </div>
+
               <div className="ai-task-list">
-                {hypothesis.tasks.map((task) => (
-                  <div className={`ai-task ${task.status === "done" ? "done" : ""}`} key={task.id}>
-                    <span className="ai-task-check">{task.status === "done" ? "✓" : "·"}</span>
-                    <div>
-                      <strong>{task.title}</strong>
-                      <p>{task.description}</p>
+                {hypothesis.tasks.map((task) => {
+                  const isDone = task.status === "done";
+                  const taskActionMap: Record<string, { href?: string; label?: string }> = {
+                    competitor_scan: { href: `#competitor-entry-${hypothesis.id}`, label: "去录竞品" },
+                    review_research: { href: `#entry-review-${hypothesis.id}`, label: "去录差评" },
+                    supplier_shortlist: { href: `#supplier-discovery-${hypothesis.id}`, label: "去寻源" },
+                    rfq_draft: { href: `#supplier-discovery-${hypothesis.id}`, label: "询盘草稿" },
+                    quote_collection: { href: `#supplier-quote-${hypothesis.id}`, label: "去录报价" },
+                    patent_check: { href: `#entry-patent-${hypothesis.id}`, label: "录入合规" },
+                    logistics_check: { href: `#entry-logistics-${hypothesis.id}`, label: "录入物流" },
+                  };
+                  const quickAction = taskActionMap[task.taskType];
+
+                  return (
+                    <div
+                      className={`ai-task ${isDone ? "done" : ""}`}
+                      key={task.id}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "26px minmax(0, 1fr) auto",
+                        gap: "10px",
+                        alignItems: "center",
+                        padding: "10px 12px",
+                        border: isDone ? "1px solid #b7dfc6" : "1px solid #e2e8e3",
+                        borderRadius: "10px",
+                        background: isDone ? "#f4faf6" : "#ffffff",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      <form action={toggleValidationTaskAction} style={{ margin: 0 }}>
+                        <input type="hidden" name="taskId" value={task.id} />
+                        <input type="hidden" name="runId" value={batch.id} />
+                        <input type="hidden" name="hypothesisId" value={hypothesis.id} />
+                        <input type="hidden" name="status" value={isDone ? "todo" : "done"} />
+                        <button
+                          type="submit"
+                          className="ai-task-check"
+                          style={{
+                            cursor: "pointer",
+                            border: isDone ? "1.5px solid var(--green)" : "1.5px solid #c9d5cc",
+                            borderRadius: "50%",
+                            width: "24px",
+                            height: "24px",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            background: isDone ? "var(--green)" : "#ffffff",
+                            color: isDone ? "#ffffff" : "#7b8e81",
+                            fontSize: "12px",
+                            fontWeight: 700,
+                            transition: "all 0.15s ease",
+                          }}
+                          title={isDone ? "已完成（点击单独取消完成）" : "点击单独标记为已完成"}
+                        >
+                          {isDone ? "✓" : "○"}
+                        </button>
+                      </form>
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <strong style={{ fontSize: "12.5px", fontWeight: 600, color: isDone ? "var(--green)" : "var(--ink)" }}>
+                            {task.title}
+                          </strong>
+                          {task.targetCount ? (
+                            <span className="badge badge-neutral" style={{ fontSize: "10px", padding: "1px 6px" }}>
+                              目标: {task.targetCount}
+                            </span>
+                          ) : null}
+                          {isDone ? (
+                            <span className="badge badge-success" style={{ fontSize: "10px", padding: "1px 6px" }}>
+                              已达成
+                            </span>
+                          ) : null}
+                        </div>
+                        <p style={{ fontSize: "11px", margin: "3px 0 0", color: "var(--muted)", lineHeight: "1.45" }}>
+                          {task.description}
+                        </p>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        {quickAction?.href ? (
+                          <a
+                            href={quickAction.href}
+                            className="button ghost"
+                            style={{
+                              fontSize: "11px",
+                              padding: "4px 8px",
+                              height: "auto",
+                              whiteSpace: "nowrap",
+                              color: "var(--muted)",
+                            }}
+                          >
+                            {quickAction.label} ↓
+                          </a>
+                        ) : null}
+                        <form action={toggleValidationTaskAction} style={{ margin: 0 }}>
+                          <input type="hidden" name="taskId" value={task.id} />
+                          <input type="hidden" name="runId" value={batch.id} />
+                          <input type="hidden" name="hypothesisId" value={hypothesis.id} />
+                          <input type="hidden" name="status" value={isDone ? "todo" : "done"} />
+                          <button
+                            type="submit"
+                            className={`button ${isDone ? "ghost" : "secondary"}`}
+                            style={{
+                              fontSize: "11px",
+                              padding: "4px 10px",
+                              height: "auto",
+                              fontWeight: 600,
+                              color: isDone ? "var(--green)" : "var(--ink)",
+                              borderColor: isDone ? "var(--green)" : undefined,
+                              background: isDone ? "rgba(40, 167, 69, 0.08)" : undefined,
+                              whiteSpace: "nowrap",
+                              cursor: "pointer",
+                            }}
+                            title={isDone ? "点击取消完成" : "点击单独标记为已完成"}
+                          >
+                            {isDone ? "✓ 已完成" : "标记完成"}
+                          </button>
+                        </form>
+                      </div>
                     </div>
-                    <span className="badge badge-neutral">{task.status === "done" ? "完成" : `${task.targetCount} 项`}</span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </section>
 
@@ -788,7 +924,7 @@ function SupplierDiscoveryWorkspace({
         ))}
       </div>
 
-      <section className="ai-supplier-discovery">
+      <section className="ai-supplier-discovery" id={`supplier-discovery-${hypothesis.id}`}>
         <div className="ai-supplier-discovery-head">
           <div>
             <strong>① 选择搜索方向</strong>
@@ -1261,7 +1397,7 @@ function SupplierAssistantPanel({
 function EvidenceEntryForms({ hypothesisId, runId, observedAt }: { hypothesisId: string; runId: string; observedAt: string }) {
   return (
     <>
-      <details className="entry-panel card ai-entry-panel">
+      <details className="entry-panel card ai-entry-panel" id={`entry-review-${hypothesisId}`}>
         <summary><span><strong>录入差评证据</strong><small>样本数 + 原文摘录 + 来源链接</small></span><span>＋</span></summary>
         <form action={recordOpportunityEvidenceAction} className="entry-form form-grid">
           <input type="hidden" name="runId" value={runId} />
@@ -1285,7 +1421,7 @@ function EvidenceEntryForms({ hypothesisId, runId, observedAt }: { hypothesisId:
         </form>
       </details>
 
-      <details className="entry-panel card ai-entry-panel">
+      <details className="entry-panel card ai-entry-panel" id={`entry-patent-${hypothesisId}`}>
         <summary><span><strong>录入专利风险</strong><small>人工检索结果，不生成法律结论</small></span><span>＋</span></summary>
         <form action={recordOpportunityEvidenceAction} className="entry-form form-grid">
           <input type="hidden" name="runId" value={runId} />
@@ -1299,7 +1435,7 @@ function EvidenceEntryForms({ hypothesisId, runId, observedAt }: { hypothesisId:
         </form>
       </details>
 
-      <details className="entry-panel card ai-entry-panel">
+      <details className="entry-panel card ai-entry-panel" id={`entry-logistics-${hypothesisId}`}>
         <summary><span><strong>录入物流风险</strong><small>包装、体积重、限制与退货</small></span><span>＋</span></summary>
         <form action={recordOpportunityEvidenceAction} className="entry-form form-grid">
           <input type="hidden" name="runId" value={runId} />

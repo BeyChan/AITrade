@@ -45,9 +45,19 @@ export function SiteScopeSwitcher({
   }, [selectedPlatform]);
 
   function changeScope(nextMarket: string, nextPlatform: string) {
-    const params = new URLSearchParams({ market: nextMarket, platform: nextPlatform });
+    try {
+      document.cookie = `aitrade_site_market=${encodeURIComponent(nextMarket)}; path=/; max-age=31536000; SameSite=Lax`;
+      document.cookie = `aitrade_site_platform=${encodeURIComponent(nextPlatform)}; path=/; max-age=31536000; SameSite=Lax`;
+      localStorage.setItem("aitrade_site_market", nextMarket);
+      localStorage.setItem("aitrade_site_platform", nextPlatform);
+    } catch {}
+
+    const currentParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
+    currentParams.set("market", nextMarket);
+    currentParams.set("platform", nextPlatform);
     startTransition(() => {
-      router.push(`${pathname}?${params.toString()}`, { scroll: false });
+      router.push(`${pathname}?${currentParams.toString()}`, { scroll: false });
+      router.refresh();
     });
   }
 

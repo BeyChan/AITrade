@@ -9,6 +9,7 @@ import { GlobalSearch } from "@/components/global-search";
 import { getAppMode } from "@/lib/app-mode";
 import { getSiteOptions } from "@/lib/repository";
 import { loadWorkContext } from "@/lib/work-context";
+import { resolvePersistedSiteScope } from "@/lib/site-scope";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -19,10 +20,11 @@ export const metadata: Metadata = {
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   // PGlite is process-local and must not be opened by parallel build workers.
   await connection();
-  const [options, workContext, mode] = await Promise.all([
+  const [options, workContext, mode, persistedScope] = await Promise.all([
     getSiteOptions(),
     loadWorkContext().catch(() => []),
     getAppMode(),
+    resolvePersistedSiteScope(),
   ]);
   const markets = options.markets.map(({ code, name, currency }) => ({ code, name, currency }));
   const platforms = options.platforms.map(({ code, name }) => ({ code, name }));
@@ -38,7 +40,12 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
             <SandboxBanner mode={mode} />
             <header className="topbar">
               <Suspense fallback={<div className="topbar-inner" />}>
-                <TopbarSiteScope markets={markets} platforms={platforms} />
+                <TopbarSiteScope
+                  markets={markets}
+                  platforms={platforms}
+                  defaultMarket={persistedScope.marketCode}
+                  defaultPlatform={persistedScope.platformCode}
+                />
               </Suspense>
               <WorkContextBar items={workContext} />
             </header>

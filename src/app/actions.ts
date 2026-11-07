@@ -31,6 +31,7 @@ import {
   rejectSupplierCandidate,
   selectHypothesisForValidation,
   shortlistSupplierCandidate,
+  toggleValidationTaskStatus,
 } from "@/lib/ai-sourcing-repository";
 import {
   approveChannelLaunchQueue,
@@ -279,6 +280,30 @@ export async function selectHypothesisAction(formData: FormData) {
   }
   revalidateAISourcing(runId);
   redirect(aiSourcingDetailPath(runId, "notice", "已开始找供应商并生成 8 项验证任务；系统不会自动联系供应商"));
+}
+
+export async function toggleValidationTaskAction(formData: FormData) {
+  const taskId = String(formData.get("taskId") || "");
+  const runId = String(formData.get("runId") || "");
+  const hypothesisId = String(formData.get("hypothesisId") || "");
+  const status = formData.get("status") ? (String(formData.get("status")) as "done" | "todo") : undefined;
+  const actor = String(formData.get("actor") || "运营人员");
+
+  let resultStatus = "已更新";
+  let targetHypothesisId = hypothesisId;
+  try {
+    const res = await toggleValidationTaskStatus(taskId, status, actor);
+    resultStatus = res?.status === "done" ? "已完成" : "待处理";
+    if (res?.hypothesisId) {
+      targetHypothesisId = res.hypothesisId;
+    }
+  } catch (error) {
+    redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
+  }
+  revalidateAISourcing(runId);
+  const hash = targetHypothesisId ? `#hypothesis-${encodeURIComponent(targetHypothesisId)}` : "";
+  const tabParam = targetHypothesisId ? `&tab=hypotheses&hypothesisId=${encodeURIComponent(targetHypothesisId)}` : "";
+  redirect(`/ai-sourcing/${encodeURIComponent(runId)}?notice=${encodeURIComponent(`验证任务状态已更新为「${resultStatus}」`)}${tabParam}${hash}`);
 }
 
 export async function recordOpportunityEvidenceAction(formData: FormData) {

@@ -940,6 +940,35 @@ export async function selectHypothesisForValidation(hypothesisId: string, actor:
   await refreshAISelectionDecision(hypothesisId);
 }
 
+export async function toggleValidationTaskStatus(
+  taskId: string,
+  requestedStatus?: "done" | "todo",
+  actor = "运营人员",
+) {
+  const db = await getDb();
+  const res = await db.query<{ id: string; status: string; hypothesis_id: string; title: string }>(
+    "SELECT id, status, hypothesis_id, title FROM validation_tasks WHERE id = $1",
+    [taskId],
+  );
+  const task = res.rows[0];
+  if (!task) throw new Error("验证任务不存在");
+
+  const nextStatus = requestedStatus ?? (task.status === "done" ? "todo" : "done");
+  await db.query(
+    "UPDATE validation_tasks SET status = $1, updated_at = NOW() WHERE id = $2",
+    [nextStatus, taskId],
+  );
+
+  await db.query(
+    `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
+     VALUES ($1, $2, 'ai_sourcing.task_status_changed', 'validation_task', $3, $4::jsonb)`,
+    [randomUUID(), actor, taskId, JSON.stringify({ title: task.title, status: nextStatus })],
+  );
+
+  await refreshAISelectionDecision(task.hypothesis_id);
+  return { id: taskId, status: nextStatus, hypothesisId: task.hypothesis_id };
+}
+
 export async function confirmHypothesisPrice(input: {
   hypothesisId: string;
   priceCents: number;

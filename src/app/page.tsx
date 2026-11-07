@@ -14,6 +14,7 @@ import { TerminateCaseControl } from "@/components/case-lifecycle-controls";
 import { TerminatedCasesPanel } from "@/components/terminated-cases-panel";
 import { DashboardPipelineKanban } from "@/components/dashboard-pipeline-kanban";
 import { getComparisonReports } from "@/lib/competitor-compare/storage";
+import { resolvePersistedSiteScope } from "@/lib/site-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -29,14 +30,14 @@ type PageProps = {
 
 export default async function DashboardPage({ searchParams }: PageProps) {
   const [query, options, mode] = await Promise.all([searchParams, getSiteOptions(), getAppMode()]);
-  const requestedMarket = query.market?.trim().toUpperCase();
-  const requestedPlatform = query.platform?.trim().toLowerCase();
+  const siteScope = await resolvePersistedSiteScope(query.market, query.platform);
+
   const selectedMarket =
-    options.markets.find((market) => market.code === requestedMarket) ??
+    options.markets.find((market) => market.code === siteScope.marketCode) ??
     options.markets.find((market) => market.code === "US") ??
     options.markets[0];
   const selectedPlatform =
-    options.platforms.find((platform) => platform.code === requestedPlatform) ??
+    options.platforms.find((platform) => platform.code === siteScope.platformCode) ??
     options.platforms.find((platform) => platform.code === "amazon") ??
     options.platforms[0];
 

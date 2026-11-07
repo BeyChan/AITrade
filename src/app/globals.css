@@ -4554,50 +4554,67 @@ tbody tr:last-child td {
 
 .ai-task-list {
   display: grid;
-  gap: 6px;
+  gap: 8px;
 }
 
 .ai-task {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto;
-  gap: 9px;
-  align-items: start;
-  padding: 9px 10px;
-  border: 1px solid #e8eee9;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  border: 1px solid #e2e8e3;
   border-radius: 10px;
   background: #fff;
+  transition: all 0.15s ease;
+}
+
+.ai-task:hover {
+  border-color: #c4d7c8;
 }
 
 .ai-task.done {
-  border-color: #cfe4d7;
-  background: #f7fcf8;
+  border-color: #b7dfc6;
+  background: #f4faf6;
 }
 
 .ai-task-check {
-  display: grid;
-  place-items: center;
-  width: 21px;
-  height: 21px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
-  color: var(--muted);
-  background: #edf1ee;
-  font-size: 11px;
-  font-weight: 900;
+  border: 1.5px solid #c9d5cc;
+  background: #fff;
+  color: #7b8e81;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ai-task-check:hover {
+  border-color: var(--green);
+  color: var(--green);
 }
 
 .ai-task.done .ai-task-check {
-  color: var(--green);
-  background: var(--green-soft);
+  border-color: var(--green);
+  background: var(--green);
+  color: #fff;
 }
 
 .ai-task strong {
-  font-size: 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
 .ai-task p {
   margin: 3px 0 0;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
@@ -7738,14 +7755,24 @@ tbody tr:last-child td {
 }
 
 .ai-inbox-guardrail {
-  border-color: #d9e8df;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
   background:
-    radial-gradient(circle at 100% 0, rgba(185, 242, 108, 0.14), transparent 13rem),
-    #f8fbf8;
+    radial-gradient(circle at 100% 0%, rgba(185, 242, 108, 0.15), transparent 15rem),
+    var(--deep) !important;
+  color: #ffffff !important;
 }
 
 .ai-inbox-guardrail h3 {
+  color: #ffffff !important;
   margin-bottom: 13px;
+}
+
+.ai-inbox-guardrail .eyebrow {
+  color: var(--lime) !important;
+}
+
+.ai-inbox-guardrail .guardrail-list li {
+  color: rgba(255, 255, 255, 0.88) !important;
 }
 
 .ai-inbox-ledger-note {

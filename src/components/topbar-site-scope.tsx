@@ -17,21 +17,31 @@ type PlatformOption = {
 type TopbarSiteScopeProps = {
   markets: MarketOption[];
   platforms: PlatformOption[];
+  defaultMarket?: string;
+  defaultPlatform?: string;
 };
 
-export function TopbarSiteScope({ markets, platforms }: TopbarSiteScopeProps) {
+export function TopbarSiteScope({
+  markets,
+  platforms,
+  defaultMarket = "US",
+  defaultPlatform = "amazon",
+}: TopbarSiteScopeProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const sectionLabel = getSectionLabel(pathname);
 
   const requestedMarket = searchParams.get("market")?.trim().toUpperCase();
   const requestedPlatform = searchParams.get("platform")?.trim().toLowerCase();
+
   const selectedMarket =
     markets.find((market) => market.code === requestedMarket)?.code ??
+    markets.find((market) => market.code === defaultMarket)?.code ??
     markets.find((market) => market.code === "US")?.code ??
     markets[0]?.code;
   const selectedPlatform =
     platforms.find((platform) => platform.code === requestedPlatform)?.code ??
+    platforms.find((platform) => platform.code === defaultPlatform)?.code ??
     platforms.find((platform) => platform.code === "amazon")?.code ??
     platforms[0]?.code;
 

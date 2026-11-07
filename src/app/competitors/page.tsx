@@ -1,4 +1,5 @@
 import { getComparisonReports } from "@/lib/competitor-compare/storage";
+import { resolvePersistedSiteScope } from "@/lib/site-scope";
 import { CompetitorClient } from "./competitor-client";
 
 export const dynamic = "force-dynamic";
@@ -13,8 +14,9 @@ type PageProps = {
 
 export default async function CompetitorsPage({ searchParams }: PageProps) {
   const query = await searchParams;
-  const currentMarket = query.market?.toUpperCase() || "US";
-  const currentPlatform = query.platform?.toLowerCase() || "amazon";
+  const siteScope = await resolvePersistedSiteScope(query.market, query.platform);
+  const currentMarket = siteScope.marketCode;
+  const currentPlatform = siteScope.platformCode;
 
   // 不再自动生成示例研报：没有真实输入时不落盘任何数据
   const reports = await getComparisonReports();
