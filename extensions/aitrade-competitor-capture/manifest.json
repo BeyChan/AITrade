@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "AITrade 亚马逊竞品一键采集",
+  "version": "1.0.0",
+  "description": "一键采集亚马逊商品详情页的面包屑类目、真实价格、五点描述和买家差评，直推至 AITrade 竞品对比工作台。",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": [
+    "https://*.amazon.com/*",
+    "https://*.amazon.com.au/*",
+    "https://*.amazon.co.uk/*",
+    "https://*.amazon.de/*",
+    "https://*.amazon.co.jp/*",
+    "https://*.amazon.ca/*",
+    "https://*.amazon.sg/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "action": {
+    "default_title": "送入 AITrade 竞品对比",
+    "default_popup": "popup.html"
+  }
+}

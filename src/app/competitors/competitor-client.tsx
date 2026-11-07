@@ -3,10 +3,12 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import type { CompetitorComparisonReport, CompetitorProfile } from "@/lib/competitor-compare/types";
+import type { AntiListingResult } from "@/lib/competitor-compare/anti-listing";
 import { calculateProductIndex } from "@/lib/competitor-compare/competitiveness";
 import {
   convertReportToHypothesisAction,
   deleteComparisonReportAction,
+  generateAntiListingAction,
   runCompetitorAnalysisAction,
 } from "./actions";
 
@@ -42,6 +44,9 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
   const [copied, setCopied] = useState(false);
   const [convertBatchId, setConvertBatchId] = useState<string | null>(null);
   const [showIndexHelp, setShowIndexHelp] = useState(false);
+  const [antiListing, setAntiListing] = useState<AntiListingResult | null>(null);
+  const [isGeneratingListing, setIsGeneratingListing] = useState(false);
+  const [bulletsCopied, setBulletsCopied] = useState(false);
 
   const currentReport = reports.find((r) => r.id === selectedReportId) || reports[0] || null;
 
@@ -95,6 +100,35 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
       } else {
         setStatusMsg({ type: "error", text: res.error || "转入选品失败" });
       }
+    });
+  };
+
+  const handleGenerateAntiListing = async (reportId: string) => {
+    setIsGeneratingListing(true);
+    setStatusMsg(null);
+    try {
+      const res = await generateAntiListingAction(reportId);
+      if (res.success && res.data) {
+        setAntiListing(res.data);
+        setStatusMsg({ type: "success", text: "AI 已成功生成针对竞品差评漏洞的反制五点描述！" });
+      } else {
+        setStatusMsg({ type: "error", text: res.error || "生成反制五点失败" });
+      }
+    } finally {
+      setIsGeneratingListing(false);
+    }
+  };
+
+  const handleCopyBulletsText = (data: AntiListingResult) => {
+    const text = [
+      `TITLE: ${data.antiTitle}`,
+      "",
+      "BULLET POINTS:",
+      ...data.bullets.map((b, i) => `${i + 1}. ${b.headline} ${b.content}`),
+    ].join("\n");
+    navigator.clipboard.writeText(text).then(() => {
+      setBulletsCopied(true);
+      setTimeout(() => setBulletsCopied(false), 2500);
     });
   };
 
@@ -321,6 +355,16 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
               <button
                 type="button"
                 className="button secondary"
+                disabled={isGeneratingListing}
+                onClick={() => handleGenerateAntiListing(currentReport.id)}
+                style={{ fontSize: "12px", padding: "6px 14px", height: "34px", borderRadius: "10px", borderColor: "var(--green)", color: "var(--green)", fontWeight: 600 }}
+              >
+                {isGeneratingListing ? "AI 创作反制五点中..." : "✍️ 生成反制五点描述"}
+              </button>
+
+              <button
+                type="button"
+                className="button secondary"
                 onClick={() => handleCopyMarkdown(currentReport)}
                 style={{ fontSize: "12px", padding: "6px 14px", height: "34px", borderRadius: "10px" }}
               >
@@ -338,6 +382,104 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
               </button>
             </div>
           </section>
+
+          {/* 反制 Listing 创作面板 */}
+          {antiListing && (
+            <section className="panel" style={{ padding: "24px", background: "#fbfdfc", border: "1.5px solid var(--green)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px" }}>
+                <div>
+                  <div className="eyebrow" style={{ color: "var(--green)" }}>ANTI-COMPETITOR LISTING STUDIO · 反制竞品内容</div>
+                  <h4 style={{ margin: "4px 0 0 0", fontSize: "17px", color: "var(--ink)", fontWeight: 800 }}>
+                    规避差评痛点 · 差异化爆款五点描述 (Bullet Points)
+                  </h4>
+                  <p style={{ margin: "4px 0 0 0", color: "var(--muted)", fontSize: "12px" }}>
+                    针对竞品高频致命差评（如断裂、操作生涩、松脱）进行靶向反击，直接可用于亚马逊后台 Listing 或 A+ 页面！
+                  </p>
+                </div>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button
+                    type="button"
+                    className="button primary"
+                    onClick={() => handleCopyBulletsText(antiListing)}
+                    style={{ fontSize: "12px", padding: "5px 12px", height: "32px", borderRadius: "8px" }}
+                  >
+                    {bulletsCopied ? "✅ 已复制五点文案" : "📋 复制完整五点描述"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAntiListing(null)}
+                    style={{ background: "none", border: "none", color: "var(--muted)", fontSize: "16px", cursor: "pointer", padding: "0 6px" }}
+                    title="收起"
+                  >
+                    &times;
+                  </button>
+                </div>
+              </div>
+
+              {/* 反制标题 */}
+              <div style={{ background: "#ffffff", padding: "12px 14px", borderRadius: "10px", border: "1px solid var(--line)", marginBottom: "16px" }}>
+                <div style={{ fontSize: "11px", color: "var(--green)", fontWeight: 700, marginBottom: "4px" }}>
+                  ✦ 推荐差异化商品标题 (Anti-Title):
+                </div>
+                <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--ink)", lineHeight: "1.4" }}>
+                  {antiListing.antiTitle}
+                </div>
+              </div>
+
+              {/* 5 条靶向反制五点 */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "16px" }}>
+                <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--ink)" }}>五点描述靶向拆解：</div>
+                {antiListing.bullets.map((b, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      background: "#ffffff",
+                      padding: "12px 14px",
+                      borderRadius: "10px",
+                      border: "1px solid var(--line)",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                      <strong style={{ fontSize: "12px", color: "var(--green)" }}>{b.headline}</strong>
+                      <span
+                        style={{
+                          fontSize: "11px",
+                          padding: "2px 8px",
+                          borderRadius: "4px",
+                          background: "var(--red-soft)",
+                          color: "var(--red)",
+                          fontWeight: 600,
+                        }}
+                      >
+                        🎯 {b.counterTarget}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: "12px", color: "var(--ink)", lineHeight: "1.5" }}>
+                      {b.content}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* 3 个 A+ 差异化对比模块 */}
+              {antiListing.aplusModules && antiListing.aplusModules.length > 0 && (
+                <div style={{ background: "#f5f8f5", padding: "14px", borderRadius: "10px", border: "1px solid var(--line)" }}>
+                  <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--ink)", marginBottom: "8px" }}>
+                    🖼️ A+ 页面“我优敌劣”视觉对比模块建议：
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "10px" }}>
+                    {antiListing.aplusModules.map((m, mi) => (
+                      <div key={mi} style={{ background: "#ffffff", padding: "10px 12px", borderRadius: "8px", border: "1px solid var(--line)", fontSize: "11px" }}>
+                        <div style={{ fontWeight: 700, color: "var(--ink)", marginBottom: "3px" }}>{m.title}</div>
+                        <div style={{ color: "var(--muted)", marginBottom: "4px" }}>{m.description}</div>
+                        <div style={{ color: "var(--green)", fontStyle: "italic" }}>💡 构图: {m.visualSuggestion}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
 
           {/* 0. 科学量化：商品指数 (Product Index, 0~100 分) */}
           {(() => {

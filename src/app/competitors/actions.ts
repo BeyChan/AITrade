@@ -8,6 +8,7 @@ import {
   saveComparisonReport,
 } from "@/lib/competitor-compare/storage";
 import { createAISourcingBatch } from "@/lib/ai-sourcing-repository";
+import { generateAntiListingContent, type AntiListingResult } from "@/lib/competitor-compare/anti-listing";
 import type { CompetitorComparisonReport } from "@/lib/competitor-compare/types";
 
 export type AnalysisActionResult = {
@@ -93,6 +94,25 @@ export async function convertReportToHypothesisAction(reportId: string) {
     return {
       success: false,
       error: err instanceof Error ? err.message : "转入选品池失败",
+    };
+  }
+}
+
+export async function generateAntiListingAction(
+  reportId: string,
+): Promise<{ success: boolean; data?: AntiListingResult; error?: string }> {
+  try {
+    const report = await getComparisonReportById(reportId);
+    if (!report) {
+      return { success: false, error: "未找到对应的竞品对比报告" };
+    }
+
+    const content = await generateAntiListingContent(report);
+    return { success: true, data: content };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "生成反制 Listing 文案失败",
     };
   }
 }
