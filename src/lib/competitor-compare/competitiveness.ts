@@ -43,18 +43,18 @@ export function calculateProductIndex(
 
   if (count === 0) {
     return {
-      totalScore: 50,
-      grade: "B",
-      decision: "HOLD",
-      headline: "样本数据不足",
-      summaryText: "缺少有效竞品样本，无法客观计算商品指数",
-      mathEvidence: { hhi: 0, reviewLogMoat: 0.5, priceCV: 0, bayesianRating: 4.2, marginPercent: 35 },
+      totalScore: 0,
+      grade: "C",
+      decision: "NO-GO",
+      headline: "无有效竞品样本",
+      summaryText: "缺少竞品对比样本，无法客观计算商品科学指数",
+      mathEvidence: { hhi: 0, reviewLogMoat: 0, priceCV: 0, bayesianRating: 0, marginPercent: 0 },
       pillars: {
-        monopolyRivalry: { key: "hhi", label: "HHI 垄断集中度", score: 8, max: 15, metricValue: "N/A", verdict: "fair", explanation: "无有效样本" },
-        reviewMoat: { key: "moat", label: "评论门槛对数阻力", score: 8, max: 15, metricValue: "N/A", verdict: "fair", explanation: "无有效样本" },
-        priceAndMargin: { key: "margin", label: "价格分层与毛利垫", score: 12, max: 25, metricValue: "N/A", verdict: "fair", explanation: "无有效样本" },
-        painPointGap: { key: "gap", label: "痛点改良进攻胜率", score: 12, max: 25, metricValue: "N/A", verdict: "fair", explanation: "无有效样本" },
-        salesCapacity: { key: "sales", label: "存量需求与动销规模", score: 10, max: 20, metricValue: "N/A", verdict: "fair", explanation: "无有效样本" },
+        monopolyRivalry: { key: "hhi", label: "HHI 垄断集中度", score: 0, max: 15, metricValue: "N/A", verdict: "poor", explanation: "零样本数据" },
+        reviewMoat: { key: "moat", label: "评论门槛对数阻力", score: 0, max: 15, metricValue: "N/A", verdict: "poor", explanation: "零样本数据" },
+        priceAndMargin: { key: "margin", label: "价格分层与毛利垫", score: 0, max: 25, metricValue: "N/A", verdict: "poor", explanation: "零样本数据" },
+        painPointGap: { key: "gap", label: "痛点改良进攻胜率", score: 0, max: 25, metricValue: "N/A", verdict: "poor", explanation: "零样本数据" },
+        salesCapacity: { key: "sales", label: "存量需求与动销规模", score: 0, max: 20, metricValue: "N/A", verdict: "poor", explanation: "零样本数据" },
       },
     };
   }
@@ -63,30 +63,39 @@ export function calculateProductIndex(
   // 1. 数学支柱 1: HHI 赫芬达尔垄断指数计算 (满分 15 分)
   // ==========================================
   const salesArray = items.map((i) => Math.max(10, i.monthlySalesEst || 300));
-  const totalSales = salesArray.reduce((acc, v) => acc + v, 0);
-  const shares = salesArray.map((s) => (s / totalSales) * 100);
-  const hhi = Math.round(shares.reduce((acc, s) => acc + s * s, 0));
-
-  let hhiScore = 0;
-  let hhiVerdict: QuantitativePillar["verdict"] = "good";
+  let hhi = 0;
+  let hhiScore = 7;
+  let hhiVerdict: QuantitativePillar["verdict"] = "fair";
   let hhiExp = "";
 
-  if (hhi < 1800) {
-    hhiScore = 15;
-    hhiVerdict = "excellent";
-    hhiExp = `HHI 指数仅 ${hhi}（自由竞争区间），市场份额充分分散，买家认产品不认单一寡头，新卖家最易撕开突破口。`;
-  } else if (hhi <= 2600) {
-    hhiScore = 11;
-    hhiVerdict = "good";
-    hhiExp = `HHI 指数为 ${hhi}（适度集中），头部存在 2~3 个主导品牌，但在细分场景和功能改版上仍留有充足市场空间。`;
-  } else if (hhi <= 3800) {
-    hhiScore = 6;
+  if (count < 4) {
+    // 样本量防御：有效样本量过少 (n < 4) 时，数学上各家平方和必然虚高偏倚，不具统计显著性
+    hhi = 0;
+    hhiScore = 7;
     hhiVerdict = "fair";
-    hhiExp = `HHI 指数达 ${hhi}（寡头主导），头部少数品牌瓜分大部分流量，推新需具备极其鲜明的差异化卖点。`;
+    hhiExp = `当前有效竞品样本仅 ${count} 款（统计基准要求 ≥ 4 款），赫芬达尔指数无法客观成立，给予中性基准分处理，建议补充样本。`;
   } else {
-    hhiScore = 2;
-    hhiVerdict = "poor";
-    hhiExp = `HHI 指数高达 ${hhi}（绝对高度垄断），流量基本被超级大卖锁定，极易成为炮灰。`;
+    const totalSales = salesArray.reduce((acc, v) => acc + v, 0);
+    const shares = salesArray.map((s) => (s / totalSales) * 100);
+    hhi = Math.round(shares.reduce((acc, s) => acc + s * s, 0));
+
+    if (hhi < 1800) {
+      hhiScore = 15;
+      hhiVerdict = "excellent";
+      hhiExp = `HHI 指数仅 ${hhi}（自由竞争区间），市场份额充分分散，买家认产品不认单一寡头，新卖家最易撕开突破口。`;
+    } else if (hhi <= 2600) {
+      hhiScore = 11;
+      hhiVerdict = "good";
+      hhiExp = `HHI 指数为 ${hhi}（适度集中），头部存在 2~3 个主导品牌，但在细分场景和功能改版上仍留有充足市场空间。`;
+    } else if (hhi <= 3800) {
+      hhiScore = 6;
+      hhiVerdict = "fair";
+      hhiExp = `HHI 指数达 ${hhi}（寡头主导），头部少数品牌瓜分大部分流量，推新需具备极其鲜明的差异化卖点。`;
+    } else {
+      hhiScore = 2;
+      hhiVerdict = "poor";
+      hhiExp = `HHI 指数高达 ${hhi}（绝对高度垄断），流量基本被超级大卖锁定，极易成为炮灰。`;
+    }
   }
 
   // ==========================================
@@ -164,13 +173,16 @@ export function calculateProductIndex(
   else if (bayesianRating <= 4.45) gapScore += 6;
   else gapScore += 2;
 
-  const weaknessCount = report.summary.commonWeaknesses.length;
-  if (weaknessCount >= 2 && report.summary.attackVector.length > 8) {
-    gapScore += 12; // 痛点聚焦且有明确改良路径
-  } else if (weaknessCount >= 1) {
+  const weaknessCount = (report.summary.commonWeaknesses || []).filter((w) => Boolean(w && w.trim())).length;
+  const hasDistinctStrategy = Boolean(report.summary.attackVector?.trim() && report.summary.marketVacuum?.trim());
+  if (weaknessCount >= 2 && hasDistinctStrategy) {
+    gapScore += 12; // 具备明确共性差评通病与对应真空破局策略
+  } else if (weaknessCount >= 1 && hasDistinctStrategy) {
     gapScore += 8;
+  } else if (weaknessCount >= 1) {
+    gapScore += 5;
   } else {
-    gapScore += 4;
+    gapScore += 2;
   }
 
   let gapVerdict: QuantitativePillar["verdict"] = "good";

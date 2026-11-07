@@ -12,6 +12,9 @@ import {
 import type { AntiListingResult } from "@/lib/competitor-compare/anti-listing";
 import type { SupplierRfqDraft } from "@/lib/competitor-compare/supplier-rfq";
 import { calculateProductIndex } from "@/lib/competitor-compare/competitiveness";
+import { calculateEconomics, type EconomicsAssumptions } from "@/lib/economics";
+import { platformEconomicDefaults } from "@/lib/ai-sourcing";
+import { convertRmbToForeignCents, OFFICIAL_FX_CONFIG } from "@/lib/currency";
 import {
   applyAntiListingToCaseAction,
   confirmComparisonReportAction,
@@ -273,20 +276,35 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
     }
   }, [currentReport?.id]);
 
-  const fxRates: Record<string, number> = { USD: 7.2, AUD: 4.7, EUR: 7.8, GBP: 9.2, JPY: 0.048, CAD: 5.3 };
-  const currentFx = fxRates[currentReport?.currency || "USD"] || 7.2;
-  const landedCostInCurr = (quoteCostRmb / currentFx) * 1.25;
-  const referralFeeEst = targetPriceVal * 0.15; // 15% 平台佣金
-  const fbaFeeEst = Math.max(3.5, targetPriceVal * 0.18); // 18% FBA 履约派送
-  const adBudgetEst = targetPriceVal * 0.12; // 12% 站内 PPC 广告预算 (跨境经营刚需)
-  const returnAndLossEst = targetPriceVal * 0.07; // 5% 退货率损耗 + 2% 仓储损耗
-  // 严谨财务到手净利 = 销售价 - 到岸 - 佣金 - FBA - 广告 - 退货与仓储
-  const estNetProfit = targetPriceVal - landedCostInCurr - referralFeeEst - fbaFeeEst - adBudgetEst - returnAndLossEst;
-  const estMarginRate = targetPriceVal > 0 ? estNetProfit / targetPriceVal : 0;
+  const currency = currentReport?.currency || "USD";
+  const fxDef = OFFICIAL_FX_CONFIG[currency] || OFFICIAL_FX_CONFIG.USD;
+  const currentFx = fxDef.rateToRmb;
+
+  // 1. 到岸成本计算（采购单价按官方权威汇率折算外币 + 25% 头程海运预估）
+  const purchaseCostCents = convertRmbToForeignCents(quoteCostRmb, currency);
+  const estFreightCents = Math.round(purchaseCostCents * 0.25);
+  const landedCostCents = purchaseCostCents + estFreightCents;
+  const targetPriceCents = Math.round(targetPriceVal * 100);
+
+  // 2. 彻底拔除客户端并行算法！直接调用系统唯一的 platformEconomicDefaults + calculateEconomics 权威同源内核！
+  const defaults = platformEconomicDefaults(currentReport?.platformCode || "amazon", targetPriceCents);
+  const assumptions: EconomicsAssumptions = {
+    currency,
+    salePriceCents: targetPriceCents,
+    landedCostCents,
+    ...defaults,
+  };
+  const economics = calculateEconomics(assumptions);
+
+  const landedCostInCurr = landedCostCents / 100;
+  const estNetProfit = economics.netProfitCents / 100;
+  const estMarginRate = economics.marginRate;
+
+  // 权威机会分，与案卷详情模型完全保持一致
   const calcOppScore = Math.min(100, Math.max(0, Math.round(
-    Math.min(45, (estMarginRate / 0.22) * 45) +
-    Math.min(25, (Math.max(0, estNetProfit) / (targetPriceVal * 0.18 || 1)) * 25) +
-    20 +
+    Math.min(45, (estMarginRate / 0.20) * 45) +
+    Math.min(25, (Math.max(0, economics.netProfitCents) / (targetPriceCents * 0.18 || 1)) * 25) +
+    (economics.isProfitable ? 20 : 0) +
     10
   )));
 
@@ -1056,8 +1074,8 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
             </div>
 
             <div style={{ fontSize: "11px", color: "var(--muted)", marginBottom: "12px", background: "#f8faf9", padding: "6px 12px", borderRadius: "6px" }}>
-              💡 <strong>全要素真实扣费口径：</strong>
-              售价扣除 到岸成本 ({landedCostInCurr.toFixed(2)}) · 平台佣金 15% ({referralFeeEst.toFixed(2)}) · FBA 履约 ({fbaFeeEst.toFixed(2)}) · PPC 广告预算 12% ({adBudgetEst.toFixed(2)}) · 退货与仓储 7% ({returnAndLossEst.toFixed(2)})。
+              💡 <strong>与正式成本模型 100% 同源核算（零偏差）：</strong>
+              已扣除：到岸采购运费 ({(economics.landedCostCents / 100).toFixed(2)}) · FBA 履约派送 ({(economics.fbaFeeCents / 100).toFixed(2)}) · 平台佣金 ({(economics.referralFeeCents / 100).toFixed(2)}) · PPC 广告 12% ({(economics.adCostCents / 100).toFixed(2)}) · 退货损耗 ({(economics.returnLossCents / 100).toFixed(2)}) · 优惠券仓储杂费 ({((economics.couponCents + economics.storageCents + economics.otherCostCents) / 100).toFixed(2)})。
             </div>
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px", borderTop: "1px dashed var(--line)", paddingTop: "12px" }}>
@@ -1074,24 +1092,25 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
               </div>
 
               <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                <button
-                  type="button"
-                  className="button primary"
-                  disabled={isPromoting || !isConfirmed}
-                  title={isConfirmed ? "一键建立正式商品案卷并关联竞品与文案" : "请先在上方点击「我已核对，确认可用」"}
-                  onClick={handlePromoteToCase}
-                  style={{ fontSize: "13px", padding: "7px 18px", height: "36px", borderRadius: "8px", fontWeight: 700 }}
-                >
-                  {isPromoting ? "正在创建商品案卷..." : isConfirmed ? "🚀 一键正式立项 (New Case)" : "需先核对研报"}
-                </button>
-                {promotedCaseId && (
+                {currentReport.promotedCaseId || promotedCaseId ? (
                   <Link
-                    href={`/cases/${promotedCaseId}`}
-                    className="button secondary"
-                    style={{ fontSize: "12px", padding: "6px 14px", height: "36px", borderRadius: "8px", color: "var(--green)" }}
+                    href={`/cases/${currentReport.promotedCaseId || promotedCaseId}`}
+                    className="button primary"
+                    style={{ fontSize: "13px", padding: "7px 18px", height: "36px", borderRadius: "8px", fontWeight: 700 }}
                   >
-                    查看案卷 &rarr;
+                    ✅ 已立项为商品案卷 (前往案卷工作台 &rarr;)
                   </Link>
+                ) : (
+                  <button
+                    type="button"
+                    className="button primary"
+                    disabled={isPromoting || !isConfirmed}
+                    title={isConfirmed ? "一键建立正式商品案卷并关联竞品与文案" : "请先在上方点击「我已核对，确认可用」"}
+                    onClick={handlePromoteToCase}
+                    style={{ fontSize: "13px", padding: "7px 18px", height: "36px", borderRadius: "8px", fontWeight: 700 }}
+                  >
+                    {isPromoting ? "正在创建商品案卷..." : isConfirmed ? "🚀 一键正式立项 (New Case)" : "需先核对研报"}
+                  </button>
                 )}
               </div>
             </div>

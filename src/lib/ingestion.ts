@@ -327,7 +327,7 @@ async function importCandidateConnector(
            monthly_sales_estimate, review_count, rating, notes, owner, evidence_score, is_demo,
            source_code, source_record_id, source_observed_at, currency, monthly_sales_min,
            monthly_sales_max, bsr, keyword, keyword_search_volume, seller_count, variation_count)
-         VALUES ($1, $2, $3, $4, $5, $6, 'approved', $7, $8, $9, $10, $11, $12, $13, FALSE,
+         VALUES ($1, $2, $3, $4, $5, $6, 'review_pending', $7, $8, $9, $10, $11, $12, $13, FALSE,
                  $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
          ON CONFLICT (asin, marketplace) DO NOTHING
          RETURNING id`,
@@ -547,9 +547,9 @@ async function importQuoteConnector(
         addWarning(counts, `未找到候选品 ${row.asin || row.caseId} / ${row.marketplace}，报价已跳过`);
         continue;
       }
-      if (product.status !== "approved") {
+      if (product.status !== "approved" && product.status !== "review_pending") {
         counts.errors += 1;
-        addWarning(counts, `${row.asin || row.caseId} 尚未立项，报价已跳过`);
+        addWarning(counts, `${row.asin || row.caseId} 状态无效 (${product.status})，报价已跳过`);
         continue;
       }
       const selection = await tx.query<{ id: string }>(
@@ -886,7 +886,8 @@ function candidateEvidenceScore(row: CandidateImportRow) {
     row.sellerCount !== null,
     row.variationCount !== null,
   ].filter(Boolean).length;
-  return Math.min(100, 25 + signals * 10);
+  // 初筛采集阶段证据分严格封顶在 55 分，必须经过打样定标后方可突破门槛
+  return Math.min(55, 20 + signals * 5);
 }
 
 function supplierMetadata(input: SupplierIdentity, sourceCode: string) {

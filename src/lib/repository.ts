@@ -137,11 +137,15 @@ export async function listTerminatedCases(): Promise<TerminatedCase[]> {
 
 export async function listCases(): Promise<EnrichedCase[]> {
   const db = await getDb();
-  const cases = await db.query<ProductCaseRow>("SELECT * FROM product_cases ORDER BY created_at DESC");
-  const costs = await db.query<CostModelRow>(
-    "SELECT DISTINCT ON (case_id) * FROM cost_models ORDER BY case_id, version DESC",
-  );
+  const [cases, costs, approvedListings] = await Promise.all([
+    db.query<ProductCaseRow>("SELECT * FROM product_cases ORDER BY created_at DESC"),
+    db.query<CostModelRow>("SELECT DISTINCT ON (case_id) * FROM cost_models ORDER BY case_id, version DESC"),
+    db.query<{ case_id: string }>(
+      "SELECT DISTINCT case_id FROM listings WHERE status = 'content_approved' OR status = 'published'",
+    ),
+  ]);
   const costByCase = new Map(costs.rows.map((cost) => [cost.case_id, cost]));
+  const approvedContentCaseIds = new Set(approvedListings.rows.map((r) => r.case_id));
 
   return cases.rows
     .map((productCase) => {
@@ -155,6 +159,7 @@ export async function listCases(): Promise<EnrichedCase[]> {
         costModel,
         opportunityScore: score,
         recommendation: results ? recommendationFor(results, score) : ("HOLD" as const),
+        hasApprovedContent: approvedContentCaseIds.has(productCase.id),
       };
     })
     .sort((a, b) => b.opportunityScore - a.opportunityScore);
@@ -311,11 +316,10 @@ export async function createProductCaseFromCompetitors(
   const asin = `AI-${randomUUID().replace(/-/g, "").slice(0, 10).toUpperCase()}`;
   const results = calculateEconomics(input.assumptions);
 
-  // 客观计算初筛阶段的真实证据完整度（未实物打样前最高不超过 55 分）
-  const realEvidenceScore = Math.min(
-    55,
-    35 + (input.antiListing ? 10 : 0) + (input.rfqDraft ? 10 : 0),
-  );
+  // 严格遵循客观证据原则：AI 生成的反制文案与 RFQ 均为卖点假设，绝不计入客观证据完整度！
+  // 证据完整度只按实际抓取并人工复核的竞品样本量客观计算
+  const verifiedCount = input.competitorAsins?.length ?? 0;
+  const realEvidenceScore = Math.min(50, Math.max(15, verifiedCount * 12));
 
   const score = opportunityScore(
     results,
@@ -351,6 +355,14 @@ export async function createProductCaseFromCompetitors(
         realEvidenceScore,
         input.currency,
       ],
+    );
+
+    // 核心接缝修复：必须插入 product_case_sites，确保首页看板 listCasesForSite 能够实时查到新立项案卷
+    await tx.query(
+      `INSERT INTO product_case_sites (case_id, market_code, platform_code, discovery_source)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (case_id, market_code, platform_code) DO NOTHING`,
+      [caseId, input.marketplace, input.platform || "amazon", "competitor_compare"],
     );
 
     await tx.query(

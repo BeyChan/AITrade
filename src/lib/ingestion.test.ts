@@ -89,7 +89,7 @@ test("ingestion is traceable, guarded and idempotent", async () => {
     "SELECT id, status FROM product_cases WHERE asin = 'B0INGEST001' AND marketplace = 'US'",
   );
   assert.ok(product.rows[0]?.id);
-  assert.equal(product.rows[0]?.status, "approved");
+  assert.equal(product.rows[0]?.status, "review_pending");
 
   const firstQuote = await importQuotesCsv(quoteCsv, { fileName: "quotes.csv" });
   assert.equal(firstQuote.imported, 1);

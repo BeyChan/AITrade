@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { createAISourcingBatchAction } from "@/app/actions";
 import { CategoryRecommender } from "@/components/category-recommender";
-import { ProposalCard } from "@/components/ai-proposal-card";
 import { GenerateResearchButton } from "@/components/generate-research-button";
 import { OpportunityScoreHelp } from "@/components/opportunity-score-help";
 import { getAIProviderStatus } from "@/lib/ai-provider";
@@ -90,6 +89,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       detail: proposals.groups[0]?.reason ?? "模型产出等待人工确认，确认前不会写入业务表",
       href: proposals.groups[0]?.href ?? "/ai-inbox",
       action: "去确认",
+      stage: "stage1" as const,
     }] : []),
     ...(proposals.byKind.supplier_draft > 0 ? [{
       label: "待审 RFQ 草稿",
@@ -97,6 +97,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       detail: "内部草稿仅供人工复制，系统不会发送给供应商",
       href: activeBatch ? `/ai-sourcing/${activeBatch.id}?tab=quotes` : "/ai-sourcing",
       action: "审阅草稿",
+      stage: "stage2" as const,
     }] : []),
     ...(batchGoCount > 0 ? [{
       label: "待决策门禁",
@@ -104,6 +105,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       detail: "已有方向通过确定性门禁，等待人工决定是否立项",
       href: activeBatch ? `/ai-sourcing/${activeBatch.id}?tab=decision` : "/ai-sourcing",
       action: "查看结论",
+      stage: "stage3" as const,
     }] : []),
     {
       label: "待补证据",
@@ -111,6 +113,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       detail: activeBatch ? `「${activeBatch.category}」还有方向未完成验证` : "从研究批次继续验证机会",
       href: activeBatch ? `/ai-sourcing/${activeBatch.id}?tab=hypotheses` : newResearchHref,
       action: "继续验证",
+      stage: "stage1" as const,
     },
     {
       label: "待录入报价",
@@ -120,6 +123,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         ? `/cases/${pendingQuoteCases[0].productCase.id}/sourcing`
         : "/sourcing",
       action: "录入报价",
+      stage: "stage2" as const,
     },
     {
       label: "待对比定标",
@@ -129,6 +133,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         ? `/cases/${pendingAwardCases[0].productCase.id}/sourcing`
         : "/sourcing",
       action: "对比定标",
+      stage: "stage3" as const,
     },
     {
       label: "待制作内容",
@@ -138,6 +143,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         ? `/cases/${contentReadyCases[0].productCase.id}/content`
         : "/content",
       action: "制作内容",
+      stage: "stage4" as const,
     },
   ].filter((task) => task.value > 0);
 

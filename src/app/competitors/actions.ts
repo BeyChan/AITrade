@@ -6,6 +6,7 @@ import {
   confirmComparisonReport,
   deleteComparisonReport,
   getComparisonReportById,
+  markComparisonReportPromoted,
   saveComparisonReport,
 } from "@/lib/competitor-compare/storage";
 import { createAISourcingBatch } from "@/lib/ai-sourcing-repository";
@@ -13,6 +14,7 @@ import { countVerifyPlaceholders, generateAntiListingContent, type AntiListingRe
 import { generateSupplierRfqFromCompetitors, type SupplierRfqDraft } from "@/lib/competitor-compare/supplier-rfq";
 import { createListingDraft, createProductCaseFromCompetitors, getContentDetail, listCasesForSite } from "@/lib/repository";
 import { platformEconomicDefaults } from "@/lib/ai-sourcing";
+import { convertRmbToForeignCents, getFxRate } from "@/lib/currency";
 import type { ListingDraftContent } from "@/lib/listing";
 import type { CompetitorComparisonReport } from "@/lib/competitor-compare/types";
 
@@ -260,6 +262,14 @@ export async function promoteCompetitorReportToCaseAction(params: {
       return { success: false, error: "未找到对应的竞品对比报告" };
     }
 
+    // 幂等防重门禁：若该研报此前已经正式立项过，直接返回已有 caseId，绝不重复生成多条案卷
+    if (report.promotedCaseId) {
+      return {
+        success: true,
+        caseId: report.promotedCaseId,
+      };
+    }
+
     // 严谨立项门禁 1：研报必须经过人工复核确认
     if (report.reviewStatus !== "confirmed") {
       return {
@@ -277,16 +287,7 @@ export async function promoteCompetitorReportToCaseAction(params: {
     }
 
     const currency = report.currency || "USD";
-    const fxRates: Record<string, number> = {
-      USD: 7.2,
-      AUD: 4.7,
-      EUR: 7.8,
-      GBP: 9.2,
-      JPY: 0.048,
-      CAD: 5.3,
-    };
-    const fx = fxRates[currency] || 7.2;
-    const purchaseCostCents = Math.round((params.quoteCostRmb / fx) * 100);
+    const purchaseCostCents = convertRmbToForeignCents(params.quoteCostRmb, currency);
     const estFreightCents = Math.round(purchaseCostCents * 0.25);
     const landedCostCents = purchaseCostCents + estFreightCents;
 
@@ -332,6 +333,9 @@ export async function promoteCompetitorReportToCaseAction(params: {
       },
       params.actor || "竞品操盘手",
     );
+
+    // 回写研报状态，实现已立项闭环与幂等绑定
+    await markComparisonReportPromoted(report.id, result.caseId);
 
     revalidatePath("/");
     revalidatePath("/cases");

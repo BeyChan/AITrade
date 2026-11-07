@@ -127,4 +127,8 @@ export type CompetitorComparisonReport = {
   provenance: CompetitorProvenance;
   /** 采集 / AI 生成的报告默认待确认，确认后才允许写入商品草稿 */
   reviewStatus: CompetitorReviewStatus;
+  /** 已转为商品案卷 (Case) 的关联 ID，用于幂等防重与业务流转闭环 */
+  promotedCaseId?: string | null;
+  /** 正式立项转入时间 */
+  promotedAt?: string | null;
 };

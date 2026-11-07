@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { money, percent } from "@/lib/format";
+import { OFFICIAL_FX_CONFIG } from "@/lib/currency";
 
 type ScoredQuote = {
   id: string;
@@ -62,15 +63,8 @@ export function SupplierMatrixPk({
   const [priceRmb, setPriceRmb] = useState<number>(24);
   const [freightRmb, setFreightRmb] = useState<number>(5);
 
-  const fxRates: Record<string, number> = {
-    USD: 7.2,
-    AUD: 4.7,
-    EUR: 7.8,
-    GBP: 9.2,
-    JPY: 0.048,
-    CAD: 5.3,
-  };
-  const fx = fxRates[currency] || 7.2;
+  const fxDef = OFFICIAL_FX_CONFIG[currency] || OFFICIAL_FX_CONFIG.USD;
+  const fx = fxDef.rateToRmb;
 
   const convUnitPrice = (priceRmb / fx).toFixed(2);
   const convFreight = (freightRmb / fx).toFixed(2);

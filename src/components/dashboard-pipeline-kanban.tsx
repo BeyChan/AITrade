@@ -12,6 +12,7 @@ export type AttentionTask = {
   detail: string;
   href: string;
   action: string;
+  stage?: "stage1" | "stage2" | "stage3" | "stage4" | "stage5";
 };
 
 type Props = {
@@ -39,9 +40,9 @@ export function DashboardPipelineKanban({
 
   const sourcingMap = new Map(sourcingCases.map((s) => [s.productCase.id, s]));
 
-  // 1. 竞品初筛阶段（只过滤当前站点的初筛研报）
+  // 1. 竞品初筛阶段：只保留当前站点且「尚未正式立项转化」的活跃研报，立项后自动推进至后续阶段
   const stage1Items = competitorReports.filter(
-    (r) => r.marketCode === marketCode && r.platformCode === platformCode,
+    (r) => r.marketCode === marketCode && r.platformCode === platformCode && !r.promotedCaseId,
   );
 
   // 严格互斥状态机：过滤已否决案卷，确保每个商品案卷在 Stage 2~5 有且仅归属于一个唯一阶段
@@ -60,28 +61,26 @@ export function DashboardPipelineKanban({
     return c.status === "approved" && s && s.quoteCount > 0 && !s.selection;
   });
 
-  // 4. 内容制作打磨阶段：已定标供应商，但 Listing 文案/主图尚未最终锁定就绪
+  // 4. 内容制作打磨阶段：已定标供应商，但 Listing 尚未通过人工内容终审 (content_approved)
   const stage4Items = activeCases.filter((c) => {
     const s = sourcingMap.get(c.id);
     const hasSelectedSupplier = Boolean(s?.selection);
-    const isLaunchReady = c.notes?.includes("[READY_FOR_LAUNCH]") || c.evidence_score >= 75;
-    return c.status === "approved" && hasSelectedSupplier && !isLaunchReady;
+    return c.status === "approved" && hasSelectedSupplier && !c.hasApprovedContent;
   });
 
-  // 5. 渠道就绪阶段：已定标工厂且内容合规完成，准备导出 Flat File / 铺货发布
+  // 5. 渠道就绪阶段：已定标工厂且真实通过人工内容终审 (hasApprovedContent = true)，具备 Flat File 导出与发布资格
   const stage5Items = activeCases.filter((c) => {
     const s = sourcingMap.get(c.id);
     const hasSelectedSupplier = Boolean(s?.selection);
-    const isLaunchReady = c.notes?.includes("[READY_FOR_LAUNCH]") || c.evidence_score >= 75;
-    return c.status === "approved" && hasSelectedSupplier && isLaunchReady;
+    return c.status === "approved" && hasSelectedSupplier && Boolean(c.hasApprovedContent);
   });
 
-  // 将外层待办精准映射到各业务阶段列头
+  // 将外层待办精准映射到各业务阶段列头（优先通过显式 stage 属性强类型匹配）
   const taskMap = new Map((attentionTasks || []).map((t) => [t.label, t]));
-  const stage1Task = taskMap.get("待确认 AI 提案") || taskMap.get("待补证据");
-  const stage2Task = taskMap.get("待录入报价") || taskMap.get("待审 RFQ 草稿");
-  const stage3Task = taskMap.get("待决策门禁") || taskMap.get("待对比定标");
-  const stage4Task = taskMap.get("待制作内容");
+  const stage1Task = attentionTasks.find((t) => t.stage === "stage1") || taskMap.get("待确认 AI 提案") || taskMap.get("待补证据");
+  const stage2Task = attentionTasks.find((t) => t.stage === "stage2") || taskMap.get("待录入报价") || taskMap.get("待审 RFQ 草稿");
+  const stage3Task = attentionTasks.find((t) => t.stage === "stage3") || taskMap.get("待决策门禁") || taskMap.get("待对比定标");
+  const stage4Task = attentionTasks.find((t) => t.stage === "stage4") || taskMap.get("待制作内容");
 
   const columns = [
     {

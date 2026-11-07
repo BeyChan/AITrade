@@ -73,6 +73,8 @@ export type EnrichedCase = ProductCaseRow & {
   costModel: CostModelRow | null;
   opportunityScore: number;
   recommendation: "GO" | "HOLD" | "NO-GO";
+  /** 真实内容终审状态：Listing 已被人工审核通过，可进入渠道发布 */
+  hasApprovedContent?: boolean;
 };
 
 export type CaseDetail = {
