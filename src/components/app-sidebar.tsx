@@ -13,7 +13,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/", label: "工作台", icon: "ai" },
   { href: "/ai-sourcing", label: "选品验证", icon: "verify" },
   { href: "/competitors", label: "竞品对比", icon: "competitor" },
-  { href: "/sourcing", label: "供应商", icon: "sourcing" },
+  { href: "/sourcing", label: "供应商资产库", icon: "sourcing" },
   { href: "/content", label: "内容与上架", icon: "content" },
   { href: "/ai-inbox", label: "证据收件箱", icon: "inbox" },
 ];

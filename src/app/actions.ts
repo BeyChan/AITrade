@@ -41,6 +41,7 @@ import {
   createCostModelVersion,
   createListingDraft,
   createSupplierAndQuote,
+  createSupplierDirectoryEntry,
   recordChannelLaunchReadinessCheck,
   reviewMainImageAsset,
   saveChannelListingVersion,
@@ -935,4 +936,35 @@ function revalidateChannels(caseId: string, channelListingId?: string) {
   revalidatePath(`/cases/${caseId}/content`);
   revalidatePath(`/cases/${caseId}/channels`);
   if (channelListingId) revalidatePath(`/cases/${caseId}/channels/${channelListingId}`);
+}
+
+export async function createSupplierDirectoryEntryAction(formData: FormData) {
+  const name = String(formData.get("name") ?? "").trim();
+  const platform = String(formData.get("platform") ?? "1688").trim();
+  const url = String(formData.get("url") ?? "").trim();
+  const contact = String(formData.get("contact") ?? "").trim();
+  const country = String(formData.get("country") ?? "CN").trim();
+  const notes = String(formData.get("notes") ?? "").trim();
+  const ratingStr = String(formData.get("rating") ?? "4.8").trim();
+
+  let failure = "";
+  try {
+    await createSupplierDirectoryEntry({
+      name,
+      platform,
+      url: url || undefined,
+      contact: contact || undefined,
+      country: country || "CN",
+      rating: parseFloat(ratingStr) || 4.8,
+      notes,
+    });
+  } catch (error) {
+    failure = errorMessage(error);
+  }
+
+  revalidatePath("/sourcing");
+  if (failure) {
+    redirect(`/sourcing?error=${encodeURIComponent(failure)}`);
+  }
+  redirect(`/sourcing?notice=${encodeURIComponent(`已成功录入供应商「${name}」至工厂资产池`)}`);
 }

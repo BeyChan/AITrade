@@ -62,7 +62,7 @@ function getSectionLabel(pathname: string) {
     return "商品工作台";
   }
   if (pathname === "/import" || pathname.startsWith("/data-sources")) return "数据导入";
-  if (pathname.startsWith("/sourcing")) return "供应商";
+  if (pathname.startsWith("/sourcing")) return "供应商资产库";
   if (pathname.startsWith("/content") || pathname.startsWith("/approvals")) return "内容与上架";
   if (pathname.startsWith("/connections")) return "连接中心";
   if (pathname.startsWith("/settings")) return "系统设置";

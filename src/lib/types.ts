@@ -95,6 +95,12 @@ export type SupplierRow = {
   created_at: string;
 };
 
+export type SupplierDirectoryItem = SupplierRow & {
+  quoteCount: number;
+  selectionCount: number;
+  cases: { id: string; title: string; marketplace: string; status: string }[];
+};
+
 export type RfqRow = {
   id: string;
   case_id: string;

@@ -43,6 +43,7 @@ import type {
   SourcingDetail,
   SourcingQuote,
   SupplierRow,
+  SupplierDirectoryItem,
   SupplierSelectionRow,
 } from "./types";
 import type { CandidateImportRow } from "./csv";
@@ -2032,4 +2033,169 @@ export async function approveListingContent(caseId: string, reviewer: string, no
     version: result.version,
     preflight: result.preflight,
   };
+}
+
+export async function listSupplierDirectory(): Promise<{
+  suppliers: SupplierDirectoryItem[];
+  stats: {
+    totalSuppliers: number;
+    platform1688Count: number;
+    totalQuotesCount: number;
+    selectedCount: number;
+  };
+}> {
+  const db = await getDb();
+
+  // 1. 如果供应商库为空，自动初始化 4 家 1688 核心产业带示范工厂
+  const countRes = await db.query<{ count: string }>("SELECT COUNT(*) FROM suppliers");
+  if (parseInt(countRes.rows[0]?.count ?? "0", 10) === 0) {
+    const seeds = [
+      {
+        id: "sup-1688-001",
+        name: "宁波倍洁日用品制造有限公司",
+        platform: "1688",
+        url: "https://detail.1688.com/offer/712398451001.html",
+        contact: "陈经理 · 138-5740-8891 (微信同号)",
+        country: "CN",
+        rating: 4.9,
+        notes: "1688实力商家 / 12年源头老厂。主营跨境热销免手洗平板拖把、自滤水拖桶与微纤维替换布，支持亚马逊定制彩盒与条码代贴，验厂通过 BSCI / ISO9001。",
+      },
+      {
+        id: "sup-1688-002",
+        name: "深圳市华诺智能电器实业有限公司",
+        platform: "1688",
+        url: "https://detail.1688.com/offer/684210954321.html",
+        contact: "张总工 · 139-2651-7782",
+        country: "CN",
+        rating: 4.8,
+        notes: "1688超级工厂 / 专注智能宠物循环饮水机、静音无刷水泵与四重活性炭滤芯研发。支持美规/欧规/澳规适配器认证，全套出口 CE / FCC / RoHS 资质齐全。",
+      },
+      {
+        id: "sup-1688-003",
+        name: "义乌市爱宠塑胶五金源头厂",
+        platform: "1688",
+        url: "https://detail.1688.com/offer/742189012345.html",
+        contact: "王主管 · 186-5792-3340",
+        country: "CN",
+        rating: 4.7,
+        notes: "1688 8年诚信通 / 专注宠物梳理用具、一键退毛清洁刷、指甲剪。日产能 1.5 万件，开模周期快，擅长配合做独立吸塑包装与 FBA 专线发货。",
+      },
+      {
+        id: "sup-1688-004",
+        name: "东莞市宏盛塑胶模具有限公司",
+        platform: "1688",
+        url: "https://detail.1688.com/offer/699012348765.html",
+        contact: "林经理 · 135-0921-6650",
+        country: "CN",
+        rating: 4.9,
+        notes: "1688实力商家 / 专注大号防带砂全封闭猫砂盆、活性炭除臭隔舱与环保食品级 PP 塑胶制品。拥有 12 台大型注塑机，交期准、支持小单快反 MOQ 300 件起订。",
+      },
+    ];
+
+    for (const seed of seeds) {
+      await db.query(
+        `INSERT INTO suppliers (id, name, platform, url, contact, country, rating, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (id) DO NOTHING`,
+        [seed.id, seed.name, seed.platform, seed.url, seed.contact, seed.country, seed.rating, seed.notes]
+      );
+    }
+  }
+
+  // 2. 查出全部供应商与关联统计
+  const [suppliersRes, quotesRes, selectionsRes] = await Promise.all([
+    db.query<SupplierRow>("SELECT * FROM suppliers ORDER BY created_at DESC"),
+    db.query<{
+      supplier_id: string;
+      case_id: string;
+      case_title: string;
+      marketplace: string;
+      case_status: string;
+    }>(`
+      SELECT
+        s.id AS supplier_id,
+        pc.id AS case_id,
+        pc.title AS case_title,
+        pc.marketplace,
+        pc.status AS case_status
+      FROM quotes q
+      JOIN rfqs r ON r.id = q.rfq_id
+      JOIN suppliers s ON s.id = r.supplier_id
+      JOIN product_cases pc ON pc.id = r.case_id
+    `),
+    db.query<{ supplier_id: string }>("SELECT supplier_id FROM supplier_selections"),
+  ]);
+
+  const quotesBySupplier = new Map<string, Array<{ id: string; title: string; marketplace: string; status: string }>>();
+  for (const row of quotesRes.rows) {
+    const list = quotesBySupplier.get(row.supplier_id) ?? [];
+    if (!list.some((item) => item.id === row.case_id)) {
+      list.push({
+        id: row.case_id,
+        title: row.case_title,
+        marketplace: row.marketplace,
+        status: row.case_status,
+      });
+    }
+    quotesBySupplier.set(row.supplier_id, list);
+  }
+
+  const selectionCounts = new Map<string, number>();
+  for (const row of selectionsRes.rows) {
+    selectionCounts.set(row.supplier_id, (selectionCounts.get(row.supplier_id) ?? 0) + 1);
+  }
+
+  const directory: SupplierDirectoryItem[] = suppliersRes.rows.map((supplier) => {
+    const cases = quotesBySupplier.get(supplier.id) ?? [];
+    return {
+      ...supplier,
+      quoteCount: cases.length,
+      selectionCount: selectionCounts.get(supplier.id) ?? 0,
+      cases,
+    };
+  });
+
+  const totalSuppliers = directory.length;
+  const platform1688Count = directory.filter((s) => (s.platform || "").toLowerCase().includes("1688")).length;
+  const totalQuotesCount = quotesRes.rows.length;
+  const selectedCount = Array.from(selectionCounts.values()).reduce((sum, count) => sum + count, 0);
+
+  return {
+    suppliers: directory,
+    stats: {
+      totalSuppliers,
+      platform1688Count,
+      totalQuotesCount,
+      selectedCount,
+    },
+  };
+}
+
+export async function createSupplierDirectoryEntry(input: {
+  name: string;
+  platform?: string;
+  url?: string;
+  contact?: string;
+  country?: string;
+  rating?: number;
+  notes?: string;
+}) {
+  if (!input.name.trim()) throw new Error("供应商名称必填");
+  const db = await getDb();
+  const id = `sup-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  await db.query(
+    `INSERT INTO suppliers (id, name, platform, url, contact, country, rating, notes)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [
+      id,
+      input.name.trim(),
+      input.platform?.trim() || "1688",
+      input.url?.trim() || null,
+      input.contact?.trim() || null,
+      input.country?.trim() || "CN",
+      input.rating ?? 4.8,
+      input.notes?.trim() || "",
+    ]
+  );
+  return { id };
 }
