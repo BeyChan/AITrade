@@ -50,6 +50,14 @@ export default async function ChannelMatrixPage({ params, searchParams }: PagePr
           </div>
         </div>
         <div className="button-row">
+          <a
+            href={`/api/cases/${productCase.id}/flatfile`}
+            className="button primary"
+            download
+            style={{ textDecoration: "none" }}
+          >
+            📥 导出官方 Flat File (TSV)
+          </a>
           <Link href={`/cases/${productCase.id}`} className="button secondary">商品详情</Link>
           <Link href={`/cases/${productCase.id}/content`} className="button secondary">默认内容工作台</Link>
         </div>

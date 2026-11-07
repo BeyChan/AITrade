@@ -315,13 +315,15 @@ export default async function ProductCasesPage({ searchParams }: PageProps) {
                     >
                       反制五点文案
                     </Link>
-                    <Link
-                      href={`/cases/${c.id}/channels`}
+                    <a
+                      href={`/api/cases/${c.id}/flatfile`}
+                      download
                       className="button secondary"
-                      style={{ fontSize: "11px", padding: "4px 10px", height: "auto" }}
+                      style={{ fontSize: "11px", padding: "4px 10px", height: "auto", textDecoration: "none" }}
+                      title="直接下载亚马逊官方批量上传模板 (.tsv)"
                     >
-                      Flat File 导出
-                    </Link>
+                      📥 Flat File 导出
+                    </a>
                   </div>
 
                   <Link

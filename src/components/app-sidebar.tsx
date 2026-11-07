@@ -35,6 +35,7 @@ const MAIN_NAV_ITEMS: NavItem[] = [
     icon: "competitor",
     subItems: [
       { href: "/competitors", label: "竞品多维横评 PK" },
+      { href: "/import", label: "批量录入/导入商品" },
       { href: "/ai-sourcing", label: "AI 类目假设推演" },
     ],
   },
@@ -68,19 +69,9 @@ const MAIN_NAV_ITEMS: NavItem[] = [
   },
 ];
 
-const UTILITY_NAV_ITEMS: NavItem[] = [
-  {
-    href: "/data-sources",
-    label: "数据导入与清洗",
-    icon: "data",
-    subItems: [
-      { href: "/data-sources", label: "CSV 模板导入" },
-      { href: "/import", label: "快速录入候选品" },
-      { href: "/ai-inbox", label: "非结构化清洗收件箱" },
-    ],
-  },
-  { href: "/connections", label: "店铺连接中心", icon: "connection" },
-  { href: "/settings", label: "系统规则设置", icon: "settings" },
+const SETTINGS_NAV_ITEMS: NavItem[] = [
+  { href: "/connections", label: "店铺连接", icon: "connection" },
+  { href: "/settings", label: "大模型设置", icon: "settings" },
 ];
 
 function NavIcon({ name }: { name: NavItem["icon"] }) {
@@ -205,11 +196,10 @@ function NavIcon({ name }: { name: NavItem["icon"] }) {
 
 function matchParentNav(item: NavItem, pathname: string): boolean {
   if (item.href === "/" && pathname === "/") return true;
-  if (item.href === "/competitors" && (pathname.startsWith("/competitors") || pathname.startsWith("/ai-sourcing"))) return true;
+  if (item.href === "/competitors" && (pathname.startsWith("/competitors") || pathname === "/import" || pathname.startsWith("/ai-sourcing"))) return true;
   if (item.href === "/cases" && pathname.startsWith("/cases")) return true;
   if (item.href === "/sourcing" && pathname.startsWith("/sourcing")) return true;
   if (item.href === "/content" && (pathname.startsWith("/content") || pathname.startsWith("/approvals"))) return true;
-  if (item.href === "/data-sources" && (pathname.startsWith("/data-sources") || pathname === "/import" || pathname.startsWith("/ai-inbox"))) return true;
   if (item.href === "/connections" && pathname.startsWith("/connections")) return true;
   if (item.href === "/settings" && pathname.startsWith("/settings")) return true;
   return false;
@@ -362,9 +352,9 @@ export function AppSidebar({ mode = "sandbox" }: { mode?: AppMode }) {
               color: "rgba(255, 255, 255, 0.35)",
             }}
           >
-            支撑与工具
+            设置
           </div>
-          {UTILITY_NAV_ITEMS.map((item) => (
+          {SETTINGS_NAV_ITEMS.map((item) => (
             <SidebarItem key={item.href} item={item} pathname={pathname} />
           ))}
         </div>
