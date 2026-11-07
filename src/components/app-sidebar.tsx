@@ -24,48 +24,31 @@ const MAIN_NAV_ITEMS: NavItem[] = [
     href: "/",
     label: "工作台大盘",
     icon: "ai",
-    subItems: [
-      { href: "/", label: "5 阶流水线看板" },
-      { href: "/#todos", label: "今日行动待办" },
-    ],
   },
   {
     href: "/competitors",
     label: "选品与研报",
     icon: "competitor",
     subItems: [
-      { href: "/competitors", label: "竞品多维横评 PK" },
-      { href: "/import", label: "批量录入/导入商品" },
-      { href: "/ai-sourcing", label: "AI 类目假设推演" },
+      { href: "/competitors", label: "竞品对比" },
+      { href: "/import", label: "批量录入商品" },
+      { href: "/ai-sourcing", label: "AI 选品推演" },
     ],
   },
   {
     href: "/cases",
     label: "商品工作台",
     icon: "case",
-    subItems: [
-      { href: "/cases", label: "全部立项案卷" },
-      { href: "/cases?status=approved", label: "已立项通过" },
-      { href: "/cases?status=review_pending", label: "待财务定标" },
-    ],
   },
   {
     href: "/sourcing",
     label: "寻源与供应商",
     icon: "sourcing",
-    subItems: [
-      { href: "/sourcing", label: "供应商资产名录" },
-      { href: "/sourcing?view=candidates", label: "1688 寻源候选" },
-    ],
   },
   {
     href: "/content",
     label: "内容与上架",
     icon: "content",
-    subItems: [
-      { href: "/content", label: "反制五点文案打磨" },
-      { href: "/cases", label: "批量导出 Flat File" },
-    ],
   },
 ];
 
