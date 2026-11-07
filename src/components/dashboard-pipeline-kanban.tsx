@@ -91,6 +91,12 @@ export function DashboardPipelineKanban({
       }
     : undefined;
 
+  const stage1Limit = stage1Task ? 3 : 4;
+  const stage2Limit = stage2Task ? 3 : 4;
+  const stage3Limit = stage3Task ? 3 : 4;
+  const stage4Limit = stage4Task ? 3 : 4;
+  const stage5Limit = stage5Task ? 3 : 4;
+
   const columns = [
     {
       id: "stage1",
@@ -102,7 +108,7 @@ export function DashboardPipelineKanban({
       badgeColor: "#3766a6",
       badgeBg: "#e8f0fc",
       viewAllHref: `/competitors?market=${encodeURIComponent(marketCode)}&platform=${encodeURIComponent(platformCode)}`,
-      items: stage1Items.slice(0, 4).map((r) => ({
+      items: stage1Items.slice(0, stage1Limit).map((r) => ({
         id: r.id,
         title: r.title,
         tag: `${r.competitors.length} 款竞品`,
@@ -123,7 +129,7 @@ export function DashboardPipelineKanban({
       badgeColor: "#a96610",
       badgeBg: "#fff3d9",
       viewAllHref: "/sourcing",
-      items: stage2Items.slice(0, 4).map((c) => ({
+      items: stage2Items.slice(0, stage2Limit).map((c) => ({
         id: c.id,
         title: c.title,
         tag: c.category || "待分类",
@@ -144,7 +150,7 @@ export function DashboardPipelineKanban({
       badgeColor: "#9333ea",
       badgeBg: "#f3e8ff",
       viewAllHref: "/sourcing",
-      items: stage3Items.slice(0, 4).map((c) => {
+      items: stage3Items.slice(0, stage3Limit).map((c) => {
         const res = c.costModel?.results;
         return {
           id: c.id,
@@ -168,7 +174,7 @@ export function DashboardPipelineKanban({
       badgeColor: "#1f7a55",
       badgeBg: "#e2f5ea",
       viewAllHref: "/content",
-      items: stage4Items.slice(0, 4).map((c) => ({
+      items: stage4Items.slice(0, stage4Limit).map((c) => ({
         id: c.id,
         title: c.title,
         tag: `已立项 · ${c.asin}`,
@@ -189,7 +195,7 @@ export function DashboardPipelineKanban({
       badgeColor: "#10251c",
       badgeBg: "#dfe6e0",
       viewAllHref: "/content",
-      items: stage5Items.slice(0, 4).map((c) => ({
+      items: stage5Items.slice(0, stage5Limit).map((c) => ({
         id: c.id,
         title: c.title,
         tag: "Flat File 就绪",
