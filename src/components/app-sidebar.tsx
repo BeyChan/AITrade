@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ModeSwitcher } from "./mode-switcher";
+import type { AppMode } from "@/lib/app-mode";
 
 type NavItem = {
   href: string;
@@ -174,7 +176,7 @@ function SidebarItemLink({ item, pathname }: { item: NavItem; pathname: string }
   );
 }
 
-export function AppSidebar() {
+export function AppSidebar({ mode = "sandbox" }: { mode?: AppMode }) {
   const pathname = usePathname();
 
   return (
@@ -193,6 +195,10 @@ export function AppSidebar() {
           {UTILITY_ITEMS.map((item) => <SidebarItemLink key={item.href} item={item} pathname={pathname} />)}
         </div>
       </nav>
+
+      <div className="sidebar-footer">
+        <ModeSwitcher currentMode={mode} />
+      </div>
     </aside>
   );
 }

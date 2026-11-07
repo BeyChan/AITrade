@@ -1941,12 +1941,22 @@ export async function promoteHypothesisToProductCase(hypothesisId: string, actor
       [hypothesisId],
     );
     if (guard.rows[0]?.product_case_id) return;
+
+    let isDemo = false;
+    try {
+      const { getAppMode } = await import("@/lib/app-mode");
+      const mode = await getAppMode();
+      isDemo = mode === "sandbox";
+    } catch {
+      isDemo = false;
+    }
+
     await tx.query(
       `INSERT INTO product_cases
         (id, asin, marketplace, category, title, status, competitor_price_cents, monthly_sales_estimate,
          review_count, rating, notes, owner, evidence_score, is_demo, source_code, source_record_id,
          source_observed_at, currency)
-       VALUES ($1, $2, $3, $4, $5, 'approved', $6, 0, 0, NULL, $7, $8, $9, FALSE,
+       VALUES ($1, $2, $3, $4, $5, 'approved', $6, 0, 0, NULL, $7, $8, $9, $12,
                'ai_sourcing', $10, NOW(), $11)`,
       [
         caseId,
@@ -1960,6 +1970,7 @@ export async function promoteHypothesisToProductCase(hypothesisId: string, actor
         decision.evidenceCompleteness,
         hypothesisId,
         context.batch.currency,
+        isDemo,
       ],
     );
     await tx.query(

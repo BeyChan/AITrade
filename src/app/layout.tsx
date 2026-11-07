@@ -2,8 +2,10 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { connection } from "next/server";
 import { AppSidebar } from "@/components/app-sidebar";
+import { SandboxBanner } from "@/components/sandbox-banner";
 import { TopbarSiteScope } from "@/components/topbar-site-scope";
 import { WorkContextBar } from "@/components/work-context-bar";
+import { getAppMode } from "@/lib/app-mode";
 import { getSiteOptions } from "@/lib/repository";
 import { loadWorkContext } from "@/lib/work-context";
 import "./globals.css";
@@ -16,9 +18,10 @@ export const metadata: Metadata = {
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   // PGlite is process-local and must not be opened by parallel build workers.
   await connection();
-  const [options, workContext] = await Promise.all([
+  const [options, workContext, mode] = await Promise.all([
     getSiteOptions(),
     loadWorkContext().catch(() => []),
+    getAppMode(),
   ]);
   const markets = options.markets.map(({ code, name, currency }) => ({ code, name, currency }));
   const platforms = options.platforms.map(({ code, name }) => ({ code, name }));
@@ -28,9 +31,10 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   return (
     <html lang="zh-CN" suppressHydrationWarning>
       <body>
-        <div className="app-shell">
-          <AppSidebar />
+        <div className="app-shell" data-mode={mode}>
+          <AppSidebar mode={mode} />
           <div className="app-workspace">
+            <SandboxBanner mode={mode} />
             <header className="topbar">
               <Suspense fallback={<div className="topbar-inner" />}>
                 <TopbarSiteScope markets={markets} platforms={platforms} />

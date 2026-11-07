@@ -9237,3 +9237,231 @@ label {
     justify-content: flex-start;
   }
 }
+
+/* ==========================================================================
+   模拟沙盒 / 真实数据 模式切换与全局提示条
+   ========================================================================== */
+
+.sidebar-footer {
+  margin-top: auto;
+  padding-top: 18px;
+}
+
+.mode-switcher-card {
+  padding: 10px 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.2s ease;
+}
+
+.mode-switcher-card.mode-sandbox {
+  background: rgba(245, 158, 11, 0.06);
+  border-color: rgba(245, 158, 11, 0.22);
+}
+
+.mode-switcher-card.mode-live {
+  background: rgba(16, 185, 129, 0.06);
+  border-color: rgba(16, 185, 129, 0.2);
+}
+
+/* 分段双选控制器 */
+.mode-segmented-control {
+  display: flex;
+  background: rgba(0, 0, 0, 0.35);
+  padding: 3px;
+  border-radius: 9px;
+  gap: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.mode-seg-btn {
+  flex: 1;
+  padding: 6px 4px;
+  font-size: 11.5px;
+  font-weight: 500;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: rgba(255, 255, 255, 0.55);
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.16s ease;
+  white-space: nowrap;
+}
+
+.mode-seg-btn:hover:not(:disabled) {
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.mode-seg-btn.active-live {
+  background: rgba(16, 185, 129, 0.22);
+  color: #a7f3d0;
+  font-weight: 600;
+  border-color: rgba(16, 185, 129, 0.45);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.mode-seg-btn.active-sandbox {
+  background: rgba(245, 158, 11, 0.22);
+  color: #fde68a;
+  font-weight: 600;
+  border-color: rgba(245, 158, 11, 0.45);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.mode-indicator-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.mode-indicator-dot.dot-sandbox {
+  background: #f59e0b;
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.8);
+}
+
+.mode-indicator-dot.dot-live {
+  background: #10b981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.8);
+}
+
+.mode-indicator-dot.dot-dim {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.mode-desc {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  margin: 8px 2px 0;
+  line-height: 1.35;
+}
+
+/* 沙盒模式快捷操作 */
+.mode-sandbox-actions {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(245, 158, 11, 0.25);
+}
+
+.mode-reset-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 11px;
+  padding: 2px 4px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+  width: 100%;
+}
+
+.mode-reset-button:hover {
+  color: #fcd34d;
+  background: rgba(245, 158, 11, 0.12);
+}
+
+.mode-reset-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mode-confirm-text {
+  font-size: 11px;
+  color: #fde68a;
+}
+
+.mode-confirm-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.mode-btn-confirm {
+  padding: 3px 8px;
+  font-size: 11px;
+  border-radius: 6px;
+  border: none;
+  background: #d97706;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.mode-btn-confirm:hover {
+  background: #b45309;
+}
+
+.mode-btn-cancel {
+  padding: 3px 8px;
+  font-size: 11px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+}
+
+/* 全局沙盒模式警告横幅 */
+.sandbox-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 8px 24px;
+  background: linear-gradient(90deg, #fffbeb 0%, #fef3c7 100%);
+  border-bottom: 1px solid #fde68a;
+  color: #92400e;
+  font-size: 12.5px;
+  box-shadow: 0 1px 3px rgba(180, 83, 9, 0.05);
+  z-index: 20;
+}
+
+.sandbox-banner-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sandbox-banner-icon {
+  display: flex;
+  align-items: center;
+  color: #d97706;
+  flex-shrink: 0;
+}
+
+.sandbox-banner-text strong {
+  color: #78350f;
+  font-weight: 700;
+}
+
+.sandbox-banner-text span {
+  color: #92400e;
+}
+
+.sandbox-banner-switch-btn {
+  background: #b45309;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.sandbox-banner-switch-btn:hover {
+  background: #92400e;
+}
+

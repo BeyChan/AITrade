@@ -1,16 +1,17 @@
 import { randomUUID } from "node:crypto";
+import { getAppMode, type AppMode } from "./app-mode.ts";
 import { getDb } from "./db.ts";
-import { calculateEconomics, opportunityScore, recommendationFor, type EconomicsAssumptions } from "./economics";
-import { analyzeSupplierQuotes } from "./sourcing";
-import { normalizeListingContent, preflightListing, type ListingDraftContent, type ListingPreflightResult } from "./listing";
-import { getChannelProfile, mapChannelPayload, preflightChannelContent, type ChannelContext } from "./channels";
-import { evaluateLaunchReadiness } from "./launch-readiness";
+import { calculateEconomics, opportunityScore, recommendationFor, type EconomicsAssumptions } from "./economics.ts";
+import { analyzeSupplierQuotes } from "./sourcing.ts";
+import { normalizeListingContent, preflightListing, type ListingDraftContent, type ListingPreflightResult } from "./listing.ts";
+import { getChannelProfile, mapChannelPayload, preflightChannelContent, type ChannelContext } from "./channels.ts";
+import { evaluateLaunchReadiness } from "./launch-readiness.ts";
 import {
   findCurrentVersionValidation,
   getConnectorCodeForPlatform,
   resolvePlatformCapabilities,
   resolveValidationAdapterConfiguration,
-} from "./platform-capabilities";
+} from "./platform-capabilities.ts";
 import type {
   AuditRow,
   AssetRow,
@@ -135,10 +136,24 @@ export async function listTerminatedCases(): Promise<TerminatedCase[]> {
   });
 }
 
-export async function listCases(): Promise<EnrichedCase[]> {
+async function resolveCurrentMode(explicitMode?: AppMode): Promise<AppMode> {
+  if (explicitMode) return explicitMode;
+  try {
+    return await getAppMode();
+  } catch {
+    return "sandbox";
+  }
+}
+
+export async function listCases(options?: { mode?: AppMode }): Promise<EnrichedCase[]> {
   const db = await getDb();
+  const mode = await resolveCurrentMode(options?.mode);
+  const casesQuery = mode === "live"
+    ? "SELECT * FROM product_cases WHERE is_demo = FALSE ORDER BY created_at DESC"
+    : "SELECT * FROM product_cases ORDER BY created_at DESC";
+
   const [cases, costs, approvedListings] = await Promise.all([
-    db.query<ProductCaseRow>("SELECT * FROM product_cases ORDER BY created_at DESC"),
+    db.query<ProductCaseRow>(casesQuery),
     db.query<CostModelRow>("SELECT DISTINCT ON (case_id) * FROM cost_models ORDER BY case_id, version DESC"),
     db.query<{ case_id: string }>(
       "SELECT DISTINCT case_id FROM listings WHERE status = 'content_approved' OR status = 'published'",
@@ -174,10 +189,14 @@ export async function getSiteOptions() {
   return { markets: markets.rows, platforms: platforms.rows };
 }
 
-export async function listCasesForSite(marketCode: string, platformCode: string): Promise<EnrichedCase[]> {
+export async function listCasesForSite(
+  marketCode: string,
+  platformCode: string,
+  options?: { mode?: AppMode },
+): Promise<EnrichedCase[]> {
   const db = await getDb();
   const [cases, discovered, targeted] = await Promise.all([
-    listCases(),
+    listCases(options),
     db.query<{ case_id: string }>(
       `SELECT case_id
        FROM product_case_sites
@@ -226,8 +245,13 @@ export async function getCaseDetail(caseId: string): Promise<CaseDetail | null> 
   };
 }
 
-export async function importCandidates(rows: CandidateImportRow[], actor = "运营人员") {
+export async function importCandidates(
+  rows: CandidateImportRow[],
+  actor = "运营人员",
+  options?: { isDemo?: boolean },
+) {
   const db = await getDb();
+  const isDemo = options?.isDemo ?? ((await resolveCurrentMode()) === "sandbox");
   let imported = 0;
   let skipped = 0;
 
@@ -239,7 +263,7 @@ export async function importCandidates(rows: CandidateImportRow[], actor = "运�
         `INSERT INTO product_cases
           (id, asin, marketplace, category, title, url, status, competitor_price_cents,
            monthly_sales_estimate, review_count, rating, notes, owner, evidence_score, is_demo)
-         VALUES ($1, $2, $3, $4, $5, $6, 'approved', $7, $8, $9, $10, $11, $12, 0, FALSE)
+         VALUES ($1, $2, $3, $4, $5, $6, 'approved', $7, $8, $9, $10, $11, $12, 0, $13)
          ON CONFLICT (asin, marketplace) DO NOTHING
          RETURNING id`,
         [
@@ -255,6 +279,7 @@ export async function importCandidates(rows: CandidateImportRow[], actor = "运�
           row.rating,
           row.notes,
           actor,
+          isDemo,
         ],
       );
       if (!inserted.rows[0]) {
@@ -310,11 +335,13 @@ export type CreateCaseFromCompetitorInput = {
 export async function createProductCaseFromCompetitors(
   input: CreateCaseFromCompetitorInput,
   actor = "竞品操盘手",
+  options?: { isDemo?: boolean },
 ) {
   const db = await getDb();
   const caseId = randomUUID();
   const asin = `AI-${randomUUID().replace(/-/g, "").slice(0, 10).toUpperCase()}`;
   const results = calculateEconomics(input.assumptions);
+  const isDemo = options?.isDemo ?? ((await resolveCurrentMode()) === "sandbox");
 
   // 严格遵循客观证据原则：AI 生成的反制文案与 RFQ 均为卖点假设，绝不计入客观证据完整度！
   // 证据完整度只按实际抓取并人工复核的竞品样本量客观计算
@@ -337,7 +364,7 @@ export async function createProductCaseFromCompetitors(
       `INSERT INTO product_cases
         (id, asin, marketplace, category, title, url, status, competitor_price_cents,
          monthly_sales_estimate, review_count, rating, notes, owner, evidence_score, is_demo, currency)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, FALSE, $15)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
       [
         caseId,
         asin,
@@ -353,6 +380,7 @@ export async function createProductCaseFromCompetitors(
         input.notes,
         actor,
         realEvidenceScore,
+        isDemo,
         input.currency,
       ],
     );
@@ -624,10 +652,15 @@ function buildSourcingSummary(
   };
 }
 
-export async function listSourcingCases(): Promise<SourcingCaseSummary[]> {
+export async function listSourcingCases(options?: { mode?: AppMode }): Promise<SourcingCaseSummary[]> {
   const db = await getDb();
+  const mode = await resolveCurrentMode(options?.mode);
+  const casesQuery = mode === "live"
+    ? "SELECT * FROM product_cases WHERE status = 'approved' AND is_demo = FALSE ORDER BY updated_at DESC"
+    : "SELECT * FROM product_cases WHERE status = 'approved' ORDER BY updated_at DESC";
+
   const [cases, costs, quoteRows, selections] = await Promise.all([
-    db.query<ProductCaseRow>("SELECT * FROM product_cases WHERE status = 'approved' ORDER BY updated_at DESC"),
+    db.query<ProductCaseRow>(casesQuery),
     db.query<CostModelRow>("SELECT DISTINCT ON (case_id) * FROM cost_models ORDER BY case_id, version DESC"),
     db.query<SourcingQuoteJoinRow>(`${sourcingQuoteSelect} ORDER BY q.created_at DESC`),
     db.query<SupplierSelectionRow>("SELECT * FROM supplier_selections"),

@@ -166,7 +166,9 @@ const demoCases: DemoCase[] = [
 ];
 
 async function seedDemoData(db: PGlite) {
-  const countResult = await db.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM product_cases");
+  const countResult = await db.query<{ count: string }>(
+    "SELECT COUNT(*)::text AS count FROM product_cases WHERE is_demo = TRUE",
+  );
   if (Number(countResult.rows[0]?.count ?? 0) > 0) return;
 
   await db.transaction(async (tx) => {
@@ -240,3 +242,17 @@ async function seedDemoData(db: PGlite) {
     }
   });
 }
+
+/**
+ * 重置演示数据：
+ * 仅清理 is_demo = TRUE 的数据（通过级联外键自动清除关联合同/证据/成本模型），
+ * 并重新生成初始的 4 个演示案例，完全不触碰真实数据。
+ */
+export async function resetDemoData(): Promise<void> {
+  const db = await getDb();
+  await db.transaction(async (tx) => {
+    await tx.query("DELETE FROM product_cases WHERE is_demo = TRUE");
+  });
+  await seedDemoData(db);
+}
+

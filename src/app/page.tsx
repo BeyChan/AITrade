@@ -5,6 +5,7 @@ import { CategoryRecommender } from "@/components/category-recommender";
 import { GenerateResearchButton } from "@/components/generate-research-button";
 import { OpportunityScoreHelp } from "@/components/opportunity-score-help";
 import { getAIProviderStatus } from "@/lib/ai-provider";
+import { getAppMode } from "@/lib/app-mode";
 import { buildAiProposalDigest, loadPendingAiProposals } from "@/lib/ai-proposals/digest";
 import { listAISourcingBatches } from "@/lib/ai-sourcing-repository";
 import { money, percent, shortDate } from "@/lib/format";
@@ -27,7 +28,7 @@ type PageProps = {
 };
 
 export default async function DashboardPage({ searchParams }: PageProps) {
-  const [query, options] = await Promise.all([searchParams, getSiteOptions()]);
+  const [query, options, mode] = await Promise.all([searchParams, getSiteOptions(), getAppMode()]);
   const requestedMarket = query.market?.trim().toUpperCase();
   const requestedPlatform = query.platform?.trim().toLowerCase();
   const selectedMarket =
@@ -230,7 +231,11 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         {recentCases.length === 0 ? (
           <div className="empty-state">
             <h3>{siteLabel}还没有已立项商品</h3>
-            <p>先完成一轮证据与报价验证；只有确定性 GO 才能转入商品立项。</p>
+            <p>
+              {mode === "live"
+                ? "当前处于真实数据模式，暂无已立项真实商品。您可以导入候选品、启动选品研究，或随时在左下角开启「模拟沙盒」体验演示数据。"
+                : "先完成一轮证据与报价验证；只有确定性 GO 才能转入商品立项。"}
+            </p>
             <div className="dashboard-empty-actions">
               <Link href={newResearchHref} className="button primary">新建选品研究</Link>
               <Link href={importHref} className="button secondary">导入候选品</Link>

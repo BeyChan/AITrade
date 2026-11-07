@@ -68,19 +68,32 @@ async function writeReports(reports: CompetitorComparisonReport[]): Promise<void
   await fs.rename(tmp, STORAGE_FILE);
 }
 
-export async function getComparisonReports(): Promise<CompetitorComparisonReport[]> {
+export async function getComparisonReports(options?: { mode?: "sandbox" | "live" }): Promise<CompetitorComparisonReport[]> {
   try {
     const raw = await fs.readFile(STORAGE_FILE, "utf-8");
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.map(normalizeReport).filter((r): r is CompetitorComparisonReport => r !== null);
+    const all = parsed.map(normalizeReport).filter((r): r is CompetitorComparisonReport => r !== null);
+    let mode = options?.mode;
+    if (!mode) {
+      try {
+        const { getAppMode } = await import("@/lib/app-mode");
+        mode = await getAppMode();
+      } catch {
+        mode = "sandbox";
+      }
+    }
+    if (mode === "live") {
+      return all.filter((r) => r.provenance !== "demo");
+    }
+    return all;
   } catch {
     return [];
   }
 }
 
-export async function getComparisonReportById(id: string): Promise<CompetitorComparisonReport | null> {
-  const reports = await getComparisonReports();
+export async function getComparisonReportById(id: string, options?: { mode?: "sandbox" | "live" }): Promise<CompetitorComparisonReport | null> {
+  const reports = await getComparisonReports(options);
   return reports.find((r) => r.id === id) || null;
 }
 
