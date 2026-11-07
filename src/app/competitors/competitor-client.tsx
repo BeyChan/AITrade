@@ -1,14 +1,18 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import type { CompetitorComparisonReport, CompetitorProfile } from "@/lib/competitor-compare/types";
 import type { AntiListingResult } from "@/lib/competitor-compare/anti-listing";
+import type { SupplierRfqDraft } from "@/lib/competitor-compare/supplier-rfq";
 import { calculateProductIndex } from "@/lib/competitor-compare/competitiveness";
 import {
+  applyAntiListingToCaseAction,
   convertReportToHypothesisAction,
   deleteComparisonReportAction,
   generateAntiListingAction,
+  generateSupplierRfqAction,
+  getAvailableCasesAction,
   runCompetitorAnalysisAction,
 } from "./actions";
 
@@ -47,6 +51,20 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
   const [antiListing, setAntiListing] = useState<AntiListingResult | null>(null);
   const [isGeneratingListing, setIsGeneratingListing] = useState(false);
   const [bulletsCopied, setBulletsCopied] = useState(false);
+  const [rfqData, setRfqData] = useState<SupplierRfqDraft | null>(null);
+  const [isGeneratingRfq, setIsGeneratingRfq] = useState(false);
+  const [rfqCopied, setRfqCopied] = useState(false);
+  const [availableCases, setAvailableCases] = useState<Array<{ id: string; title: string; asin: string; status: string }>>([]);
+  const [selectedCaseId, setSelectedCaseId] = useState("");
+  const [isApplyingCase, setIsApplyingCase] = useState(false);
+  const [appliedSuccessCaseId, setAppliedSuccessCaseId] = useState<string | null>(null);
+
+  useEffect(() => {
+    getAvailableCasesAction(currentMarket, currentPlatform).then((cases) => {
+      setAvailableCases(cases);
+      if (cases[0]) setSelectedCaseId(cases[0].id);
+    });
+  }, [currentMarket, currentPlatform]);
 
   const currentReport = reports.find((r) => r.id === selectedReportId) || reports[0] || null;
 
@@ -116,6 +134,45 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
       }
     } finally {
       setIsGeneratingListing(false);
+    }
+  };
+
+  const handleGenerateRfq = async (reportId: string) => {
+    setIsGeneratingRfq(true);
+    setStatusMsg(null);
+    try {
+      const res = await generateSupplierRfqAction(reportId);
+      if (res.success && res.data) {
+        setRfqData(res.data);
+        setStatusMsg({ type: "success", text: "已成功生成 1688 定制改良询价单 (RFQ)！" });
+      } else {
+        setStatusMsg({ type: "error", text: res.error || "生成询价单失败" });
+      }
+    } finally {
+      setIsGeneratingRfq(false);
+    }
+  };
+
+  const handleCopyRfqText = (rfq: SupplierRfqDraft) => {
+    navigator.clipboard.writeText(rfq.formattedText).then(() => {
+      setRfqCopied(true);
+      setTimeout(() => setRfqCopied(false), 2500);
+    });
+  };
+
+  const handleApplyToCase = async () => {
+    if (!selectedCaseId || !antiListing) return;
+    setIsApplyingCase(true);
+    try {
+      const res = await applyAntiListingToCaseAction(selectedCaseId, antiListing);
+      if (res.success) {
+        setAppliedSuccessCaseId(selectedCaseId);
+        setStatusMsg({ type: "success", text: `已成功将反制 Listing 写入选品商品 (版本 v${res.version})！` });
+      } else {
+        setStatusMsg({ type: "error", text: res.error || "回填 Listing 失败" });
+      }
+    } finally {
+      setIsApplyingCase(false);
     }
   };
 
@@ -351,7 +408,7 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
               </div>
             </div>
 
-            <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+            <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
               <button
                 type="button"
                 className="button secondary"
@@ -360,6 +417,16 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
                 style={{ fontSize: "12px", padding: "6px 14px", height: "34px", borderRadius: "10px", borderColor: "var(--green)", color: "var(--green)", fontWeight: 600 }}
               >
                 {isGeneratingListing ? "AI 创作反制五点中..." : "✍️ 生成反制五点描述"}
+              </button>
+
+              <button
+                type="button"
+                className="button secondary"
+                disabled={isGeneratingRfq}
+                onClick={() => handleGenerateRfq(currentReport.id)}
+                style={{ fontSize: "12px", padding: "6px 14px", height: "34px", borderRadius: "10px", borderColor: "var(--line)", color: "var(--ink)", fontWeight: 600 }}
+              >
+                {isGeneratingRfq ? "生成 RFQ 中..." : "🏭 1688 改良询价单"}
               </button>
 
               <button
@@ -463,7 +530,7 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
 
               {/* 3 个 A+ 差异化对比模块 */}
               {antiListing.aplusModules && antiListing.aplusModules.length > 0 && (
-                <div style={{ background: "#f5f8f5", padding: "14px", borderRadius: "10px", border: "1px solid var(--line)" }}>
+                <div style={{ background: "#f5f8f5", padding: "14px", borderRadius: "10px", border: "1px solid var(--line)", marginBottom: "16px" }}>
                   <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--ink)", marginBottom: "8px" }}>
                     🖼️ A+ 页面“我优敌劣”视觉对比模块建议：
                   </div>
@@ -478,6 +545,199 @@ export function CompetitorClient({ initialReports, currentMarket, currentPlatfor
                   </div>
                 </div>
               )}
+
+              {/* 业务打通：一键写入选品商品 Listing 草稿 */}
+              <div
+                style={{
+                  background: "#ffffff",
+                  padding: "14px 16px",
+                  borderRadius: "10px",
+                  border: "1px solid var(--line)",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: "12px",
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--ink)", marginBottom: "2px" }}>
+                    📥 一键写入商品 Listing 草稿
+                  </div>
+                  <div style={{ fontSize: "11px", color: "var(--muted)" }}>
+                    将本套反制文案直接沉淀到商品库（自动生成新的文案版本，可随时在商品详情页微调与导出）：
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                  {availableCases.length > 0 ? (
+                    <>
+                      <select
+                        value={selectedCaseId}
+                        onChange={(e) => setSelectedCaseId(e.target.value)}
+                        style={{
+                          padding: "6px 10px",
+                          borderRadius: "8px",
+                          border: "1px solid var(--line)",
+                          fontSize: "12px",
+                          background: "#fbfcfa",
+                          color: "var(--ink)",
+                          maxWidth: "260px",
+                        }}
+                      >
+                        {availableCases.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.title} ({c.asin || "新产品"})
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        className="button primary"
+                        disabled={isApplyingCase || !selectedCaseId}
+                        onClick={handleApplyToCase}
+                        style={{ fontSize: "12px", padding: "6px 14px", height: "34px", borderRadius: "8px" }}
+                      >
+                        {isApplyingCase ? "写入中..." : "确认写入商品"}
+                      </button>
+                    </>
+                  ) : (
+                    <span style={{ fontSize: "12px", color: "var(--muted)" }}>当前站点暂无已立项商品</span>
+                  )}
+                  {appliedSuccessCaseId && (
+                    <Link
+                      href={`/cases/${appliedSuccessCaseId}/content`}
+                      className="button secondary"
+                      style={{ fontSize: "12px", padding: "6px 12px", height: "34px", borderRadius: "8px", color: "var(--green)" }}
+                    >
+                      前往商品详情 &rarr;
+                    </Link>
+                  )}
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* 1688 定制改良询价单 (RFQ) 面板 */}
+          {rfqData && (
+            <section className="panel" style={{ padding: "24px", background: "#fbfcfc", border: "1.5px solid #28543f" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px" }}>
+                <div>
+                  <div className="eyebrow" style={{ color: "#28543f" }}>SUPPLIER SOURCING RFQ · 1688 工业改良询价单</div>
+                  <h4 style={{ margin: "4px 0 0 0", fontSize: "17px", color: "var(--ink)", fontWeight: 800 }}>
+                    🏭 针对竞品痛点的工厂开模/打样采购定制单 ({rfqData.productName})
+                  </h4>
+                  <p style={{ margin: "4px 0 0 0", color: "var(--muted)", fontSize: "12px" }}>
+                    将海外买家差评转化为工业制造标准与材质要求，发给工厂一眼便知是专业采购！
+                  </p>
+                </div>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button
+                    type="button"
+                    className="button primary"
+                    onClick={() => handleCopyRfqText(rfqData)}
+                    style={{ fontSize: "12px", padding: "5px 12px", height: "32px", borderRadius: "8px", background: "#28543f" }}
+                  >
+                    {rfqCopied ? "✅ 已复制旺旺话术" : "📋 复制旺旺询价话术"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRfqData(null)}
+                    style={{ background: "none", border: "none", color: "var(--muted)", fontSize: "16px", cursor: "pointer", padding: "0 6px" }}
+                    title="收起"
+                  >
+                    &times;
+                  </button>
+                </div>
+              </div>
+
+              {/* 核心指标胶囊 */}
+              <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginBottom: "16px" }}>
+                <div style={{ background: "#ffffff", padding: "8px 14px", borderRadius: "8px", border: "1px solid var(--line)" }}>
+                  <span style={{ fontSize: "11px", color: "var(--muted)" }}>目标采购单价: </span>
+                  <strong style={{ fontSize: "14px", color: "var(--green)" }}>¥{rfqData.targetPriceRmb.toFixed(2)}</strong>
+                </div>
+                <div style={{ background: "#ffffff", padding: "8px 14px", borderRadius: "8px", border: "1px solid var(--line)" }}>
+                  <span style={{ fontSize: "11px", color: "var(--muted)" }}>建议试单 MOQ: </span>
+                  <strong style={{ fontSize: "13px", color: "var(--ink)" }}>{rfqData.suggestedMoq}</strong>
+                </div>
+              </div>
+
+              {/* 改良部件与工业标准列表 */}
+              <div style={{ marginBottom: "16px" }}>
+                <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--ink)", marginBottom: "8px" }}>
+                  🛠️ 核心结构改良与材质工艺标准要求：
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  {rfqData.criticalImprovements.map((item, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        background: "#ffffff",
+                        padding: "10px 14px",
+                        borderRadius: "8px",
+                        border: "1px solid var(--line)",
+                        fontSize: "12px",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                        <span style={{ fontWeight: 700, color: "var(--ink)" }}>
+                          {idx + 1}. 部件：{item.component}
+                        </span>
+                        <span style={{ color: "var(--red)", fontSize: "11px", background: "var(--red-soft)", padding: "1px 6px", borderRadius: "4px" }}>
+                          靶向痛点: {item.painPointTargeted}
+                        </span>
+                      </div>
+                      <div style={{ color: "var(--green)", fontWeight: 600 }}>
+                        ⚙️ 工业工艺标准: <span style={{ color: "var(--ink)", fontWeight: 400 }}>{item.manufacturingStandard}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 质检验货标准 */}
+              {rfqData.qualityStandard && rfqData.qualityStandard.length > 0 && (
+                <div style={{ background: "#f5f8f5", padding: "12px 14px", borderRadius: "8px", border: "1px solid var(--line)", marginBottom: "16px" }}>
+                  <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--ink)", marginBottom: "6px" }}>
+                    🧪 打样与出货质检验收要求：
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: "16px", fontSize: "12px", color: "var(--ink)", lineHeight: "1.5" }}>
+                    {rfqData.qualityStandard.map((q, idx) => (
+                      <li key={idx}>{q}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* 阿里旺旺完整文本 */}
+              <div style={{ background: "#ffffff", padding: "12px 14px", borderRadius: "8px", border: "1px solid var(--line)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                  <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--muted)" }}>阿里旺旺 / 微信工厂对接话术预览：</span>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyRfqText(rfqData)}
+                    style={{ background: "none", border: "none", color: "var(--green)", fontSize: "11px", cursor: "pointer", fontWeight: 600 }}
+                  >
+                    {rfqCopied ? "已复制" : "复制文本"}
+                  </button>
+                </div>
+                <pre
+                  style={{
+                    margin: 0,
+                    whiteSpace: "pre-wrap",
+                    fontSize: "11px",
+                    lineHeight: "1.5",
+                    color: "var(--ink)",
+                    fontFamily: "ui-monospace, monospace",
+                    background: "#fbfcfb",
+                    padding: "10px",
+                    borderRadius: "6px",
+                  }}
+                >
+                  {rfqData.formattedText}
+                </pre>
+              </div>
             </section>
           )}
 

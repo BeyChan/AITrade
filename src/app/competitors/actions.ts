@@ -9,6 +9,8 @@ import {
 } from "@/lib/competitor-compare/storage";
 import { createAISourcingBatch } from "@/lib/ai-sourcing-repository";
 import { generateAntiListingContent, type AntiListingResult } from "@/lib/competitor-compare/anti-listing";
+import { generateSupplierRfqFromCompetitors, type SupplierRfqDraft } from "@/lib/competitor-compare/supplier-rfq";
+import { createListingDraft, listCasesForSite } from "@/lib/repository";
 import type { CompetitorComparisonReport } from "@/lib/competitor-compare/types";
 
 export type AnalysisActionResult = {
@@ -113,6 +115,75 @@ export async function generateAntiListingAction(
     return {
       success: false,
       error: err instanceof Error ? err.message : "生成反制 Listing 文案失败",
+    };
+  }
+}
+
+export async function generateSupplierRfqAction(
+  reportId: string,
+): Promise<{ success: boolean; data?: SupplierRfqDraft; error?: string }> {
+  try {
+    const report = await getComparisonReportById(reportId);
+    if (!report) {
+      return { success: false, error: "未找到对应的竞品对比报告" };
+    }
+
+    const rfq = await generateSupplierRfqFromCompetitors(report);
+    return { success: true, data: rfq };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "生成 1688 RFQ 询价单失败",
+    };
+  }
+}
+
+export async function getAvailableCasesAction(
+  marketCode: string,
+  platformCode: string,
+): Promise<Array<{ id: string; title: string; asin: string; status: string }>> {
+  try {
+    const cases = await listCasesForSite(marketCode, platformCode);
+    return cases.map((c) => ({
+      id: c.id,
+      title: c.title,
+      asin: c.asin,
+      status: c.status,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export async function applyAntiListingToCaseAction(
+  caseId: string,
+  antiListing: AntiListingResult,
+  brand?: string,
+): Promise<{ success: boolean; caseId?: string; version?: number; error?: string }> {
+  try {
+    const bullets = antiListing.bullets.map((b) => `${b.headline} ${b.content}`);
+    const description = antiListing.aplusModules && antiListing.aplusModules.length > 0
+      ? antiListing.aplusModules.map((m) => `### ${m.title}\n${m.description}`).join("\n\n")
+      : antiListing.antiTitle;
+
+    const result = await createListingDraft(
+      caseId,
+      {
+        brand: brand || "Brand",
+        title: antiListing.antiTitle,
+        bullets,
+        description,
+        searchTerms: "",
+      },
+      "竞品对比工作台",
+    );
+
+    revalidatePath(`/cases/${caseId}/content`);
+    return { success: true, caseId, version: result.version };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "写入商品 Listing 失败",
     };
   }
 }
