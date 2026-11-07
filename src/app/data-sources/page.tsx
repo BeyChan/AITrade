@@ -72,6 +72,32 @@ export default async function DataSourcesPage() {
 
       <DataSourceImport />
 
+      <div
+        style={{
+          background: "#ffffff",
+          borderRadius: "8px",
+          border: "1px solid var(--line)",
+          padding: "16px 20px",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          margin: "16px 0",
+        }}
+      >
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+            <span style={{ fontSize: "14px", fontWeight: 700, color: "var(--ink)" }}>非结构化材料提取通道 (AI 证据收件箱)</span>
+            <span className="badge badge-neutral">高级清洗工具</span>
+          </div>
+          <p style={{ margin: 0, fontSize: "13px", color: "var(--muted)" }}>
+            支持复杂文本、表格、多行非标报价或长篇评论材料的批量清洗与事务审计，AI 提取字段后由人工逐项核销入库。
+          </p>
+        </div>
+        <Link href="/ai-inbox" className="button secondary" style={{ whiteSpace: "nowrap" }}>
+          打开证据收件箱 →
+        </Link>
+      </div>
+
       <section className="panel source-panel">
         <div className="panel-header">
           <div>

@@ -56,9 +56,10 @@ function getSectionLabel(pathname: string) {
   if (pathname.startsWith("/ai-sourcing")) return "选品验证";
   if (pathname.startsWith("/competitors")) return "竞品对比";
   if (pathname.startsWith("/ai-inbox")) return "证据收件箱";
-  if (pathname.startsWith("/cases/")) {
+  if (pathname.startsWith("/cases")) {
     if (/\/sourcing(\/|$)/.test(pathname)) return "供应商 · 商品详情";
     if (/\/content(\/|$)|\/channels(\/|$)/.test(pathname)) return "内容与上架 · 商品详情";
+    if (/\/report(\/|$)/.test(pathname)) return "立项决策战报 (Memo)";
     return "商品工作台";
   }
   if (pathname === "/import" || pathname.startsWith("/data-sources")) return "数据导入";

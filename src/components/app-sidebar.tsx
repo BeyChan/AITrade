@@ -1,29 +1,86 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ModeSwitcher } from "./mode-switcher";
 import type { AppMode } from "@/lib/app-mode";
 
+type SubItem = {
+  href: string;
+  label: string;
+  badge?: string;
+};
+
 type NavItem = {
   href: string;
   label: string;
-  icon: "ai" | "verify" | "competitor" | "sourcing" | "content" | "inbox" | "data" | "settings" | "connection";
+  icon: "ai" | "verify" | "competitor" | "case" | "sourcing" | "content" | "inbox" | "data" | "settings" | "connection";
+  subItems?: SubItem[];
 };
 
-const NAV_ITEMS: NavItem[] = [
-  { href: "/", label: "工作台", icon: "ai" },
-  { href: "/ai-sourcing", label: "选品验证", icon: "verify" },
-  { href: "/competitors", label: "竞品对比", icon: "competitor" },
-  { href: "/sourcing", label: "供应商资产库", icon: "sourcing" },
-  { href: "/content", label: "内容与上架", icon: "content" },
-  { href: "/ai-inbox", label: "证据收件箱", icon: "inbox" },
+const MAIN_NAV_ITEMS: NavItem[] = [
+  {
+    href: "/",
+    label: "工作台大盘",
+    icon: "ai",
+    subItems: [
+      { href: "/", label: "5 阶流水线看板" },
+      { href: "/#todos", label: "今日行动待办" },
+    ],
+  },
+  {
+    href: "/competitors",
+    label: "选品与研报",
+    icon: "competitor",
+    subItems: [
+      { href: "/competitors", label: "竞品多维横评 PK" },
+      { href: "/ai-sourcing", label: "AI 类目假设推演" },
+    ],
+  },
+  {
+    href: "/cases",
+    label: "商品工作台",
+    icon: "case",
+    subItems: [
+      { href: "/cases", label: "全部立项案卷" },
+      { href: "/cases?status=approved", label: "已立项通过" },
+      { href: "/cases?status=review_pending", label: "待财务定标" },
+    ],
+  },
+  {
+    href: "/sourcing",
+    label: "寻源与供应商",
+    icon: "sourcing",
+    subItems: [
+      { href: "/sourcing", label: "供应商资产名录" },
+      { href: "/sourcing?view=candidates", label: "1688 寻源候选" },
+    ],
+  },
+  {
+    href: "/content",
+    label: "内容与上架",
+    icon: "content",
+    subItems: [
+      { href: "/content", label: "反制五点文案打磨" },
+      { href: "/cases", label: "批量导出 Flat File" },
+    ],
+  },
 ];
 
-const UTILITY_ITEMS: NavItem[] = [
-  { href: "/data-sources", label: "数据导入", icon: "data" },
-  { href: "/connections", label: "连接中心", icon: "connection" },
-  { href: "/settings", label: "系统设置", icon: "settings" },
+const UTILITY_NAV_ITEMS: NavItem[] = [
+  {
+    href: "/data-sources",
+    label: "数据导入与清洗",
+    icon: "data",
+    subItems: [
+      { href: "/data-sources", label: "CSV 模板导入" },
+      { href: "/import", label: "快速录入候选品" },
+      { href: "/ai-inbox", label: "非结构化清洗收件箱" },
+    ],
+  },
+  { href: "/connections", label: "店铺连接中心", icon: "connection" },
+  { href: "/settings", label: "系统规则设置", icon: "settings" },
 ];
 
 function NavIcon({ name }: { name: NavItem["icon"] }) {
@@ -45,6 +102,15 @@ function NavIcon({ name }: { name: NavItem["icon"] }) {
         <path d="m12 3 1.1 3.2a4.2 4.2 0 0 0 2.7 2.7L19 10l-3.2 1.1a4.2 4.2 0 0 0-2.7 2.7L12 17l-1.1-3.2a4.2 4.2 0 0 0-2.7-2.7L5 10l3.2-1.1a4.2 4.2 0 0 0 2.7-2.7L12 3Z" />
         <path d="m18.5 16 .6 1.9a2 2 0 0 0 1.3 1.3l1.6.8-1.6.8a2 2 0 0 0-1.3 1.3l-.6 1.9-.6-1.9a2 2 0 0 0-1.3-1.3l-1.6-.8 1.6-.8a2 2 0 0 0 1.3-1.3l.6-1.9Z" />
         <path d="M4 17.5h3M5.5 16v3" />
+      </svg>
+    );
+  }
+
+  if (name === "case") {
+    return (
+      <svg {...common}>
+        <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+        <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
       </svg>
     );
   }
@@ -137,41 +203,118 @@ function NavIcon({ name }: { name: NavItem["icon"] }) {
   );
 }
 
-function activeHrefForPath(pathname: string) {
-  if (pathname === "/") return "/";
-  if (pathname.startsWith("/ai-sourcing")) return "/ai-sourcing";
-  if (pathname.startsWith("/competitors")) return "/competitors";
-  if (pathname.startsWith("/ai-inbox")) return "/ai-inbox";
-  if (pathname.startsWith("/cases/")) {
-    if (/\/sourcing(\/|$)/.test(pathname)) return "/sourcing";
-    if (/\/content(\/|$)|\/channels(\/|$)/.test(pathname)) return "/content";
-    // 商品详情概览不属于任何一级模块：不高亮「工作台」，避免用户误判所在位置
-    return "";
-  }
-  if (pathname === "/import") return "/data-sources";
-  if (pathname.startsWith("/data-sources")) return "/data-sources";
-  if (pathname.startsWith("/sourcing")) return "/sourcing";
-  if (pathname.startsWith("/content")) return "/content";
-  if (pathname.startsWith("/approvals")) return "/content";
-  if (pathname.startsWith("/connections")) return "/connections";
-  if (pathname.startsWith("/settings")) return "/settings";
-  return "";
+function matchParentNav(item: NavItem, pathname: string): boolean {
+  if (item.href === "/" && pathname === "/") return true;
+  if (item.href === "/competitors" && (pathname.startsWith("/competitors") || pathname.startsWith("/ai-sourcing"))) return true;
+  if (item.href === "/cases" && pathname.startsWith("/cases")) return true;
+  if (item.href === "/sourcing" && pathname.startsWith("/sourcing")) return true;
+  if (item.href === "/content" && (pathname.startsWith("/content") || pathname.startsWith("/approvals"))) return true;
+  if (item.href === "/data-sources" && (pathname.startsWith("/data-sources") || pathname === "/import" || pathname.startsWith("/ai-inbox"))) return true;
+  if (item.href === "/connections" && pathname.startsWith("/connections")) return true;
+  if (item.href === "/settings" && pathname.startsWith("/settings")) return true;
+  return false;
 }
 
-function SidebarItemLink({ item, pathname }: { item: NavItem; pathname: string }) {
-  const activeHref = activeHrefForPath(pathname);
-  const active = activeHref === item.href;
+function SidebarItem({ item, pathname }: { item: NavItem; pathname: string }) {
+  const isMatch = matchParentNav(item, pathname);
+  const [isExpanded, setIsExpanded] = useState(isMatch);
+
+  // 当路由变动匹配到本组时，自动展开
+  useEffect(() => {
+    if (isMatch) {
+      setIsExpanded(true);
+    }
+  }, [isMatch]);
+
+  const hasSub = Boolean(item.subItems && item.subItems.length > 0);
 
   return (
-    <div className={`sidebar-item${active ? " active" : ""}`}>
-      <Link
-        href={item.href}
-        className={`sidebar-link${active ? " active" : ""}`}
-        aria-current={activeHref === item.href && pathname === item.href ? "page" : undefined}
-      >
-        <span className="sidebar-icon"><NavIcon name={item.icon} /></span>
-        <span>{item.label}</span>
-      </Link>
+    <div className={`sidebar-item${isMatch ? " active" : ""}`} style={{ marginBottom: "2px" }}>
+      <div style={{ display: "flex", alignItems: "center" }}>
+        <Link
+          href={item.href}
+          className={`sidebar-link${isMatch ? " active" : ""}`}
+          style={{ flex: 1 }}
+          aria-current={pathname === item.href ? "page" : undefined}
+        >
+          <span className="sidebar-icon"><NavIcon name={item.icon} /></span>
+          <span style={{ flex: 1 }}>{item.label}</span>
+        </Link>
+
+        {hasSub && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setIsExpanded((prev) => !prev);
+            }}
+            aria-label={`展开或收起 ${item.label}`}
+            style={{
+              background: "none",
+              border: "none",
+              color: "rgba(255, 255, 255, 0.4)",
+              cursor: "pointer",
+              padding: "6px 8px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: "10px",
+              transition: "transform 0.2s ease, color 0.15s ease",
+            }}
+          >
+            <span
+              style={{
+                display: "inline-block",
+                transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)",
+                transition: "transform 0.15s ease",
+              }}
+            >
+              ▶
+            </span>
+          </button>
+        )}
+      </div>
+
+      {/* 二级菜单展开 */}
+      {hasSub && isExpanded && (
+        <ul className="sidebar-subnav" style={{ marginTop: "2px" }}>
+          {item.subItems!.map((sub) => {
+            const isSubActive =
+              pathname === sub.href ||
+              (sub.href !== "/" && pathname.startsWith(sub.href.split("?")[0]));
+
+            return (
+              <li key={sub.href + sub.label}>
+                <Link
+                  href={sub.href}
+                  className={`sidebar-sublink${isSubActive ? " active" : ""}`}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <span>{sub.label}</span>
+                  {sub.badge && (
+                    <span
+                      style={{
+                        fontSize: "9px",
+                        padding: "1px 5px",
+                        borderRadius: "3px",
+                        background: "rgba(255,255,255,0.1)",
+                        color: "var(--lime)",
+                      }}
+                    >
+                      {sub.badge}
+                    </span>
+                  )}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }
@@ -190,9 +333,40 @@ export function AppSidebar({ mode = "sandbox" }: { mode?: AppMode }) {
       </Link>
 
       <nav className="sidebar-nav" aria-label="主导航">
-        {NAV_ITEMS.map((item) => <SidebarItemLink key={item.href} item={item} pathname={pathname} />)}
+        <div style={{ marginBottom: "14px" }}>
+          <div
+            style={{
+              padding: "0 12px 6px 12px",
+              fontSize: "10px",
+              fontWeight: 800,
+              textTransform: "uppercase",
+              letterSpacing: "1px",
+              color: "rgba(255, 255, 255, 0.35)",
+            }}
+          >
+            业务全生命周期
+          </div>
+          {MAIN_NAV_ITEMS.map((item) => (
+            <SidebarItem key={item.href} item={item} pathname={pathname} />
+          ))}
+        </div>
+
         <div className="sidebar-utility">
-          {UTILITY_ITEMS.map((item) => <SidebarItemLink key={item.href} item={item} pathname={pathname} />)}
+          <div
+            style={{
+              padding: "0 12px 6px 12px",
+              fontSize: "10px",
+              fontWeight: 800,
+              textTransform: "uppercase",
+              letterSpacing: "1px",
+              color: "rgba(255, 255, 255, 0.35)",
+            }}
+          >
+            支撑与工具
+          </div>
+          {UTILITY_NAV_ITEMS.map((item) => (
+            <SidebarItem key={item.href} item={item} pathname={pathname} />
+          ))}
         </div>
       </nav>
 

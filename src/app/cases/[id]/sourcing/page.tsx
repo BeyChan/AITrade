@@ -6,6 +6,7 @@ import { CaseStepper } from "@/components/case-stepper";
 import { money, percent, shortDate } from "@/lib/format";
 import { getSourcingDetail, listSupplierDirectory } from "@/lib/repository";
 import { SupplierMatrixPk } from "@/components/supplier-matrix-pk";
+import { QuoteSmartPaste } from "@/components/quote-smart-paste";
 
 export const dynamic = "force-dynamic";
 
@@ -230,6 +231,7 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
               </summary>
               <form action={createSupplierQuoteAction} className="stack entry-form">
                 <input type="hidden" name="caseId" value={productCase.id} />
+                <QuoteSmartPaste disabled={!canSource} />
                 <div className="form-section-label">供应商信息</div>
                 <div className="form-grid">
                   <div className="field">
