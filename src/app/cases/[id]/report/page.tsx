@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCaseDetail, getContentDetail } from "@/lib/repository";
 import { CaseStepper } from "@/components/case-stepper";
+import { StatusBadge } from "@/components/badges";
 import { emptyListingContent, normalizeListingContent } from "@/lib/listing";
 import { opportunityScore, recommendationFor } from "@/lib/economics";
 import { money, percent } from "@/lib/format";
@@ -45,8 +46,14 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
   } | null;
 
   return (
-    <div style={{ maxWidth: "1080px", margin: "0 auto", padding: "28px 24px 60px" }}>
-      {/* 顶部生命周期导航条 */}
+    <div className="page">
+      {/* 1. 标准面包屑导航 (与其他所有页面完全对齐) */}
+      <div className="breadcrumb no-print">
+        <Link href="/">AI 选品</Link> / <Link href="/cases">商品工作台</Link> /{" "}
+        <Link href={`/cases/${productCase.id}`}>{productCase.asin}</Link> / 决策战报
+      </div>
+
+      {/* 2. 标准生命周期步骤条 (全宽对齐) */}
       <div className="no-print" style={{ marginBottom: "20px" }}>
         <CaseStepper
           caseId={productCase.id}
@@ -57,57 +64,49 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
         />
       </div>
 
-      {/* 顶部操作工具栏 (打印时自动隐藏) */}
-      <div
-        className="no-print"
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: "20px",
-          padding: "10px 16px",
-          background: "#ffffff",
-          borderRadius: "10px",
-          border: "1px solid var(--line)",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.02)",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <Link
-            href={`/cases/${id}`}
-            className="button secondary"
-            style={{ fontSize: "12px", padding: "6px 12px", height: "32px", textDecoration: "none" }}
-          >
-            &larr; 返回商品案卷详情
-          </Link>
-          <span style={{ fontSize: "12px", color: "var(--muted)" }}>
-            案卷号: <strong>{productCase.asin}</strong> · 当前状态: <strong style={{ color: "var(--green)" }}>{recommendation} ({score} 分)</strong>
-          </span>
+      {/* 3. 标准标题与动作栏 (与其他所有详情页一致) */}
+      <div className="title-row no-print" style={{ marginBottom: "24px" }}>
+        <div>
+          <div className="eyebrow" style={{ color: "var(--green)" }}>投资决策 · 战报评审</div>
+          <h1 style={{ margin: "4px 0 6px 0" }}>{productCase.title}</h1>
+          <div className="title-meta">
+            <StatusBadge status={productCase.status} />
+            <span className="badge badge-neutral">{productCase.marketplace}</span>
+            <span className="badge badge-neutral">{productCase.category}</span>
+            <span className="muted">
+              ASIN: <strong>{productCase.asin}</strong> · 责任操盘手: {productCase.owner}
+            </span>
+          </div>
         </div>
 
-        <div style={{ display: "flex", gap: "10px" }}>
+        <div className="button-row">
+          <Link href={`/cases/${id}`} className="button secondary">
+            返回商品案卷
+          </Link>
           <a
             href={`/api/cases/${id}/flatfile`}
             className="button secondary"
-            style={{ fontSize: "12px", padding: "6px 14px", height: "34px", borderRadius: "8px" }}
+            download
+            style={{ textDecoration: "none" }}
           >
-            📥 下载亚马逊 Flat File
+            📥 下载 Flat File
           </a>
           <PrintButton />
         </div>
       </div>
 
-      {/* 报告主排版容器 (模拟 Executive Investment Memo 真实纸张质感) */}
+      {/* 4. 战报主排版容器 (作为标准 panel 满宽融入页面排版) */}
       <article
+        className="panel"
         style={{
           background: "#ffffff",
-          padding: "44px 52px",
-          borderRadius: "14px",
+          padding: "40px 48px",
+          borderRadius: "12px",
           border: "1px solid var(--line)",
-          boxShadow: "0 4px 24px rgba(0,0,0,0.04)",
+          boxShadow: "0 2px 12px rgba(0,0,0,0.03)",
         }}
       >
-        {/* 报表头部 */}
+        {/* 战报头部标题与评审评级 */}
         <div
           style={{
             borderBottom: "2px solid var(--green)",
@@ -119,14 +118,32 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
           }}
         >
           <div>
-            <div style={{ fontSize: "12px", color: "var(--green)", fontWeight: 800, letterSpacing: "1.2px", textTransform: "uppercase" }}>
+            <div
+              style={{
+                fontSize: "12px",
+                color: "var(--green)",
+                fontWeight: 800,
+                letterSpacing: "1.2px",
+                textTransform: "uppercase",
+              }}
+            >
               AITrade · Product Investment Memo
             </div>
-            <h1 style={{ margin: "8px 0 6px 0", fontSize: "24px", color: "var(--ink)", fontWeight: 900, letterSpacing: "-0.01em" }}>
+            <h2
+              style={{
+                margin: "8px 0 6px 0",
+                fontSize: "22px",
+                color: "var(--ink)",
+                fontWeight: 900,
+                letterSpacing: "-0.01em",
+              }}
+            >
               {productCase.title}
-            </h1>
+            </h2>
             <div style={{ fontSize: "13px", color: "var(--muted)" }}>
-              ASIN / SKU: <strong style={{ color: "var(--ink)" }}>{productCase.asin}</strong> · 目标站点: <strong>{productCase.marketplace}</strong> · 类目: <strong>{productCase.category}</strong> · 责任操盘手: <strong>{productCase.owner}</strong>
+              ASIN / SKU: <strong style={{ color: "var(--ink)" }}>{productCase.asin}</strong> · 目标站点:{" "}
+              <strong>{productCase.marketplace}</strong> · 类目: <strong>{productCase.category}</strong> · 责任操盘手:{" "}
+              <strong>{productCase.owner}</strong>
             </div>
           </div>
 
@@ -153,26 +170,83 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
 
         {/* 一、财务经济与压力测试模型 */}
         <section style={{ marginBottom: "32px" }}>
-          <h2 style={{ fontSize: "16px", fontWeight: 800, color: "var(--ink)", marginBottom: "14px", display: "flex", alignItems: "center", gap: "8px" }}>
+          <h2
+            style={{
+              fontSize: "16px",
+              fontWeight: 800,
+              color: "var(--ink)",
+              marginBottom: "14px",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+            }}
+          >
             <span>一、单位经济财务模型与压力保本核算</span>
           </h2>
 
           {result && assumptions ? (
-            <div style={{ background: "#f8faf9", borderRadius: "10px", border: "1px solid var(--line)", padding: "18px" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "14px", marginBottom: "16px", textAlign: "center" }}>
-                <div style={{ background: "#ffffff", padding: "12px 10px", borderRadius: "8px", border: "1px solid var(--line)", boxShadow: "0 1px 2px rgba(0,0,0,0.02)" }}>
+            <div
+              style={{
+                background: "#f8faf9",
+                borderRadius: "10px",
+                border: "1px solid var(--line)",
+                padding: "18px",
+              }}
+            >
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(4, 1fr)",
+                  gap: "14px",
+                  marginBottom: "16px",
+                  textAlign: "center",
+                }}
+              >
+                <div
+                  style={{
+                    background: "#ffffff",
+                    padding: "12px 10px",
+                    borderRadius: "8px",
+                    border: "1px solid var(--line)",
+                    boxShadow: "0 1px 2px rgba(0,0,0,0.02)",
+                  }}
+                >
                   <div style={{ fontSize: "11px", color: "var(--muted)", marginBottom: "2px" }}>销售单价</div>
                   <strong style={{ fontSize: "17px", color: "var(--ink)" }}>{money(assumptions.salePriceCents)}</strong>
                 </div>
-                <div style={{ background: "#ffffff", padding: "12px 10px", borderRadius: "8px", border: "1px solid var(--line)", boxShadow: "0 1px 2px rgba(0,0,0,0.02)" }}>
+                <div
+                  style={{
+                    background: "#ffffff",
+                    padding: "12px 10px",
+                    borderRadius: "8px",
+                    border: "1px solid var(--line)",
+                    boxShadow: "0 1px 2px rgba(0,0,0,0.02)",
+                  }}
+                >
                   <div style={{ fontSize: "11px", color: "var(--muted)", marginBottom: "2px" }}>到岸采购成本</div>
                   <strong style={{ fontSize: "17px", color: "var(--ink)" }}>{money(assumptions.landedCostCents)}</strong>
                 </div>
-                <div style={{ background: "#ffffff", padding: "12px 10px", borderRadius: "8px", border: "1px solid var(--line)", boxShadow: "0 1px 2px rgba(0,0,0,0.02)" }}>
+                <div
+                  style={{
+                    background: "#ffffff",
+                    padding: "12px 10px",
+                    borderRadius: "8px",
+                    border: "1px solid var(--line)",
+                    boxShadow: "0 1px 2px rgba(0,0,0,0.02)",
+                  }}
+                >
                   <div style={{ fontSize: "11px", color: "var(--muted)", marginBottom: "2px" }}>测算单件净利</div>
                   <strong style={{ fontSize: "17px", color: "var(--green)" }}>{money(result.netProfitCents)}</strong>
                 </div>
-                <div style={{ background: "#ffffff", padding: "12px 10px", borderRadius: "8px", border: "1px solid var(--line)", boxShadow: "0 1px 2px rgba(0,0,0,0.02)" }}>
+                <div
+                  style={{
+                    background: "#ffffff",
+                    padding: "12px 10px",
+                    borderRadius: "8px",
+                    border: "1px solid var(--line)",
+                    boxShadow: "0 1px 2px rgba(0,0,0,0.02)",
+                  }}
+                >
                   <div style={{ fontSize: "11px", color: "var(--muted)", marginBottom: "2px" }}>基准净利率</div>
                   <strong style={{ fontSize: "17px", color: "var(--green)" }}>{percent(result.marginRate)}</strong>
                 </div>
@@ -182,23 +256,54 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
                 <tbody>
                   <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
                     <td style={{ padding: "8px 10px", color: "var(--muted)", width: "22%" }}>FBA 配送履约费</td>
-                    <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 600, width: "18%" }}>{money(assumptions.fbaFeeCents)}</td>
-                    <td style={{ padding: "8px 10px", color: "var(--muted)", width: "35%" }}>压力测试保本单价 (Stress Break-Even)</td>
-                    <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, width: "25%" }}>{money(result.stressProfitCents > 0 ? assumptions.salePriceCents * 0.85 : assumptions.salePriceCents)}</td>
+                    <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 600, width: "18%" }}>
+                      {money(assumptions.fbaFeeCents)}
+                    </td>
+                    <td style={{ padding: "8px 10px", color: "var(--muted)", width: "35%" }}>
+                      压力测试保本单价 (Stress Break-Even)
+                    </td>
+                    <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, width: "25%" }}>
+                      {money(
+                        result.stressProfitCents > 0
+                          ? assumptions.salePriceCents * 0.85
+                          : assumptions.salePriceCents,
+                      )}
+                    </td>
                   </tr>
                   <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
                     <td style={{ padding: "8px 10px", color: "var(--muted)" }}>平台佣金费率</td>
-                    <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 600 }}>{percent(assumptions.referralRate)}</td>
+                    <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 600 }}>
+                      {percent(assumptions.referralRate)}
+                    </td>
                     <td style={{ padding: "8px 10px", color: "var(--muted)" }}>极限抗压净利 (降价15% + 退货飙升)</td>
-                    <td style={{ padding: "8px 10px", textAlign: "right", color: result.stressProfitCents > 0 ? "var(--green)" : "var(--red)", fontWeight: 700 }}>
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        textAlign: "right",
+                        color: result.stressProfitCents > 0 ? "var(--green)" : "var(--red)",
+                        fontWeight: 700,
+                      }}
+                    >
                       {money(result.stressProfitCents)}
                     </td>
                   </tr>
                   <tr>
                     <td style={{ padding: "8px 10px", color: "var(--muted)" }}>预估退货与损耗率</td>
-                    <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 600 }}>{percent(assumptions.returnRate)}</td>
-                    <td style={{ padding: "8px 10px", color: "var(--muted)" }}>预估月度利润贡献 (按月销 {productCase.monthly_sales_estimate} 件)</td>
-                    <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 800, color: "var(--green)", fontSize: "14px" }}>
+                    <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 600 }}>
+                      {percent(assumptions.returnRate)}
+                    </td>
+                    <td style={{ padding: "8px 10px", color: "var(--muted)" }}>
+                      预估月度利润贡献 (按月销 {productCase.monthly_sales_estimate} 件)
+                    </td>
+                    <td
+                      style={{
+                        padding: "8px 10px",
+                        textAlign: "right",
+                        fontWeight: 800,
+                        color: "var(--green)",
+                        fontSize: "14px",
+                      }}
+                    >
                       {money(result.netProfitCents * productCase.monthly_sales_estimate)}
                     </td>
                   </tr>
@@ -206,7 +311,16 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
               </table>
             </div>
           ) : (
-            <div style={{ padding: "20px", background: "#f8fafc", borderRadius: "8px", border: "1px dashed #cbd5e1", fontSize: "13px", color: "var(--muted)" }}>
+            <div
+              style={{
+                padding: "20px",
+                background: "#f8fafc",
+                borderRadius: "8px",
+                border: "1px dashed #cbd5e1",
+                fontSize: "13px",
+                color: "var(--muted)",
+              }}
+            >
               暂无已核准的成本核算模型。请在寻源阶段录入供应商报价并完成定标审批。
             </div>
           )}
@@ -218,28 +332,67 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
             二、1688 工艺改良与采购定制标准
           </h2>
           {rfqPayload ? (
-            <div style={{ background: "#fbfcfb", padding: "16px 18px", borderRadius: "10px", border: "1px solid var(--line)", fontSize: "13px" }}>
+            <div
+              style={{
+                background: "#fbfcfb",
+                padding: "16px 18px",
+                borderRadius: "10px",
+                border: "1px solid var(--line)",
+                fontSize: "13px",
+              }}
+            >
               <div style={{ display: "flex", gap: "24px", marginBottom: "12px", flexWrap: "wrap" }}>
-                <span>采购品名: <strong>{rfqPayload.productName}</strong></span>
-                <span>目标采购价: <strong>¥{rfqPayload.targetPriceRmb}</strong></span>
-                <span>建议首单 MOQ: <strong>{rfqPayload.suggestedMoq}</strong></span>
+                <span>
+                  采购品名: <strong>{rfqPayload.productName}</strong>
+                </span>
+                <span>
+                  目标采购价: <strong>¥{rfqPayload.targetPriceRmb}</strong>
+                </span>
+                <span>
+                  建议首单 MOQ: <strong>{rfqPayload.suggestedMoq}</strong>
+                </span>
               </div>
 
               {rfqPayload.criticalImprovements && rfqPayload.criticalImprovements.length > 0 && (
                 <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                  <div style={{ fontWeight: 700, color: "var(--muted)", marginBottom: "2px" }}>针对竞品痛点的工业工艺要求：</div>
+                  <div style={{ fontWeight: 700, color: "var(--muted)", marginBottom: "2px" }}>
+                    针对竞品痛点的工业工艺要求：
+                  </div>
                   {rfqPayload.criticalImprovements.map((item, idx) => (
-                    <div key={idx} style={{ background: "#ffffff", padding: "10px 12px", borderRadius: "6px", border: "1px solid var(--line)" }}>
-                      <div style={{ fontWeight: 700, color: "var(--ink)" }}>{idx + 1}. 部件: {item.component} (靶向痛点: {item.painPointTargeted})</div>
-                      <div style={{ color: "var(--green)", marginTop: "4px" }}>标准要求: {item.manufacturingStandard}</div>
+                    <div
+                      key={idx}
+                      style={{
+                        background: "#ffffff",
+                        padding: "10px 12px",
+                        borderRadius: "6px",
+                        border: "1px solid var(--line)",
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, color: "var(--ink)" }}>
+                        {idx + 1}. 部件: {item.component} (靶向痛点: {item.painPointTargeted})
+                      </div>
+                      <div style={{ color: "var(--green)", marginTop: "4px" }}>
+                        标准要求: {item.manufacturingStandard}
+                      </div>
                     </div>
                   ))}
                 </div>
               )}
             </div>
           ) : (
-            <div style={{ padding: "18px 20px", background: "#f8fafc", borderRadius: "8px", border: "1px dashed #cbd5e1", fontSize: "13px", color: "var(--muted)" }}>
-              <div style={{ fontWeight: 600, color: "var(--ink)", marginBottom: "4px" }}>待补充供应链工艺定制标准</div>
+            <div
+              style={{
+                padding: "18px 20px",
+                background: "#f8fafc",
+                borderRadius: "8px",
+                border: "1px dashed #cbd5e1",
+                fontSize: "13px",
+                color: "var(--muted)",
+              }}
+            >
+              <div style={{ fontWeight: 600, color: "var(--ink)", marginBottom: "4px" }}>
+                待补充供应链工艺定制标准
+              </div>
               当前案卷暂未生成 1688 RFQ 结构化工艺要求。可在「供应商寻源」阶段提取竞品差评并生成针对性模具改良与验厂质检标准。
             </div>
           )}
@@ -251,18 +404,46 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
             三、差异化反制五点文案 (Counter-Bullets)
           </h2>
           {currentListing && currentListing.bullets && currentListing.bullets.length > 0 ? (
-            <div style={{ background: "#ffffff", padding: "16px 20px", borderRadius: "10px", border: "1px solid var(--line)", fontSize: "13px", lineHeight: "1.6" }}>
+            <div
+              style={{
+                background: "#ffffff",
+                padding: "16px 20px",
+                borderRadius: "10px",
+                border: "1px solid var(--line)",
+                fontSize: "13px",
+                lineHeight: "1.6",
+              }}
+            >
               <div style={{ fontWeight: 700, color: "var(--ink)", marginBottom: "10px", fontSize: "14px" }}>
                 标题 (Title): {currentListing.title}
               </div>
-              <ol style={{ margin: 0, paddingLeft: "20px", display: "flex", flexDirection: "column", gap: "8px" }}>
+              <ol
+                style={{
+                  margin: 0,
+                  paddingLeft: "20px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "8px",
+                }}
+              >
                 {currentListing.bullets.map((b, idx) => (
-                  <li key={idx} style={{ color: "var(--ink)" }}>{b}</li>
+                  <li key={idx} style={{ color: "var(--ink)" }}>
+                    {b}
+                  </li>
                 ))}
               </ol>
             </div>
           ) : (
-            <div style={{ padding: "18px 20px", background: "#f8fafc", borderRadius: "8px", border: "1px dashed #cbd5e1", fontSize: "13px", color: "var(--muted)" }}>
+            <div
+              style={{
+                padding: "18px 20px",
+                background: "#f8fafc",
+                borderRadius: "8px",
+                border: "1px dashed #cbd5e1",
+                fontSize: "13px",
+                color: "var(--muted)",
+              }}
+            >
               <div style={{ fontWeight: 600, color: "var(--ink)", marginBottom: "4px" }}>文案正在打磨中</div>
               尚未定稿反制五点文案。可在「内容与上架」工作台由 AI 针对竞品差评缺口生成结构化文案草稿。
             </div>
@@ -270,11 +451,19 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
         </section>
 
         {/* 四、签署决策盖章栏 */}
-        <section style={{ borderTop: "1px solid var(--line)", paddingTop: "24px", marginTop: "36px", fontSize: "13px", color: "var(--muted)" }}>
+        <section
+          style={{
+            borderTop: "1px solid var(--line)",
+            paddingTop: "24px",
+            marginTop: "36px",
+            fontSize: "13px",
+            color: "var(--muted)",
+          }}
+        >
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "28px" }}>
             <div>
               <div style={{ color: "var(--ink)", fontWeight: 600 }}>选品开发审核人：___________________</div>
-              <div style={{ marginTop: "8px", fontSize: "12px" }}>意见：[ ] 同意立项  [ ] 需重新议价</div>
+              <div style={{ marginTop: "8px", fontSize: "12px" }}>意见：[ ] 同意立项 [ ] 需重新议价</div>
             </div>
             <div>
               <div style={{ color: "var(--ink)", fontWeight: 600 }}>供应链采购确认：___________________</div>
@@ -297,6 +486,11 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
           body {
             background: #ffffff !important;
             padding: 0 !important;
+          }
+          .page {
+            max-width: 100% !important;
+            padding: 0 !important;
+            margin: 0 !important;
           }
           article {
             border: none !important;
