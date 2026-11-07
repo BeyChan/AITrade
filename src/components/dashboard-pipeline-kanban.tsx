@@ -27,31 +27,42 @@ export function DashboardPipelineKanban({
 
   const sourcingMap = new Map(sourcingCases.map((s) => [s.productCase.id, s]));
 
-  // 1. 竞品初筛阶段
+  // 1. 竞品初筛阶段（只过滤当前站点的初筛研报）
   const stage1Items = competitorReports.filter(
     (r) => r.marketCode === marketCode && r.platformCode === platformCode,
   );
 
-  // 2. 寻源询价阶段 (已立项但尚未录入报价)
-  const stage2Items = cases.filter((c) => {
+  // 严格互斥状态机：过滤已否决案卷，确保每个商品案卷在 Stage 2~5 有且仅归属于一个唯一阶段
+  const activeCases = cases.filter((c) => c.status !== "rejected");
+
+  // 2. 寻源询价阶段：已立项但尚无任何 1688/源头工厂报价
+  const stage2Items = activeCases.filter((c) => {
     const s = sourcingMap.get(c.id);
-    return !s || s.quoteCount === 0;
+    return c.status === "approved" && (!s || s.quoteCount === 0);
   });
 
-  // 3. 财务核准阶段 (有报价待定标/待审)
-  const stage3Items = cases.filter((c) => {
+  // 3. 财务与立项核准阶段：待立项评审 (review_pending) 或 已有多家报价但尚未定标决标
+  const stage3Items = activeCases.filter((c) => {
     const s = sourcingMap.get(c.id);
-    return (s && s.quoteCount > 0 && !s.selection) || c.status === "review_pending";
+    if (c.status === "review_pending") return true;
+    return c.status === "approved" && s && s.quoteCount > 0 && !s.selection;
   });
 
-  // 4. 内容制作阶段 (已选定供应商，制作/优化 Listing)
-  const stage4Items = cases.filter((c) => {
+  // 4. 内容制作打磨阶段：已定标供应商，但 Listing 文案/主图尚未最终锁定就绪
+  const stage4Items = activeCases.filter((c) => {
     const s = sourcingMap.get(c.id);
-    return c.status === "approved" && (!s || s.selection);
+    const hasSelectedSupplier = Boolean(s?.selection);
+    const isLaunchReady = c.notes?.includes("[READY_FOR_LAUNCH]") || c.evidence_score >= 75;
+    return c.status === "approved" && hasSelectedSupplier && !isLaunchReady;
   });
 
-  // 5. 渠道就绪阶段 (有完整渠道内容)
-  const stage5Items = cases.filter((c) => c.status === "approved" && c.evidence_score >= 70);
+  // 5. 渠道就绪阶段：已定标工厂且内容合规完成，准备导出 Flat File / 铺货发布
+  const stage5Items = activeCases.filter((c) => {
+    const s = sourcingMap.get(c.id);
+    const hasSelectedSupplier = Boolean(s?.selection);
+    const isLaunchReady = c.notes?.includes("[READY_FOR_LAUNCH]") || c.evidence_score >= 75;
+    return c.status === "approved" && hasSelectedSupplier && isLaunchReady;
+  });
 
   const columns = [
     {

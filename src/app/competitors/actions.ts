@@ -260,6 +260,22 @@ export async function promoteCompetitorReportToCaseAction(params: {
       return { success: false, error: "未找到对应的竞品对比报告" };
     }
 
+    // 严谨立项门禁 1：研报必须经过人工复核确认
+    if (report.reviewStatus !== "confirmed") {
+      return {
+        success: false,
+        error: "竞品研报尚未人工核对确认！请在研报顶部核实竞品价格真实性，并点击「我已核对，确认可用」后再立项。",
+      };
+    }
+
+    // 严谨立项门禁 2：研报必须有至少 1 款以上真实竞品
+    if (!report.competitors || report.competitors.length === 0) {
+      return {
+        success: false,
+        error: "研报中缺少竞品对比数据，无法建立正式商品案卷！",
+      };
+    }
+
     const currency = report.currency || "USD";
     const fxRates: Record<string, number> = {
       USD: 7.2,

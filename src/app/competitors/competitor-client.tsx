@@ -276,14 +276,17 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
   const fxRates: Record<string, number> = { USD: 7.2, AUD: 4.7, EUR: 7.8, GBP: 9.2, JPY: 0.048, CAD: 5.3 };
   const currentFx = fxRates[currentReport?.currency || "USD"] || 7.2;
   const landedCostInCurr = (quoteCostRmb / currentFx) * 1.25;
-  const referralFeeEst = targetPriceVal * 0.15;
-  const fbaFeeEst = Math.max(3.5, targetPriceVal * 0.18);
-  const estNetProfit = targetPriceVal - landedCostInCurr - referralFeeEst - fbaFeeEst;
+  const referralFeeEst = targetPriceVal * 0.15; // 15% 平台佣金
+  const fbaFeeEst = Math.max(3.5, targetPriceVal * 0.18); // 18% FBA 履约派送
+  const adBudgetEst = targetPriceVal * 0.12; // 12% 站内 PPC 广告预算 (跨境经营刚需)
+  const returnAndLossEst = targetPriceVal * 0.07; // 5% 退货率损耗 + 2% 仓储损耗
+  // 严谨财务到手净利 = 销售价 - 到岸 - 佣金 - FBA - 广告 - 退货与仓储
+  const estNetProfit = targetPriceVal - landedCostInCurr - referralFeeEst - fbaFeeEst - adBudgetEst - returnAndLossEst;
   const estMarginRate = targetPriceVal > 0 ? estNetProfit / targetPriceVal : 0;
   const calcOppScore = Math.min(100, Math.max(0, Math.round(
-    Math.min(40, (estMarginRate / 0.3) * 40) +
-    Math.min(25, (Math.max(0, estNetProfit) / (targetPriceVal * 0.25 || 1)) * 25) +
-    25 +
+    Math.min(45, (estMarginRate / 0.22) * 45) +
+    Math.min(25, (Math.max(0, estNetProfit) / (targetPriceVal * 0.18 || 1)) * 25) +
+    20 +
     10
   )));
 
@@ -1050,6 +1053,11 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                   </div>
                 </div>
               </div>
+            </div>
+
+            <div style={{ fontSize: "11px", color: "var(--muted)", marginBottom: "12px", background: "#f8faf9", padding: "6px 12px", borderRadius: "6px" }}>
+              💡 <strong>全要素真实扣费口径：</strong>
+              售价扣除 到岸成本 ({landedCostInCurr.toFixed(2)}) · 平台佣金 15% ({referralFeeEst.toFixed(2)}) · FBA 履约 ({fbaFeeEst.toFixed(2)}) · PPC 广告预算 12% ({adBudgetEst.toFixed(2)}) · 退货与仓储 7% ({returnAndLossEst.toFixed(2)})。
             </div>
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px", borderTop: "1px dashed var(--line)", paddingTop: "12px" }}>

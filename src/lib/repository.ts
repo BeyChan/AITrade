@@ -310,13 +310,23 @@ export async function createProductCaseFromCompetitors(
   const caseId = randomUUID();
   const asin = `AI-${randomUUID().replace(/-/g, "").slice(0, 10).toUpperCase()}`;
   const results = calculateEconomics(input.assumptions);
+
+  // 客观计算初筛阶段的真实证据完整度（未实物打样前最高不超过 55 分）
+  const realEvidenceScore = Math.min(
+    55,
+    35 + (input.antiListing ? 10 : 0) + (input.rfqDraft ? 10 : 0),
+  );
+
   const score = opportunityScore(
     results,
     input.monthlySalesEstimate,
     input.reviewCount,
-    80,
+    realEvidenceScore,
   );
-  const status: CaseStatus = score >= 65 && results.marginRate >= 0.18 ? "approved" : "review_pending";
+
+  // 严谨立项原则：从竞品初筛转入案卷，初始状态为待人工立项评审 (review_pending)，
+  // 防止未经人工打样核实的 AI 研报直接绕过立项门禁
+  const status: CaseStatus = "review_pending";
 
   await db.transaction(async (tx) => {
     await tx.query(
@@ -338,7 +348,7 @@ export async function createProductCaseFromCompetitors(
         input.rating,
         input.notes,
         actor,
-        score,
+        realEvidenceScore,
         input.currency,
       ],
     );
