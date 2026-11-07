@@ -2,9 +2,11 @@
 
 跨境电商运营工作台：选品假设 → 证据核验 → 供应商与成本 → 商品内容 → 发布前检查。AI 只生成待验证假设，结论由证据和确定性规则决定。
 
-![选品工作台](docs/assets/aitrade-workspace-sidebar.png)
+![选品工作台 5 阶看板](docs/assets/aitrade-workspace-sidebar.png)
 
-![竞品对比](docs/assets/aitrade-competitors.png)
+![竞品对比工作台](docs/assets/aitrade-competitors.png)
+
+![立项决策评审报告与 PDF 导出](docs/assets/aitrade-report-pdf.png)
 
 ![供应商询价](docs/assets/aitrade-sourcing.png)
 

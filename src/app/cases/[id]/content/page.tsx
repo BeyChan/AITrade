@@ -97,6 +97,7 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
           </div>
         </div>
         <div className="button-row">
+          <Link href={`/cases/${productCase.id}/report`} className="button secondary">🖨️ 评审报告/PDF</Link>
           <Link href={`/cases/${productCase.id}`} className="button secondary">商品与成本详情</Link>
           <Link href={`/cases/${productCase.id}/channels`} className="button primary">多国家 / 多平台矩阵</Link>
           <Link href={`/cases/${productCase.id}/sourcing`} className="button ghost">供应商定标</Link>

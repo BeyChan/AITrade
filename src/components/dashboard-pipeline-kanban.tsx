@@ -432,6 +432,9 @@ export function DashboardPipelineKanban({
                     <strong>{res ? money(res.netProfitCents) : "—"}</strong>
                   </div>
                   <span className="badge badge-success">{statusLabel}</span>
+                  <Link href={`/cases/${c.id}/report`} className="button secondary" style={{ fontSize: "11px", padding: "4px 8px", height: "auto" }}>
+                    🖨️ 打印报告
+                  </Link>
                   <Link href={`/cases/${c.id}`} className="button secondary" style={{ fontSize: "11px", padding: "4px 10px", height: "auto" }}>
                     进入案卷 &rarr;
                   </Link>
