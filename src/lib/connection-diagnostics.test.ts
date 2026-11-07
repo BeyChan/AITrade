@@ -14,7 +14,7 @@ const { ConnectorNotConfiguredError } = await import("./connectors/types.ts");
 after(async () => {
   const db = await getDb();
   await db.close();
-  await rm(dataDir, { recursive: true, force: true });
+  await rm(dataDir, { recursive: true, force: true }).catch(() => undefined);
 });
 
 test("connection checks persist guarded health records and credential-free audit logs", async () => {

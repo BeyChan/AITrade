@@ -20,8 +20,8 @@ after(async () => {
   await db.close();
   delete process.env.AI_SETTINGS_ENCRYPTION_KEY;
   delete process.env.AI_API_KEY;
-  await rm(dataDir, { recursive: true, force: true });
-  await rm(`${dataDir}.ai-key`, { force: true });
+  await rm(dataDir, { recursive: true, force: true }).catch(() => undefined);
+  await rm(`${dataDir}.ai-key`, { force: true }).catch(() => undefined);
 });
 
 test("AI settings default to the template provider without an external key", async () => {

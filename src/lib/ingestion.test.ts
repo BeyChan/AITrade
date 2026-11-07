@@ -19,7 +19,7 @@ const {
 after(async () => {
   const db = await getDb();
   await db.close();
-  await rm(dataDir, { recursive: true, force: true });
+  await rm(dataDir, { recursive: true, force: true }).catch(() => undefined);
 });
 
 const candidateCsv = [

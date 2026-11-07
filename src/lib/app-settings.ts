@@ -173,7 +173,7 @@ function validateBaseUrl(value: string) {
   }
 }
 
-async function encryptSecret(value: string) {
+export async function encryptSecret(value: string) {
   const key = await getEncryptionKey();
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key, iv);
@@ -182,7 +182,7 @@ async function encryptSecret(value: string) {
   return `v1:${iv.toString("base64url")}:${tag.toString("base64url")}:${encrypted.toString("base64url")}`;
 }
 
-async function decryptSecret(value: string) {
+export async function decryptSecret(value: string) {
   if (!value.startsWith("v1:")) return null;
   try {
     const [, ivRaw, tagRaw, encryptedRaw] = value.split(":");

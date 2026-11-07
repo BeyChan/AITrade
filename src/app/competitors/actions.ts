@@ -11,7 +11,8 @@ import {
 import { createAISourcingBatch } from "@/lib/ai-sourcing-repository";
 import { countVerifyPlaceholders, generateAntiListingContent, type AntiListingResult } from "@/lib/competitor-compare/anti-listing";
 import { generateSupplierRfqFromCompetitors, type SupplierRfqDraft } from "@/lib/competitor-compare/supplier-rfq";
-import { createListingDraft, getContentDetail, listCasesForSite } from "@/lib/repository";
+import { createListingDraft, createProductCaseFromCompetitors, getContentDetail, listCasesForSite } from "@/lib/repository";
+import { platformEconomicDefaults } from "@/lib/ai-sourcing";
 import type { ListingDraftContent } from "@/lib/listing";
 import type { CompetitorComparisonReport } from "@/lib/competitor-compare/types";
 
@@ -241,6 +242,89 @@ export async function applyAntiListingToCaseAction(
     return {
       success: false,
       error: err instanceof Error ? err.message : "写入商品 Listing 失败",
+    };
+  }
+}
+
+export async function promoteCompetitorReportToCaseAction(params: {
+  reportId: string;
+  quoteCostRmb: number;
+  targetPriceCents: number;
+  antiListing?: AntiListingResult | null;
+  rfqDraft?: SupplierRfqDraft | null;
+  actor?: string;
+}): Promise<{ success: boolean; caseId?: string; error?: string }> {
+  try {
+    const report = await getComparisonReportById(params.reportId);
+    if (!report) {
+      return { success: false, error: "未找到对应的竞品对比报告" };
+    }
+
+    const currency = report.currency || "USD";
+    const fxRates: Record<string, number> = {
+      USD: 7.2,
+      AUD: 4.7,
+      EUR: 7.8,
+      GBP: 9.2,
+      JPY: 0.048,
+      CAD: 5.3,
+    };
+    const fx = fxRates[currency] || 7.2;
+    const purchaseCostCents = Math.round((params.quoteCostRmb / fx) * 100);
+    const estFreightCents = Math.round(purchaseCostCents * 0.25);
+    const landedCostCents = purchaseCostCents + estFreightCents;
+
+    const defaults = platformEconomicDefaults(report.platformCode, params.targetPriceCents);
+    const assumptions = {
+      currency,
+      salePriceCents: params.targetPriceCents,
+      landedCostCents,
+      ...defaults,
+    };
+
+    const monthlySales = Math.round(
+      report.competitors.reduce((acc, c) => acc + (c.monthlySalesEst || 300), 0) /
+        Math.max(1, report.competitors.length),
+    );
+    const medianReview = Math.round(
+      report.competitors.reduce((acc, c) => acc + (c.reviewCount || 100), 0) /
+        Math.max(1, report.competitors.length),
+    );
+    const medianRating =
+      report.competitors.reduce((acc, c) => acc + (c.rating || 4.2), 0) /
+      Math.max(1, report.competitors.length);
+
+    const competitorAsins = report.competitors.map((c) => c.asin).filter(Boolean);
+
+    const result = await createProductCaseFromCompetitors(
+      {
+        title: report.hypothesisBridge?.concept || report.title,
+        category: report.hypothesisBridge?.category || report.title,
+        marketplace: report.marketCode,
+        platform: report.platformCode,
+        currency,
+        competitorPriceCents: params.targetPriceCents,
+        monthlySalesEstimate: monthlySales,
+        reviewCount: medianReview,
+        rating: medianRating,
+        notes: `由竞品对比报告 ${report.title} 直接立项。1688 询价底价 ¥${params.quoteCostRmb}，测算到岸成本 ${(landedCostCents / 100).toFixed(2)} ${currency}。`,
+        assumptions,
+        antiListing: params.antiListing,
+        rfqDraft: params.rfqDraft,
+        competitorAsins,
+        reportId: report.id,
+      },
+      params.actor || "竞品操盘手",
+    );
+
+    revalidatePath("/");
+    revalidatePath("/cases");
+    revalidatePath("/competitors");
+    return { success: true, caseId: result.caseId };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "正式立项失败",
     };
   }
 }

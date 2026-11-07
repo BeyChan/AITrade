@@ -8,6 +8,16 @@ const CONNECTOR_CREDENTIAL_ENV = [
   "ALIBABA_1688_APP_SECRET",
 ] as const;
 
+/** 界面保存的凭证不在 process.env 里，加载时注册进来，确保错误信息同样脱敏 */
+const runtimeSecrets = new Set<string>();
+
+export function registerConnectorSecrets(values: Iterable<string>) {
+  for (const value of values) {
+    const secret = String(value ?? "").trim();
+    if (secret.length >= 4) runtimeSecrets.add(secret);
+  }
+}
+
 export function sanitizeConnectorError(
   error: unknown,
   env: NodeJS.ProcessEnv = process.env,
@@ -17,6 +27,9 @@ export function sanitizeConnectorError(
   for (const name of CONNECTOR_CREDENTIAL_ENV) {
     const secret = env[name]?.trim();
     if (secret && secret.length >= 4) message = message.replaceAll(secret, "[REDACTED]");
+  }
+  for (const secret of runtimeSecrets) {
+    message = message.replaceAll(secret, "[REDACTED]");
   }
   return message
     .replace(/([?&](?:key|token|api_key|access_token|refresh_token|client_secret)=)[^&\s]+/gi, "$1[REDACTED]")

@@ -10,7 +10,10 @@ import { buildAiProposalDigest, loadPendingAiProposals } from "@/lib/ai-proposal
 import { listAISourcingBatches } from "@/lib/ai-sourcing-repository";
 import { money, percent, shortDate } from "@/lib/format";
 import { getSiteOptions, listCasesForSite, listSourcingCases, listTerminatedCases } from "@/lib/repository";
-import { RestoreCaseButton, TerminateCaseControl } from "@/components/case-lifecycle-controls";
+import { TerminateCaseControl } from "@/components/case-lifecycle-controls";
+import { TerminatedCasesPanel } from "@/components/terminated-cases-panel";
+import { DashboardPipelineKanban } from "@/components/dashboard-pipeline-kanban";
+import { getComparisonReports } from "@/lib/competitor-compare/storage";
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +44,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     throw new Error("缺少可用的国家或平台配置");
   }
 
-  const [cases, batches, sourcingCases, provider, proposals, terminatedCases] = await Promise.all([
+  const [cases, batches, sourcingCases, provider, proposals, terminatedCases, competitorReports] = await Promise.all([
     listCasesForSite(selectedMarket.code, selectedPlatform.code),
     listAISourcingBatches(selectedMarket.code, selectedPlatform.code),
     listSourcingCases(),
@@ -51,6 +54,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       buildAiProposalDigest([], { warnings: ["AI 提案暂时不可用"] }),
     ),
     listTerminatedCases(),
+    getComparisonReports(),
   ]);
 
   const siteLabel = `${selectedMarket.name}站 · ${selectedPlatform.name}`;
@@ -253,6 +257,15 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         </div>
       ) : null}
 
+      <DashboardPipelineKanban
+        marketCode={selectedMarket.code}
+        platformCode={selectedPlatform.code}
+        currency={selectedMarket.currency}
+        competitorReports={competitorReports}
+        cases={cases}
+        sourcingCases={sourcingCases}
+      />
+
       <section className="panel dashboard-recent" id="opportunities">
         <div className="panel-header">
           <div>
@@ -328,52 +341,10 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           </div>
         )}
 
-        {siteTerminatedCases.length > 0 ? (
-          <details className="dashboard-terminated" id="terminated-cases" style={{ borderTop: "1px solid var(--line)" }}>
-            <summary style={{ cursor: "pointer", padding: "14px 22px", fontWeight: 700, fontSize: "13px" }}>
-              已终止（{siteTerminatedCases.length}）· 展开查看原因或恢复
-            </summary>
-            <div style={{ padding: "0 22px 18px" }}>
-              <p className="muted" style={{ fontSize: "12px", lineHeight: "1.5", marginTop: 0 }}>
-                终止只改变商品状态，成本模型、报价、定标、证据与 Listing 草稿全部保留；恢复后重新出现在商品进度与内容工作台。此操作不删除任何数据。
-              </p>
-              {siteTerminatedCases.map((entry) => (
-                <article
-                  key={entry.caseItem.id}
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: "12px",
-                    flexWrap: "wrap",
-                    padding: "12px 14px",
-                    marginBottom: "8px",
-                    border: "1px solid var(--line)",
-                    borderRadius: "10px",
-                    background: "#fbfcfa",
-                  }}
-                >
-                  <div style={{ minWidth: 0 }}>
-                    <strong style={{ fontSize: "13px" }}>{entry.caseItem.title}</strong>
-                    <div className="muted" style={{ fontSize: "11px", marginTop: "4px" }}>
-                      原因：{entry.reason}
-                      {entry.archivedAt ? ` · ${shortDate(entry.archivedAt)}` : ""}
-                      {entry.archivedBy ? ` · ${entry.archivedBy}` : ""}
-                    </div>
-                  </div>
-                  <div className="dashboard-row-actions">
-                    <Link href={`/cases/${entry.caseItem.id}`} className="button ghost">查看详情</Link>
-                    <RestoreCaseButton
-                      caseId={entry.caseItem.id}
-                      title={entry.caseItem.title}
-                      returnPath={`${dashboardReturnPath}#terminated-cases`}
-                    />
-                  </div>
-                </article>
-              ))}
-            </div>
-          </details>
-        ) : null}
+        <TerminatedCasesPanel
+          entries={siteTerminatedCases}
+          returnPath={dashboardReturnPath}
+        />
       </section>
 
       <section className="panel dashboard-research-drawer" id="new-research">

@@ -20,6 +20,7 @@ import {
   generateAntiListingAction,
   generateSupplierRfqAction,
   getAvailableCasesAction,
+  promoteCompetitorReportToCaseAction,
   runCompetitorAnalysisAction,
 } from "./actions";
 
@@ -95,6 +96,10 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
   const [applyFindings, setApplyFindings] = useState<Array<{ severity: string; message: string }>>([]);
   const [isConfirming, setIsConfirming] = useState(false);
   const [reviewer, setReviewer] = useState("");
+  const [quoteCostRmb, setQuoteCostRmb] = useState<number>(25);
+  const [targetPriceVal, setTargetPriceVal] = useState<number>(39.99);
+  const [isPromoting, setIsPromoting] = useState(false);
+  const [promotedCaseId, setPromotedCaseId] = useState<string | null>(null);
 
   useEffect(() => {
     getAvailableCasesAction(currentMarket, currentPlatform).then((cases) => {
@@ -254,6 +259,54 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
       }
     } finally {
       setIsApplyingCase(false);
+    }
+  };
+
+  useEffect(() => {
+    if (currentReport) {
+      if (currentReport.sourcingAction?.suggestedCostCents) {
+        setQuoteCostRmb(Number((currentReport.sourcingAction.suggestedCostCents / 100).toFixed(1)));
+      }
+      if (currentReport.priceStats?.p50) {
+        setTargetPriceVal(Number((currentReport.priceStats.p50 / 100).toFixed(2)));
+      }
+    }
+  }, [currentReport?.id]);
+
+  const fxRates: Record<string, number> = { USD: 7.2, AUD: 4.7, EUR: 7.8, GBP: 9.2, JPY: 0.048, CAD: 5.3 };
+  const currentFx = fxRates[currentReport?.currency || "USD"] || 7.2;
+  const landedCostInCurr = (quoteCostRmb / currentFx) * 1.25;
+  const referralFeeEst = targetPriceVal * 0.15;
+  const fbaFeeEst = Math.max(3.5, targetPriceVal * 0.18);
+  const estNetProfit = targetPriceVal - landedCostInCurr - referralFeeEst - fbaFeeEst;
+  const estMarginRate = targetPriceVal > 0 ? estNetProfit / targetPriceVal : 0;
+  const calcOppScore = Math.min(100, Math.max(0, Math.round(
+    Math.min(40, (estMarginRate / 0.3) * 40) +
+    Math.min(25, (Math.max(0, estNetProfit) / (targetPriceVal * 0.25 || 1)) * 25) +
+    25 +
+    10
+  )));
+
+  const handlePromoteToCase = async () => {
+    if (!currentReport) return;
+    setIsPromoting(true);
+    setStatusMsg(null);
+    try {
+      const res = await promoteCompetitorReportToCaseAction({
+        reportId: currentReport.id,
+        quoteCostRmb,
+        targetPriceCents: Math.round(targetPriceVal * 100),
+        antiListing,
+        rfqDraft: rfqData,
+      });
+      if (res.success && res.caseId) {
+        setPromotedCaseId(res.caseId);
+        setStatusMsg({ type: "success", text: "已成功正式立项为新商品 (Case)！数据已同步至商品案卷库。" });
+      } else {
+        setStatusMsg({ type: "error", text: res.error || "立项失败" });
+      }
+    } finally {
+      setIsPromoting(false);
     }
   };
 
@@ -902,6 +955,139 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
               </div>
             </section>
           )}
+
+          {/* 业务大动脉闭环：采购成本核算、机会分测算与一键正式立项 */}
+          <section className="panel" style={{ padding: "20px 24px", background: "#fbfdfc", border: "1.5px solid var(--green)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "14px", flexWrap: "wrap", gap: "10px" }}>
+              <div>
+                <div className="eyebrow" style={{ color: "var(--green)" }}>PIPELINE PROMOTION · 业务闭环立项</div>
+                <h4 style={{ margin: "2px 0 0 0", fontSize: "16px", color: "var(--ink)", fontWeight: 800 }}>
+                  ⚡ 真实工厂报价核算 & 快速立项为商品案卷 (New Case)
+                </h4>
+                <p style={{ margin: "2px 0 0 0", color: "var(--muted)", fontSize: "12px" }}>
+                  输入 1688 实报单价与目标售价，系统自动联动汇率、FBA 费率与头程运费，实时测算真实净利与财务「机会分」。
+                </p>
+              </div>
+              {promotedCaseId && (
+                <Link
+                  href={`/cases/${promotedCaseId}`}
+                  className="button primary"
+                  style={{ fontSize: "12px", padding: "6px 14px", height: "32px", borderRadius: "8px" }}
+                >
+                  ✅ 查看已创建商品案卷 &rarr;
+                </Link>
+              )}
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.2fr 2fr", gap: "16px", alignItems: "center", marginBottom: "16px" }}>
+              <div>
+                <label style={{ fontSize: "11px", fontWeight: 700, color: "var(--ink)", display: "block", marginBottom: "4px" }}>
+                  1688 工厂实报单价 (RMB)
+                </label>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <span style={{ fontSize: "14px", color: "var(--muted)" }}>¥</span>
+                  <input
+                    type="number"
+                    value={quoteCostRmb}
+                    onChange={(e) => setQuoteCostRmb(Number(e.target.value))}
+                    step="0.5"
+                    style={{ width: "100%", padding: "7px 10px", borderRadius: "8px", border: "1px solid var(--line)", fontSize: "14px", fontWeight: 700, background: "#ffffff" }}
+                  />
+                </div>
+                <div style={{ fontSize: "10px", color: "var(--muted)", marginTop: "2px" }}>
+                  折合到岸约: {landedCostInCurr.toFixed(2)} {currentReport.currency} (含25%海运)
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: "11px", fontWeight: 700, color: "var(--ink)", display: "block", marginBottom: "4px" }}>
+                  计划销售售价 ({currentReport.currency})
+                </label>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <span style={{ fontSize: "14px", color: "var(--muted)" }}>$</span>
+                  <input
+                    type="number"
+                    value={targetPriceVal}
+                    onChange={(e) => setTargetPriceVal(Number(e.target.value))}
+                    step="0.5"
+                    style={{ width: "100%", padding: "7px 10px", borderRadius: "8px", border: "1px solid var(--line)", fontSize: "14px", fontWeight: 700, background: "#ffffff" }}
+                  />
+                </div>
+                <div style={{ fontSize: "10px", color: "var(--muted)", marginTop: "2px" }}>
+                  竞品中位价: {(currentReport.priceStats.p50 / 100).toFixed(2)} {currentReport.currency}
+                </div>
+              </div>
+
+              {/* 实时财务指标看板 */}
+              <div
+                style={{
+                  background: "#ffffff",
+                  padding: "10px 14px",
+                  borderRadius: "10px",
+                  border: "1px solid var(--line)",
+                  display: "grid",
+                  gridTemplateColumns: "repeat(3, 1fr)",
+                  textAlign: "center",
+                  gap: "6px",
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: "10px", color: "var(--muted)" }}>测算毛利率</div>
+                  <div style={{ fontSize: "16px", fontWeight: 900, color: estMarginRate >= 0.2 ? "var(--green)" : "var(--red)" }}>
+                    {(estMarginRate * 100).toFixed(1)}%
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: "10px", color: "var(--muted)" }}>单件净利润</div>
+                  <div style={{ fontSize: "16px", fontWeight: 900, color: estNetProfit > 0 ? "var(--green)" : "var(--red)" }}>
+                    {estNetProfit.toFixed(2)} {currentReport.currency}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: "10px", color: "var(--muted)" }}>财务机会分</div>
+                  <div style={{ fontSize: "16px", fontWeight: 900, color: calcOppScore >= 65 ? "var(--green)" : "var(--amber)" }}>
+                    {calcOppScore} <span style={{ fontSize: "11px", fontWeight: 600 }}>分</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px", borderTop: "1px dashed var(--line)", paddingTop: "12px" }}>
+              <div style={{ fontSize: "12px", color: "var(--ink)" }}>
+                {calcOppScore >= 65 ? (
+                  <span style={{ color: "var(--green)", fontWeight: 600 }}>
+                    🎯 财务指标达标 (GO)：毛利率 {(estMarginRate * 100).toFixed(1)}% 满足要求，可正式立项！
+                  </span>
+                ) : (
+                  <span style={{ color: "var(--amber)", fontWeight: 600 }}>
+                    ⚠️ 利润偏薄 (HOLD)：机会分 {calcOppScore} 分，建议与工厂争取降价或优化包装体积。
+                  </span>
+                )}
+              </div>
+
+              <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                <button
+                  type="button"
+                  className="button primary"
+                  disabled={isPromoting || !isConfirmed}
+                  title={isConfirmed ? "一键建立正式商品案卷并关联竞品与文案" : "请先在上方点击「我已核对，确认可用」"}
+                  onClick={handlePromoteToCase}
+                  style={{ fontSize: "13px", padding: "7px 18px", height: "36px", borderRadius: "8px", fontWeight: 700 }}
+                >
+                  {isPromoting ? "正在创建商品案卷..." : isConfirmed ? "🚀 一键正式立项 (New Case)" : "需先核对研报"}
+                </button>
+                {promotedCaseId && (
+                  <Link
+                    href={`/cases/${promotedCaseId}`}
+                    className="button secondary"
+                    style={{ fontSize: "12px", padding: "6px 14px", height: "36px", borderRadius: "8px", color: "var(--green)" }}
+                  >
+                    查看案卷 &rarr;
+                  </Link>
+                )}
+              </div>
+            </div>
+          </section>
 
           {/* 0. 科学量化：商品指数 (Product Index, 0~100 分) */}
           {(() => {

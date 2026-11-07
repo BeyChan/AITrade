@@ -1,12 +1,22 @@
 import Link from "next/link";
 import { StatusBadge } from "@/components/badges";
+import { TerminateCaseControl } from "@/components/case-lifecycle-controls";
+import { TerminatedCasesPanel } from "@/components/terminated-cases-panel";
 import { money, shortDate } from "@/lib/format";
-import { listSourcingCases } from "@/lib/repository";
+import { listSourcingCases, listTerminatedCases } from "@/lib/repository";
 
 export const dynamic = "force-dynamic";
 
-export default async function ContentWorkbenchPage() {
-  const cases = await listSourcingCases();
+type Props = {
+  searchParams: Promise<{ notice?: string; error?: string }>;
+};
+
+export default async function ContentWorkbenchPage({ searchParams }: Props) {
+  const query = await searchParams;
+  const [cases, terminatedCases] = await Promise.all([
+    listSourcingCases(),
+    listTerminatedCases(),
+  ]);
   const ready = cases.filter((item) => item.selection);
   const pending = cases.filter((item) => !item.selection);
   const withQuotes = cases.filter((item) => item.quoteCount > 0);
@@ -21,6 +31,9 @@ export default async function ContentWorkbenchPage() {
         </div>
         <Link href="/" className="button secondary">返回 AI 选品</Link>
       </section>
+
+      {query.notice ? <div className="notice"><strong>已完成：</strong>{query.notice}</div> : null}
+      {query.error ? <div className="notice warn"><strong>未完成：</strong>{query.error}</div> : null}
 
       <section className="metrics-grid">
         <article className="metric-card">
@@ -50,7 +63,7 @@ export default async function ContentWorkbenchPage() {
         <span><strong>进入条件：</strong>商品已立项，并完成供应商人工定标。内容页不会绕过定标生成采购承诺，主图和 Listing 仍需人工核验。</span>
       </div>
 
-      {cases.length === 0 ? (
+      {cases.length === 0 && terminatedCases.length === 0 ? (
         <section className="panel">
           <div className="empty-state">
             <h3>还没有可进入内容阶段的商品</h3>
@@ -58,7 +71,9 @@ export default async function ContentWorkbenchPage() {
             <Link href="/" className="button primary">前往 AI 选品工作台</Link>
           </div>
         </section>
-      ) : (
+      ) : null}
+
+      {cases.length > 0 ? (
         <section className="sourcing-list">
           {cases.map((item) => (
             <article className="sourcing-case-card" key={item.productCase.id}>
@@ -106,16 +121,29 @@ export default async function ContentWorkbenchPage() {
                   <span className="muted">商品状态</span>
                   <StatusBadge status={item.productCase.status} />
                 </div>
-                {item.selection ? (
-                  <Link href={`/cases/${item.productCase.id}/content`} className="button primary">打开内容工作台 →</Link>
-                ) : (
-                  <Link href={`/cases/${item.productCase.id}/sourcing`} className="button primary">先完成供应商定标 →</Link>
-                )}
+                <div className="sourcing-case-actions">
+                  {item.selection ? (
+                    <Link href={`/cases/${item.productCase.id}/content`} className="button primary">打开内容工作台 →</Link>
+                  ) : (
+                    <Link href={`/cases/${item.productCase.id}/sourcing`} className="button primary">先完成供应商定标 →</Link>
+                  )}
+                  <TerminateCaseControl
+                    caseId={item.productCase.id}
+                    title={item.productCase.title}
+                    returnPath="/content"
+                  />
+                </div>
               </div>
             </article>
           ))}
         </section>
-      )}
+      ) : null}
+
+      {terminatedCases.length > 0 ? (
+        <section className="panel" style={{ padding: 0 }}>
+          <TerminatedCasesPanel entries={terminatedCases} returnPath="/content" />
+        </section>
+      ) : null}
     </div>
   );
 }

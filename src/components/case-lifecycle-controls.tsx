@@ -36,9 +36,10 @@ export function TerminateCaseControl({
     return (
       <button
         type="button"
-        className="button ghost"
+        className="button danger"
         onClick={() => setOpen(true)}
         aria-expanded={false}
+        title="终止后可在「已终止」列表恢复，任何数据都不会被删除"
       >
         终止
       </button>

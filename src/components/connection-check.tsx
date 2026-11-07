@@ -33,7 +33,7 @@ export function ConnectionCheckButton({
       const payload = (await response.json()) as ApiResult;
       if (!response.ok) {
         if (payload.code === "not_configured") {
-          throw new Error(`${payload.error || "连接器未配置"}。请写入 .env.local 后重启服务，不要把密钥发到聊天里。`);
+          throw new Error(`${payload.error || "连接器未配置"}。请在卡片的「凭证设置」中填写并保存，无需重启服务。`);
         }
         throw new Error(payload.error || `${name} 检查失败`);
       }

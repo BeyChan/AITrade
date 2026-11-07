@@ -19,7 +19,7 @@ const {
 after(async () => {
   const db = await getDb();
   await db.close();
-  await rm(dataDir, { recursive: true, force: true });
+  await rm(dataDir, { recursive: true, force: true }).catch(() => undefined);
 });
 
 test("Keepa job fails clearly without a key and makes no external request", async () => {

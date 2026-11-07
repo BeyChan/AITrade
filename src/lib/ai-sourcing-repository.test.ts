@@ -29,7 +29,7 @@ const {
 after(async () => {
   const db = await getDb();
   await db.close();
-  await rm(dataDir, { recursive: true, force: true });
+  await rm(dataDir, { recursive: true, force: true }).catch(() => undefined);
 });
 
 test("deleting a research batch cascades research data but preserves promoted product cases", async () => {

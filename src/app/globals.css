@@ -1409,6 +1409,28 @@ tbody tr:last-child td {
   font-size: 12px;
 }
 
+/* 内容工作台卡片：主 CTA 与「终止」同排同高，避免二次出现按钮高低不齐 */
+.sourcing-case-side > .sourcing-case-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.sourcing-case-actions .button {
+  min-height: 42px;
+  padding: 0 16px;
+  font-size: 14px;
+  line-height: 1;
+  border-radius: 11px;
+  white-space: nowrap;
+}
+
+.sourcing-case-actions .case-terminate-form .button {
+  min-height: 34px;
+  padding: 0 11px;
+  font-size: 12px;
+  border-radius: 10px;
+}
+
 .sourcing-summary-grid .metric-value {
   font-size: 25px;
 }
@@ -2650,6 +2672,67 @@ tbody tr:last-child td {
   font-size: 10px;
   line-height: 1.6;
   overflow-wrap: anywhere;
+}
+
+/* 连接中心：凭证设置常驻表单（默认展开，不回显任何凭证值） */
+.connection-settings {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f8faf7;
+}
+
+.connection-settings-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px 0;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.connection-settings-head .badge {
+  font-size: 10px;
+}
+
+.connection-settings-form {
+  display: grid;
+  gap: 10px;
+  padding: 10px 14px 14px;
+}
+
+.connection-settings-form .field {
+  display: grid;
+  gap: 4px;
+}
+
+.connection-settings-form .field label {
+  color: #735d34;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  overflow-wrap: anywhere;
+}
+
+.connection-settings-form .field input {
+  width: 100%;
+  font-size: 12px;
+}
+
+.connection-settings-form .field-hint {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.connection-settings-form p.muted {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.connection-settings-form .button-row {
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .connection-check-block strong {

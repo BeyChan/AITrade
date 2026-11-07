@@ -47,6 +47,8 @@ export default async function CaseDetailPage({ params }: PageProps) {
           </div>
         </div>
         <div className="button-row">
+          <Link href={`/cases/${productCase.id}/report`} className="button secondary">🖨️ 评审报告/PDF</Link>
+          <a href={`/api/cases/${productCase.id}/flatfile`} className="button secondary">📥 Flat File</a>
           {hasSupplierSelection ? <Link href={`/cases/${productCase.id}/content`} className="button primary">进入内容工作台 →</Link> : null}
           {hasSupplierSelection ? <Link href={`/cases/${productCase.id}/channels`} className="button secondary">上市矩阵 →</Link> : null}
           {productCase.status === "approved" ? <Link href={`/cases/${productCase.id}/sourcing`} className={`button ${hasSupplierSelection ? "ghost" : "primary"}`}>{hasSupplierSelection ? "查看供应商定标" : "进入供应商询价 →"}</Link> : null}

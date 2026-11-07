@@ -15,6 +15,7 @@ import type {
   AuditRow,
   AssetRow,
   CaseDetail,
+  CaseStatus,
   ChannelAccountRow,
   ChannelListingRow,
   ChannelLaunchReviewRow,
@@ -270,6 +271,145 @@ export async function importCandidates(rows: CandidateImportRow[], actor = "运�
   });
 
   return { imported, skipped, total: rows.length };
+}
+
+export type CreateCaseFromCompetitorInput = {
+  title: string;
+  category: string;
+  marketplace: string;
+  platform: string;
+  currency: string;
+  competitorPriceCents: number;
+  monthlySalesEstimate: number;
+  reviewCount: number;
+  rating: number;
+  notes: string;
+  assumptions: EconomicsAssumptions;
+  antiListing?: {
+    antiTitle: string;
+    bullets: Array<{ headline: string; content: string }>;
+    aplusModules?: Array<{ title: string; description: string; visualSuggestion: string }>;
+  } | null;
+  rfqDraft?: {
+    productName: string;
+    targetPriceRmb: number;
+    suggestedMoq: string;
+    criticalImprovements: Array<{ component: string; painPointTargeted: string; manufacturingStandard: string }>;
+    formattedText: string;
+  } | null;
+  competitorAsins?: string[];
+  reportId?: string;
+};
+
+export async function createProductCaseFromCompetitors(
+  input: CreateCaseFromCompetitorInput,
+  actor = "竞品操盘手",
+) {
+  const db = await getDb();
+  const caseId = randomUUID();
+  const asin = `AI-${randomUUID().replace(/-/g, "").slice(0, 10).toUpperCase()}`;
+  const results = calculateEconomics(input.assumptions);
+  const score = opportunityScore(
+    results,
+    input.monthlySalesEstimate,
+    input.reviewCount,
+    80,
+  );
+  const status: CaseStatus = score >= 65 && results.marginRate >= 0.18 ? "approved" : "review_pending";
+
+  await db.transaction(async (tx) => {
+    await tx.query(
+      `INSERT INTO product_cases
+        (id, asin, marketplace, category, title, url, status, competitor_price_cents,
+         monthly_sales_estimate, review_count, rating, notes, owner, evidence_score, is_demo, currency)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, FALSE, $15)`,
+      [
+        caseId,
+        asin,
+        input.marketplace,
+        input.category,
+        input.title,
+        input.reportId ? `/competitors?reportId=${input.reportId}` : null,
+        status,
+        input.competitorPriceCents,
+        input.monthlySalesEstimate,
+        input.reviewCount,
+        input.rating,
+        input.notes,
+        actor,
+        score,
+        input.currency,
+      ],
+    );
+
+    await tx.query(
+      `INSERT INTO cost_models (id, case_id, version, assumptions, results, created_by)
+       VALUES ($1, $2, 1, $3::jsonb, $4::jsonb, $5)`,
+      [randomUUID(), caseId, JSON.stringify(input.assumptions), JSON.stringify(results), actor],
+    );
+
+    if (input.rfqDraft) {
+      await tx.query(
+        `INSERT INTO case_evidence
+          (id, case_id, evidence_type, source_type, source_url, title, summary, payload, confidence, captured_at)
+         VALUES ($1, $2, 'supplier_rfq', '1688_rfq', $3, $4, $5, $6::jsonb, 0.9, NOW())`,
+        [
+          randomUUID(),
+          caseId,
+          "https://s.1688.com",
+          `1688 工艺改良询价单: ${input.rfqDraft.productName}`,
+          `目标采购价: ¥${input.rfqDraft.targetPriceRmb}，建议 MOQ: ${input.rfqDraft.suggestedMoq}`,
+          JSON.stringify(input.rfqDraft),
+        ],
+      );
+    }
+
+    if (input.competitorAsins && input.competitorAsins.length > 0) {
+      await tx.query(
+        `INSERT INTO case_evidence
+          (id, case_id, evidence_type, source_type, source_url, title, summary, payload, confidence, captured_at)
+         VALUES ($1, $2, 'competitor_benchmark', 'amazon_benchmark', $3, $4, $5, $6::jsonb, 0.85, NOW())`,
+        [
+          randomUUID(),
+          caseId,
+          input.reportId ? `/competitors?reportId=${input.reportId}` : null,
+          `标杆竞品 ASIN 对标矩阵 (${input.competitorAsins.length} 款)`,
+          input.competitorAsins.join(", "),
+          JSON.stringify({ asins: input.competitorAsins }),
+        ],
+      );
+    }
+
+    await tx.query(
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
+       VALUES ($1, $2, 'case.promoted_from_competitors', 'product_case', $3, $4::jsonb)`,
+      [randomUUID(), actor, caseId, JSON.stringify({ asin, status, score })],
+    );
+  });
+
+  if (input.antiListing) {
+    try {
+      const bullets = input.antiListing.bullets.map((b) => `${b.headline} ${b.content}`);
+      const description = input.antiListing.aplusModules && input.antiListing.aplusModules.length > 0
+        ? input.antiListing.aplusModules.map((m) => `### ${m.title}\n${m.description}`).join("\n\n")
+        : input.antiListing.antiTitle;
+      await createListingDraft(
+        caseId,
+        {
+          brand: "Brand",
+          title: input.antiListing.antiTitle,
+          bullets,
+          description,
+          searchTerms: "",
+        },
+        actor,
+      );
+    } catch (e) {
+      console.warn("createListingDraft from competitor error:", e);
+    }
+  }
+
+  return { caseId, asin, status, score };
 }
 
 export async function createCostModelVersion(caseId: string, assumptions: EconomicsAssumptions, actor = "运营人员") {

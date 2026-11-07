@@ -1,10 +1,16 @@
 import Link from "next/link";
 import { ConnectionCheckButton } from "@/components/connection-check";
+import { clearConnectorSettingsAction, saveConnectorSettingsAction } from "./actions";
 import { getLatestConnectorHealthChecks } from "@/lib/connection-diagnostics";
+import { getConnectorSettingsStatus, loadConnectorEnv } from "@/lib/connector-settings";
 import { getConnectorReadiness } from "@/lib/connectors/registry";
 import type { ConnectorHealthCheckRow } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+
+type Props = {
+  searchParams: Promise<{ notice?: string; error?: string }>;
+};
 
 const statusLabels: Record<string, string> = {
   verified: "只读验证通过",
@@ -17,11 +23,14 @@ const statusLabels: Record<string, string> = {
 
 const platformOrder = ["amazon_sp_api", "shopify", "ebay", "tiktok_shop", "alibaba_1688"];
 
-export default async function ConnectionsPage() {
-  const [healthChecks, sources] = await Promise.all([
+export default async function ConnectionsPage({ searchParams }: Props) {
+  const query = await searchParams;
+  const [healthChecks, env, settingsStatus] = await Promise.all([
     getLatestConnectorHealthChecks(),
-    Promise.resolve(getConnectorReadiness()),
+    loadConnectorEnv(),
+    getConnectorSettingsStatus(),
   ]);
+  const sources = getConnectorReadiness(env);
   const checkByCode = new Map(healthChecks.map((check) => [check.source_code, check]));
   const platformSources = platformOrder
     .map((code) => sources.find((source) => source.code === code))
@@ -40,11 +49,14 @@ export default async function ConnectionsPage() {
           <h1>店铺连接先验证，<br />再开放任何写动作。</h1>
           <p>
             这里只执行官方 API 的只读授权检查：Amazon 验证 LWA 与 Seller API，Shopify 读取店铺基本信息，eBay 只验证应用凭证。
-            检查结果、耗时和外部动作会写入审计；Token 和 Secret 不会返回页面或写入数据库。
+            凭证可直接在本页填写，AES-256-GCM 加密后存入本机数据库；页面不回显完整值，审计日志只记录字段名。
           </p>
         </div>
         <Link className="button secondary" href="/data-sources">回到数据源</Link>
       </section>
+
+      {query.notice ? <div className="notice"><strong>已完成：</strong>{query.notice}</div> : null}
+      {query.error ? <div className="notice warn"><strong>未完成：</strong>{query.error}</div> : null}
 
       <section className="metrics-grid" aria-label="连接器指标">
         <article className="metric-card">
@@ -83,6 +95,9 @@ export default async function ConnectionsPage() {
           const displayStatus = supported
             ? latest?.status ?? (source.configured ? "pending" : "not_configured")
             : "unsupported";
+          const settings = settingsStatus.get(source.code);
+          const fields = settings?.fields ?? [];
+          const configuredCount = fields.filter((field) => field.source !== "none").length;
           return (
             <article className="connection-card" key={source.code}>
               <div className="connection-card-head">
@@ -97,10 +112,50 @@ export default async function ConnectionsPage() {
               </div>
               <p>{source.note}</p>
 
-              <div className="connection-env-block">
-                <span>所需环境变量</span>
-                <code>{source.credentialEnv.join(" · ")}</code>
-              </div>
+              <section className="connection-settings">
+                <div className="connection-settings-head">
+                  凭证设置 · {configuredCount}/{fields.length} 项已配置
+                  {settings?.hasUiSettings ? <span className="badge badge-success">本机已保存</span> : null}
+                </div>
+                <form action={saveConnectorSettingsAction} className="connection-settings-form">
+                  <input type="hidden" name="code" value={source.code} />
+                  <input type="hidden" name="actor" value="本机管理员" />
+                  {fields.map((field) => (
+                    <div className="field" key={field.name}>
+                      <label htmlFor={`${source.code}-${field.name}`}>{field.name}</label>
+                      <input
+                        id={`${source.code}-${field.name}`}
+                        name={field.name}
+                        type={field.sensitive ? "password" : "text"}
+                        autoComplete="off"
+                        spellCheck={false}
+                        placeholder={field.source === "none" ? "未配置，请填写" : "已配置，留空保持原值"}
+                      />
+                      <small className="field-hint">
+                        {field.source === "ui"
+                          ? "界面已保存（优先于环境变量）"
+                          : field.source === "environment"
+                            ? "来自环境变量（回退）"
+                            : "未配置"}
+                      </small>
+                    </div>
+                  ))}
+                  <div className="button-row">
+                    <button type="submit" className="button primary compact-button">保存配置</button>
+                    <button
+                      type="submit"
+                      formAction={clearConnectorSettingsAction}
+                      className="button danger compact-button"
+                      disabled={!settings?.hasUiSettings}
+                    >
+                      清除已保存配置
+                    </button>
+                  </div>
+                  <p className="muted">
+                    凭证加密后写入本机数据库，页面不回显；留空字段保持原值。保存后无需重启服务，运行只读检查即可生效。
+                  </p>
+                </form>
+              </section>
 
               <div className="connection-check-block">
                 <span>最近检查</span>
@@ -129,13 +184,13 @@ export default async function ConnectionsPage() {
         <div className="panel-header">
           <div>
             <h2>安全配置顺序</h2>
-            <p>凭证只放在本机 `.env.local` 或正式密钥管理系统。不要把 Token、Secret、Cookie 或刷新令牌粘贴到聊天、CSV、数据库或源码。</p>
+            <p>优先在上方卡片的「凭证设置」中填写，无需改 `.env.local`、无需重启。值只保存在本机数据库，不要粘贴到聊天、CSV 或源码。</p>
           </div>
         </div>
         <div className="source-steps connection-steps">
           <span><b>01</b> 在官方开发者平台创建应用，完成店铺或卖家授权。</span>
-          <span><b>02</b> 把凭证写入 `.env.local`，补齐区域、店铺域名或 API 版本等非敏感配置。</span>
-          <span><b>03</b> 重启服务，在本页运行只读检查；失败时只检查 HTTP 状态、权限范围和官方后台。</span>
+          <span><b>02</b> 在对应卡片的「凭证设置」中填写并保存；环境变量仍可作为回退。</span>
+          <span><b>03</b> 在本页运行只读检查，保存后立即生效；失败时只检查 HTTP 状态、权限范围和官方后台。</span>
           <span><b>04</b> 只读验证通过后，再实现平台 dry-run、人工发布确认和外部回执，不能跳步开放写动作。</span>
         </div>
       </section>

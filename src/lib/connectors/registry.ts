@@ -1,6 +1,8 @@
 import type { DataSourceReadiness } from "./types.ts";
 
 type ReadinessDefinition = Omit<DataSourceReadiness, "configured" | "status">;
+/** 允许注入界面设置合并后的凭证视图，而不强制要求 NODE_ENV 等运行时字段 */
+type ReadinessEnv = Readonly<Record<string, string | undefined>>;
 
 const definitions: ReadinessDefinition[] = [
   {
@@ -105,7 +107,7 @@ const definitions: ReadinessDefinition[] = [
   },
 ];
 
-export function getConnectorReadiness(env: NodeJS.ProcessEnv = process.env): DataSourceReadiness[] {
+export function getConnectorReadiness(env: ReadinessEnv = process.env): DataSourceReadiness[] {
   return definitions.map((definition) => {
     const configured = definition.credentialEnv.every((name) => Boolean(env[name]?.trim()));
     const status: DataSourceReadiness["status"] = !definition.adapterImplemented
@@ -119,6 +121,6 @@ export function getConnectorReadiness(env: NodeJS.ProcessEnv = process.env): Dat
   });
 }
 
-export function getConnectorDefinition(code: string, env: NodeJS.ProcessEnv = process.env) {
+export function getConnectorDefinition(code: string, env: ReadinessEnv = process.env) {
   return getConnectorReadiness(env).find((source) => source.code === code) ?? null;
 }

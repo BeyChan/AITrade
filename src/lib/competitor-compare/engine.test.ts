@@ -1,7 +1,22 @@
-import test from "node:test";
 import assert from "node:assert/strict";
-import { extractAsinFromUrl, parseCompetitorInputs } from "./parser.ts";
-import { analyzeCompetitors } from "./engine.ts";
+import { after, test } from "node:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
+// 与其它 lib 测试一致：每个文件独占 PGlite 数据目录，避免全量跑时目录被并发占用
+const dataDir = await mkdtemp(path.join(os.tmpdir(), "aitrade-competitor-engine-test-"));
+process.env.PGLITE_DATA_DIR = dataDir;
+
+const { extractAsinFromUrl, parseCompetitorInputs } = await import("./parser.ts");
+const { analyzeCompetitors } = await import("./engine.ts");
+const { getDb } = await import("../db.ts");
+
+after(async () => {
+  const db = await getDb();
+  await db.close();
+  await rm(dataDir, { recursive: true, force: true }).catch(() => undefined);
+});
 
 test("extractAsinFromUrl correctly extracts Amazon ASINs", () => {
   assert.equal(extractAsinFromUrl("B08CZ8K652"), "B08CZ8K652");
