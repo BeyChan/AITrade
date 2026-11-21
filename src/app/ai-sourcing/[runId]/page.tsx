@@ -516,9 +516,9 @@ function HypothesisCard({
                         gap: "10px",
                         alignItems: "center",
                         padding: "10px 12px",
-                        border: isDone ? "1px solid #b7dfc6" : "1px solid #e2e8e3",
+                        border: isDone ? "1px solid var(--green)" : "1px solid var(--line)",
                         borderRadius: "10px",
-                        background: isDone ? "#f4faf6" : "#ffffff",
+                        background: isDone ? "var(--green-soft)" : "var(--paper)",
                         transition: "all 0.15s ease",
                       }}
                     >
@@ -532,15 +532,15 @@ function HypothesisCard({
                           className="ai-task-check"
                           style={{
                             cursor: "pointer",
-                            border: isDone ? "1.5px solid var(--green)" : "1.5px solid #c9d5cc",
+                            border: isDone ? "1.5px solid var(--green)" : "1.5px solid var(--line-strong)",
                             borderRadius: "50%",
                             width: "24px",
                             height: "24px",
                             display: "inline-flex",
                             alignItems: "center",
                             justifyContent: "center",
-                            background: isDone ? "var(--green)" : "#ffffff",
-                            color: isDone ? "#ffffff" : "#7b8e81",
+                            background: isDone ? "var(--green)" : "var(--surface-subtle)",
+                            color: isDone ? "#ffffff" : "var(--muted)",
                             fontSize: "12px",
                             fontWeight: 700,
                             transition: "all 0.15s ease",

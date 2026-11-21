@@ -754,7 +754,7 @@ tbody tr:last-child td {
 .status-approved,
 .badge-success,
 .recommendation-go {
-  color: #176440;
+  color: var(--green);
   background: var(--green-soft);
 }
 
@@ -14014,4 +14014,59 @@ html[data-theme="light"] .theme-seg-btn[data-theme-opt="light"] {
   background: var(--paper-strong) !important;
   color: var(--ink) !important;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* 黑夜模式全站深色横幅/护栏卡与反色高亮控件统一修复（防止 var(--deep) 反白导致白底白字） */
+html[data-theme="dark"] .action-card,
+html[data-theme="dark"] .selection-result,
+html[data-theme="dark"] .content-context,
+html[data-theme="dark"] .channel-boundary-card,
+html[data-theme="dark"] .source-guardrail-card,
+html[data-theme="dark"] .ai-batch-overview,
+html[data-theme="dark"] .ai-cost-results article.primary,
+html[data-theme="dark"] .ai-inbox-guardrail {
+  background: linear-gradient(135deg, #121824 0%, #172030 100%) !important;
+  border: 1px solid #273347 !important;
+  color: #f1f5f9 !important;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35) !important;
+}
+
+html[data-theme="dark"] .selection-result h2,
+html[data-theme="dark"] .content-context h2,
+html[data-theme="dark"] .channel-boundary-card h3,
+html[data-theme="dark"] .source-guardrail-card h3,
+html[data-theme="dark"] .ai-batch-overview h2,
+html[data-theme="dark"] .ai-inbox-guardrail h3,
+html[data-theme="dark"] .selection-result strong,
+html[data-theme="dark"] .content-context strong {
+  color: #f8fafc !important;
+}
+
+html[data-theme="dark"] .selection-result p,
+html[data-theme="dark"] .content-context p,
+html[data-theme="dark"] .channel-boundary-card p,
+html[data-theme="dark"] .source-guardrail-card p,
+html[data-theme="dark"] .ai-batch-overview p,
+html[data-theme="dark"] .ai-inbox-guardrail p,
+html[data-theme="dark"] .selection-result-meta span {
+  color: #94a3b8 !important;
+}
+
+html[data-theme="dark"] .case-step-item.active .case-step-indicator,
+html[data-theme="dark"] .chat-bubble-row.user .chat-avatar,
+html[data-theme="dark"] .chat-bubble-row.user .chat-bubble-card,
+html[data-theme="dark"] .wizard-entry-num,
+html[data-theme="dark"] .wizard-step-tab.is-current,
+html[data-theme="dark"] .wizard-step-tab.is-current strong,
+html[data-theme="dark"] .wizard-step-tab.is-current span {
+  color: var(--deep-fg) !important;
+}
+
+html[data-theme="dark"] .ai-smart-intake-card,
+html[data-theme="dark"] .ai-discovery-start,
+html[data-theme="dark"] .ai-cost-verdict > span,
+html[data-theme="dark"] .ai-capture-format {
+  background: var(--surface-subtle) !important;
+  border-color: var(--line-strong) !important;
+  color: var(--ink) !important;
 }

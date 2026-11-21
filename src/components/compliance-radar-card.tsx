@@ -8,7 +8,7 @@ export function ComplianceRadarCard({ radar }: { radar: ComplianceRadarResult })
       className="section"
       style={{
         border: isSafe ? "1px solid var(--line)" : "1.5px solid var(--red)",
-        background: isSafe ? "#ffffff" : "#fdfbfb",
+        background: isSafe ? "var(--paper)" : "var(--red-soft)",
         borderRadius: "14px",
         padding: "20px",
         marginBottom: "20px",

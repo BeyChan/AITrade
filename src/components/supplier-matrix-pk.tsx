@@ -280,9 +280,9 @@ export function SupplierMatrixPk({
               <div
                 key={q.id}
                 style={{
-                  background: isSelected ? "#f9fcf9" : "#ffffff",
+                  background: isSelected ? "var(--green-soft)" : "var(--paper)",
                   borderRadius: "12px",
-                  border: isSelected ? "2px solid var(--green)" : isPref ? "1.5px solid var(--lime)" : "1px solid var(--line)",
+                  border: isSelected ? "2px solid var(--green)" : isPref ? "1.5px solid var(--green)" : "1px solid var(--line)",
                   padding: "16px",
                   display: "flex",
                   flexDirection: "column",
@@ -302,7 +302,7 @@ export function SupplierMatrixPk({
                             fontWeight: 800,
                             padding: "1px 6px",
                             borderRadius: "4px",
-                            background: isPref ? "var(--green)" : "#edf2ee",
+                            background: isPref ? "var(--green)" : "var(--surface-subtle)",
                             color: isPref ? "#ffffff" : "var(--ink)",
                           }}
                         >

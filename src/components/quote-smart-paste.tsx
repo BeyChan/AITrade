@@ -406,9 +406,9 @@ export function QuoteSmartPaste({ disabled }: { disabled?: boolean }) {
                 fontSize: "12px",
                 padding: "8px 12px",
                 borderRadius: "6px",
-                background: statusMsg.startsWith("✓") ? "#ecfdf5" : "#fffbeb",
-                color: statusMsg.startsWith("✓") ? "#065f46" : "#92400e",
-                border: `1px solid ${statusMsg.startsWith("✓") ? "#a7f3d0" : "#fde68a"}`,
+                background: statusMsg.startsWith("✓") ? "var(--green-soft)" : "var(--amber-soft)",
+                color: statusMsg.startsWith("✓") ? "var(--green)" : "var(--amber)",
+                border: `1px solid ${statusMsg.startsWith("✓") ? "var(--green)" : "var(--amber)"}`,
                 fontWeight: 600,
               }}
             >
