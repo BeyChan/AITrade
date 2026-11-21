@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { recordAuditLog } from "@/lib/audit-logs";
 import { analyzeCompetitors } from "@/lib/competitor-compare/engine";
 import {
   confirmComparisonReport,
@@ -45,6 +46,13 @@ export async function runCompetitorAnalysisAction(
     });
 
     await saveComparisonReport(report);
+    await recordAuditLog({
+      actor: "竞品操盘手",
+      action: "competitor.report_created",
+      entityType: "competitor_report",
+      entityId: report.id,
+      details: { title: report.title, marketplace: marketCode, count: report.competitors.length },
+    }).catch(() => {});
     revalidatePath("/competitors");
     return { success: true, report };
   } catch (err) {
@@ -59,6 +67,12 @@ export async function deleteComparisonReportAction(reportId: string) {
   if (!reportId) return { success: false };
   try {
     await deleteComparisonReport(reportId);
+    await recordAuditLog({
+      actor: "竞品操盘手",
+      action: "competitor.report_deleted",
+      entityType: "competitor_report",
+      entityId: reportId,
+    }).catch(() => {});
     revalidatePath("/competitors");
     return { success: true };
   } catch (err) {
@@ -76,6 +90,13 @@ export async function confirmComparisonReportAction(
   if (!report) return { success: false, error: "未找到对应的竞品对比报告" };
   const updated = await confirmComparisonReport(reportId);
   if (!updated) return { success: false, error: "确认失败，请刷新后重试" };
+  await recordAuditLog({
+    actor: actor.trim(),
+    action: "competitor.report_confirmed",
+    entityType: "competitor_report",
+    entityId: reportId,
+    details: { title: report.title, provenance: updated.provenance },
+  }).catch(() => {});
   revalidatePath("/competitors");
   return { success: true, provenance: updated.provenance };
 }
@@ -226,6 +247,14 @@ export async function applyAntiListingToCaseAction(
           message: `本次写入含 ${placeholders} 处 [VERIFY: …] 待核实占位，属于内部草稿；请按打样实测与检测报告填实后再发布，不得直接上架。`,
         }]
       : [];
+
+    await recordAuditLog({
+      actor: actor.trim() || "竞品对比工作台",
+      action: "competitor.anti_listing_applied",
+      entityType: "product_case",
+      entityId: caseId,
+      details: { reportId, version: result.version, placeholders },
+    }).catch(() => {});
 
     revalidatePath(`/cases/${caseId}/content`);
     return {

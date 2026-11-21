@@ -2053,6 +2053,135 @@ export async function createAssetRecord(caseId: string, input: AssetUploadInput,
   return { assetId, assetType, fileUrl: `/api/assets/${assetId}`, metadata };
 }
 
+export async function createVideoAssetRecord(
+  caseId: string,
+  input: {
+    storageKey: string;
+    originalName: string;
+    mimeType: string;
+    size: number;
+    parentAssetId?: string | null;
+    extraMetadata?: Record<string, unknown>;
+  },
+  actor: string,
+) {
+  if (!actor.trim()) throw new Error("请输入操作人");
+  await assertContentUnlocked(caseId);
+  const db = await getDb();
+  const assetId = randomUUID();
+  const metadata = {
+    role: "product_video",
+    source: typeof input.extraMetadata?.source === "string" ? input.extraMetadata.source : "ai_video_generated",
+    storageKey: input.storageKey,
+    originalName: input.originalName,
+    mimeType: input.mimeType,
+    size: input.size,
+    ...(input.parentAssetId ? { parentAssetId: input.parentAssetId } : {}),
+    ...(input.extraMetadata ?? {}),
+  };
+
+  await db.transaction(async (tx) => {
+    await tx.query(
+      `INSERT INTO assets (id, case_id, asset_type, file_url, metadata, status, created_at)
+       VALUES ($1, $2, 'product_video', $3, $4::jsonb, 'pending_review', NOW())`,
+      [assetId, caseId, `/api/assets/${assetId}`, JSON.stringify(metadata)],
+    );
+    await tx.query("UPDATE product_cases SET updated_at = NOW() WHERE id = $1", [caseId]);
+    await tx.query(
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
+       VALUES ($1, $2, 'content.video_generated', 'product_case', $3, $4::jsonb)`,
+      [
+        randomUUID(),
+        actor.trim(),
+        caseId,
+        JSON.stringify({
+          assetId,
+          assetType: "product_video",
+          originalName: input.originalName,
+          mimeType: input.mimeType,
+          size: input.size,
+          parentAssetId: input.parentAssetId ?? null,
+        }),
+      ],
+    );
+  });
+
+  return { assetId, assetType: "product_video" as const, fileUrl: `/api/assets/${assetId}`, metadata };
+}
+
+export async function reviewVideoAsset(
+  caseId: string,
+  assetId: string,
+  decision: "approved" | "rejected",
+  reviewer: string,
+  notes: string,
+) {
+  if (!reviewer.trim()) throw new Error("请输入审核人");
+  await assertContentUnlocked(caseId);
+  const db = await getDb();
+  const existing = await db.query<AssetRow>(
+    "SELECT * FROM assets WHERE id = $1 AND case_id = $2 AND asset_type = 'product_video'",
+    [assetId, caseId],
+  );
+  if (!existing.rows[0]) throw new Error("视频资产不存在");
+
+  const nextMeta = {
+    ...(existing.rows[0].metadata ?? {}),
+    reviewedBy: reviewer.trim(),
+    reviewedAt: new Date().toISOString(),
+    reviewNotes: notes.trim() || (decision === "approved" ? "人工确认外观一致、无水印与畸变" : "退回重做"),
+  };
+
+  await db.transaction(async (tx) => {
+    await tx.query(
+      "UPDATE assets SET status = $1, metadata = $2::jsonb WHERE id = $3",
+      [decision, JSON.stringify(nextMeta), assetId],
+    );
+    await tx.query("UPDATE product_cases SET updated_at = NOW() WHERE id = $1", [caseId]);
+    await tx.query(
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
+       VALUES ($1, $2, $3, 'product_case', $4, $5::jsonb)`,
+      [
+        randomUUID(),
+        reviewer.trim(),
+        decision === "approved" ? "content.video_approved" : "content.video_rejected",
+        caseId,
+        JSON.stringify({ assetId, decision, notes: nextMeta.reviewNotes }),
+      ],
+    );
+  });
+
+  return { assetId, status: decision, metadata: nextMeta };
+}
+
+export async function deleteAssetRecord(assetId: string, actor = "本机管理员"): Promise<AssetRow | null> {
+  const db = await getDb();
+  const existing = await db.query<AssetRow>("SELECT * FROM assets WHERE id = $1", [assetId]);
+  const target = existing.rows[0];
+  if (!target) return null;
+
+  await db.transaction(async (tx) => {
+    await tx.query("DELETE FROM assets WHERE id = $1", [assetId]);
+    await tx.query("UPDATE product_cases SET updated_at = NOW() WHERE id = $1", [target.case_id]);
+    await tx.query(
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
+       VALUES ($1, $2, 'content.asset_deleted', 'product_case', $3, $4::jsonb)`,
+      [
+        randomUUID(),
+        actor.trim() || "本机管理员",
+        target.case_id,
+        JSON.stringify({
+          assetId: target.id,
+          assetType: target.asset_type,
+          originalName: typeof target.metadata?.originalName === "string" ? target.metadata.originalName : "",
+        }),
+      ],
+    );
+  });
+
+  return target;
+}
+
 export async function getAssetRecord(assetId: string): Promise<AssetRow | null> {
   const db = await getDb();
   const result = await db.query<AssetRow>("SELECT * FROM assets WHERE id = $1", [assetId]);

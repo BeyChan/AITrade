@@ -1,5 +1,6 @@
 import { ApiInputError, apiError, readJsonObject, stringField } from "@/app/api/ai-inbox/http";
 import { loadCaseCompetitorBenchmark } from "@/lib/ai-sourcing-repository";
+import { recordAuditLog } from "@/lib/audit-logs";
 import { generateImagesWithProvider, getImageProviderStatus } from "@/lib/image-provider";
 import {
   buildCustomImageSkill,
@@ -183,6 +184,20 @@ export async function POST(request: Request) {
         throw error;
       }
     }
+
+    await recordAuditLog({
+      actor,
+      action: "asset.image_generated",
+      entityType: "product_case",
+      entityId: caseId,
+      details: {
+        skillId: preview.skillId,
+        slot: preview.slot,
+        provider: generated.provider,
+        model: generated.model,
+        count: createdAssets.length,
+      },
+    }).catch(() => {});
 
     return Response.json({
       mode: "model",

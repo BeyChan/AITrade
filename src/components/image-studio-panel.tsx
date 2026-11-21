@@ -73,6 +73,7 @@ export function ImageStudioPanel({
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
   const [savingSkill, setSavingSkill] = useState<boolean>(false);
   const [deletingSkill, setDeletingSkill] = useState<boolean>(false);
+  const [aiGeneratingPrompt, setAiGeneratingPrompt] = useState<boolean>(false);
   const [studioNotice, setStudioNotice] = useState<string>("");
   const [studioError, setStudioError] = useState<string>("");
   const [copiedPrompt, setCopiedPrompt] = useState<boolean>(false);
@@ -140,6 +141,47 @@ export function ImageStudioPanel({
     setConfirmed(false);
     setStudioNotice("");
     setStudioError("");
+  }
+
+  async function handleAiGenerateImagePrompt() {
+    setStudioError("");
+    setStudioNotice("");
+    setAiGeneratingPrompt(true);
+    try {
+      const resp = await fetch("/api/studio/generate-prompt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "image",
+          skillId: selectedSkillId,
+          productName: customSkillName.trim() || "跨境电商品牌主推单品",
+          claimsToAvoid,
+          topPainPoints,
+          slot,
+          aspectRatio,
+          marketplace,
+          idea: customStyleDirectives.trim() || customInstruction.trim() || customSkillName.trim(),
+        }),
+      });
+      const data = (await resp.json()) as {
+        prompt?: string;
+        styleDirectives?: string;
+        negativePrompt?: string;
+        note?: string;
+        error?: string;
+      };
+      if (!resp.ok || !data.styleDirectives) throw new Error(data.error || "AI 生成提示词失败");
+      setCustomStyleDirectives(data.styleDirectives);
+      if (data.negativePrompt) setCustomNegativeDirectives(data.negativePrompt);
+      if (data.prompt) setPromptDraft(data.prompt);
+      setPreview(null);
+      setConfirmed(false);
+      if (data.note) setStudioNotice(data.note);
+    } catch (err) {
+      setStudioError(err instanceof Error ? err.message : "AI 生成提示词失败");
+    } finally {
+      setAiGeneratingPrompt(false);
+    }
   }
 
   async function handleSaveCustomSkill() {
@@ -453,7 +495,18 @@ export function ImageStudioPanel({
                   />
                 </div>
                 <div className="field">
-                  <label htmlFor="studio-custom-style">自定义风格与构图规范 *</label>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                    <label htmlFor="studio-custom-style" style={{ margin: 0 }}>自定义风格与构图规范 *</label>
+                    <button
+                      type="button"
+                      className="button secondary"
+                      style={{ minHeight: "26px", padding: "0 10px", fontSize: "11.5px" }}
+                      disabled={aiGeneratingPrompt || loadingPreview || generating}
+                      onClick={handleAiGenerateImagePrompt}
+                    >
+                      {aiGeneratingPrompt ? "AI 扩写中..." : "✨ AI 生成专业提示词"}
+                    </button>
+                  </div>
                   <textarea
                     id="studio-custom-style"
                     className="compact-textarea"
@@ -861,6 +914,25 @@ export function ImageStudioPanel({
                     <a href={`${asset.file_url}?download=1`} className="button ghost">
                       下载原图
                     </a>
+                    <button
+                      type="button"
+                      className="button ghost"
+                      style={{ color: "var(--red)" }}
+                      onClick={async () => {
+                        if (!window.confirm("确认删除这张商品图片？磁盘文件也会一并清理。")) return;
+                        try {
+                          const resp = await fetch(`/api/assets/${encodeURIComponent(asset.id)}`, {
+                            method: "DELETE",
+                          });
+                          if (!resp.ok) throw new Error("删除图片失败");
+                          router.refresh();
+                        } catch (err) {
+                          setStudioError(err instanceof Error ? err.message : "删除图片失败");
+                        }
+                      }}
+                    >
+                      删除
+                    </button>
                   </div>
 
                   {promptUsed ? (

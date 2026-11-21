@@ -1,4 +1,5 @@
 import { ApiInputError, apiError, readJsonObject, stringField } from "@/app/api/ai-inbox/http";
+import { recordAuditLog } from "@/lib/audit-logs";
 import {
   deleteLocalImageSkill,
   listAvailableImageSkills,
@@ -28,6 +29,14 @@ export async function POST(request: Request) {
     });
     const skills = await listAvailableImageSkills();
 
+    await recordAuditLog({
+      actor: "本地操作员",
+      action: "image_skill.saved",
+      entityType: "image_skill",
+      entityId: skill.id,
+      details: { name: skill.name, slot: skill.slot, aspectRatio: skill.aspectRatio },
+    }).catch(() => {});
+
     return Response.json({ skill, skills });
   } catch (error) {
     if (error instanceof ApiInputError) return apiError(error);
@@ -47,6 +56,12 @@ export async function DELETE(request: Request) {
     }
 
     await deleteLocalImageSkill(id);
+    await recordAuditLog({
+      actor: "本地操作员",
+      action: "image_skill.deleted",
+      entityType: "image_skill",
+      entityId: id,
+    }).catch(() => {});
     const skills = await listAvailableImageSkills();
     return Response.json({ deletedId: id, skills });
   } catch (error) {

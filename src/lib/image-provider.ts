@@ -142,13 +142,31 @@ export async function testImageProviderConnection(
       signal: AbortSignal.timeout(20_000),
     });
     if (!response.ok) throw await httpFailure("阿里云百炼接口连接失败", response);
+  } else if (provider === "fal") {
+    const response = await fetchImpl(`${baseUrl}/${model.replace(/^\/+/, "")}`, {
+      method: "OPTIONS",
+      headers: { Authorization: `Key ${apiKey}` },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (response.status === 401 || response.status === 403) {
+      throw await httpFailure("fal.ai 鉴权失败", response);
+    }
+  } else if (provider === "ideogram") {
+    const response = await fetchImpl(`${baseUrl}/describe`, {
+      method: "GET",
+      headers: { "Api-Key": apiKey },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (response.status === 401 || response.status === 403) {
+      throw await httpFailure("Ideogram 鉴权失败", response);
+    }
   } else {
     const response = await fetchImpl(openAIModelsEndpoint(baseUrl), {
       method: "GET",
       headers: { Authorization: `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(20_000),
     });
-    if (!response.ok) throw await httpFailure("OpenAI 兼容生图接口连接失败", response);
+    if (!response.ok) throw await httpFailure(`${imageProviderLabel(provider)}连接失败`, response);
   }
 
   return {
@@ -244,6 +262,45 @@ export async function generateImagesWithProvider(
         latencyMs: Date.now() - startedAt,
         images,
         note: `已通过阿里云百炼 (${config.model}) 生成 ${images.length} 张草稿素材，等待人工逐项审核。`,
+      };
+    }
+
+    if (config.provider === "fal") {
+      const images = await generateWithFal({
+        config,
+        prompt: fullPrompt,
+        aspectRatio: input.aspectRatio,
+        count,
+        referenceImage: input.referenceImage ?? null,
+        timeoutMs: input.timeoutMs ?? 60_000,
+        fetchImpl,
+      });
+      return {
+        mode: "model",
+        provider: "fal",
+        model: config.model,
+        latencyMs: Date.now() - startedAt,
+        images,
+        note: `已通过 fal.ai (${config.model}) 生成 ${images.length} 张草稿素材，等待人工逐项审核。`,
+      };
+    }
+
+    if (config.provider === "ideogram") {
+      const images = await generateWithIdeogram({
+        config,
+        prompt: fullPrompt,
+        aspectRatio: input.aspectRatio,
+        count,
+        timeoutMs: input.timeoutMs ?? 60_000,
+        fetchImpl,
+      });
+      return {
+        mode: "model",
+        provider: "ideogram",
+        model: config.model,
+        latencyMs: Date.now() - startedAt,
+        images,
+        note: `已通过 Ideogram (${config.model}) 生成 ${images.length} 张草稿素材，等待人工逐项审核。`,
       };
     }
 
@@ -784,17 +841,33 @@ function extensionFromMime(mimeType: string): string {
   return "png";
 }
 
+function imageProviderLabel(provider: ImageProviderId, baseUrl = ""): string {
+  switch (provider) {
+    case "gemini":
+      return "Google Gemini 生图";
+    case "anthropic-compatible":
+      return "Anthropic 兼容生图接口";
+    case "dashscope":
+      return "阿里云百炼生图";
+    case "volcengine":
+      return "火山引擎 · 豆包 Seedream";
+    case "siliconflow":
+      return "硅基流动 SiliconFlow";
+    case "zhipu":
+      return "智谱 BigModel · CogView";
+    case "fal":
+      return "fal.ai · FLUX";
+    case "ideogram":
+      return "Ideogram 电商海报生图";
+    case "openai-compatible":
+      return isDashScopeEndpoint(provider, baseUrl) ? "阿里云百炼生图" : "OpenAI 兼容生图接口";
+    default:
+      return "免 Key 提示词模式";
+  }
+}
+
 function imageStatusFromConfig(config: ImageProviderConfig): ImageProviderStatus {
-  const label =
-    config.provider === "gemini"
-      ? "Google Gemini 生图"
-      : config.provider === "anthropic-compatible"
-        ? "Anthropic 兼容生图接口"
-        : config.provider === "dashscope" || isDashScopeEndpoint(config.provider, config.baseUrl)
-          ? "阿里云百炼生图"
-          : config.provider === "openai-compatible"
-            ? "OpenAI 兼容生图接口"
-            : "免 Key 提示词模式";
+  const label = imageProviderLabel(config.provider, config.baseUrl);
 
   if (config.provider === "template") {
     return {
@@ -886,22 +959,118 @@ function geminiModelsEndpoint(baseUrl: string) {
 function openAIModelsEndpoint(baseUrl: string) {
   const base = baseUrl.replace(/\/+$/, "");
   if (base.endsWith("/models")) return base;
-  if (base.endsWith("/v1")) return `${base}/models`;
+  if (/\/v\d+$/.test(base)) return `${base}/models`;
   return `${base}/v1/models`;
 }
 
 export function openAIImageGenerationsEndpoint(baseUrl: string) {
   const base = baseUrl.replace(/\/+$/, "");
   if (base.endsWith("/images/generations")) return base;
-  if (base.endsWith("/v1")) return `${base}/images/generations`;
+  if (/\/v\d+$/.test(base)) return `${base}/images/generations`;
   return `${base}/v1/images/generations`;
 }
 
 export function openAIImageEditsEndpoint(baseUrl: string) {
   const base = baseUrl.replace(/\/+$/, "");
   if (base.endsWith("/images/edits")) return base;
-  if (base.endsWith("/v1")) return `${base}/images/edits`;
+  if (/\/v\d+$/.test(base)) return `${base}/images/edits`;
   return `${base}/v1/images/edits`;
+}
+
+async function generateWithFal(args: {
+  config: ImageProviderConfig;
+  prompt: string;
+  aspectRatio: ImageAspectRatio;
+  count: number;
+  referenceImage: { bytes: Buffer; mimeType: string } | null;
+  timeoutMs: number;
+  fetchImpl: typeof fetch;
+}): Promise<GeneratedImageAssetPayload[]> {
+  const endpoint = `${args.config.baseUrl.replace(/\/+$/, "")}/${args.config.model.replace(/^\/+/, "")}`;
+  const imageSize =
+    args.aspectRatio === "4:5"
+      ? "portrait_4_3"
+      : args.aspectRatio === "16:9"
+        ? "landscape_16_9"
+        : "square_hd";
+  const body: Record<string, unknown> = {
+    prompt: args.prompt,
+    image_size: imageSize,
+    num_images: args.count,
+  };
+  if (args.referenceImage) {
+    body.image_url = `data:${args.referenceImage.mimeType};base64,${args.referenceImage.bytes.toString("base64")}`;
+  }
+  const response = await args.fetchImpl(endpoint, {
+    method: "POST",
+    headers: {
+      Authorization: `Key ${args.config.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(args.timeoutMs),
+  });
+  if (!response.ok) throw await httpFailure("fal.ai 生图失败", response);
+  const data = (await response.json()) as { images?: Array<{ url?: string; content_type?: string }> };
+  const results: GeneratedImageAssetPayload[] = [];
+  for (let i = 0; i < (data.images ?? []).length; i += 1) {
+    const url = data.images?.[i]?.url;
+    if (!url) continue;
+    const imgResp = await args.fetchImpl(url, { signal: AbortSignal.timeout(30_000) });
+    if (!imgResp.ok) continue;
+    const bytes = Buffer.from(await imgResp.arrayBuffer());
+    const mimeType = imgResp.headers.get("content-type")?.split(";")[0]?.trim() || data.images?.[i]?.content_type || "image/png";
+    results.push({ bytes, mimeType, suggestedName: `fal-${i + 1}.png` });
+  }
+  if (results.length === 0) throw new Error("fal.ai 未返回有效图片");
+  return results;
+}
+
+async function generateWithIdeogram(args: {
+  config: ImageProviderConfig;
+  prompt: string;
+  aspectRatio: ImageAspectRatio;
+  count: number;
+  timeoutMs: number;
+  fetchImpl: typeof fetch;
+}): Promise<GeneratedImageAssetPayload[]> {
+  const endpoint = `${args.config.baseUrl.replace(/\/+$/, "")}/generate`;
+  const ratioMap: Record<string, string> = {
+    "1:1": "ASPECT_1_1",
+    "4:5": "ASPECT_4_5",
+    "16:9": "ASPECT_16_9",
+    "9:16": "ASPECT_9_16",
+  };
+  const response = await args.fetchImpl(endpoint, {
+    method: "POST",
+    headers: {
+      "Api-Key": args.config.apiKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      image_request: {
+        prompt: args.prompt,
+        model: args.config.model || "V_2_TURBO",
+        aspect_ratio: ratioMap[args.aspectRatio] || "ASPECT_1_1",
+        num_images: args.count,
+      },
+    }),
+    signal: AbortSignal.timeout(args.timeoutMs),
+  });
+  if (!response.ok) throw await httpFailure("Ideogram 生图失败", response);
+  const data = (await response.json()) as { data?: Array<{ url?: string }> };
+  const results: GeneratedImageAssetPayload[] = [];
+  for (let i = 0; i < (data.data ?? []).length; i += 1) {
+    const url = data.data?.[i]?.url;
+    if (!url) continue;
+    const imgResp = await args.fetchImpl(url, { signal: AbortSignal.timeout(30_000) });
+    if (!imgResp.ok) continue;
+    const bytes = Buffer.from(await imgResp.arrayBuffer());
+    const mimeType = imgResp.headers.get("content-type")?.split(";")[0]?.trim() || "image/png";
+    results.push({ bytes, mimeType, suggestedName: `ideogram-${i + 1}.png` });
+  }
+  if (results.length === 0) throw new Error("Ideogram 未返回有效图片");
+  return results;
 }
 
 function maskApiKey(value: string) {

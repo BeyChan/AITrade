@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { recordAuditLog } from "@/lib/audit-logs";
 import { generateImagesWithProvider, getImageProviderStatus } from "@/lib/image-provider";
 import {
   buildCustomImageSkill,
@@ -190,6 +191,21 @@ export async function POST(request: Request) {
         throw error;
       }
     }
+
+    await recordAuditLog({
+      actor,
+      action: "image_studio.generated",
+      entityType: "studio_image",
+      entityId: createdAssets[0]?.id ?? "batch",
+      details: {
+        productName,
+        marketplace,
+        skillId: preview.skillId,
+        provider: generated.provider,
+        model: generated.model,
+        count: createdAssets.length,
+      },
+    }).catch(() => {});
 
     return Response.json({
       mode: "model",

@@ -3,6 +3,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 const assetDirectory = path.resolve(process.cwd(), ".data", "aitrade-assets");
 
 export type StorageProviderKind = "local" | "s3_compatible";
@@ -96,6 +97,47 @@ export async function deleteStoredImage(storageKey: string) {
   const safeName = path.basename(storageKey);
   if (safeName !== storageKey) return;
   await unlink(path.join(assetDirectory, safeName)).catch(() => undefined);
+}
+
+export type SavedVideo = {
+  storageKey: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+};
+
+export function resolveStoredAssetPath(storageKey: string): string {
+  const safeName = path.basename(storageKey);
+  if (safeName !== storageKey) throw new Error("非法资源路径");
+  return path.join(assetDirectory, safeName);
+}
+
+export function detectVideoType(bytes: Buffer): { extension: string; mimeType: string } | null {
+  if (bytes.length >= 12 && bytes.subarray(4, 8).toString("ascii") === "ftyp") {
+    const brand = bytes.subarray(8, 12).toString("ascii");
+    if (brand === "qt  ") return { extension: "mov", mimeType: "video/quicktime" };
+    return { extension: "mp4", mimeType: "video/mp4" };
+  }
+  if (bytes.length >= 4 && bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3) {
+    return { extension: "webm", mimeType: "video/webm" };
+  }
+  return null;
+}
+
+export async function saveVideoBuffer(bytes: Buffer, originalName?: string): Promise<SavedVideo> {
+  if (!bytes || bytes.length <= 0) throw new Error("生成视频内容为空");
+  if (bytes.length > MAX_VIDEO_BYTES) throw new Error("视频大小不能超过 100 MB");
+
+  const detected = detectVideoType(bytes) ?? { extension: "mp4", mimeType: "video/mp4" };
+  await mkdir(assetDirectory, { recursive: true });
+  const storageKey = `${randomUUID()}.${detected.extension}`;
+  await writeFile(path.join(assetDirectory, storageKey), bytes, { flag: "wx" });
+  return {
+    storageKey,
+    originalName: originalName?.trim() || `product-video.${detected.extension}`,
+    mimeType: detected.mimeType,
+    size: bytes.length,
+  };
 }
 
 export function detectImageType(bytes: Buffer) {

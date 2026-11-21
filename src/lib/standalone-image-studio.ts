@@ -66,3 +66,17 @@ export async function saveStandaloneStudioAsset(record: StandaloneStudioAsset): 
     await rename(tmp, MANIFEST_PATH);
   });
 }
+
+export async function deleteStandaloneStudioAsset(id: string): Promise<StandaloneStudioAsset | null> {
+  return serialized(async () => {
+    const existing = await listStandaloneStudioAssets();
+    const target = existing.find((item) => item.id === id) ?? null;
+    if (!target) return null;
+    const next = existing.filter((item) => item.id !== id);
+    await mkdir(DATA_DIR, { recursive: true });
+    const tmp = `${MANIFEST_PATH}.${process.pid}.tmp`;
+    await writeFile(tmp, JSON.stringify(next, null, 2), "utf8");
+    await rename(tmp, MANIFEST_PATH);
+    return target;
+  });
+}

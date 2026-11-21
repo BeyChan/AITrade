@@ -31,9 +31,12 @@ import { getContentDetail } from "@/lib/repository";
 import { ComplianceRadarCard } from "@/components/compliance-radar-card";
 import { ImageStudioPanel } from "@/components/image-studio-panel";
 import { SerpShelfTest } from "@/components/serp-shelf-test";
+import { VideoStudioPanel } from "@/components/video-studio-panel";
 import { scanListingCompliance } from "@/lib/compliance-radar";
 import { getImageProviderStatus } from "@/lib/image-provider";
 import { listAvailableImageSkills } from "@/lib/image-skills";
+import { isFfmpegAvailable, listVideoJobsForCase } from "@/lib/video-jobs";
+import { VIDEO_TEMPLATES, getVideoProviderStatus } from "@/lib/video-provider";
 
 export const dynamic = "force-dynamic";
 
@@ -50,12 +53,16 @@ type PageProps = {
 
 export default async function ContentStudioPage({ params, searchParams }: PageProps) {
   const [{ id }, query] = await Promise.all([params, searchParams]);
-  const [detail, benchmarkLookup, imageSkills, imageProviderStatus] = await Promise.all([
-    getContentDetail(id),
-    loadCaseCompetitorBenchmark(id, query.hypothesisId),
-    listAvailableImageSkills(),
-    getImageProviderStatus(),
-  ]);
+  const [detail, benchmarkLookup, imageSkills, imageProviderStatus, videoProviderStatus, videoJobs, ffmpegReady] =
+    await Promise.all([
+      getContentDetail(id),
+      loadCaseCompetitorBenchmark(id, query.hypothesisId),
+      listAvailableImageSkills(),
+      getImageProviderStatus(),
+      getVideoProviderStatus(),
+      listVideoJobsForCase(id).catch(() => []),
+      isFfmpegAvailable(),
+    ]);
   if (!detail) notFound();
 
   const { productCase, costModel, selection, selectedSupplierName, profile, assets, listing, listingReviews, auditLogs } = detail;
@@ -258,7 +265,7 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
               <ImageStudioPanel
                 caseId={productCase.id}
                 marketplace={productCase.marketplace || "US"}
-                assets={assets}
+                assets={assets.filter((item) => item.asset_type !== "product_video")}
                 skills={imageSkills}
                 providerStatus={imageProviderStatus}
                 hasProfile={Boolean(profile)}
@@ -266,6 +273,27 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
                 topPainPoints={benchmark ? benchmark.themes.slice(0, 3).map((theme) => theme.theme) : []}
                 uploadAction={uploadMainImageAction}
                 reviewAction={reviewMainImageAction}
+              />
+
+              <VideoStudioPanel
+                caseId={productCase.id}
+                imageAssets={assets
+                  .filter((item) => item.asset_type !== "product_video")
+                  .map((item) => ({
+                    id: item.id,
+                    assetType: item.asset_type,
+                    status: item.status,
+                    fileUrl: item.file_url,
+                    originalName:
+                      typeof item.metadata?.originalName === "string" && item.metadata.originalName.trim()
+                        ? item.metadata.originalName
+                        : item.asset_type,
+                  }))}
+                initialVideoAssets={assets.filter((item) => item.asset_type === "product_video")}
+                initialJobs={videoJobs}
+                providerStatus={videoProviderStatus}
+                templates={VIDEO_TEMPLATES}
+                ffmpegReady={ffmpegReady}
               />
 
               <SerpShelfTest

@@ -1,5 +1,6 @@
 import { loadAIProviderConfig, validateBaseUrl } from "@/lib/app-settings";
 import { ANTHROPIC_API_VERSION, anthropicMessagesEndpoint, extractAnthropicText } from "@/lib/ai-provider";
+import { recordAuditLog } from "@/lib/audit-logs";
 import { detectImageType } from "@/lib/storage";
 
 export const runtime = "nodejs";
@@ -159,6 +160,20 @@ export async function POST(request: Request) {
       if (typeof v === "string" && v.trim()) fields[key] = v.trim();
       else if (typeof v === "number" && Number.isFinite(v)) fields[key] = String(v);
     }
+
+    await recordAuditLog({
+      actor: "采购人员",
+      action: "sourcing.quote_image_extracted",
+      entityType: "supplier",
+      entityId: fields.supplierName || "quote_image",
+      details: {
+        supplierName: fields.supplierName || undefined,
+        unitPrice: fields.unitPrice || undefined,
+        count: Object.keys(fields).length,
+        provider: config.provider,
+        model: config.model,
+      },
+    }).catch(() => {});
 
     return Response.json({
       success: true,

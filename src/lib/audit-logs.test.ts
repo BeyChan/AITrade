@@ -137,4 +137,13 @@ test("describeAuditAction infers fallback level and module for unknown actions",
   const ok = describeAuditAction("case.custom_created", "product_case");
   assert.equal(ok.level, "success");
   assert.equal(ok.module, "case");
+
+  const profileDel = describeAuditAction("model_profile.deleted", "model_profile");
+  assert.equal(profileDel.label, "删除模型配置档案");
+  assert.equal(profileDel.level, "danger");
+  assert.equal(profileDel.module, "settings");
+
+  const videoGen = describeAuditAction("video_studio.job_submitted", "studio_video");
+  assert.equal(videoGen.label, "视频工坊提交生成任务");
+  assert.equal(videoGen.module, "ai");
 });

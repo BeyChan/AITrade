@@ -1,6 +1,7 @@
 import { analyzeCompetitors } from "@/lib/competitor-compare/engine.ts";
 import { saveComparisonReport } from "@/lib/competitor-compare/storage.ts";
 import { readJsonObject, stringField } from "@/app/api/ai-inbox/http.ts";
+import { recordAuditLog } from "@/lib/audit-logs.ts";
 import type { CompetitorInputItem, CompetitorNumericField } from "@/lib/competitor-compare/types.ts";
 
 export const runtime = "nodejs";
@@ -124,6 +125,19 @@ export async function POST(request: Request) {
 
       await saveComparisonReport(report);
 
+      await recordAuditLog({
+        actor: "Chrome 采集扩展",
+        action: "competitor.serp_captured",
+        entityType: "competitor_report",
+        entityId: report.id,
+        details: {
+          title: report.title,
+          keyword: keyword || undefined,
+          marketplace: marketCode,
+          count: report.competitors.length,
+        },
+      }).catch(() => {});
+
       return Response.json(
         {
           success: true,
@@ -179,6 +193,18 @@ export async function POST(request: Request) {
     });
 
     await saveComparisonReport(report);
+
+    await recordAuditLog({
+      actor: "Chrome 采集扩展",
+      action: "competitor.dp_captured",
+      entityType: "competitor_report",
+      entityId: report.id,
+      details: {
+        asin: asin || undefined,
+        title: report.title,
+        marketplace: marketCode,
+      },
+    }).catch(() => {});
 
     return Response.json(
       {

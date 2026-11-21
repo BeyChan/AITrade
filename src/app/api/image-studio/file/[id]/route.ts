@@ -1,5 +1,6 @@
-import { getStandaloneStudioAsset } from "@/lib/standalone-image-studio";
-import { readStoredImage } from "@/lib/storage";
+import { recordAuditLog } from "@/lib/audit-logs";
+import { deleteStandaloneStudioAsset, getStandaloneStudioAsset } from "@/lib/standalone-image-studio";
+import { deleteStoredImage, readStoredImage } from "@/lib/storage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,4 +28,21 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   } catch {
     return new Response("Not found", { status: 404 });
   }
+}
+
+export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const deleted = await deleteStandaloneStudioAsset(id);
+  if (!deleted) return Response.json({ error: "图片不存在" }, { status: 404 });
+  if (deleted.storageKey) {
+    await deleteStoredImage(deleted.storageKey);
+  }
+  await recordAuditLog({
+    actor: deleted.actor || "本地操作员",
+    action: "image_studio.asset_deleted",
+    entityType: "studio_image",
+    entityId: id,
+    details: { productName: deleted.productName, fileName: deleted.originalName },
+  }).catch(() => {});
+  return Response.json({ ok: true, deletedId: id });
 }

@@ -4,7 +4,25 @@ import path from "node:path";
 import { getDb } from "./db.ts";
 
 export type AIProviderId = "template" | "ollama" | "openai-compatible" | "anthropic-compatible";
-export type ImageProviderId = "template" | "gemini" | "dashscope" | "openai-compatible" | "anthropic-compatible";
+export type ImageProviderId =
+  | "template"
+  | "gemini"
+  | "dashscope"
+  | "volcengine"
+  | "siliconflow"
+  | "zhipu"
+  | "fal"
+  | "ideogram"
+  | "openai-compatible"
+  | "anthropic-compatible";
+export type VideoProviderId =
+  | "template"
+  | "kling"
+  | "dashscope"
+  | "veo"
+  | "runway"
+  | "volcengine"
+  | "openai-compatible";
 
 export type AIProviderConfig = {
   provider: AIProviderId;
@@ -24,6 +42,15 @@ export type ImageProviderConfig = {
   hasSavedSettings: boolean;
 };
 
+export type VideoProviderConfig = {
+  provider: VideoProviderId;
+  baseUrl: string;
+  model: string;
+  apiKey: string;
+  apiKeySource: "database" | "environment" | "none" | "unreadable";
+  hasSavedSettings: boolean;
+};
+
 export type SaveAIProviderSettingsInput = {
   provider: string;
   baseUrl: string;
@@ -33,14 +60,23 @@ export type SaveAIProviderSettingsInput = {
 };
 
 export type SaveImageProviderSettingsInput = SaveAIProviderSettingsInput;
+export type SaveVideoProviderSettingsInput = SaveAIProviderSettingsInput;
 
 const SETTING_KEYS = ["ai_provider", "ai_base_url", "ai_model", "ai_api_key"] as const;
 const IMAGE_SETTING_KEYS = ["image_provider", "image_base_url", "image_model", "image_api_key"] as const;
+const VIDEO_SETTING_KEYS = ["video_provider", "video_base_url", "video_model", "video_api_key"] as const;
 const DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434";
 const DEFAULT_OPENAI_URL = "https://api.openai.com/v1";
 const DEFAULT_ANTHROPIC_URL = "https://api.anthropic.com";
 const DEFAULT_GEMINI_URL = "https://generativelanguage.googleapis.com";
 const DEFAULT_DASHSCOPE_URL = "https://dashscope.aliyuncs.com";
+const DEFAULT_KLING_URL = "https://api.klingai.com";
+const DEFAULT_RUNWAY_URL = "https://api.dev.runwayml.com";
+const DEFAULT_VOLCENGINE_URL = "https://ark.cn-beijing.volces.com/api/v3";
+const DEFAULT_SILICONFLOW_URL = "https://api.siliconflow.cn/v1";
+const DEFAULT_ZHIPU_URL = "https://open.bigmodel.cn/api/paas/v4";
+const DEFAULT_FAL_URL = "https://fal.run";
+const DEFAULT_IDEOGRAM_URL = "https://api.ideogram.ai";
 
 export async function loadAIProviderConfig(): Promise<AIProviderConfig> {
   const stored = await readSettingMap(SETTING_KEYS);
@@ -208,6 +244,82 @@ export async function clearStoredImageProviderKey(actorInput: string) {
   await clearSettingKey("image_api_key", "image.api_key_cleared", "image", actorInput);
 }
 
+export async function loadVideoProviderConfig(): Promise<VideoProviderConfig> {
+  const stored = await readSettingMap(VIDEO_SETTING_KEYS);
+  const provider = normalizeVideoProvider(stored.get("video_provider") ?? process.env.VIDEO_PROVIDER);
+  const baseUrl = (stored.get("video_base_url") || process.env.VIDEO_BASE_URL || defaultVideoBaseUrl(provider)).trim();
+  const model = (stored.get("video_model") || process.env.VIDEO_MODEL || defaultVideoModel(provider)).trim();
+  const secret = await resolveStoredSecret(stored.get("video_api_key"), envKeyForVideo(provider));
+
+  return {
+    provider,
+    baseUrl,
+    model,
+    apiKey: secret.apiKey,
+    apiKeySource: secret.apiKeySource,
+    hasSavedSettings: VIDEO_SETTING_KEYS.some((key) => stored.has(key)),
+  };
+}
+
+export async function saveVideoProviderSettings(input: SaveVideoProviderSettingsInput) {
+  const provider = normalizeVideoProvider(input.provider);
+  const baseUrl = (input.baseUrl.trim() || defaultVideoBaseUrl(provider)).slice(0, 500);
+  const model = (input.model.trim() || defaultVideoModel(provider)).slice(0, 160);
+  const apiKey = input.apiKey.trim();
+  const actor = input.actor.trim().slice(0, 80) || "本机管理员";
+
+  if (provider !== "template") {
+    validateBaseUrl(baseUrl);
+    if (!model) throw new Error("请填写视频模型名称");
+    if (!apiKey && !(await hasStoredOrEnvKey("video_api_key", envKeyForVideo(provider)))) {
+      throw new Error("当前视频服务商需要 API Key；请填写 Key 或配置对应的环境变量（如 VIDEO_API_KEY）");
+    }
+  }
+
+  const db = await getDb();
+  const encryptedKey = apiKey ? await encryptSecret(apiKey) : null;
+  const keyAction = encryptedKey ? "updated" : "preserved";
+
+  await db.transaction(async (tx) => {
+    const values: Array<[string, string]> = [
+      ["video_provider", provider],
+      ["video_base_url", baseUrl],
+      ["video_model", model],
+    ];
+    if (encryptedKey) values.push(["video_api_key", encryptedKey]);
+
+    for (const [key, value] of values) {
+      await tx.query(
+        `INSERT INTO app_settings (key, value, updated_by, updated_at)
+         VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+        [key, value, actor],
+      );
+    }
+    await tx.query(
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
+       VALUES ($1, $2, 'video.settings_saved', 'app_settings', 'video', $3::jsonb)`,
+      [
+        randomUUID(),
+        actor,
+        JSON.stringify({
+          provider,
+          baseUrl,
+          model,
+          keyAction,
+          keyConfigured: Boolean(encryptedKey) || provider === "template",
+        }),
+      ],
+    );
+  });
+
+  return { provider, baseUrl, model, keyAction };
+}
+
+export async function clearStoredVideoProviderKey(actorInput: string) {
+  await clearSettingKey("video_api_key", "video.api_key_cleared", "video", actorInput);
+}
+
 async function readSettingMap(keys: readonly string[]) {
   const db = await getDb();
   const result = await db.query<{ key: string; value: string }>(
@@ -262,7 +374,24 @@ function envKeyForImage(provider: ImageProviderId) {
     process.env.IMAGE_API_KEY?.trim() ||
     (provider === "gemini" ? process.env.GEMINI_API_KEY?.trim() : "") ||
     (provider === "dashscope" ? process.env.DASHSCOPE_API_KEY?.trim() : "") ||
+    (provider === "volcengine" ? process.env.ARK_API_KEY?.trim() || process.env.VOLCENGINE_API_KEY?.trim() : "") ||
+    (provider === "siliconflow" ? process.env.SILICONFLOW_API_KEY?.trim() : "") ||
+    (provider === "zhipu" ? process.env.ZHIPU_API_KEY?.trim() : "") ||
+    (provider === "fal" ? process.env.FAL_KEY?.trim() || process.env.FAL_API_KEY?.trim() : "") ||
+    (provider === "ideogram" ? process.env.IDEOGRAM_API_KEY?.trim() : "") ||
     (provider === "anthropic-compatible" ? process.env.ANTHROPIC_API_KEY?.trim() : "") ||
+    ""
+  );
+}
+
+function envKeyForVideo(provider: VideoProviderId) {
+  return (
+    process.env.VIDEO_API_KEY?.trim() ||
+    (provider === "kling" ? process.env.KLING_API_KEY?.trim() : "") ||
+    (provider === "dashscope" ? process.env.DASHSCOPE_API_KEY?.trim() : "") ||
+    (provider === "veo" ? process.env.GEMINI_API_KEY?.trim() : "") ||
+    (provider === "runway" ? process.env.RUNWAY_API_KEY?.trim() : "") ||
+    (provider === "volcengine" ? process.env.ARK_API_KEY?.trim() || process.env.VOLCENGINE_API_KEY?.trim() : "") ||
     ""
   );
 }
@@ -296,17 +425,35 @@ export function defaultAIModel(provider: AIProviderId) {
 
 export function normalizeImageProvider(value: string | undefined): ImageProviderId {
   const normalized = value?.trim().toLowerCase().replaceAll("_", "-");
-  if (normalized === "gemini" || normalized === "openai-compatible" || normalized === "anthropic-compatible") {
+  if (
+    normalized === "gemini" ||
+    normalized === "dashscope" ||
+    normalized === "volcengine" ||
+    normalized === "siliconflow" ||
+    normalized === "zhipu" ||
+    normalized === "fal" ||
+    normalized === "ideogram" ||
+    normalized === "openai-compatible" ||
+    normalized === "anthropic-compatible"
+  ) {
     return normalized;
   }
   if (normalized === "anthropic" || normalized === "claude") return "anthropic-compatible";
-  if (normalized === "dashscope" || normalized === "aliyun" || normalized === "bailian") return "dashscope";
+  if (normalized === "aliyun" || normalized === "bailian") return "dashscope";
+  if (normalized === "ark" || normalized === "seedream" || normalized === "doubao" || normalized === "jimeng") return "volcengine";
+  if (normalized === "bigmodel" || normalized === "cogview") return "zhipu";
+  if (normalized === "fal-ai" || normalized === "flux") return "fal";
   return "template";
 }
 
 export function defaultImageBaseUrl(provider: ImageProviderId) {
   if (provider === "gemini") return DEFAULT_GEMINI_URL;
   if (provider === "dashscope") return DEFAULT_DASHSCOPE_URL;
+  if (provider === "volcengine") return DEFAULT_VOLCENGINE_URL;
+  if (provider === "siliconflow") return DEFAULT_SILICONFLOW_URL;
+  if (provider === "zhipu") return DEFAULT_ZHIPU_URL;
+  if (provider === "fal") return DEFAULT_FAL_URL;
+  if (provider === "ideogram") return DEFAULT_IDEOGRAM_URL;
   if (provider === "openai-compatible") return DEFAULT_OPENAI_URL;
   if (provider === "anthropic-compatible") return DEFAULT_ANTHROPIC_URL;
   return "";
@@ -315,9 +462,55 @@ export function defaultImageBaseUrl(provider: ImageProviderId) {
 export function defaultImageModel(provider: ImageProviderId) {
   if (provider === "gemini") return "gemini-nano-banana-2.1";
   if (provider === "dashscope") return "qwen-image-plus";
+  if (provider === "volcengine") return "doubao-seedream-3-0-t2i-250415";
+  if (provider === "siliconflow") return "black-forest-labs/FLUX.1-dev";
+  if (provider === "zhipu") return "cogview-4-250304";
+  if (provider === "fal") return "fal-ai/flux-pro/v1.1";
+  if (provider === "ideogram") return "V_2_TURBO";
   if (provider === "openai-compatible") return "gpt-image-1";
   if (provider === "anthropic-compatible") return "";
   return "prompt-studio-v1";
+}
+
+export function normalizeVideoProvider(value: string | undefined): VideoProviderId {
+  const normalized = value?.trim().toLowerCase().replaceAll("_", "-");
+  if (
+    normalized === "kling" ||
+    normalized === "dashscope" ||
+    normalized === "veo" ||
+    normalized === "runway" ||
+    normalized === "volcengine" ||
+    normalized === "openai-compatible"
+  ) {
+    return normalized;
+  }
+  if (normalized === "kuaishou" || normalized === "klingai") return "kling";
+  if (normalized === "aliyun" || normalized === "bailian" || normalized === "wan") return "dashscope";
+  if (normalized === "gemini" || normalized === "google" || normalized === "veo3") return "veo";
+  if (normalized === "runwayml" || normalized === "gen4") return "runway";
+  if (normalized === "ark" || normalized === "seedance" || normalized === "doubao") return "volcengine";
+  if (normalized === "sora" || normalized === "openai") return "openai-compatible";
+  return "template";
+}
+
+export function defaultVideoBaseUrl(provider: VideoProviderId) {
+  if (provider === "kling") return DEFAULT_KLING_URL;
+  if (provider === "dashscope") return DEFAULT_DASHSCOPE_URL;
+  if (provider === "veo") return DEFAULT_GEMINI_URL;
+  if (provider === "runway") return DEFAULT_RUNWAY_URL;
+  if (provider === "volcengine") return DEFAULT_VOLCENGINE_URL;
+  if (provider === "openai-compatible") return DEFAULT_OPENAI_URL;
+  return "";
+}
+
+export function defaultVideoModel(provider: VideoProviderId) {
+  if (provider === "kling") return "kling-v2-master";
+  if (provider === "dashscope") return "wan3.0-video";
+  if (provider === "veo") return "veo-3.0-generate-preview";
+  if (provider === "runway") return "gen4_turbo";
+  if (provider === "volcengine") return "doubao-seedance-1-0-pro-250528";
+  if (provider === "openai-compatible") return "sora-2";
+  return "storyboard-studio-v1";
 }
 
 export function validateBaseUrl(value: string) {

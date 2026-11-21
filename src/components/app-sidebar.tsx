@@ -54,6 +54,7 @@ const MAIN_NAV_ITEMS: NavItem[] = [
     subItems: [
       { href: "/content", label: "内容工作台" },
       { href: "/image-studio", label: "AI 生图工坊" },
+      { href: "/video-studio", label: "AI 视频工坊" },
     ],
   },
   {
@@ -321,7 +322,7 @@ export function AppSidebar({
         <span className="brand-mark">A</span>
         <span>
           <strong>AITrade</strong>
-          <small>跨境投研工作台</small>
+          <small>跨境电商 AI 工作台</small>
         </span>
       </Link>
 

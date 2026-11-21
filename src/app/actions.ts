@@ -2,15 +2,19 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { recordAuditLog } from "@/lib/audit-logs";
 import type { EconomicsAssumptions } from "@/lib/economics";
 import {
   clearStoredAIProviderKey,
   clearStoredImageProviderKey,
+  clearStoredVideoProviderKey,
   saveAIProviderSettings,
   saveImageProviderSettings,
+  saveVideoProviderSettings,
 } from "@/lib/app-settings";
 import { testAIProviderConnection } from "@/lib/ai-provider";
 import { testImageProviderConnection } from "@/lib/image-provider";
+import { testVideoProviderConnection } from "@/lib/video-provider";
 import { isSupportedImageSlot } from "@/lib/image-skills";
 import { applyAiInboxTask, reviewAiInboxField } from "@/lib/ai-inbox/apply";
 import {
@@ -1026,6 +1030,72 @@ export async function clearImageProviderKeyAction(formData: FormData) {
   redirect(`/settings?notice=${encodeURIComponent("已清除页面保存的生图 API Key；内容工作台将回退为提示词模式。")}`);
 }
 
+export async function saveVideoSettingsAction(formData: FormData) {
+  const actor = String(formData.get("actor") || "").trim() || "本机管理员";
+  const apiKey = String(formData.get("apiKey") || "").trim();
+  let failure: string | null = null;
+  let savedProvider = "";
+
+  try {
+    const saved = await saveVideoProviderSettings({
+      provider: String(formData.get("provider") || "template"),
+      baseUrl: String(formData.get("baseUrl") || ""),
+      model: String(formData.get("model") || ""),
+      apiKey,
+      actor,
+    });
+    savedProvider = saved.provider;
+  } catch (error) {
+    failure = settingsErrorMessage(error, apiKey);
+  }
+
+  if (failure) redirect(`/settings?error=${encodeURIComponent(failure)}`);
+  revalidatePath("/settings");
+  revalidatePath("/content");
+  revalidatePath("/video-studio");
+  redirect(`/settings?notice=${encodeURIComponent(`商品视频模型设置已保存：${savedProvider}。API Key 未回显到页面。`)}`);
+}
+
+export async function testVideoSettingsAction(formData: FormData) {
+  const apiKey = String(formData.get("apiKey") || "").trim();
+  let failure: string | null = null;
+  let result: Awaited<ReturnType<typeof testVideoProviderConnection>> | null = null;
+
+  try {
+    result = await testVideoProviderConnection({
+      provider: String(formData.get("provider") || "template"),
+      baseUrl: String(formData.get("baseUrl") || ""),
+      model: String(formData.get("model") || ""),
+      apiKey,
+    });
+  } catch (error) {
+    failure = settingsErrorMessage(error, apiKey);
+  }
+
+  if (failure) redirect(`/settings?error=${encodeURIComponent(failure)}`);
+  if (!result) redirect(`/settings?error=${encodeURIComponent("视频连接测试没有返回结果")}`);
+  redirect(
+    `/settings?notice=${encodeURIComponent(
+      `${result.message} ${result.model} · ${result.latencyMs} ms。测试使用当前表单值，不保存配置。`,
+    )}`,
+  );
+}
+
+export async function clearVideoProviderKeyAction(formData: FormData) {
+  const actor = String(formData.get("actor") || "").trim() || "本机管理员";
+  let failure: string | null = null;
+  try {
+    await clearStoredVideoProviderKey(actor);
+  } catch (error) {
+    failure = settingsErrorMessage(error, "");
+  }
+
+  if (failure) redirect(`/settings?error=${encodeURIComponent(failure)}`);
+  revalidatePath("/settings");
+  revalidatePath("/content");
+  redirect(`/settings?notice=${encodeURIComponent("已清除页面保存的视频 API Key；商品视频工作台将回退为分镜脚本模式。")}`);
+}
+
 function settingsErrorMessage(error: unknown, apiKey: string) {
   let message = errorMessage(error);
   if (apiKey) message = message.replaceAll(apiKey, "[REDACTED]");
@@ -1055,7 +1125,7 @@ export async function createSupplierDirectoryEntryAction(formData: FormData) {
 
   let failure = "";
   try {
-    await createSupplierDirectoryEntry({
+    const created = await createSupplierDirectoryEntry({
       name,
       platform,
       url: url || undefined,
@@ -1064,6 +1134,13 @@ export async function createSupplierDirectoryEntryAction(formData: FormData) {
       rating: parseFloat(ratingStr) || 4.8,
       notes,
     });
+    await recordAuditLog({
+      actor: "采购人员",
+      action: "supplier.created",
+      entityType: "supplier",
+      entityId: typeof created === "string" ? created : (created && typeof created === "object" && "id" in created ? String((created as { id: unknown }).id) : name),
+      details: { supplierName: name, platform, country: country || "CN" },
+    }).catch(() => {});
   } catch (error) {
     failure = errorMessage(error);
   }

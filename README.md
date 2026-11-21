@@ -68,7 +68,7 @@ flowchart TD
 | **2. 竞品研判** | `/competitors` | **市场格局四象限气泡图**（售价 × 评论壁垒 × 月销 × 评分痛点）、价格分位（P25–P90）、HHI 垄断指数与差评反制五点 |
 | **3. 财务与合规门禁** | `/cases/[id]` | **交互式 What-If 财务沙盘**（瀑布图 + 售价×ACoS 热力矩阵）、**FBA 尺寸降档提醒 + 抛货头程 + 站点 VAT + 90 天现金流回本**、立项前置专利/认证红线清单 |
 | **4. 1688 寻源比价** | `/cases/[id]/sourcing` | 多工厂横向 PK 矩阵与人工定标、**微信/1688 报价单截图多模态识别**、浏览器扩展半自动 1688 采集与 RFQ 内部草稿 |
-| **5. 内容与视觉工坊** | `/content` `/image-studio` | 差评缺口自动传承到五点文案、侵权/FDA/广告法合规雷达、自定义视觉 Skill 图生图、**主图 Amazon 手机/PC 货架对比测试（Shelf Test）** |
+| **5. 内容、生图与视频工坊** | `/content` `/image-studio` `/video-studio` | 差评缺口自动传承到五点文案、侵权/FDA/广告法合规雷达、**AI 生图工坊**（自定义视觉 Skill + AI 生成提示词 + Amazon 货架测试）、**AI 视频工坊**（6 套内置/自定义视频 Skill + AI 扩写英文 I2V 分镜 + 异步渲染队列 + 本地 `ffmpeg` 多镜头拼接 + 素材管理与删除） |
 | **6. 交付与实盘复盘** | `/operations` `/cases/[id]/report` | 一键导出 **Amazon 官方 Flat File (TSV)**、A4 **立项决策评审战报 PDF**、**Settlement V2 + FBA 库存实盘 vs 预测偏差与断货预警** |
 
 ### 全局效率体验
@@ -120,11 +120,12 @@ npm run dev
 - **亚马逊竞品采集**：`extensions/aitrade-competitor-capture/`（支持 `/dp/` 单品详情页与 `/s?k=...` 搜索结果页 Top 20 一键采集）
 - **1688 供应商采集**：`extensions/aitrade-supplier-capture/`（在 1688 当前搜索页点击采集并生成 TOP 10 候选）
 
-### 2. AI 文本与生图模型
-默认本地模板即可完整体验，无需 Key。可在 `/settings` 分别配置：
-- **文本大模型**：`template`（免 Key）、`ollama`、`openai-compatible`、`anthropic-compatible`（请求失败自动回退模板）
-- **生图模型**：`template`、`gemini`、`dashscope`（阿里云百炼）、`openai-compatible`、`anthropic-compatible`
-- API Key 加密落盘且不回显到页面，环境变量示例见 [.env.example](.env.example)。
+### 2. 统一大模型配置中心（文本 / 图片 / 视频）
+默认免 Key 本地模板即可完整体验。可在 `/settings` 通过「**列表 + 弹窗 + 导出/导入 JSON**」统一管理多套配置并一键切换默认模型：
+- **文本大模型**：OpenAI、DeepSeek、Anthropic Claude、火山引擎豆包方舟、阿里云百炼、硅基流动、本地 Ollama 及自定义网关（请求失败自动回退模板）
+- **生图模型**：阿里云百炼（Wan / Qwen-Image）、火山引擎即梦 Seedream、Google Gemini（Nano Banana）、硅基流动（FLUX / Kolors）、智谱 CogView-4、fal.ai、Ideogram、OpenAI / Anthropic 兼容网关
+- **视频模型（I2V 图生视频）**：快手可灵 Kling（支持 `AK:SK` 自动签发 JWT）、阿里云百炼通义万相（原生兼容 `wan3.0-video` / `wan2.7-i2v` / `wan2.6-i2v` 及 Token Plan 专属域名）、火山引擎豆包 Seedance、Google Veo、Runway Gen-4、OpenAI Sora / 兼容视频网关
+- 所有 API Key 采用本机 AES-256-GCM 加密存储且永不回显；导出配置默认脱敏不含 Key，环境变量示例见 [.env.example](.env.example)。
 
 ---
 
@@ -140,9 +141,9 @@ npm run report:dry-run -- --help   # P3.0 报表 CLI 只读试算
 ```
 
 ```text
-src/app/         页面路由、Server Actions 与 API（含 /discover、/operations、/api/health）
-src/components/  交互组件（选品向导、财务沙盘、四象限图、物流现金流、货架测试、生图工坊）
-src/lib/         确定性经济/物流/合规/结算纯函数、AI 提案契约与仓储层
+src/app/         页面路由、Server Actions 与 API（含 /discover、/image-studio、/video-studio、/settings、/operations、/api/health）
+src/components/  交互组件（选品向导、财务沙盘、四象限图、物流现金流、货架测试、生图/视频工坊、模型配置中心）
+src/lib/         确定性经济/物流/合规/结算纯函数、AI/生图/视频供应商适配、Skill 规范与仓储层
 extensions/      Amazon 竞品采集 & 1688 供应商采集 Chrome 扩展
 db/schema.sql    PostgreSQL / PGlite 表结构
 ```

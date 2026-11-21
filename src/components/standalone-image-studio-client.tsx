@@ -87,6 +87,7 @@ export function StandaloneImageStudioClient({
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
   const [savingSkill, setSavingSkill] = useState<boolean>(false);
   const [deletingSkill, setDeletingSkill] = useState<boolean>(false);
+  const [aiGeneratingPrompt, setAiGeneratingPrompt] = useState<boolean>(false);
   const [notice, setNotice] = useState<string>("");
   const [error, setError] = useState<string>("");
   const [copiedPrompt, setCopiedPrompt] = useState<boolean>(false);
@@ -175,6 +176,47 @@ export function StandaloneImageStudioClient({
     setConfirmed(false);
     setNotice("");
     setError("");
+  }
+
+  async function handleAiGenerateImagePrompt() {
+    setError("");
+    setNotice("");
+    setAiGeneratingPrompt(true);
+    try {
+      const resp = await fetch("/api/studio/generate-prompt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "image",
+          skillId: selectedSkillId,
+          productName: productName.trim() || customSkillName.trim() || "跨境电商品牌主推单品",
+          coreDifferentiator,
+          claimsToAvoid,
+          slot,
+          aspectRatio,
+          marketplace,
+          idea: customStyleDirectives.trim() || customInstruction.trim() || customSkillName.trim(),
+        }),
+      });
+      const data = (await resp.json()) as {
+        prompt?: string;
+        styleDirectives?: string;
+        negativePrompt?: string;
+        note?: string;
+        error?: string;
+      };
+      if (!resp.ok || !data.styleDirectives) throw new Error(data.error || "AI 生成提示词失败");
+      setCustomStyleDirectives(data.styleDirectives);
+      if (data.negativePrompt) setCustomNegativeDirectives(data.negativePrompt);
+      if (data.prompt) setPromptDraft(data.prompt);
+      setPreview(null);
+      setConfirmed(false);
+      if (data.note) setNotice(data.note);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "AI 生成提示词失败");
+    } finally {
+      setAiGeneratingPrompt(false);
+    }
   }
 
   async function handleSaveCustomSkill() {
@@ -448,7 +490,18 @@ export function StandaloneImageStudioClient({
                 />
               </div>
               <div className="field">
-                <label htmlFor="standalone-custom-style">风格与构图要求 *</label>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                  <label htmlFor="standalone-custom-style" style={{ margin: 0 }}>风格与构图要求 *</label>
+                  <button
+                    type="button"
+                    className="button secondary"
+                    style={{ minHeight: "26px", padding: "0 10px", fontSize: "11.5px" }}
+                    disabled={aiGeneratingPrompt || loadingPreview || generating}
+                    onClick={handleAiGenerateImagePrompt}
+                  >
+                    {aiGeneratingPrompt ? "AI 扩写中..." : "✨ AI 生成专业提示词"}
+                  </button>
+                </div>
                 <textarea
                   id="standalone-custom-style"
                   rows={2}
@@ -921,6 +974,26 @@ export function StandaloneImageStudioClient({
                         <a href={`${item.fileUrl}?download=1`} className="button ghost">
                           下载
                         </a>
+                        <button
+                          type="button"
+                          className="button ghost"
+                          style={{ color: "var(--red)" }}
+                          onClick={async () => {
+                            if (!window.confirm("确认删除这张生成图片？磁盘文件也会一并清理。")) return;
+                            try {
+                              const resp = await fetch(`/api/image-studio/file/${encodeURIComponent(item.id)}`, {
+                                method: "DELETE",
+                              });
+                              if (!resp.ok) throw new Error("删除图片失败");
+                              setNotice("已删除该图片。");
+                              router.refresh();
+                            } catch (err) {
+                              setError(err instanceof Error ? err.message : "删除图片失败");
+                            }
+                          }}
+                        >
+                          删除
+                        </button>
                       </div>
                       <details className="review-details" style={{ marginTop: 8, paddingTop: 8 }}>
                         <summary>Prompt</summary>
