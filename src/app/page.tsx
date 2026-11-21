@@ -198,13 +198,13 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                 <span><strong>{activeBatch.selectedCount}</strong> 个验证中</span>
                 <span><strong>{activeBatch.goCount}</strong> 个 GO</span>
               </div>
-              <Link href={`/ai-sourcing/${activeBatch.id}?tab=hypotheses`} className="dashboard-text-link">继续验证 →</Link>
+              <Link href={`/ai-sourcing/${activeBatch.id}?tab=hypotheses`} className="dashboard-text-link">继续验证</Link>
             </>
           ) : (
             <>
               <h2>从一轮研究开始</h2>
               <p>输入一个类目和研究条件，生成 5 个可验证的候选方向。</p>
-              <Link href={newResearchHref} className="dashboard-text-link">填写研究条件 →</Link>
+              <Link href={newResearchHref} className="dashboard-text-link">填写研究条件</Link>
             </>
           )}
         </aside>
@@ -213,12 +213,11 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       {query.notice ? <div className="notice"><strong>已完成：</strong>{query.notice}</div> : null}
       {query.error ? <div className="notice warn"><strong>未完成：</strong>{query.error}</div> : null}
 
-      {/* 宏观商业大盘 KPI 四联卡片（全卡可点击跳转至对应工作区） */}
+      {/* 宏观商业大盘 KPI 摘要条（可点击跳转至对应工作区） */}
       <section className="dashboard-kpi-grid" aria-label="大盘测算潜力指标">
         <Link href="#pipeline-kanban" className="dashboard-kpi-card" title="点击直达业务推进大盘">
           <div className="kpi-meta">
             <span className="kpi-label">推进中商品</span>
-            <span className="kpi-tag tag-blue">Pipeline</span>
           </div>
           <div className="kpi-value-row">
             <strong className="kpi-value">{approvedCases.length}</strong>
@@ -226,9 +225,9 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           </div>
           <div className="kpi-sub">
             {batchGoCount > 0 ? (
-              <span><strong>{batchGoCount}</strong> 款待立项决策 · 查看看板 ↓</span>
+              <span><strong>{batchGoCount}</strong> 款待立项决策 · 查看看板</span>
             ) : (
-              <span>全部在办品正常流转中 · 查看看板 ↓</span>
+              <span>全部在办品正常流转中 · 查看看板</span>
             )}
           </div>
         </Link>
@@ -236,7 +235,6 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         <Link href="#opportunities" className="dashboard-kpi-card" title="点击查看商品测算详情与成本模型">
           <div className="kpi-meta">
             <span className="kpi-label">测算预期月毛利</span>
-            <span className="kpi-tag tag-green">Projected</span>
           </div>
           <div className="kpi-value-row">
             <strong className={`kpi-value ${totalMonthlyMarginCents < 0 ? "negative" : ""}`}>
@@ -244,14 +242,13 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             </strong>
           </div>
           <div className="kpi-sub">
-            <span>基于各品月销预估与确定性成本 · 查看单品 ↓</span>
+            <span>基于各品月销预估与确定性成本 · 查看单品</span>
           </div>
         </Link>
 
         <Link href="#opportunities" className="dashboard-kpi-card" title="点击核对低于 18% 门禁的薄利商品">
           <div className="kpi-meta">
             <span className="kpi-label">平均测算净利率</span>
-            <span className="kpi-tag tag-emerald">Margin</span>
           </div>
           <div className="kpi-value-row">
             <strong className={`kpi-value ${casesWithMargin.length && avgMarginRate < 0.18 ? "warn" : ""}`}>
@@ -272,16 +269,13 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         <Link href="#pipeline-kanban" className="dashboard-kpi-card" title="点击直达待办事项处理">
           <div className="kpi-meta">
             <span className="kpi-label">今日待办事项</span>
-            <span className={`kpi-tag ${attentionTasks.length > 0 ? "tag-amber" : "tag-muted"}`}>
-              {attentionTasks.length > 0 ? "Action Required" : "All Clear"}
-            </span>
           </div>
           <div className="kpi-value-row">
             <strong className="kpi-value">{attentionTasks.reduce((s, t) => s + t.value, 0)}</strong>
             <span className="kpi-unit">项</span>
           </div>
           <div className="kpi-sub">
-            <span className="kpi-link">查看看板阶段分布与行动卡 ↓</span>
+            <span className="kpi-link">查看看板阶段分布与行动卡</span>
           </div>
         </Link>
       </section>
@@ -326,19 +320,19 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                     <span className="step-num">1</span>
                     <strong>导入竞品与候选品</strong>
                     <p>上传已调研的 ASIN 竞品清单或线下整理的 CSV 选品数据表</p>
-                    <Link href={importHref} className="button secondary">去导入数据 →</Link>
+                    <Link href={importHref} className="button secondary">去导入数据</Link>
                   </div>
                   <div className="onboarding-step-card">
                     <span className="step-num">2</span>
                     <strong>发起 AI 选品研究</strong>
                     <p>针对具体类目输入门槛条件，生成 5 个经证伪推演的候选方向</p>
-                    <Link href={newResearchHref} className="button primary">新建选品研究 →</Link>
+                    <Link href={newResearchHref} className="button primary">新建选品研究</Link>
                   </div>
                   <div className="onboarding-step-card">
                     <span className="step-num">3</span>
                     <strong>随时查看演示样板</strong>
                     <p>如需复习全生命周期流程，可在左下角侧边栏随时切回「演示模式」</p>
-                    <Link href="/connections" className="button ghost">检查店铺连接 →</Link>
+                    <Link href="/connections" className="button ghost">检查店铺连接</Link>
                   </div>
                 </div>
               </div>
@@ -395,7 +389,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                     <span className={`badge ${nextStep.className}`}>{nextStep.label}</span>
                   </div>
                   <div className="dashboard-product-actions">
-                    <Link href={nextStep.href} className="button secondary">继续 →</Link>
+                    <Link href={nextStep.href} className="button secondary">继续</Link>
                     <TerminateCaseControl
                       caseId={item.id}
                       title={item.title}
@@ -494,7 +488,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         <span className={`badge ${provider.configured ? "badge-success" : "badge-neutral"}`}>
           {provider.provider === "template" ? "模板模式" : provider.configured ? "已配置" : "自动回退"}
         </span>
-        <Link href="/settings">模型设置 →</Link>
+        <Link href="/settings">模型设置</Link>
       </footer>
     </div>
   );

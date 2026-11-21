@@ -91,7 +91,9 @@ export function CategoryRecommender({ marketCode, marketName, platformCode, plat
     ? "免 Key 模板"
     : result?.provider === "ollama"
       ? "本地 Ollama"
-      : "模型接口";
+      : result?.provider === "anthropic-compatible"
+        ? "Anthropic 兼容"
+        : "模型接口";
 
   return (
     <>

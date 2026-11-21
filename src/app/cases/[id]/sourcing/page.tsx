@@ -319,7 +319,7 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
                   <span>压力净利</span><strong>{costModel ? money(costModel.results.stressProfitCents) : "—"}</strong>
                 </div>
                 <div className="button-row" style={{ marginTop: 16 }}>
-                  <Link href={`/cases/${productCase.id}/content`} className="button primary">进入内容工作台 →</Link>
+                  <Link href={`/cases/${productCase.id}/content`} className="button primary">进入内容工作台</Link>
                   <Link href={`/cases/${productCase.id}`} className="button ghost">查看成本模型</Link>
                 </div>
               </>

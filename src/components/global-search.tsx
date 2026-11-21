@@ -353,7 +353,7 @@ export function GlobalSearch() {
                     className="button primary chat-send-btn"
                     disabled={!chatInput.trim() || isAnswering}
                   >
-                    发送 →
+                    发送
                   </button>
                 </form>
               </div>

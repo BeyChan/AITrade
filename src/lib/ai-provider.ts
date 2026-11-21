@@ -11,9 +11,18 @@ import {
   type HypothesisGenerationInput,
   type HypothesisGenerationResult,
 } from "./ai-sourcing.ts";
-import { loadAIProviderConfig, type AIProviderConfig, type AIProviderId } from "./app-settings.ts";
+import {
+  defaultAIBaseUrl,
+  defaultAIModel,
+  loadAIProviderConfig,
+  normalizeAIProvider,
+  validateBaseUrl,
+  type AIProviderConfig,
+  type AIProviderId,
+} from "./app-settings.ts";
 
 export type { AIProviderId } from "./app-settings.ts";
+export const ANTHROPIC_API_VERSION = "2023-06-01";
 
 export type AIProviderStatus = {
   provider: AIProviderId;
@@ -86,14 +95,21 @@ export async function getAIProviderStatus(): Promise<AIProviderStatus> {
   return statusFromConfig(await loadAIProviderConfig());
 }
 
-export async function generateHypotheses(input: HypothesisGenerationInput): Promise<HypothesisGenerationResult> {
-  const config = await loadAIProviderConfig();
+export async function generateHypotheses(
+  input: HypothesisGenerationInput,
+  fetchImpl: typeof fetch = fetch,
+  overrideConfig?: AIProviderConfig,
+): Promise<HypothesisGenerationResult> {
+  const config = overrideConfig ?? (await loadAIProviderConfig());
   const status = statusFromConfig(config);
   if (!status.configured || status.provider === "template") return templateResult(input);
 
   try {
-    if (config.provider === "ollama") return await generateWithOllama(input, config);
-    return await generateWithOpenAICompatible(input, config);
+    if (config.provider === "ollama") return await generateWithOllama(input, config, fetchImpl);
+    if (config.provider === "anthropic-compatible") {
+      return await generateWithAnthropicCompatible(input, config, fetchImpl);
+    }
+    return await generateWithOpenAICompatible(input, config, fetchImpl);
   } catch (error) {
     const fallback = templateResult(input);
     return {
@@ -109,14 +125,19 @@ export async function generateHypotheses(input: HypothesisGenerationInput): Prom
 
 export async function generateCategoryRecommendations(
   context: CategoryRecommendationContext,
+  fetchImpl: typeof fetch = fetch,
+  overrideConfig?: AIProviderConfig,
 ): Promise<CategoryRecommendationResult> {
-  const config = await loadAIProviderConfig();
+  const config = overrideConfig ?? (await loadAIProviderConfig());
   const status = statusFromConfig(config);
   if (!status.configured || status.provider === "template") return templateCategoryResult(context);
 
   try {
-    if (config.provider === "ollama") return await generateCategoryWithOllama(context, config);
-    return await generateCategoryWithOpenAICompatible(context, config);
+    if (config.provider === "ollama") return await generateCategoryWithOllama(context, config, fetchImpl);
+    if (config.provider === "anthropic-compatible") {
+      return await generateCategoryWithAnthropicCompatible(context, config, fetchImpl);
+    }
+    return await generateCategoryWithOpenAICompatible(context, config, fetchImpl);
   } catch (error) {
     const fallback = templateCategoryResult(context);
     return {
@@ -130,12 +151,20 @@ export async function generateCategoryRecommendations(
   }
 }
 
-export async function testAIProviderConnection(input: AIProviderTestInput): Promise<AIProviderTestResult> {
+export async function testAIProviderConnection(
+  input: AIProviderTestInput,
+  fetchImpl: typeof fetch = fetch,
+): Promise<AIProviderTestResult> {
   const current = await loadAIProviderConfig();
-  const provider = normalizeProvider(input.provider);
-  const baseUrl = (input.baseUrl.trim() || (provider === current.provider ? current.baseUrl : defaultBaseUrl(provider))).replace(/\/+$/, "");
-  const model = input.model.trim() || (provider === current.provider ? current.model : defaultModel(provider));
-  const apiKey = input.apiKey.trim() || current.apiKey;
+  const provider = normalizeAIProvider(input.provider);
+  const baseUrl = (input.baseUrl.trim() || (provider === current.provider ? current.baseUrl : defaultAIBaseUrl(provider))).replace(/\/+$/, "");
+  const model = input.model.trim() || (provider === current.provider ? current.model : defaultAIModel(provider));
+  const apiKey =
+    input.apiKey.trim() ||
+    current.apiKey ||
+    (provider === "anthropic-compatible" && !current.hasSavedSettings
+      ? process.env.ANTHROPIC_API_KEY?.trim() || ""
+      : "");
 
   if (provider === "template") {
     return {
@@ -148,13 +177,13 @@ export async function testAIProviderConnection(input: AIProviderTestInput): Prom
 
   validateBaseUrl(baseUrl);
   if (!model) throw new Error("请填写模型名称");
-  if (provider === "openai-compatible" && !apiKey) {
+  if ((provider === "openai-compatible" || provider === "anthropic-compatible") && !apiKey) {
     throw new Error("缺少 API Key；请填写新 Key 或先保存配置");
   }
 
   const startedAt = Date.now();
   if (provider === "ollama") {
-    const response = await fetch(ollamaChatEndpoint(baseUrl), {
+    const response = await fetchImpl(ollamaChatEndpoint(baseUrl), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -166,8 +195,20 @@ export async function testAIProviderConnection(input: AIProviderTestInput): Prom
       signal: AbortSignal.timeout(20_000),
     });
     if (!response.ok) throw await httpFailure("Ollama 连接失败", response);
+  } else if (provider === "anthropic-compatible") {
+    const response = await fetchImpl(anthropicMessagesEndpoint(baseUrl), {
+      method: "POST",
+      headers: anthropicHeaders(apiKey),
+      body: JSON.stringify({
+        model,
+        max_tokens: 16,
+        messages: [{ role: "user", content: "只回复 OK" }],
+      }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!response.ok) throw await httpFailure("Anthropic 兼容接口连接失败", response);
   } else {
-    const response = await fetch(openAIChatEndpoint(baseUrl), {
+    const response = await fetchImpl(openAIChatEndpoint(baseUrl), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -199,8 +240,10 @@ export async function testAIProviderConnection(input: AIProviderTestInput): Prom
  */
 export async function generateStructuredJSON(
   input: StructuredGenerationInput,
+  fetchImpl: typeof fetch = fetch,
+  overrideConfig?: AIProviderConfig,
 ): Promise<StructuredGenerationResult> {
-  const config = await loadAIProviderConfig();
+  const config = overrideConfig ?? (await loadAIProviderConfig());
   const status = statusFromConfig(config);
   if (!status.configured || config.provider === "template") {
     throw new Error("当前为免 Key 模板模式，未调用外部模型");
@@ -209,7 +252,7 @@ export async function generateStructuredJSON(
   const startedAt = Date.now();
   validateBaseUrl(config.baseUrl);
   if (config.provider === "ollama") {
-    const response = await fetch(ollamaChatEndpoint(config.baseUrl), {
+    const response = await fetchImpl(ollamaChatEndpoint(config.baseUrl), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -235,7 +278,27 @@ export async function generateStructuredJSON(
     };
   }
 
-  const response = await fetch(openAIChatEndpoint(config.baseUrl), {
+  if (config.provider === "anthropic-compatible") {
+    const rawContent = await requestAnthropicMessage({
+      config,
+      systemPrompt: input.systemPrompt,
+      userPrompt: input.userPrompt,
+      maxTokens: input.maxTokens ?? 2_500,
+      temperature: 0,
+      timeoutMs: input.timeoutMs ?? 60_000,
+      emptyError: "Anthropic 兼容接口未返回结构化内容",
+      failureLabel: "Anthropic 兼容接口请求失败",
+      fetchImpl,
+    });
+    return {
+      provider: "anthropic-compatible",
+      model: config.model,
+      content: extractJsonPayload(rawContent),
+      latencyMs: Date.now() - startedAt,
+    };
+  }
+
+  const response = await fetchImpl(openAIChatEndpoint(config.baseUrl), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -294,7 +357,8 @@ function statusFromConfig(config: AIProviderConfig): AIProviderStatus {
       usingSavedSettings: config.hasSavedSettings,
     };
   }
-  if (config.provider === "openai-compatible") {
+  if (config.provider === "openai-compatible" || config.provider === "anthropic-compatible") {
+    const label = config.provider === "anthropic-compatible" ? "Anthropic 兼容接口" : "OpenAI 兼容接口";
     const configured = Boolean(config.baseUrl && config.model && apiKeyConfigured);
     let detail = "API Key 只在服务端读取，不返回到浏览器、不写入日志；页面只显示脱敏尾号。";
     if (config.apiKeySource === "unreadable") {
@@ -306,7 +370,7 @@ function statusFromConfig(config: AIProviderConfig): AIProviderStatus {
     }
     return {
       provider: config.provider,
-      label: "OpenAI 兼容接口",
+      label,
       model: config.model || "未配置模型",
       baseUrl: config.baseUrl,
       configured,
@@ -360,9 +424,10 @@ function templateCategoryResult(context: CategoryRecommendationContext): Categor
 async function generateCategoryWithOllama(
   context: CategoryRecommendationContext,
   config: AIProviderConfig,
+  fetchImpl: typeof fetch,
 ): Promise<CategoryRecommendationResult> {
   validateBaseUrl(config.baseUrl);
-  const response = await fetch(ollamaChatEndpoint(config.baseUrl), {
+  const response = await fetchImpl(ollamaChatEndpoint(config.baseUrl), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -384,12 +449,32 @@ async function generateCategoryWithOllama(
   return categoryProviderResult("ollama", config.model, content, context);
 }
 
+async function generateCategoryWithAnthropicCompatible(
+  context: CategoryRecommendationContext,
+  config: AIProviderConfig,
+  fetchImpl: typeof fetch,
+): Promise<CategoryRecommendationResult> {
+  const rawContent = await requestAnthropicMessage({
+    config,
+    systemPrompt: CATEGORY_SYSTEM_PROMPT,
+    userPrompt: buildCategoryUserPrompt(context),
+    maxTokens: 2_048,
+    temperature: 0.35,
+    timeoutMs: 45_000,
+    emptyError: "Anthropic 兼容接口未返回类目推荐内容",
+    failureLabel: "Anthropic 兼容接口请求失败",
+    fetchImpl,
+  });
+  return categoryProviderResult("anthropic-compatible", config.model, extractJsonPayload(rawContent), context);
+}
+
 async function generateCategoryWithOpenAICompatible(
   context: CategoryRecommendationContext,
   config: AIProviderConfig,
+  fetchImpl: typeof fetch,
 ): Promise<CategoryRecommendationResult> {
   validateBaseUrl(config.baseUrl);
-  const response = await fetch(openAIChatEndpoint(config.baseUrl), {
+  const response = await fetchImpl(openAIChatEndpoint(config.baseUrl), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -441,9 +526,13 @@ function buildCategoryUserPrompt(context: CategoryRecommendationContext) {
 类目要适合一人或两人的小团队验证，优先考虑轻小件、场景明确、能通过真实商品页面和差评核验的方向。不要把推荐写成销量或竞争度结论。输出仅限指定 JSON 结构。`;
 }
 
-async function generateWithOllama(input: HypothesisGenerationInput, config: AIProviderConfig): Promise<HypothesisGenerationResult> {
+async function generateWithOllama(
+  input: HypothesisGenerationInput,
+  config: AIProviderConfig,
+  fetchImpl: typeof fetch,
+): Promise<HypothesisGenerationResult> {
   validateBaseUrl(config.baseUrl);
-  const response = await fetch(ollamaChatEndpoint(config.baseUrl), {
+  const response = await fetchImpl(ollamaChatEndpoint(config.baseUrl), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -465,12 +554,32 @@ async function generateWithOllama(input: HypothesisGenerationInput, config: AIPr
   return providerResult("ollama", config.model, content, input);
 }
 
+async function generateWithAnthropicCompatible(
+  input: HypothesisGenerationInput,
+  config: AIProviderConfig,
+  fetchImpl: typeof fetch,
+): Promise<HypothesisGenerationResult> {
+  const rawContent = await requestAnthropicMessage({
+    config,
+    systemPrompt: SYSTEM_PROMPT,
+    userPrompt: buildUserPrompt(input),
+    maxTokens: 4_096,
+    temperature: 0.35,
+    timeoutMs: 60_000,
+    emptyError: "Anthropic 兼容接口未返回结构化内容",
+    failureLabel: "Anthropic 兼容接口请求失败",
+    fetchImpl,
+  });
+  return providerResult("anthropic-compatible", config.model, extractJsonPayload(rawContent), input);
+}
+
 async function generateWithOpenAICompatible(
   input: HypothesisGenerationInput,
   config: AIProviderConfig,
+  fetchImpl: typeof fetch,
 ): Promise<HypothesisGenerationResult> {
   validateBaseUrl(config.baseUrl);
-  const response = await fetch(openAIChatEndpoint(config.baseUrl), {
+  const response = await fetchImpl(openAIChatEndpoint(config.baseUrl), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -527,37 +636,140 @@ ${fx}
 搜索词必须适合该国家和平台。输出仅限指定 JSON 结构。`;
 }
 
-function normalizeProvider(value: string | undefined): AIProviderId {
-  const normalized = value?.trim().toLowerCase().replaceAll("_", "-");
-  if (normalized === "ollama" || normalized === "openai-compatible") return normalized;
-  return "template";
+async function requestAnthropicMessage(params: {
+  config: AIProviderConfig;
+  systemPrompt?: string;
+  userPrompt: string;
+  maxTokens: number;
+  temperature?: number;
+  timeoutMs: number;
+  emptyError: string;
+  failureLabel: string;
+  fetchImpl: typeof fetch;
+}): Promise<string> {
+  validateBaseUrl(params.config.baseUrl);
+  const body: Record<string, unknown> = {
+    model: params.config.model,
+    max_tokens: params.maxTokens,
+    messages: [{ role: "user", content: params.userPrompt }],
+  };
+  if (params.systemPrompt !== undefined) body.system = params.systemPrompt;
+  if (params.temperature !== undefined) body.temperature = params.temperature;
+
+  const response = await params.fetchImpl(anthropicMessagesEndpoint(params.config.baseUrl), {
+    method: "POST",
+    headers: anthropicHeaders(params.config.apiKey),
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(params.timeoutMs),
+  });
+  if (!response.ok) throw await httpFailure(params.failureLabel, response);
+  const payload = await response.json();
+  const content = extractAnthropicText(payload);
+  if (!content) throw new Error(params.emptyError);
+  return content;
 }
 
-function defaultBaseUrl(provider: AIProviderId) {
-  if (provider === "ollama") return "http://127.0.0.1:11434";
-  if (provider === "openai-compatible") return "https://api.openai.com/v1";
-  return "";
+function anthropicHeaders(apiKey: string): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    "x-api-key": apiKey,
+    "anthropic-version": ANTHROPIC_API_VERSION,
+  };
 }
 
-function defaultModel(provider: AIProviderId) {
-  if (provider === "ollama") return "qwen3";
-  return provider === "template" ? "deterministic-v1" : "";
+export function anthropicMessagesEndpoint(baseUrl: string) {
+  const base = baseUrl.replace(/\/+$/, "");
+  if (base.endsWith("/messages")) return base;
+  if (base.endsWith("/v1")) return `${base}/messages`;
+  return `${base}/v1/messages`;
 }
 
-function validateBaseUrl(value: string) {
-  if (!value) throw new Error("请填写 Base URL");
-  let url: URL;
+export function extractAnthropicText(payload: unknown): string {
+  if (!payload || typeof payload !== "object") return "";
+  const content = (payload as { content?: unknown }).content;
+  if (!Array.isArray(content)) return "";
+  const parts: string[] = [];
+  for (const block of content) {
+    if (
+      block &&
+      typeof block === "object" &&
+      (block as { type?: unknown }).type === "text" &&
+      typeof (block as { text?: unknown }).text === "string"
+    ) {
+      parts.push((block as { text: string }).text);
+    }
+  }
+  return parts.join("\n").trim();
+}
+
+export function extractJsonPayload(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  if ((trimmed.startsWith("{") || trimmed.startsWith("[")) && tryParseJson(trimmed)) {
+    return trimmed;
+  }
+
+  for (const match of trimmed.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)) {
+    const candidate = match[1]?.trim() ?? "";
+    if (candidate && tryParseJson(candidate)) return candidate;
+  }
+
+  for (let start = 0; start < trimmed.length; start += 1) {
+    const ch = trimmed[start];
+    if (ch !== "{" && ch !== "[") continue;
+    const end = findBalancedJsonEnd(trimmed, start);
+    if (end !== -1) {
+      const candidate = trimmed.slice(start, end + 1);
+      if (tryParseJson(candidate)) return candidate;
+    }
+  }
+
+  const objStart = trimmed.indexOf("{");
+  const objEnd = trimmed.lastIndexOf("}");
+  if (objStart >= 0 && objEnd > objStart) {
+    const candidate = trimmed.slice(objStart, objEnd + 1);
+    if (tryParseJson(candidate)) return candidate;
+  }
+
+  return trimmed;
+}
+
+function tryParseJson(value: string): boolean {
   try {
-    url = new URL(value);
+    JSON.parse(value);
+    return true;
   } catch {
-    throw new Error("Base URL 格式不正确");
+    return false;
   }
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new Error("Base URL 只支持 http 或 https");
+}
+
+function findBalancedJsonEnd(source: string, start: number): number {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < source.length; i += 1) {
+    const ch = source[i]!;
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === "{" || ch === "[") {
+      depth += 1;
+    } else if (ch === "}" || ch === "]") {
+      depth -= 1;
+      if (depth === 0) return i;
+      if (depth < 0) return -1;
+    }
   }
-  if (url.username || url.password) {
-    throw new Error("Base URL 不能包含用户名或密码");
-  }
+  return -1;
 }
 
 function ollamaChatEndpoint(baseUrl: string) {
@@ -609,6 +821,7 @@ function redactProviderError(value: string) {
   return value
     .replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]")
     .replace(/\bsk-[A-Za-z0-9_-]{8,}/gi, "[REDACTED]")
+    .replace(/x-api-key\s*[=:]\s*\S+/gi, "x-api-key=[REDACTED]")
     .replace(/api[_-]?key\s*[=:]\s*\S+/gi, "api_key=[REDACTED]");
 }
 

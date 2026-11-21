@@ -242,7 +242,7 @@ export function DataSourceImport() {
               {result.runId ? <div className="run-id">runId: {result.runId}</div> : null}
               {kind === "candidates" ? (
                 <a className="text-link" href={`/?market=${encodeURIComponent(marketplace)}&platform=${encodeURIComponent(platformCode)}#opportunities`}>
-                  查看该国家 × 平台站点的已立项商品 →
+                  查看该国家 × 平台站点的已立项商品
                 </a>
               ) : null}
               {result.warnings?.length ? (

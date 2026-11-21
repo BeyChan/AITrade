@@ -3,10 +3,20 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { getDb } from "./db.ts";
 
-export type AIProviderId = "template" | "ollama" | "openai-compatible";
+export type AIProviderId = "template" | "ollama" | "openai-compatible" | "anthropic-compatible";
+export type ImageProviderId = "template" | "gemini" | "dashscope" | "openai-compatible" | "anthropic-compatible";
 
 export type AIProviderConfig = {
   provider: AIProviderId;
+  baseUrl: string;
+  model: string;
+  apiKey: string;
+  apiKeySource: "database" | "environment" | "none" | "unreadable";
+  hasSavedSettings: boolean;
+};
+
+export type ImageProviderConfig = {
+  provider: ImageProviderId;
   baseUrl: string;
   model: string;
   apiKey: string;
@@ -22,54 +32,37 @@ export type SaveAIProviderSettingsInput = {
   actor: string;
 };
 
+export type SaveImageProviderSettingsInput = SaveAIProviderSettingsInput;
+
 const SETTING_KEYS = ["ai_provider", "ai_base_url", "ai_model", "ai_api_key"] as const;
+const IMAGE_SETTING_KEYS = ["image_provider", "image_base_url", "image_model", "image_api_key"] as const;
 const DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434";
+const DEFAULT_OPENAI_URL = "https://api.openai.com/v1";
+const DEFAULT_ANTHROPIC_URL = "https://api.anthropic.com";
+const DEFAULT_GEMINI_URL = "https://generativelanguage.googleapis.com";
+const DEFAULT_DASHSCOPE_URL = "https://dashscope.aliyuncs.com";
 
 export async function loadAIProviderConfig(): Promise<AIProviderConfig> {
-  const db = await getDb();
-  const result = await db.query<{ key: string; value: string }>(
-    `SELECT key, value FROM app_settings WHERE key IN (${SETTING_KEYS.map((_, index) => `$${index + 1}`).join(", ")})`,
-    [...SETTING_KEYS],
-  );
-  const stored = new Map(result.rows.map((row) => [row.key, row.value]));
-  const provider = normalizeProvider(stored.get("ai_provider") ?? process.env.AI_PROVIDER);
-  const baseUrl = (stored.get("ai_base_url") ?? process.env.AI_BASE_URL ?? defaultBaseUrl(provider)).trim();
-  const model = (stored.get("ai_model") ?? process.env.AI_MODEL ?? defaultModel(provider)).trim();
-
-  let apiKey = "";
-  let apiKeySource: AIProviderConfig["apiKeySource"] = "none";
-  const storedKey = stored.get("ai_api_key");
-  if (storedKey !== undefined) {
-    if (!storedKey) {
-      apiKeySource = "none";
-    } else {
-      const decrypted = await decryptSecret(storedKey);
-      if (decrypted === null) {
-        apiKeySource = "unreadable";
-      } else {
-        apiKey = decrypted;
-        apiKeySource = "database";
-      }
-    }
-  } else if (process.env.AI_API_KEY?.trim()) {
-    apiKey = process.env.AI_API_KEY.trim();
-    apiKeySource = "environment";
-  }
+  const stored = await readSettingMap(SETTING_KEYS);
+  const provider = normalizeAIProvider(stored.get("ai_provider") ?? process.env.AI_PROVIDER);
+  const baseUrl = (stored.get("ai_base_url") || process.env.AI_BASE_URL || defaultAIBaseUrl(provider)).trim();
+  const model = (stored.get("ai_model") || process.env.AI_MODEL || defaultAIModel(provider)).trim();
+  const secret = await resolveStoredSecret(stored.get("ai_api_key"), envKeyForAI(provider));
 
   return {
     provider,
     baseUrl,
     model,
-    apiKey,
-    apiKeySource,
+    apiKey: secret.apiKey,
+    apiKeySource: secret.apiKeySource,
     hasSavedSettings: SETTING_KEYS.some((key) => stored.has(key)),
   };
 }
 
 export async function saveAIProviderSettings(input: SaveAIProviderSettingsInput) {
-  const provider = normalizeProvider(input.provider);
-  const baseUrl = input.baseUrl.trim().slice(0, 500);
-  const model = input.model.trim().slice(0, 160);
+  const provider = normalizeAIProvider(input.provider);
+  const baseUrl = (input.baseUrl.trim() || defaultAIBaseUrl(provider)).slice(0, 500);
+  const model = (input.model.trim() || defaultAIModel(provider)).slice(0, 160);
   const apiKey = input.apiKey.trim();
   const actor = input.actor.trim().slice(0, 80) || "本机管理员";
 
@@ -77,9 +70,14 @@ export async function saveAIProviderSettings(input: SaveAIProviderSettingsInput)
     validateBaseUrl(baseUrl);
     if (!model) throw new Error("请填写模型名称");
   }
-  if (provider === "openai-compatible" && !apiKey) {
-    const current = await loadAIProviderConfig();
-    if (!current.apiKey) throw new Error("OpenAI 兼容接口需要 API Key；也可以先在环境变量中配置 AI_API_KEY");
+  if ((provider === "openai-compatible" || provider === "anthropic-compatible") && !apiKey) {
+    if (!(await hasStoredOrEnvKey("ai_api_key", envKeyForAI(provider)))) {
+      throw new Error(
+        provider === "anthropic-compatible"
+          ? "Anthropic 兼容接口需要 API Key；也可以先在环境变量中配置 AI_API_KEY 或 ANTHROPIC_API_KEY"
+          : "OpenAI 兼容接口需要 API Key；也可以先在环境变量中配置 AI_API_KEY",
+      );
+    }
   }
 
   const db = await getDb();
@@ -123,41 +121,206 @@ export async function saveAIProviderSettings(input: SaveAIProviderSettingsInput)
 }
 
 export async function clearStoredAIProviderKey(actorInput: string) {
+  await clearSettingKey("ai_api_key", "ai.api_key_cleared", "ai", actorInput);
+}
+
+export async function loadImageProviderConfig(): Promise<ImageProviderConfig> {
+  const stored = await readSettingMap(IMAGE_SETTING_KEYS);
+  const provider = normalizeImageProvider(stored.get("image_provider") ?? process.env.IMAGE_PROVIDER);
+  const baseUrl = (stored.get("image_base_url") || process.env.IMAGE_BASE_URL || defaultImageBaseUrl(provider)).trim();
+  const model = (stored.get("image_model") || process.env.IMAGE_MODEL || defaultImageModel(provider)).trim();
+  const secret = await resolveStoredSecret(stored.get("image_api_key"), envKeyForImage(provider));
+
+  return {
+    provider,
+    baseUrl,
+    model,
+    apiKey: secret.apiKey,
+    apiKeySource: secret.apiKeySource,
+    hasSavedSettings: IMAGE_SETTING_KEYS.some((key) => stored.has(key)),
+  };
+}
+
+export async function saveImageProviderSettings(input: SaveImageProviderSettingsInput) {
+  const provider = normalizeImageProvider(input.provider);
+  const baseUrl = (input.baseUrl.trim() || defaultImageBaseUrl(provider)).slice(0, 500);
+  const model = (input.model.trim() || defaultImageModel(provider)).slice(0, 160);
+  const apiKey = input.apiKey.trim();
+  const actor = input.actor.trim().slice(0, 80) || "本机管理员";
+
+  if (provider !== "template") {
+    validateBaseUrl(baseUrl);
+    if (!model) throw new Error("请填写生图模型名称");
+    if (!apiKey && !(await hasStoredOrEnvKey("image_api_key", envKeyForImage(provider)))) {
+      throw new Error(
+        provider === "gemini"
+          ? "Gemini 生图需要 API Key；也可以先配置 IMAGE_API_KEY 或 GEMINI_API_KEY 环境变量"
+          : provider === "dashscope"
+            ? "阿里云百炼生图需要 API Key；也可以先配置 IMAGE_API_KEY 或 DASHSCOPE_API_KEY 环境变量"
+            : provider === "anthropic-compatible"
+              ? "Anthropic 兼容生图接口需要 API Key；也可以先配置 IMAGE_API_KEY 或 ANTHROPIC_API_KEY 环境变量"
+              : "OpenAI 兼容生图接口需要 API Key；也可以先配置 IMAGE_API_KEY 环境变量",
+      );
+    }
+  }
+
+  const db = await getDb();
+  const encryptedKey = apiKey ? await encryptSecret(apiKey) : null;
+  const keyAction = encryptedKey ? "updated" : "preserved";
+
+  await db.transaction(async (tx) => {
+    const values: Array<[string, string]> = [
+      ["image_provider", provider],
+      ["image_base_url", baseUrl],
+      ["image_model", model],
+    ];
+    if (encryptedKey) values.push(["image_api_key", encryptedKey]);
+
+    for (const [key, value] of values) {
+      await tx.query(
+        `INSERT INTO app_settings (key, value, updated_by, updated_at)
+         VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+        [key, value, actor],
+      );
+    }
+    await tx.query(
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
+       VALUES ($1, $2, 'image.settings_saved', 'app_settings', 'image', $3::jsonb)`,
+      [
+        randomUUID(),
+        actor,
+        JSON.stringify({
+          provider,
+          baseUrl,
+          model,
+          keyAction,
+          keyConfigured: Boolean(encryptedKey) || provider === "template",
+        }),
+      ],
+    );
+  });
+
+  return { provider, baseUrl, model, keyAction };
+}
+
+export async function clearStoredImageProviderKey(actorInput: string) {
+  await clearSettingKey("image_api_key", "image.api_key_cleared", "image", actorInput);
+}
+
+async function readSettingMap(keys: readonly string[]) {
+  const db = await getDb();
+  const result = await db.query<{ key: string; value: string }>(
+    `SELECT key, value FROM app_settings WHERE key IN (${keys.map((_, index) => `$${index + 1}`).join(", ")})`,
+    [...keys],
+  );
+  return new Map(result.rows.map((row) => [row.key, row.value]));
+}
+
+async function resolveStoredSecret(
+  storedKey: string | undefined,
+  envKey: string,
+): Promise<{ apiKey: string; apiKeySource: AIProviderConfig["apiKeySource"] }> {
+  if (storedKey !== undefined) {
+    if (!storedKey) return { apiKey: "", apiKeySource: "none" };
+    const decrypted = await decryptSecret(storedKey);
+    if (decrypted === null) return { apiKey: "", apiKeySource: "unreadable" };
+    return { apiKey: decrypted, apiKeySource: "database" };
+  }
+  if (envKey) return { apiKey: envKey, apiKeySource: "environment" };
+  return { apiKey: "", apiKeySource: "none" };
+}
+
+async function clearSettingKey(settingKey: string, auditAction: string, entityId: string, actorInput: string) {
   const db = await getDb();
   const actor = actorInput.trim().slice(0, 80) || "本机管理员";
   await db.transaction(async (tx) => {
     await tx.query(
       `INSERT INTO app_settings (key, value, updated_by, updated_at)
-       VALUES ('ai_api_key', '', $1, NOW())
+       VALUES ($1, '', $2, NOW())
        ON CONFLICT (key) DO UPDATE SET value = '', updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
-      [actor],
+      [settingKey, actor],
     );
     await tx.query(
       `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'ai.api_key_cleared', 'app_settings', 'ai', $3::jsonb)`,
-      [randomUUID(), actor, JSON.stringify({ keyConfigured: false, credentialsExposed: false })],
+       VALUES ($1, $2, $3, 'app_settings', $4, $5::jsonb)`,
+      [randomUUID(), actor, auditAction, entityId, JSON.stringify({ keyConfigured: false, credentialsExposed: false })],
     );
   });
 }
 
-function normalizeProvider(value: string | undefined): AIProviderId {
+function envKeyForAI(provider: AIProviderId) {
+  return (
+    process.env.AI_API_KEY?.trim() ||
+    (provider === "anthropic-compatible" ? process.env.ANTHROPIC_API_KEY?.trim() : "") ||
+    ""
+  );
+}
+
+function envKeyForImage(provider: ImageProviderId) {
+  return (
+    process.env.IMAGE_API_KEY?.trim() ||
+    (provider === "gemini" ? process.env.GEMINI_API_KEY?.trim() : "") ||
+    (provider === "dashscope" ? process.env.DASHSCOPE_API_KEY?.trim() : "") ||
+    (provider === "anthropic-compatible" ? process.env.ANTHROPIC_API_KEY?.trim() : "") ||
+    ""
+  );
+}
+
+async function hasStoredOrEnvKey(settingKey: string, envKey: string): Promise<boolean> {
+  const stored = await readSettingMap([settingKey]);
+  const secret = await resolveStoredSecret(stored.get(settingKey), envKey);
+  return Boolean(secret.apiKey);
+}
+
+export function normalizeAIProvider(value: string | undefined): AIProviderId {
   const normalized = value?.trim().toLowerCase().replaceAll("_", "-");
-  if (normalized === "ollama" || normalized === "openai-compatible") return normalized;
+  if (normalized === "ollama" || normalized === "openai-compatible" || normalized === "anthropic-compatible") {
+    return normalized;
+  }
+  if (normalized === "anthropic" || normalized === "claude") return "anthropic-compatible";
   return "template";
 }
 
-function defaultBaseUrl(provider: AIProviderId) {
+export function defaultAIBaseUrl(provider: AIProviderId) {
   if (provider === "ollama") return DEFAULT_OLLAMA_URL;
-  if (provider === "openai-compatible") return "https://api.openai.com/v1";
+  if (provider === "openai-compatible") return DEFAULT_OPENAI_URL;
+  if (provider === "anthropic-compatible") return DEFAULT_ANTHROPIC_URL;
   return "";
 }
 
-function defaultModel(provider: AIProviderId) {
+export function defaultAIModel(provider: AIProviderId) {
   if (provider === "ollama") return "qwen3";
   return provider === "template" ? "deterministic-v1" : "";
 }
 
-function validateBaseUrl(value: string) {
+export function normalizeImageProvider(value: string | undefined): ImageProviderId {
+  const normalized = value?.trim().toLowerCase().replaceAll("_", "-");
+  if (normalized === "gemini" || normalized === "openai-compatible" || normalized === "anthropic-compatible") {
+    return normalized;
+  }
+  if (normalized === "anthropic" || normalized === "claude") return "anthropic-compatible";
+  if (normalized === "dashscope" || normalized === "aliyun" || normalized === "bailian") return "dashscope";
+  return "template";
+}
+
+export function defaultImageBaseUrl(provider: ImageProviderId) {
+  if (provider === "gemini") return DEFAULT_GEMINI_URL;
+  if (provider === "dashscope") return DEFAULT_DASHSCOPE_URL;
+  if (provider === "openai-compatible") return DEFAULT_OPENAI_URL;
+  if (provider === "anthropic-compatible") return DEFAULT_ANTHROPIC_URL;
+  return "";
+}
+
+export function defaultImageModel(provider: ImageProviderId) {
+  if (provider === "gemini") return "gemini-nano-banana-2.1";
+  if (provider === "dashscope") return "qwen-image-plus";
+  if (provider === "openai-compatible") return "gpt-image-1";
+  if (provider === "anthropic-compatible") return "";
+  return "prompt-studio-v1";
+}
+
+export function validateBaseUrl(value: string) {
   if (!value) throw new Error("请填写 Base URL");
   let url: URL;
   try {

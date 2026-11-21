@@ -94,7 +94,7 @@ export default async function DataSourcesPage() {
           </p>
         </div>
         <Link href="/ai-inbox" className="button secondary" style={{ whiteSpace: "nowrap" }}>
-          打开证据收件箱 →
+          打开证据收件箱
         </Link>
       </div>
 

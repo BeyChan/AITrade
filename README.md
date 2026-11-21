@@ -14,6 +14,8 @@
 
 ![内容工作台](docs/assets/aitrade-content-studio.png)
 
+![AI 生图工坊](docs/assets/aitrade-image-studio.png)
+
 ## 功能
 
 - 侧边栏「真实数据 / 演示模式」双选切换：全局支持「真实数据 (Live)」与「演示模式 (Sandbox)」环境平滑切换。演示模式下展示预置经典选品样板与模拟测试店铺，顶部呈现沙盒操作警告，支持一键重置回初始样板；切换至「真实数据」后彻底过滤 demo 数据，仅展示真实店铺与核准数据，未录入真实商品时提供清晰的业务启航指引。
@@ -36,6 +38,7 @@
 - 确定性门禁给出 GO / HOLD / NO-GO；到岸成本、净利率、压力利润由代码计算，不交给模型。
 - 候选品、供应商、报价支持 CSV 或人工录入，保留来源与原始快照。
 - 内容工作台竞品对标与差评缺口传承：自动带入关联选品假设的价格带分位、TOP 差评缺口清单与差异化主张，支持一键预填商品定义、生成带原文与证据引用的五点草稿提案，并在本地发布预检中输出非阻断对标提示（差评缺口未覆盖、违规主观对比词、声明红线冲突）。
+- AI 生图工坊（`/image-studio` 独立工坊与 `/cases/[id]/content` 案卷生图）：内置电商主图/场景图/卖点信息图/包装尺寸/自由创意视觉 Skill，支持自动发现 `~/.agents/skills/` 本地视觉 Skill 并在工坊内创建或删除自定义视觉 Skill；支持上传参考图进行图生图、先预览后确认生图门禁、画幅与槽位匹配，以及产品物理一致性 AI 审查。
 
 ### 证据分级与边界
 
@@ -94,7 +97,7 @@ npm run dev
 
 ## AI 模型
 
-默认本地模板，无需 Key。`/settings` 可切换 Ollama 或 OpenAI 兼容接口，请求失败自动回退模板；API Key 不回显到页面。环境变量示例见 [.env.example](.env.example)。
+默认本地模板，无需 Key。`/settings` 可分别配置文本大模型（Ollama、OpenAI 兼容接口或 Anthropic 兼容协议）与独立生图模型（本地模板、`gemini`、阿里云百炼 `dashscope`、`openai-compatible` 或 `anthropic-compatible`），文本请求失败自动回退模板；API Key 加密落盘且不回显到页面。环境变量示例见 [.env.example](.env.example)。
 
 ## 边界
 

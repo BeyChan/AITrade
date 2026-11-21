@@ -115,7 +115,7 @@ export function DashboardPipelineKanban({
         metricLabel: "价格中位",
         metricVal: r.priceStats.p50 ? `${(r.priceStats.p50 / 100).toFixed(1)} ${r.currency}` : "待采集",
         href: `/competitors?reportId=${r.id}`,
-        actionText: "竞品 PK 研报 →",
+        actionText: "竞品 PK 研报",
       })),
       emptyText: "暂无初筛研报，可在侧边栏「竞品对比」录入链接",
     },
@@ -136,7 +136,7 @@ export function DashboardPipelineKanban({
         metricLabel: "预估售价",
         metricVal: money(c.competitor_price_cents),
         href: `/cases/${c.id}/sourcing`,
-        actionText: "录入工厂报价 →",
+        actionText: "录入工厂报价",
       })),
       emptyText: "所有商品均已录入供应商报价",
     },
@@ -159,7 +159,7 @@ export function DashboardPipelineKanban({
           metricLabel: "测算净利",
           metricVal: res ? money(res.netProfitCents) : "—",
           href: `/cases/${c.id}/sourcing`,
-          actionText: "定标审批 →",
+          actionText: "定标审批",
         };
       }),
       emptyText: "无待审批商品",
@@ -181,7 +181,7 @@ export function DashboardPipelineKanban({
         metricLabel: "选品分",
         metricVal: `${c.opportunityScore} 分`,
         href: `/cases/${c.id}/content`,
-        actionText: "打磨 Listing →",
+        actionText: "打磨 Listing",
       })),
       emptyText: "暂无进行中的内容任务",
     },
@@ -202,7 +202,7 @@ export function DashboardPipelineKanban({
         metricLabel: "置信度",
         metricVal: `${c.evidence_score}%`,
         href: `/cases/${c.id}/channels`,
-        actionText: "批量导出 Flat File →",
+        actionText: "批量导出 Flat File",
       })),
       emptyText: "暂无已完成准备的商品",
     },
@@ -226,7 +226,7 @@ export function DashboardPipelineKanban({
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
             <span className="eyebrow" style={{ color: "var(--green)", margin: 0, lineHeight: 1 }}>
-              LIFECYCLE PIPELINE · 操盘手业务大盘
+              操盘手业务大盘
             </span>
             <span className="badge badge-success" style={{ fontSize: "11px", margin: 0, lineHeight: 1, display: "inline-flex", alignItems: "center" }}>
               活跃管道: {totalActiveCases} 项
@@ -431,7 +431,7 @@ export function DashboardPipelineKanban({
                         marginTop: "2px",
                       }}
                     >
-                      {col.focusTask.action} →
+                      {col.focusTask.action}
                     </div>
                   </Link>
                 )}
@@ -523,7 +523,7 @@ export function DashboardPipelineKanban({
                       marginTop: "2px",
                     }}
                   >
-                    查看全部 {col.count} 个项目 →
+                    查看全部 {col.count} 个项目
                   </Link>
                 )}
               </div>

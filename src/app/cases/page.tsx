@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { listCases } from "@/lib/repository";
 import { money, percent } from "@/lib/format";
-import { StatusBadge } from "@/components/badges";
+import { CasesAuditLedger, type AuditLedgerRow } from "@/components/cases-audit-ledger";
+import { IconClipboard } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
 
@@ -33,23 +34,48 @@ export default async function ProductCasesPage({ searchParams }: PageProps) {
     return acc + net * (c.monthly_sales_estimate || 0);
   }, 0);
 
+  const ledgerRows: AuditLedgerRow[] = filteredCases.map((c) => {
+    const cost = c.costModel;
+    const res = cost?.results;
+    const asm = cost?.assumptions;
+    const monthlyProfitCents = res ? res.netProfitCents * (c.monthly_sales_estimate || 0) : null;
+    return {
+      id: c.id,
+      title: c.title,
+      marketplace: c.marketplace,
+      asin: c.asin,
+      category: c.category,
+      status: c.status,
+      recommendation: c.recommendation,
+      opportunityScore: c.opportunityScore,
+      isVerified: !c.is_demo && c.evidence_score >= 50,
+      isDemo: c.is_demo,
+      evidenceScore: c.evidence_score,
+      salePriceText: asm ? money(asm.salePriceCents) : "—",
+      landedCostText: asm ? money(asm.landedCostCents) : "—",
+      netProfitCents: res ? res.netProfitCents : null,
+      netProfitText: res ? money(res.netProfitCents) : "—",
+      marginRate: res ? res.marginRate : null,
+      marginText: res ? percent(res.marginRate) : "—",
+      monthlyProfitCents,
+      monthlyProfitText: monthlyProfitCents !== null ? money(monthlyProfitCents) : "—",
+    };
+  });
+
   return (
-    <div className="page" style={{ maxWidth: "1280px", margin: "0 auto", padding: "26px 28px 60px" }}>
+    <div className="page">
       {/* 头部标题与新建入口 */}
-      <header style={{ marginBottom: "24px" }}>
+      <header style={{ marginBottom: "18px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "16px" }}>
           <div>
-            <span className="eyebrow" style={{ color: "var(--green)" }}>案卷总控 · 全生命周期跟踪</span>
-            <h1 style={{ fontSize: "28px", margin: "6px 0 6px 0", fontWeight: 800, color: "var(--ink)", letterSpacing: "-0.02em" }}>
-              商品工作台
-            </h1>
-            <p style={{ color: "var(--muted)", fontSize: "14px", margin: 0 }}>
+            <h1>商品工作台</h1>
+            <p className="muted" style={{ fontSize: "14px", margin: 0 }}>
               集中管理所有已立项商品案卷。追踪从竞品研报、工厂询价、财务核准、内容打磨到批量发布模板 (Flat File) 的完整进度。
             </p>
           </div>
           <div style={{ display: "flex", gap: "10px" }}>
             <Link href="/competitors" className="button primary">
-              ＋ 竞品横评并立项
+              竞品横评并立项
             </Link>
             <Link href="/import" className="button secondary">
               批量导入商品
@@ -85,8 +111,8 @@ export default async function ProductCasesPage({ searchParams }: PageProps) {
       {/* 筛选过滤栏 */}
       <div
         style={{
-          background: "#ffffff",
-          padding: "14px 18px",
+          background: "var(--paper)",
+          padding: "11px 16px",
           borderRadius: "10px",
           border: "1px solid var(--line)",
           display: "flex",
@@ -94,11 +120,11 @@ export default async function ProductCasesPage({ searchParams }: PageProps) {
           alignItems: "center",
           flexWrap: "wrap",
           gap: "12px",
-          marginBottom: "16px",
+          marginBottom: "14px",
         }}
       >
-        <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
-          <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--muted)", marginRight: "4px" }}>状态筛选:</span>
+        <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--muted)", marginRight: "4px" }}>状态筛选</span>
           {[
             { id: "all", label: "全部案卷" },
             { id: "approved", label: "已立项通过" },
@@ -116,7 +142,7 @@ export default async function ProductCasesPage({ searchParams }: PageProps) {
                   borderRadius: "6px",
                   textDecoration: "none",
                   fontWeight: active ? 700 : 500,
-                  background: active ? "var(--green)" : "#f1f5f9",
+                  background: active ? "var(--deep)" : "var(--canvas)",
                   color: active ? "#ffffff" : "var(--ink)",
                   transition: "all 0.15s ease",
                 }}
@@ -128,22 +154,24 @@ export default async function ProductCasesPage({ searchParams }: PageProps) {
         </div>
 
         <div style={{ fontSize: "12px", color: "var(--muted)" }}>
-          共展示 <strong>{filteredCases.length}</strong> 个商品案卷
+          共展示 <strong className="badge-num" style={{ color: "var(--ink)" }}>{filteredCases.length}</strong> 个商品案卷
         </div>
       </div>
 
-      {/* 案卷卡片列表 */}
+      {/* 跨境立项审计台账表 */}
       {filteredCases.length === 0 ? (
         <div
           style={{
-            background: "#ffffff",
-            borderRadius: "12px",
+            background: "var(--paper)",
+            borderRadius: "10px",
             border: "1px dashed var(--line)",
             padding: "48px 24px",
             textAlign: "center",
           }}
         >
-          <div style={{ fontSize: "32px", marginBottom: "8px" }}>📦</div>
+          <div style={{ color: "var(--muted)", marginBottom: "10px", display: "flex", justifyContent: "center" }}>
+            <IconClipboard size={28} />
+          </div>
           <h3 style={{ margin: "0 0 6px 0", fontSize: "16px", color: "var(--ink)" }}>暂无匹配的商品案卷</h3>
           <p style={{ margin: "0 0 16px 0", fontSize: "13px", color: "var(--muted)" }}>
             可在「竞品对比」工作台对标 1~4 个竞品后一键立项。
@@ -153,199 +181,7 @@ export default async function ProductCasesPage({ searchParams }: PageProps) {
           </Link>
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-          {filteredCases.map((c) => {
-            const cost = c.costModel;
-            const res = cost?.results;
-            const asm = cost?.assumptions;
-
-            return (
-              <div
-                key={c.id}
-                style={{
-                  background: "#ffffff",
-                  borderRadius: "10px",
-                  border: "1px solid var(--line)",
-                  padding: "18px 20px",
-                  boxShadow: "0 1px 3px rgba(0,0,0,0.02)",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "14px",
-                  transition: "border-color 0.15s ease",
-                }}
-              >
-                {/* 顶行：标题、标签与状态 */}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "16px" }}>
-                  <div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
-                      <span
-                        style={{
-                          fontSize: "11px",
-                          fontWeight: 700,
-                          padding: "2px 6px",
-                          borderRadius: "4px",
-                          background: "#e8f0fc",
-                          color: "#3766a6",
-                        }}
-                      >
-                        {c.marketplace}
-                      </span>
-                      <span
-                        style={{
-                          fontSize: "11px",
-                          fontWeight: 700,
-                          padding: "2px 6px",
-                          borderRadius: "4px",
-                          background: "#f1f5f9",
-                          color: "var(--muted)",
-                        }}
-                      >
-                        ASIN: {c.asin}
-                      </span>
-                      <span style={{ fontSize: "12px", color: "var(--muted)" }}>类目: {c.category}</span>
-                    </div>
-
-                    <Link
-                      href={`/cases/${c.id}`}
-                      style={{
-                        fontSize: "16px",
-                        fontWeight: 800,
-                        color: "var(--ink)",
-                        textDecoration: "none",
-                        lineHeight: 1.4,
-                      }}
-                    >
-                      {c.title}
-                    </Link>
-                  </div>
-
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
-                    <StatusBadge status={c.status} />
-                    <span
-                      style={{
-                        fontSize: "12px",
-                        fontWeight: 800,
-                        padding: "4px 8px",
-                        borderRadius: "6px",
-                        background: c.recommendation === "GO" ? "var(--green-soft)" : "var(--amber-soft)",
-                        color: c.recommendation === "GO" ? "var(--green)" : "var(--amber)",
-                      }}
-                    >
-                      {c.recommendation} · {c.opportunityScore}分
-                    </span>
-                  </div>
-                </div>
-
-                {/* 中行：关键财务测算指标 */}
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
-                    gap: "10px",
-                    background: "#f8fafc",
-                    padding: "10px 14px",
-                    borderRadius: "8px",
-                    border: "1px solid #edf2f7",
-                    fontSize: "12px",
-                  }}
-                >
-                  <div>
-                    <span style={{ color: "var(--muted)" }}>预估售价:</span>{" "}
-                    <strong>{asm ? money(asm.salePriceCents) : "—"}</strong>
-                  </div>
-                  <div>
-                    <span style={{ color: "var(--muted)" }}>到岸成本:</span>{" "}
-                    <strong>{asm ? money(asm.landedCostCents) : "—"}</strong>
-                  </div>
-                  <div>
-                    <span style={{ color: "var(--muted)" }}>单件净利:</span>{" "}
-                    <strong style={{ color: res && res.netProfitCents > 0 ? "var(--green)" : "inherit" }}>
-                      {res ? money(res.netProfitCents) : "—"}
-                    </strong>
-                  </div>
-                  <div>
-                    <span style={{ color: "var(--muted)" }}>基准净利率:</span>{" "}
-                    <strong style={{ color: res && res.marginRate >= 0.18 ? "var(--green)" : "inherit" }}>
-                      {res ? percent(res.marginRate) : "—"}
-                    </strong>
-                  </div>
-                  <div>
-                    <span style={{ color: "var(--muted)" }}>月销估计:</span>{" "}
-                    <strong>{c.monthly_sales_estimate || 0} 件</strong>
-                  </div>
-                  <div>
-                    <span style={{ color: "var(--muted)" }}>预估月贡献:</span>{" "}
-                    <strong style={{ color: "var(--green)" }}>
-                      {res ? money(res.netProfitCents * (c.monthly_sales_estimate || 0)) : "—"}
-                    </strong>
-                  </div>
-                </div>
-
-                {/* 底行：快捷流转按钮组 */}
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    flexWrap: "wrap",
-                    gap: "10px",
-                    borderTop: "1px solid #f1f5f9",
-                    paddingTop: "10px",
-                  }}
-                >
-                  <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                    <Link
-                      href={`/cases/${c.id}`}
-                      className="button secondary"
-                      style={{ fontSize: "11px", padding: "4px 10px", height: "auto" }}
-                    >
-                      案卷总览
-                    </Link>
-                    <Link
-                      href={`/cases/${c.id}/sourcing`}
-                      className="button secondary"
-                      style={{ fontSize: "11px", padding: "4px 10px", height: "auto" }}
-                    >
-                      工厂报价 & 定标
-                    </Link>
-                    <Link
-                      href={`/cases/${c.id}/content`}
-                      className="button secondary"
-                      style={{ fontSize: "11px", padding: "4px 10px", height: "auto" }}
-                    >
-                      反制五点文案
-                    </Link>
-                    <a
-                      href={`/api/cases/${c.id}/flatfile`}
-                      download
-                      className="button secondary"
-                      style={{ fontSize: "11px", padding: "4px 10px", height: "auto", textDecoration: "none" }}
-                      title="直接下载亚马逊官方批量上传模板 (.tsv)"
-                    >
-                      📥 Flat File 导出
-                    </a>
-                  </div>
-
-                  <Link
-                    href={`/cases/${c.id}/report`}
-                    style={{
-                      fontSize: "12px",
-                      fontWeight: 700,
-                      color: "var(--green)",
-                      textDecoration: "none",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "4px",
-                    }}
-                  >
-                    <span>🖨️ 查看决策战报 (Memo)</span>
-                    <span>→</span>
-                  </Link>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <CasesAuditLedger rows={ledgerRows} />
       )}
     </div>
   );

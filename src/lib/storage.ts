@@ -10,6 +10,8 @@ export type SavedImage = {
   originalName: string;
   mimeType: string;
   size: number;
+  width?: number;
+  height?: number;
 };
 
 export async function saveImageUpload(file: File): Promise<SavedImage> {
@@ -21,14 +23,34 @@ export async function saveImageUpload(file: File): Promise<SavedImage> {
   if (!detected) throw new Error("仅支持真实 JPG、PNG 或 WebP 图片文件");
   if (file.type && file.type !== detected.mimeType) throw new Error("文件扩展名或类型与图片内容不一致");
 
+  return persistImageBytes(bytes, detected, file.name || `main-image.${detected.extension}`);
+}
+
+export async function saveImageBuffer(bytes: Buffer, originalName?: string): Promise<SavedImage> {
+  if (!bytes || bytes.length <= 0) throw new Error("生成图片内容为空");
+  if (bytes.length > MAX_IMAGE_BYTES) throw new Error("图片大小不能超过 8 MB");
+
+  const detected = detectImageType(bytes);
+  if (!detected) throw new Error("仅支持真实 JPG、PNG 或 WebP 图片格式");
+
+  return persistImageBytes(bytes, detected, originalName?.trim() || `generated-image.${detected.extension}`);
+}
+
+async function persistImageBytes(
+  bytes: Buffer,
+  detected: { extension: string; mimeType: string },
+  originalName: string,
+): Promise<SavedImage> {
   await mkdir(assetDirectory, { recursive: true });
   const storageKey = `${randomUUID()}.${detected.extension}`;
   await writeFile(path.join(assetDirectory, storageKey), bytes, { flag: "wx" });
+  const dimensions = parseImageDimensions(bytes);
   return {
     storageKey,
-    originalName: file.name || `main-image.${detected.extension}`,
+    originalName,
     mimeType: detected.mimeType,
     size: bytes.length,
+    ...(dimensions ? { width: dimensions.width, height: dimensions.height } : {}),
   };
 }
 
@@ -44,7 +66,7 @@ export async function deleteStoredImage(storageKey: string) {
   await unlink(path.join(assetDirectory, safeName)).catch(() => undefined);
 }
 
-function detectImageType(bytes: Buffer) {
+export function detectImageType(bytes: Buffer) {
   if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
     return { extension: "png", mimeType: "image/png" };
   }
@@ -57,6 +79,72 @@ function detectImageType(bytes: Buffer) {
     bytes.subarray(8, 12).toString("ascii") === "WEBP"
   ) {
     return { extension: "webp", mimeType: "image/webp" };
+  }
+  return null;
+}
+
+/** 零依赖解析 PNG / JPEG / WebP 头部像素宽高，供图片清晰度预检使用 */
+export function parseImageDimensions(bytes: Buffer): { width: number; height: number } | null {
+  const detected = detectImageType(bytes);
+  if (!detected) return null;
+
+  if (detected.extension === "png") {
+    if (bytes.length < 24 || bytes.subarray(12, 16).toString("ascii") !== "IHDR") return null;
+    const width = bytes.readUInt32BE(16);
+    const height = bytes.readUInt32BE(20);
+    return width > 0 && height > 0 ? { width, height } : null;
+  }
+
+  if (detected.extension === "jpg") {
+    let offset = 2;
+    while (offset + 3 < bytes.length) {
+      if (bytes[offset] !== 0xff) {
+        offset += 1;
+        continue;
+      }
+      while (offset < bytes.length && bytes[offset] === 0xff) offset += 1;
+      if (offset >= bytes.length) break;
+      const marker = bytes[offset]!;
+      offset += 1;
+      if (marker === 0xd8 || marker === 0xd9 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+        continue;
+      }
+      if (offset + 1 >= bytes.length) break;
+      const segmentLength = bytes.readUInt16BE(offset);
+      if (segmentLength < 2 || offset + segmentLength > bytes.length) break;
+      const isSof =
+        (marker >= 0xc0 && marker <= 0xc3) ||
+        (marker >= 0xc5 && marker <= 0xc7) ||
+        (marker >= 0xc9 && marker <= 0xcb) ||
+        (marker >= 0xcd && marker <= 0xcf);
+      if (isSof && segmentLength >= 7) {
+        const height = bytes.readUInt16BE(offset + 3);
+        const width = bytes.readUInt16BE(offset + 5);
+        return width > 0 && height > 0 ? { width, height } : null;
+      }
+      offset += segmentLength;
+    }
+    return null;
+  }
+
+  if (detected.extension === "webp" && bytes.length >= 30) {
+    const chunk = bytes.subarray(12, 16).toString("ascii");
+    if (chunk === "VP8 " && bytes[23] === 0x9d && bytes[24] === 0x01 && bytes[25] === 0x2a) {
+      const width = bytes.readUInt16LE(26) & 0x3fff;
+      const height = bytes.readUInt16LE(28) & 0x3fff;
+      return width > 0 && height > 0 ? { width, height } : null;
+    }
+    if (chunk === "VP8L" && bytes[20] === 0x2f && bytes.length >= 25) {
+      const bits = bytes.readUInt32LE(21);
+      const width = (bits & 0x3fff) + 1;
+      const height = ((bits >>> 14) & 0x3fff) + 1;
+      return width > 0 && height > 0 ? { width, height } : null;
+    }
+    if (chunk === "VP8X" && bytes.length >= 30) {
+      const width = bytes.readUIntLE(24, 3) + 1;
+      const height = bytes.readUIntLE(27, 3) + 1;
+      return width > 0 && height > 0 ? { width, height } : null;
+    }
   }
   return null;
 }

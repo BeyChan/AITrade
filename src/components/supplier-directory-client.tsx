@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { money, shortDate } from "@/lib/format";
 import { StatusBadge } from "@/components/badges";
+import { IconClipboard, IconFactory } from "@/components/icons";
 import type { SupplierDirectoryItem, SourcingCaseSummary } from "@/lib/types";
 
 type Props = {
@@ -50,13 +51,13 @@ export function SupplierDirectoryClient({
     <div className="stack" style={{ gap: "24px" }}>
       {notice && (
         <div className="notice">
-          <span className="badge badge-success">SUCCESS</span>
+          <span className="badge badge-success">已完成</span>
           <span>{notice}</span>
         </div>
       )}
       {error && (
         <div className="notice warn">
-          <span className="badge badge-danger">ERROR</span>
+          <span className="badge badge-danger">未完成</span>
           <span>{error}</span>
         </div>
       )}
@@ -104,7 +105,8 @@ export function SupplierDirectoryClient({
             onClick={() => setActiveTab("directory")}
             style={{ fontSize: "13px", height: "36px", padding: "0 16px" }}
           >
-            🏭 1688 工厂名录资产池 ({suppliers.length})
+            <IconFactory size={15} />
+            <span>1688 工厂名录资产池 ({suppliers.length})</span>
           </button>
           <button
             type="button"
@@ -112,7 +114,8 @@ export function SupplierDirectoryClient({
             onClick={() => setActiveTab("cases")}
             style={{ fontSize: "13px", height: "36px", padding: "0 16px" }}
           >
-            📋 在办商品询价跟踪 ({cases.length})
+            <IconClipboard size={15} />
+            <span>在办商品询价跟踪 ({cases.length})</span>
           </button>
         </div>
 
@@ -317,15 +320,18 @@ export function SupplierDirectoryClient({
                       <div
                         style={{
                           display: "grid",
-                          gridTemplateColumns: "1fr 1fr",
+                          gridTemplateColumns: "minmax(0, 1fr) auto",
                           gap: "8px",
                           marginTop: "12px",
                           fontSize: "12px",
                         }}
                       >
-                        <div>
+                        <div style={{ minWidth: 0 }}>
                           <span style={{ color: "var(--muted)" }}>对接联系人: </span>
-                          <strong style={{ color: "var(--ink)" }}>{supplier.contact || "待补充"}</strong>
+                          {/* 电话号码不允许在数字中间折行：改造前会断成「135-」/「0921-6650」 */}
+                          <strong style={{ color: "var(--ink)", whiteSpace: "nowrap" }}>
+                            {supplier.contact || "待补充"}
+                          </strong>
                         </div>
                         <div>
                           <span style={{ color: "var(--muted)" }}>录入时间: </span>
@@ -387,7 +393,7 @@ export function SupplierDirectoryClient({
                             fontWeight: 600,
                           }}
                         >
-                          打开 1688 主页 ↗
+                          打开 1688 主页
                         </a>
                       ) : (
                         <span style={{ fontSize: "11px", color: "var(--muted)" }}>暂无外链</span>
@@ -466,7 +472,7 @@ export function SupplierDirectoryClient({
                         <StatusBadge status={item.productCase.status} />
                       </div>
                       <Link href={`/cases/${item.productCase.id}/sourcing`} className="button primary">
-                        {item.selection ? "查看 1688 比价定标" : item.quoteCount ? "继续多厂比价" : "录入 1688 报价"} →
+                        {item.selection ? "查看 1688 比价定标" : item.quoteCount ? "继续多厂比价" : "录入 1688 报价"}
                       </Link>
                     </div>
                   </article>

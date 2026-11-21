@@ -3,8 +3,15 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { EconomicsAssumptions } from "@/lib/economics";
-import { clearStoredAIProviderKey, saveAIProviderSettings } from "@/lib/app-settings";
+import {
+  clearStoredAIProviderKey,
+  clearStoredImageProviderKey,
+  saveAIProviderSettings,
+  saveImageProviderSettings,
+} from "@/lib/app-settings";
 import { testAIProviderConnection } from "@/lib/ai-provider";
+import { testImageProviderConnection } from "@/lib/image-provider";
+import { isSupportedImageSlot } from "@/lib/image-skills";
 import { applyAiInboxTask, reviewAiInboxField } from "@/lib/ai-inbox/apply";
 import {
   createAiInboxTask,
@@ -699,20 +706,22 @@ export async function saveProductDefinitionAction(formData: FormData) {
 export async function uploadMainImageAction(formData: FormData) {
   const caseId = String(formData.get("caseId") || "");
   const actor = String(formData.get("actor") || "").trim();
+  const rawType = String(formData.get("assetType") || "main_image").trim();
+  const assetType = isSupportedImageSlot(rawType) ? rawType : "main_image";
   let storageKey = "";
   try {
     if (!actor) throw new Error("请输入上传人");
     const file = formData.get("image");
-    if (!(file instanceof File)) throw new Error("请选择主图文件");
+    if (!(file instanceof File)) throw new Error("请选择图片文件");
     const saved = await saveImageUpload(file);
     storageKey = saved.storageKey;
-    await createAssetRecord(caseId, saved, actor);
+    await createAssetRecord(caseId, { ...saved, assetType }, actor);
   } catch (error) {
     if (storageKey) await deleteStoredImage(storageKey);
     redirect(`/cases/${encodeURIComponent(caseId)}/content?error=${encodeURIComponent(errorMessage(error))}`);
   }
   revalidateContent(caseId);
-  redirect(`/cases/${encodeURIComponent(caseId)}/content?notice=${encodeURIComponent("主图已上传，等待人工检查")}`);
+  redirect(`/cases/${encodeURIComponent(caseId)}/content?notice=${encodeURIComponent("图片素材已上传，等待人工检查")}`);
 }
 
 export async function reviewMainImageAction(formData: FormData) {
@@ -726,12 +735,13 @@ export async function reviewMainImageAction(formData: FormData) {
       productComplete: formData.get("productComplete") === "on",
       noTextWatermark: formData.get("noTextWatermark") === "on",
       resolutionConfirmed: formData.get("resolutionConfirmed") === "on",
+      matchesPhysicalProduct: formData.get("matchesPhysicalProduct") === "on",
     });
   } catch (error) {
     redirect(`/cases/${encodeURIComponent(caseId)}/content?error=${encodeURIComponent(errorMessage(error))}`);
   }
   revalidateContent(caseId);
-  redirect(`/cases/${encodeURIComponent(caseId)}/content?notice=${encodeURIComponent("主图人工检查已通过")}`);
+  redirect(`/cases/${encodeURIComponent(caseId)}/content?notice=${encodeURIComponent("图片素材人工检查已通过")}`);
 }
 
 export async function saveListingDraftAction(formData: FormData) {
@@ -949,10 +959,81 @@ export async function clearAIProviderKeyAction(formData: FormData) {
   redirect(`/settings?notice=${encodeURIComponent("已清除页面保存的 API Key；模型生成会自动回退模板模式。")}`);
 }
 
+export async function saveImageSettingsAction(formData: FormData) {
+  const actor = String(formData.get("actor") || "").trim() || "本机管理员";
+  const apiKey = String(formData.get("apiKey") || "").trim();
+  let failure: string | null = null;
+  let savedProvider = "";
+
+  try {
+    const saved = await saveImageProviderSettings({
+      provider: String(formData.get("provider") || "template"),
+      baseUrl: String(formData.get("baseUrl") || ""),
+      model: String(formData.get("model") || ""),
+      apiKey,
+      actor,
+    });
+    savedProvider = saved.provider;
+  } catch (error) {
+    failure = settingsErrorMessage(error, apiKey);
+  }
+
+  if (failure) redirect(`/settings?error=${encodeURIComponent(failure)}`);
+  revalidatePath("/settings");
+  revalidatePath("/image-studio");
+  revalidatePath("/content");
+  redirect(`/settings?notice=${encodeURIComponent(`生图模型设置已保存：${savedProvider}。API Key 未回显到页面。`)}`);
+}
+
+export async function testImageSettingsAction(formData: FormData) {
+  const apiKey = String(formData.get("apiKey") || "").trim();
+  let failure: string | null = null;
+  let result: Awaited<ReturnType<typeof testImageProviderConnection>> | null = null;
+
+  try {
+    result = await testImageProviderConnection({
+      provider: String(formData.get("provider") || "template"),
+      baseUrl: String(formData.get("baseUrl") || ""),
+      model: String(formData.get("model") || ""),
+      apiKey,
+    });
+  } catch (error) {
+    failure = settingsErrorMessage(error, apiKey);
+  }
+
+  if (failure) redirect(`/settings?error=${encodeURIComponent(failure)}`);
+  if (!result) redirect(`/settings?error=${encodeURIComponent("生图连接测试没有返回结果")}`);
+  redirect(
+    `/settings?notice=${encodeURIComponent(
+      `${result.message} ${result.model} · ${result.latencyMs} ms。测试使用当前表单值，不保存配置。`,
+    )}`,
+  );
+}
+
+export async function clearImageProviderKeyAction(formData: FormData) {
+  const actor = String(formData.get("actor") || "").trim() || "本机管理员";
+  let failure: string | null = null;
+  try {
+    await clearStoredImageProviderKey(actor);
+  } catch (error) {
+    failure = settingsErrorMessage(error, "");
+  }
+
+  if (failure) redirect(`/settings?error=${encodeURIComponent(failure)}`);
+  revalidatePath("/settings");
+  revalidatePath("/image-studio");
+  revalidatePath("/content");
+  redirect(`/settings?notice=${encodeURIComponent("已清除页面保存的生图 API Key；内容工作台将回退为提示词模式。")}`);
+}
+
 function settingsErrorMessage(error: unknown, apiKey: string) {
   let message = errorMessage(error);
   if (apiKey) message = message.replaceAll(apiKey, "[REDACTED]");
-  return message.replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]").slice(0, 300);
+  return message
+    .replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]")
+    .replace(/x-api-key\s*[=:]\s*\S+/gi, "x-api-key=[REDACTED]")
+    .replace(/\bsk-[A-Za-z0-9_-]{8,}/gi, "[REDACTED]")
+    .slice(0, 300);
 }
 
 function revalidateChannels(caseId: string, channelListingId?: string) {

@@ -1503,7 +1503,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                             fontWeight: 600,
                           }}
                         >
-                          {item.asin} ↗
+                          {item.asin}
                         </a>
                       </div>
 
@@ -1713,7 +1713,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                         className="button secondary"
                         style={{ fontSize: "12px", padding: "4px 10px", height: "auto", borderRadius: "8px" }}
                       >
-                        🔍 {kw} ↗
+                        🔍 {kw}
                       </a>
                     ))}
                   </div>
@@ -1782,7 +1782,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                 className="button primary"
                 style={{ justifyContent: "center" }}
               >
-                立即前往 1688 询价与定标 →
+                立即前往 1688 询价与定标
               </Link>
               <Link
                 href={`/cases/${promotedCaseId || currentReport?.promotedCaseId}`}

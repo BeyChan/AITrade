@@ -1,6 +1,11 @@
 "use server";
 
-import { loadAIProviderConfig } from "./app-settings.ts";
+import {
+  ANTHROPIC_API_VERSION,
+  anthropicMessagesEndpoint,
+  extractAnthropicText,
+} from "./ai-provider.ts";
+import { loadAIProviderConfig, validateBaseUrl } from "./app-settings.ts";
 
 export type ChatMessage = {
   role: "user" | "assistant";
@@ -30,7 +35,38 @@ export async function chatWithAiAssistant(history: ChatMessage[]): Promise<strin
 
   const config = await loadAIProviderConfig();
 
-  // 如果配置了真实的大模型（OpenAI-compatible 或 Ollama）
+  // 如果配置了真实的大模型（OpenAI-compatible、Anthropic-compatible 或 Ollama）
+  if (config.provider === "anthropic-compatible" && config.apiKey && config.baseUrl && config.model) {
+    try {
+      validateBaseUrl(config.baseUrl);
+      const messages = normalizeAnthropicMessages(history.slice(-6), lastUserMessage);
+      const res = await fetch(anthropicMessagesEndpoint(config.baseUrl), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": config.apiKey,
+          "anthropic-version": ANTHROPIC_API_VERSION,
+        },
+        body: JSON.stringify({
+          model: config.model,
+          system: SYSTEM_PROMPT,
+          messages,
+          temperature: 0.7,
+          max_tokens: 600,
+        }),
+        signal: AbortSignal.timeout(12000),
+      });
+
+      if (res.ok) {
+        const json = await res.json();
+        const reply = extractAnthropicText(json);
+        if (reply) return reply;
+      }
+    } catch {
+      // 降级使用内置确定性专家知识库
+    }
+  }
+
   if (config.provider === "openai-compatible" && config.apiKey && config.baseUrl && config.model) {
     try {
       const endpoint = config.baseUrl.replace(/\/+$/, "").endsWith("/v1")
@@ -94,6 +130,25 @@ export async function chatWithAiAssistant(history: ChatMessage[]): Promise<strin
 
   // 内置跨境操盘手智能应答引擎（免配置开箱即用）
   return generateDeterministicKnowledgeResponse(lastUserMessage);
+}
+
+function normalizeAnthropicMessages(history: ChatMessage[], fallbackUserMessage: string): ChatMessage[] {
+  const merged: ChatMessage[] = [];
+  for (const item of history) {
+    const content = item.content.trim();
+    if (!content) continue;
+    if (merged.length === 0 && item.role !== "user") continue;
+    const prev = merged[merged.length - 1];
+    if (prev && prev.role === item.role) {
+      prev.content = `${prev.content}\n\n${content}`;
+    } else {
+      merged.push({ role: item.role, content });
+    }
+  }
+  if (merged.length === 0) {
+    return [{ role: "user", content: fallbackUserMessage.trim() }];
+  }
+  return merged;
 }
 
 function generateDeterministicKnowledgeResponse(question: string): string {

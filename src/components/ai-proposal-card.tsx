@@ -94,7 +94,7 @@ export function ProposalCard({
         statusLabel={statusLabel}
       />
       <div className="ai-proposal-card-actions">
-        <Link href={href} className="button secondary">{actionLabel} →</Link>
+        <Link href={href} className="button secondary">{actionLabel}</Link>
         <small>人工确认前不会写入业务表，系统不自动执行外部动作</small>
       </div>
     </article>

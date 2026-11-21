@@ -6,6 +6,7 @@ import { analyzeSupplierQuotes } from "./sourcing.ts";
 import { normalizeListingContent, preflightListing, type ListingDraftContent, type ListingPreflightResult } from "./listing.ts";
 import { getChannelProfile, mapChannelPayload, preflightChannelContent, type ChannelContext } from "./channels.ts";
 import { evaluateLaunchReadiness } from "./launch-readiness.ts";
+import { isSupportedImageSlot, type ImageAssetSlot } from "./image-skills.ts";
 import {
   findCurrentVersionValidation,
   getConnectorCodeForPlatform,
@@ -945,6 +946,11 @@ export type AssetUploadInput = {
   originalName: string;
   mimeType: string;
   size: number;
+  width?: number;
+  height?: number;
+  assetType?: ImageAssetSlot;
+  parentAssetId?: string | null;
+  extraMetadata?: Record<string, unknown>;
 };
 
 export type MainImageReviewChecks = {
@@ -952,6 +958,7 @@ export type MainImageReviewChecks = {
   productComplete: boolean;
   noTextWatermark: boolean;
   resolutionConfirmed: boolean;
+  matchesPhysicalProduct?: boolean;
 };
 
 async function assertContentUnlocked(caseId: string) {
@@ -1991,20 +1998,30 @@ export async function createAssetRecord(caseId: string, input: AssetUploadInput,
   await assertContentUnlocked(caseId);
   const db = await getDb();
   const assetId = randomUUID();
+  const assetType: ImageAssetSlot = input.assetType && isSupportedImageSlot(input.assetType)
+    ? input.assetType
+    : "main_image";
+  const parentAssetId = input.parentAssetId?.trim() || null;
+  const source = typeof input.extraMetadata?.source === "string" ? input.extraMetadata.source : "uploaded";
   const metadata = {
-    role: "main_image",
+    role: assetType,
+    source,
     storageKey: input.storageKey,
     originalName: input.originalName,
     mimeType: input.mimeType,
     size: input.size,
+    ...(typeof input.width === "number" ? { width: input.width } : {}),
+    ...(typeof input.height === "number" ? { height: input.height } : {}),
     uploadedBy: actor.trim(),
     reviewed: false,
+    ...(input.extraMetadata ?? {}),
   };
+  const auditAction = source === "ai_generated" ? "asset.ai_image_generated" : "asset.main_image_uploaded";
   await db.transaction(async (tx) => {
     await tx.query(
-      `INSERT INTO assets (id, case_id, asset_type, file_url, status, metadata)
-       VALUES ($1, $2, 'main_image', $3, 'draft', $4::jsonb)`,
-      [assetId, caseId, `/api/assets/${assetId}`, JSON.stringify(metadata)],
+      `INSERT INTO assets (id, case_id, asset_type, file_url, status, metadata, parent_asset_id)
+       VALUES ($1, $2, $3, $4, 'draft', $5::jsonb, $6)`,
+      [assetId, caseId, assetType, `/api/assets/${assetId}`, JSON.stringify(metadata), parentAssetId],
     );
     await tx.query(
       "UPDATE product_cases SET updated_at = NOW() WHERE id = $1",
@@ -2012,16 +2029,28 @@ export async function createAssetRecord(caseId: string, input: AssetUploadInput,
     );
     await tx.query(
       `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'asset.main_image_uploaded', 'product_case', $3, $4::jsonb)`,
+       VALUES ($1, $2, $3, 'product_case', $4, $5::jsonb)`,
       [
         randomUUID(),
         actor.trim(),
+        auditAction,
         caseId,
-        JSON.stringify({ assetId, originalName: input.originalName, mimeType: input.mimeType, size: input.size }),
+        JSON.stringify({
+          assetId,
+          assetType,
+          source,
+          originalName: input.originalName,
+          mimeType: input.mimeType,
+          size: input.size,
+          width: input.width,
+          height: input.height,
+          parentAssetId,
+          skillId: typeof input.extraMetadata?.skillId === "string" ? input.extraMetadata.skillId : undefined,
+        }),
       ],
     );
   });
-  return { assetId };
+  return { assetId, assetType, fileUrl: `/api/assets/${assetId}`, metadata };
 }
 
 export async function getAssetRecord(assetId: string): Promise<AssetRow | null> {
@@ -2038,16 +2067,34 @@ export async function reviewMainImageAsset(
   checks: MainImageReviewChecks,
 ) {
   if (!reviewer.trim()) throw new Error("请输入图片检查人");
-  if (!notes.trim()) throw new Error("请填写主图检查说明");
-  if (!Object.values(checks).every(Boolean)) throw new Error("请逐项确认主图检查项");
+  if (!notes.trim()) throw new Error("请填写图片检查说明");
+  const corePassed =
+    Boolean(checks.whiteBackground) &&
+    Boolean(checks.productComplete) &&
+    Boolean(checks.noTextWatermark) &&
+    Boolean(checks.resolutionConfirmed);
+  if (!corePassed) throw new Error("请逐项确认图片检查项");
   await assertContentUnlocked(caseId);
 
   const db = await getDb();
   const asset = await db.query<AssetRow>("SELECT * FROM assets WHERE id = $1 AND case_id = $2", [assetId, caseId]);
-  if (!asset.rows[0]) throw new Error("主图不存在");
-  if (asset.rows[0].asset_type !== "main_image") throw new Error("该资源不是主图");
+  if (!asset.rows[0]) throw new Error("图片素材不存在");
+  if (!isSupportedImageSlot(asset.rows[0].asset_type)) throw new Error("不支持的图片资产类型");
 
-  const review = { reviewer: reviewer.trim(), notes: notes.trim(), checks, reviewedAt: new Date().toISOString() };
+  const isAiGenerated = asset.rows[0].metadata?.source === "ai_generated";
+  if (isAiGenerated && !checks.matchesPhysicalProduct) {
+    throw new Error("AI 生成图必须勾选确认「画面外观/结构/配件数量与实物样品一致，无 AI 幻觉变形」");
+  }
+
+  const normalizedChecks: MainImageReviewChecks = {
+    whiteBackground: checks.whiteBackground,
+    productComplete: checks.productComplete,
+    noTextWatermark: checks.noTextWatermark,
+    resolutionConfirmed: checks.resolutionConfirmed,
+    ...(isAiGenerated ? { matchesPhysicalProduct: Boolean(checks.matchesPhysicalProduct) } : {}),
+  };
+
+  const review = { reviewer: reviewer.trim(), notes: notes.trim(), checks: normalizedChecks, reviewedAt: new Date().toISOString() };
   const metadata = { ...asset.rows[0].metadata, reviewed: true, review };
   await db.transaction(async (tx) => {
     await tx.query(
@@ -2057,7 +2104,7 @@ export async function reviewMainImageAsset(
     await tx.query(
       `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
        VALUES ($1, $2, 'asset.main_image_reviewed', 'product_case', $3, $4::jsonb)`,
-      [randomUUID(), reviewer.trim(), caseId, JSON.stringify({ assetId, review })],
+      [randomUUID(), reviewer.trim(), caseId, JSON.stringify({ assetId, assetType: asset.rows[0]!.asset_type, review })],
     );
   });
   return { assetId };

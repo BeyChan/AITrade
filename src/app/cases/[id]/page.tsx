@@ -58,9 +58,9 @@ export default async function CaseDetailPage({ params }: PageProps) {
         <div className="button-row">
           <Link href={`/cases/${productCase.id}/report`} className="button secondary">🖨️ 评审报告/PDF</Link>
           <a href={`/api/cases/${productCase.id}/flatfile`} className="button secondary">📥 Flat File</a>
-          {hasSupplierSelection ? <Link href={`/cases/${productCase.id}/content`} className="button primary">进入内容工作台 →</Link> : null}
-          {hasSupplierSelection ? <Link href={`/cases/${productCase.id}/channels`} className="button secondary">上市矩阵 →</Link> : null}
-          {productCase.status === "approved" ? <Link href={`/cases/${productCase.id}/sourcing`} className={`button ${hasSupplierSelection ? "ghost" : "primary"}`}>{hasSupplierSelection ? "查看供应商定标" : "进入供应商询价 →"}</Link> : null}
+          {hasSupplierSelection ? <Link href={`/cases/${productCase.id}/content`} className="button primary">进入内容工作台</Link> : null}
+          {hasSupplierSelection ? <Link href={`/cases/${productCase.id}/channels`} className="button secondary">上市矩阵</Link> : null}
+          {productCase.status === "approved" ? <Link href={`/cases/${productCase.id}/sourcing`} className={`button ${hasSupplierSelection ? "ghost" : "primary"}`}>{hasSupplierSelection ? "查看供应商定标" : "进入供应商询价"}</Link> : null}
           {productCase.url ? <a className="button secondary" href={productCase.url} target="_blank" rel="noreferrer">打开商品页</a> : null}
         </div>
       </div>
@@ -183,7 +183,7 @@ export default async function CaseDetailPage({ params }: PageProps) {
             <h2>下一步</h2>
             <p>候选品已直接进入立项，不再经过人工确认。先补齐真实证据和供应商报价，再根据确定性门禁决定是否继续备货。</p>
             <div className="button-row">
-              <Link href={`/cases/${productCase.id}/sourcing`} className="button primary">进入供应商询价 →</Link>
+              <Link href={`/cases/${productCase.id}/sourcing`} className="button primary">进入供应商询价</Link>
               <Link href="/ai-sourcing" className="button secondary">查看选品证据</Link>
             </div>
           </section>

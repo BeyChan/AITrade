@@ -29,7 +29,10 @@ import { money, moneyIn, shortDate } from "@/lib/format";
 import { emptyListingContent, normalizeListingContent, preflightListing } from "@/lib/listing";
 import { getContentDetail } from "@/lib/repository";
 import { ComplianceRadarCard } from "@/components/compliance-radar-card";
+import { ImageStudioPanel } from "@/components/image-studio-panel";
 import { scanListingCompliance } from "@/lib/compliance-radar";
+import { getImageProviderStatus } from "@/lib/image-provider";
+import { listAvailableImageSkills } from "@/lib/image-skills";
 
 export const dynamic = "force-dynamic";
 
@@ -46,9 +49,11 @@ type PageProps = {
 
 export default async function ContentStudioPage({ params, searchParams }: PageProps) {
   const [{ id }, query] = await Promise.all([params, searchParams]);
-  const [detail, benchmarkLookup] = await Promise.all([
+  const [detail, benchmarkLookup, imageSkills, imageProviderStatus] = await Promise.all([
     getContentDetail(id),
     loadCaseCompetitorBenchmark(id, query.hypothesisId),
+    listAvailableImageSkills(),
+    getImageProviderStatus(),
   ]);
   if (!detail) notFound();
 
@@ -169,9 +174,9 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
               <div className="metric-note">{profile ? `${profile.updated_by} · ${shortDate(profile.updated_at)}` : "先固定目标用户、差异点和事实边界"}</div>
             </article>
             <article className="metric-card">
-              <div className="metric-label">主图素材</div>
-              <div className="metric-value">{approvedImages.length} / {mainImages.length}</div>
-              <div className="metric-note">已通过人工检查 / 已上传</div>
+              <div className="metric-label">视觉素材与主图</div>
+              <div className="metric-value">{approvedImages.length} / {assets.length}</div>
+              <div className="metric-note">已审主图 {approvedImages.length} 张 · 全部入库素材 {assets.length} 张</div>
             </article>
             <article className="metric-card">
               <div className="metric-label">发布预检</div>
@@ -249,75 +254,18 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
                 </form>
               </section>
 
-              <section className="section">
-                <div className="section-header">
-                  <div>
-                    <h2>2. 主图上传与人工检查</h2>
-                    <p>系统校验真实图片格式与大小；白底、完整商品和文案合规由人确认。</p>
-                  </div>
-                  <span className="badge badge-neutral">仅本地存储</span>
-                </div>
-
-                <form action={uploadMainImageAction} className="upload-row">
-                  <input type="hidden" name="caseId" value={productCase.id} />
-                  <div className="field">
-                    <label htmlFor="image">选择 JPG / PNG / WebP，最大 8 MB</label>
-                    <input id="image" name="image" type="file" accept="image/jpeg,image/png,image/webp" required />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="uploadActor">上传人</label>
-                    <input id="uploadActor" name="actor" required placeholder="输入姓名" />
-                  </div>
-                  <button className="button secondary" type="submit">上传主图</button>
-                </form>
-
-                {mainImages.length ? (
-                  <div className="asset-grid">
-                    {mainImages.map((asset, index) => {
-                      const originalName = typeof asset.metadata.originalName === "string" ? asset.metadata.originalName : `主图 ${mainImages.length - index}`;
-                      const size = Number(asset.metadata.size ?? 0);
-                      return (
-                        <article className={`asset-card ${asset.status === "approved" ? "approved" : ""}`} key={asset.id}>
-                          <img src={asset.file_url} alt={originalName} className="asset-thumb" />
-                          <div className="asset-body">
-                            <div className="asset-top">
-                              <strong>{originalName}</strong>
-                              <span className={`badge ${asset.status === "approved" ? "badge-success" : "status-review_pending"}`}>
-                                {asset.status === "approved" ? "已检查" : "待检查"}
-                              </span>
-                            </div>
-                            <div className="subvalue">{(size / 1024).toFixed(0)} KB · {shortDate(asset.created_at)}</div>
-                            {asset.status !== "approved" ? (
-                              <details className="review-details">
-                                <summary>人工检查此图</summary>
-                                <form action={reviewMainImageAction} className="stack" style={{ marginTop: 12 }}>
-                                  <input type="hidden" name="caseId" value={productCase.id} />
-                                  <input type="hidden" name="assetId" value={asset.id} />
-                                  <label className="check-row"><input type="checkbox" name="whiteBackground" /> 白底或平台允许的纯色背景</label>
-                                  <label className="check-row"><input type="checkbox" name="productComplete" /> 商品完整、比例清楚、未被裁切</label>
-                                  <label className="check-row"><input type="checkbox" name="noTextWatermark" /> 无未授权文字、Logo、水印或促销角标</label>
-                                  <label className="check-row"><input type="checkbox" name="resolutionConfirmed" /> 已人工确认分辨率和画质满足目标平台要求</label>
-                                  <div className="field">
-                                    <label htmlFor={`imageReviewer-${asset.id}`}>检查人</label>
-                                    <input id={`imageReviewer-${asset.id}`} name="reviewer" required placeholder="输入姓名" />
-                                  </div>
-                                  <div className="field">
-                                    <label htmlFor={`imageNotes-${asset.id}`}>检查说明</label>
-                                    <textarea id={`imageNotes-${asset.id}`} name="notes" required placeholder="记录版本、来源和仍需修正的问题。" />
-                                  </div>
-                                  <button className="button primary" type="submit">确认主图检查通过</button>
-                                </form>
-                              </details>
-                            ) : null}
-                          </div>
-                        </article>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="empty-inline">还没有上传主图。请使用自有拍摄、供应商授权素材或明确可商用的生成图。</div>
-                )}
-              </section>
+              <ImageStudioPanel
+                caseId={productCase.id}
+                marketplace={productCase.marketplace || "US"}
+                assets={assets}
+                skills={imageSkills}
+                providerStatus={imageProviderStatus}
+                hasProfile={Boolean(profile)}
+                claimsToAvoid={profile?.claims_to_avoid ?? ""}
+                topPainPoints={benchmark ? benchmark.themes.slice(0, 3).map((theme) => theme.theme) : []}
+                uploadAction={uploadMainImageAction}
+                reviewAction={reviewMainImageAction}
+              />
 
               <section className="section">
                 <div className="section-header">
@@ -547,8 +495,9 @@ function auditLabel(action: string) {
     "quote.created": "录入供应商报价",
     "supplier.selected": "人工选定供应商并回写成本",
     "content_profile.updated": "保存商品定义",
-    "asset.main_image_uploaded": "上传主图",
-    "asset.main_image_reviewed": "通过主图人工检查",
+    "asset.main_image_uploaded": "上传图片素材",
+    "asset.ai_image_generated": "AI 生图生成草稿",
+    "asset.main_image_reviewed": "通过图片人工检查",
     "listing.draft_saved": "保存 Listing 版本并运行预检",
     "listing.content_approved": "人工确认 Listing 内容",
     "channel.target_created": "创建渠道目标",
@@ -560,7 +509,9 @@ function auditLabel(action: string) {
 
 function auditSummary(action: string, details: Record<string, unknown>) {
   if (action === "supplier.selected") return details.supplierName ? ` · ${String(details.supplierName)}` : "";
-  if (action === "asset.main_image_uploaded") return details.originalName ? ` · ${String(details.originalName)}` : "";
+  if (action === "asset.main_image_uploaded" || action === "asset.ai_image_generated") {
+    return details.originalName ? ` · ${String(details.originalName)}` : "";
+  }
   if (action === "listing.draft_saved") {
     return ` · v${String(details.version ?? "—")} · 预检 ${String(details.preflightScore ?? "—")} 分`;
   }
@@ -667,7 +618,7 @@ function ContentBenchmarkCard({
         </div>
         <div className="empty-inline">
           <span>无关联竞品数据时，商品定义、主图检查、Listing 草稿与确定性预检均可正常独立使用。</span>
-          <Link href="/ai-sourcing" className="button ghost">去选品验证补充证据 →</Link>
+          <Link href="/ai-sourcing" className="button ghost">去选品验证补充证据</Link>
         </div>
       </section>
     );
@@ -695,7 +646,7 @@ function ContentBenchmarkCard({
                 href={`/cases/${encodeURIComponent(caseId)}/content?hypothesisId=${encodeURIComponent(candidate.hypothesisId)}`}
                 className="button secondary"
               >
-                选用此假设对标 →
+                选用此假设对标
               </Link>
             </div>
           ))}
@@ -734,7 +685,7 @@ function ContentBenchmarkCard({
             href={`/ai-sourcing/${encodeURIComponent(scope.runId)}?tab=hypotheses&hypothesisId=${encodeURIComponent(scope.hypothesisId)}`}
             className="button ghost"
           >
-            回看选品证据 ↗
+            回看选品证据
           </Link>
         </div>
       </div>
@@ -778,7 +729,7 @@ function ContentBenchmarkCard({
                     </div>
                     {theme.quote ? <small>“{theme.quote}”</small> : null}
                     {theme.sourceUrl ? (
-                      <a href={theme.sourceUrl} target="_blank" rel="noreferrer">来源链接 ↗</a>
+                      <a href={theme.sourceUrl} target="_blank" rel="noreferrer">来源链接</a>
                     ) : null}
                   </div>
                 );

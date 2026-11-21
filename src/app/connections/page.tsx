@@ -172,7 +172,7 @@ export default async function ConnectionsPage({ searchParams }: Props) {
               <div className="connection-card-footer">
                 <ConnectionCheckButton code={source.code} name={source.name} supported={supported} />
                 {source.docsUrl ? (
-                  <a className="text-link" href={source.docsUrl} target="_blank" rel="noreferrer">官方文档 ↗</a>
+                  <a className="text-link" href={source.docsUrl} target="_blank" rel="noreferrer">官方文档</a>
                 ) : null}
               </div>
             </article>

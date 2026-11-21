@@ -49,6 +49,10 @@ const MAIN_NAV_ITEMS: NavItem[] = [
     href: "/content",
     label: "内容与上架",
     icon: "content",
+    subItems: [
+      { href: "/content", label: "内容工作台" },
+      { href: "/image-studio", label: "AI 生图工坊" },
+    ],
   },
 ];
 
@@ -182,7 +186,7 @@ function matchParentNav(item: NavItem, pathname: string): boolean {
   if (item.href === "/competitors" && (pathname.startsWith("/competitors") || pathname === "/import" || pathname.startsWith("/ai-sourcing"))) return true;
   if (item.href === "/cases" && pathname.startsWith("/cases")) return true;
   if (item.href === "/sourcing" && pathname.startsWith("/sourcing")) return true;
-  if (item.href === "/content" && (pathname.startsWith("/content") || pathname.startsWith("/approvals"))) return true;
+  if (item.href === "/content" && (pathname.startsWith("/content") || pathname.startsWith("/approvals") || pathname.startsWith("/image-studio"))) return true;
   if (item.href === "/connections" && pathname.startsWith("/connections")) return true;
   if (item.href === "/settings" && pathname.startsWith("/settings")) return true;
   return false;

@@ -199,22 +199,22 @@ export default async function AISourcingDetailPage({ params, searchParams }: Pag
         <Link href={tabHref("hypotheses")} className="metric-card" title="点击查看所有待验证方向">
           <div className="metric-label">机会假设</div>
           <div className="metric-value">{batch.hypotheses.length}</div>
-          <div className="metric-note">AI 只生成待验证方向 · 点击核验 →</div>
+          <div className="metric-note">AI 只生成待验证方向 · 点击核验</div>
         </Link>
         <Link href={tabHref("hypotheses")} className="metric-card" title="点击查看已加入验证方向的证据与任务">
           <div className="metric-label">已加入验证</div>
           <div className="metric-value">{selectedCount}</div>
-          <div className="metric-note">加入后开放证据与报价录入 · 点击推进 →</div>
+          <div className="metric-note">加入后开放证据与报价录入 · 点击推进</div>
         </Link>
         <Link href={tabHref("decision")} className="metric-card" title="点击查看确定性门禁结论与转立项">
           <div className="metric-label">确定性 GO</div>
           <div className="metric-value">{goCount}</div>
-          <div className="metric-note">证据、利润、风险、现金全部达标 · 查看结论 →</div>
+          <div className="metric-note">证据、利润、风险、现金全部达标 · 查看结论</div>
         </Link>
         <Link href={tabHref("hypotheses")} className="metric-card" title="点击核对证据链完整度">
           <div className="metric-label">平均证据完整度</div>
           <div className="metric-value">{completeness}%</div>
-          <div className="metric-note">竞品、评论、供应商、报价、专利、样品 →</div>
+          <div className="metric-note">竞品、评论、供应商、报价、专利、样品</div>
         </Link>
       </section>
 
@@ -295,7 +295,7 @@ function HypothesisSummaryList({ batch }: { batch: BatchType }) {
           <p>选一个方向，按顺序补证据、找供应商，最后看门禁结论。</p>
         </div>
         <Link className="button secondary" href={`/ai-sourcing/${encodeURIComponent(batch.id)}?tab=hypotheses`}>
-          从验证证据开始 →
+          从验证证据开始
         </Link>
       </div>
       <div className="ai-summary-rows">
@@ -315,7 +315,7 @@ function HypothesisSummaryList({ batch }: { batch: BatchType }) {
               </div>
               <DecisionBadge decision={hypothesis.decision} />
               <span className="button secondary">
-                继续 →
+                继续
               </span>
             </Link>
           );
@@ -583,7 +583,7 @@ function HypothesisCard({
                               color: "var(--muted)",
                             }}
                           >
-                            {quickAction.label} ↓
+                            {quickAction.label}
                           </a>
                         ) : null}
                         <form action={toggleValidationTaskAction} style={{ margin: 0 }}>
@@ -773,7 +773,7 @@ function HypothesisCard({
                         <div>
                           <span className="quote-rank">报价 #{index + 1}{quote.id === decision?.bestQuoteId ? " · 最低到岸" : ""}</span>
                           <h3>{supplier?.supplierName ?? "供应商"}</h3>
-                          <a href={quote.quoteUrl} target="_blank" rel="noreferrer" className="muted">查看报价来源 ↗</a>
+                          <a href={quote.quoteUrl} target="_blank" rel="noreferrer" className="muted">查看报价来源</a>
                         </div>
                         <div className="quote-score">
                           <strong>{quote.sampleScore ?? "—"}</strong>
@@ -824,7 +824,7 @@ function HypothesisCard({
             {hypothesis.productCaseId ? (
               <div className="button-row">
                 <Link href={`/cases/${hypothesis.productCaseId}`} className="button secondary">查看商品立项</Link>
-                <Link href={`/cases/${hypothesis.productCaseId}/sourcing`} className="button primary">进入供应商定标 →</Link>
+                <Link href={`/cases/${hypothesis.productCaseId}/sourcing`} className="button primary">进入供应商定标</Link>
               </div>
             ) : (
               <form action={promoteHypothesisAction} className="button-row">
@@ -941,9 +941,9 @@ function SupplierDiscoveryWorkspace({
                 <p>{lead.note}</p>
               </div>
               <div className="ai-supplier-lead-links">
-                <a href={supplier1688SearchUrl(lead.query)} target="_blank" rel="noreferrer">打开 1688 ↗</a>
-                <a href={supplierAlibabaSearchUrl(lead.query)} target="_blank" rel="noreferrer">Alibaba ↗</a>
-                <a href={supplierGoogleSearchUrl(lead.query)} target="_blank" rel="noreferrer">Google 查工厂 ↗</a>
+                <a href={supplier1688SearchUrl(lead.query)} target="_blank" rel="noreferrer">打开 1688</a>
+                <a href={supplierAlibabaSearchUrl(lead.query)} target="_blank" rel="noreferrer">Alibaba</a>
+                <a href={supplierGoogleSearchUrl(lead.query)} target="_blank" rel="noreferrer">Google 查工厂</a>
               </div>
             </article>
           ))}
@@ -1029,7 +1029,7 @@ function SupplierDiscoveryWorkspace({
                 <div key={candidate.id}>
                   <strong>{candidate.title}</strong>
                   <span>{candidate.supplierName} · {candidate.score} 分</span>
-                  {candidate.offerUrl ? <a href={candidate.offerUrl} target="_blank" rel="noreferrer">查看来源 ↗</a> : null}
+                  {candidate.offerUrl ? <a href={candidate.offerUrl} target="_blank" rel="noreferrer">查看来源</a> : null}
                 </div>
               ))}
             </div>
@@ -1105,8 +1105,8 @@ function SupplierCandidateCard({
       ) : null}
 
       <div className="ai-candidate-links">
-        {candidate.offerUrl ? <a href={candidate.offerUrl} target="_blank" rel="noreferrer">打开商品 ↗</a> : null}
-        {candidate.supplierUrl ? <a href={candidate.supplierUrl} target="_blank" rel="noreferrer">打开店铺 ↗</a> : null}
+        {candidate.offerUrl ? <a href={candidate.offerUrl} target="_blank" rel="noreferrer">打开商品</a> : null}
+        {candidate.supplierUrl ? <a href={candidate.supplierUrl} target="_blank" rel="noreferrer">打开店铺</a> : null}
         <small>{shortDate(candidate.observedAt)} 采集</small>
       </div>
 
@@ -1252,7 +1252,7 @@ function QueryGroup({
       {items.map((item) => (
         <a href={hrefFor(item)} target="_blank" rel="noreferrer" key={item}>
           <span>{item}</span>
-          <small>{actionLabel} ↗</small>
+          <small>{actionLabel}</small>
         </a>
       ))}
     </div>
@@ -1553,8 +1553,8 @@ function CompetitorBenchmarkPanel({
           <div className="empty-inline benchmark-empty">
             <span>当前尚未录入竞品快照或差评证据，暂无法生成价格带分位与假设证伪结论。</span>
             <div className="button-row">
-              <a href={`#auto-competitor-${hypothesis.id}`} className="button primary">基于站点 AI 智能导入竞品 ↓</a>
-              <a href={`#competitor-entry-${hypothesis.id}`} className="button secondary">手动录入单条快照 ↓</a>
+              <a href={`#auto-competitor-${hypothesis.id}`} className="button primary">基于站点 AI 智能导入竞品</a>
+              <a href={`#competitor-entry-${hypothesis.id}`} className="button secondary">手动录入单条快照</a>
             </div>
           </div>
       ) : (
@@ -1573,7 +1573,7 @@ function CompetitorBenchmarkPanel({
               </div>
               {price ? (
                 <a href={`#confirm-price-${hypothesis.id}`} className="button ghost">
-                  参考 P50（{moneyIn(batch.currency, price.p50)}）去确认售价 ↓
+                  参考 P50（{moneyIn(batch.currency, price.p50)}）去确认售价
                 </a>
               ) : null}
             </div>
@@ -1646,7 +1646,7 @@ function CompetitorBenchmarkPanel({
                     </div>
                     {theme.quote ? <p>“{theme.quote}”</p> : null}
                     {theme.sourceUrl ? (
-                      <a href={theme.sourceUrl} target="_blank" rel="noreferrer">查看评论来源 ↗</a>
+                      <a href={theme.sourceUrl} target="_blank" rel="noreferrer">查看评论来源</a>
                     ) : null}
                   </div>
                 ))}

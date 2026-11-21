@@ -406,7 +406,7 @@ export function SupplierMatrixPk({
                         className={`button ${isPref ? "primary" : "secondary"}`}
                         style={{ width: "100%", justifyContent: "center", fontSize: "12px", height: "34px", borderRadius: "8px" }}
                       >
-                        {sq.isEligible ? "选定此工厂定标 →" : "未达盈利门槛"}
+                        {sq.isEligible ? "选定此工厂定标" : "未达盈利门槛"}
                       </button>
                     </form>
                   )}

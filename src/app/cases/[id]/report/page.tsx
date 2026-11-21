@@ -67,7 +67,6 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
       {/* 3. 标准标题与动作栏 (与其他所有详情页一致) */}
       <div className="title-row no-print" style={{ marginBottom: "24px" }}>
         <div>
-          <div className="eyebrow" style={{ color: "var(--green)" }}>投资决策 · 战报评审</div>
           <h1 style={{ margin: "4px 0 6px 0" }}>{productCase.title}</h1>
           <div className="title-meta">
             <StatusBadge status={productCase.status} />
@@ -148,17 +147,16 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
           </div>
 
           <div style={{ textAlign: "right", flexShrink: 0, marginLeft: "24px" }}>
+            {/* 落章式判定：战报是拿去签批的纸质单据，这一处允许大声，
+                三态三色，NO-GO 用印泥朱红。改造前 GO 与其余两态是二元三元，NO-GO 与 HOLD 同色。 */}
             <div
-              style={{
-                display: "inline-block",
-                padding: "8px 18px",
-                borderRadius: "10px",
-                background: recommendation === "GO" ? "var(--green-soft)" : "var(--amber-soft)",
-                color: recommendation === "GO" ? "var(--green)" : "var(--amber)",
-                fontWeight: 900,
-                fontSize: "18px",
-                boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
-              }}
+              className={`memo-stamp ${
+                recommendation === "GO"
+                  ? "is-go"
+                  : recommendation === "NO-GO"
+                    ? "is-no-go"
+                    : "is-hold"
+              }`}
             >
               {recommendation} · {score} 分
             </div>

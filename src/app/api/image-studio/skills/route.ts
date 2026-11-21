@@ -1,0 +1,59 @@
+import { ApiInputError, apiError, readJsonObject, stringField } from "@/app/api/ai-inbox/http";
+import {
+  deleteLocalImageSkill,
+  listAvailableImageSkills,
+  saveLocalImageSkill,
+} from "@/lib/image-skills";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function POST(request: Request) {
+  try {
+    const body = await readJsonObject(request);
+    const name = stringField(body, "name", { required: true, maxLength: 80 });
+    const description = stringField(body, "description", { maxLength: 300 });
+    const slot = stringField(body, "slot", { maxLength: 40 }) || "lifestyle_image";
+    const aspectRatio = stringField(body, "aspectRatio", { maxLength: 10 }) || "1:1";
+    const styleDirectives = stringField(body, "styleDirectives", { required: true, maxLength: 2000 });
+    const negativeDirectives = stringField(body, "negativeDirectives", { maxLength: 1000 });
+
+    const skill = await saveLocalImageSkill({
+      name,
+      description,
+      slot,
+      aspectRatio,
+      styleDirectives,
+      negativeDirectives,
+    });
+    const skills = await listAvailableImageSkills();
+
+    return Response.json({ skill, skills });
+  } catch (error) {
+    if (error instanceof ApiInputError) return apiError(error);
+    return Response.json(
+      { error: error instanceof Error ? error.message : "保存自定义规范失败" },
+      { status: 400 },
+    );
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const url = new URL(request.url);
+    const id = (url.searchParams.get("id") ?? "").trim();
+    if (!id) {
+      throw new ApiInputError("缺少要删除的规范 ID", 400);
+    }
+
+    await deleteLocalImageSkill(id);
+    const skills = await listAvailableImageSkills();
+    return Response.json({ deletedId: id, skills });
+  } catch (error) {
+    if (error instanceof ApiInputError) return apiError(error);
+    return Response.json(
+      { error: error instanceof Error ? error.message : "删除本地规范失败" },
+      { status: 400 },
+    );
+  }
+}

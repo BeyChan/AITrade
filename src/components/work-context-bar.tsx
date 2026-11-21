@@ -36,7 +36,7 @@ export function WorkContextBar({ items }: { items: WorkContextItem[] }) {
         <span className="work-context-label">当前对象</span>
         <span className="work-context-name">还没有进行中的机会</span>
         <Link className="work-context-next" href="/?new=1#new-research">
-          从一轮选品研究开始 →
+          从一轮选品研究开始
         </Link>
       </div>
     );
@@ -87,7 +87,7 @@ export function WorkContextBar({ items }: { items: WorkContextItem[] }) {
                       onClick={() => setIsOpen(false)}
                       title={`前往 ${it.nextLabel}`}
                     >
-                      {it.nextLabel} →
+                      {it.nextLabel}
                     </Link>
                   </div>
                 );
@@ -101,7 +101,7 @@ export function WorkContextBar({ items }: { items: WorkContextItem[] }) {
       <span className="work-context-divider" aria-hidden="true" />
       <span className="work-context-hint">下一步</span>
       <Link className="work-context-next" href={item.nextHref}>
-        {item.nextLabel} →
+        {item.nextLabel}
       </Link>
     </div>
   );

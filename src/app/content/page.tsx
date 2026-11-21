@@ -29,7 +29,10 @@ export default async function ContentWorkbenchPage({ searchParams }: Props) {
           <h1>内容工作台</h1>
           <p>集中管理已立项商品的主图、商品定义、Listing 草稿与发布预检。未完成供应商定标的商品只能查看状态，不能开始内容制作。</p>
         </div>
-        <Link href="/" className="button secondary">返回 AI 选品</Link>
+        <div className="button-row">
+          <Link href="/image-studio" className="button primary">AI 生图工坊</Link>
+          <Link href="/" className="button secondary">返回 AI 选品</Link>
+        </div>
       </section>
 
       {query.notice ? <div className="notice"><strong>已完成：</strong>{query.notice}</div> : null}
@@ -123,9 +126,9 @@ export default async function ContentWorkbenchPage({ searchParams }: Props) {
                 </div>
                 <div className="sourcing-case-actions">
                   {item.selection ? (
-                    <Link href={`/cases/${item.productCase.id}/content`} className="button primary">打开内容工作台 →</Link>
+                    <Link href={`/cases/${item.productCase.id}/content`} className="button primary">打开内容工作台</Link>
                   ) : (
-                    <Link href={`/cases/${item.productCase.id}/sourcing`} className="button primary">先完成供应商定标 →</Link>
+                    <Link href={`/cases/${item.productCase.id}/sourcing`} className="button primary">先完成供应商定标</Link>
                   )}
                   <TerminateCaseControl
                     caseId={item.productCase.id}
