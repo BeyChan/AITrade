@@ -226,7 +226,7 @@ export function SupplierDirectoryClient({
                 borderRadius: "8px",
                 border: "1px solid var(--line)",
                 fontSize: "13px",
-                background: "#fff",
+                background: "var(--paper)",
               }}
             >
               <option value="all">所有平台来源</option>
@@ -236,7 +236,7 @@ export function SupplierDirectoryClient({
           </div>
 
           {filteredSuppliers.length === 0 ? (
-            <div className="empty-state" style={{ padding: "40px", background: "#fff", borderRadius: "12px", border: "1px solid var(--line)" }}>
+            <div className="empty-state" style={{ padding: "40px", background: "var(--paper)", borderRadius: "12px", border: "1px solid var(--line)" }}>
               <h3>未找到匹配的工厂档案</h3>
               <p>请尝试更换搜索关键词，或点击右上角「+ 录入新 1688 工厂」添加。</p>
             </div>
@@ -254,7 +254,7 @@ export function SupplierDirectoryClient({
                   <article
                     key={supplier.id}
                     style={{
-                      background: "#fff",
+                      background: "var(--paper)",
                       border: "1px solid var(--line)",
                       borderRadius: "12px",
                       padding: "18px",
@@ -351,8 +351,8 @@ export function SupplierDirectoryClient({
                                 style={{
                                   fontSize: "11px",
                                   padding: "2px 8px",
-                                  background: "#f0fdf4",
-                                  border: "1px solid #bbf7d0",
+                                  background: "var(--green-soft)",
+                                  border: "1px solid var(--line-strong)",
                                   borderRadius: "4px",
                                   color: "var(--green)",
                                   textDecoration: "none",
@@ -415,7 +415,7 @@ export function SupplierDirectoryClient({
       {activeTab === "cases" && (
         <div className="stack" style={{ gap: "16px" }}>
           {cases.length === 0 ? (
-            <div className="empty-state" style={{ padding: "40px", background: "#fff", borderRadius: "12px", border: "1px solid var(--line)" }}>
+            <div className="empty-state" style={{ padding: "40px", background: "var(--paper)", borderRadius: "12px", border: "1px solid var(--line)" }}>
               <h3>暂无已立项商品</h3>
               <p>请先在选品阶段完成立项，项目将自动进入询价追踪。</p>
             </div>

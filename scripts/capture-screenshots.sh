@@ -36,9 +36,10 @@ else
   firstCaseId="${firstCaseId:-e237c6bd-1dc6-4602-9ff5-ada329fb1c59}"
 fi
 
-# 输出文件名 | 路由。
+# 输出文件名 | 路由（白天 / 黑夜各一张）。
 shots=(
-  "aitrade-workspace-sidebar.png|/"
+  "aitrade-workspace-light.png|/?theme=light"
+  "aitrade-workspace-dark.png|/?theme=dark"
 )
 
 for spec in "${shots[@]}"; do
@@ -48,7 +49,7 @@ for spec in "${shots[@]}"; do
   /usr/bin/curl --noproxy '*' -fsS --max-time 180 "$BASE_URL$path" -o /dev/null || true
   "$CHROME" \
     --headless=new --disable-gpu --no-sandbox --no-proxy-server --hide-scrollbars \
-    --window-size="$WIDTH,$HEIGHT" --timeout="$WAIT_MS" \
+    --window-size="$WIDTH,$HEIGHT" --timeout="$WAIT_MS" --virtual-time-budget=4000 \
     --run-all-compositor-stages-before-draw \
     --screenshot="$OUT_DIR/$file" "$BASE_URL$path" >/dev/null 2>&1
   if [ ! -s "$OUT_DIR/$file" ]; then

@@ -12,6 +12,7 @@ import {
 import type { AntiListingResult } from "@/lib/competitor-compare/anti-listing";
 import type { SupplierRfqDraft } from "@/lib/competitor-compare/supplier-rfq";
 import { calculateProductIndex } from "@/lib/competitor-compare/competitiveness";
+import { shortDate } from "@/lib/format";
 import { CompetitorQuadrantChart } from "@/components/competitor-quadrant-chart";
 import { calculateEconomics, type EconomicsAssumptions } from "@/lib/economics";
 import { platformEconomicDefaults } from "@/lib/ai-sourcing";
@@ -461,7 +462,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                 padding: "12px 14px",
                 borderRadius: "12px",
                 border: "1px solid var(--line)",
-                background: "#fbfcfa",
+                background: "var(--surface-subtle)",
                 color: "var(--ink)",
                 fontSize: "13px",
                 lineHeight: "1.5",
@@ -513,7 +514,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                   fontSize: "12px",
                   background: isSelected ? "var(--deep)" : "var(--paper)",
                   border: isSelected ? "1px solid var(--deep)" : "1px solid var(--line)",
-                  color: isSelected ? "var(--lime)" : "var(--ink)",
+                  color: isSelected ? "var(--deep-fg)" : "var(--ink)",
                   cursor: "pointer",
                   whiteSpace: "nowrap",
                   boxShadow: "0 2px 6px rgba(0,0,0,0.03)",
@@ -585,7 +586,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                   {isConfirmed ? "已人工核对" : "待人工核对"}
                 </span>
                 <span style={{ fontSize: "12px", color: "var(--muted)" }}>
-                  {new Date(currentReport.createdAt).toLocaleDateString()}
+                  {shortDate(currentReport.createdAt)}
                 </span>
               </div>
               <div style={{ fontSize: "12px", color: "var(--muted)", marginTop: "6px" }}>
@@ -652,7 +653,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
 
           {/* 反制 Listing 创作面板 */}
           {antiListing && (
-            <section className="panel" style={{ padding: "24px", background: "#fbfdfc", border: "1.5px solid var(--green)" }}>
+            <section className="panel" style={{ padding: "24px", background: "var(--surface-subtle)", border: "1.5px solid var(--green)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px" }}>
                 <div>
                   <div className="eyebrow" style={{ color: "var(--green)" }}>ANTI-COMPETITOR LISTING STUDIO · 反制竞品内容</div>
@@ -695,7 +696,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
               )}
 
               {/* 反制标题 */}
-              <div style={{ background: "#ffffff", padding: "12px 14px", borderRadius: "10px", border: "1px solid var(--line)", marginBottom: "16px" }}>
+              <div style={{ background: "var(--paper)", padding: "12px 14px", borderRadius: "10px", border: "1px solid var(--line)", marginBottom: "16px" }}>
                 <div style={{ fontSize: "11px", color: "var(--green)", fontWeight: 700, marginBottom: "4px" }}>
                   ✦ 推荐差异化商品标题 (Anti-Title):
                 </div>
@@ -711,7 +712,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                   <div
                     key={idx}
                     style={{
-                      background: "#ffffff",
+                      background: "var(--paper)",
                       padding: "12px 14px",
                       borderRadius: "10px",
                       border: "1px solid var(--line)",
@@ -741,13 +742,13 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
 
               {/* 3 个 A+ 差异化对比模块 */}
               {antiListing.aplusModules && antiListing.aplusModules.length > 0 && (
-                <div style={{ background: "#f5f8f5", padding: "14px", borderRadius: "10px", border: "1px solid var(--line)", marginBottom: "16px" }}>
+                <div style={{ background: "var(--surface-subtle)", padding: "14px", borderRadius: "10px", border: "1px solid var(--line)", marginBottom: "16px" }}>
                   <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--ink)", marginBottom: "8px" }}>
                     🖼️ A+ 页面差异化模块构想（只描述本品，不贬损竞品）：
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "10px" }}>
                     {antiListing.aplusModules.map((m, mi) => (
-                      <div key={mi} style={{ background: "#ffffff", padding: "10px 12px", borderRadius: "8px", border: "1px solid var(--line)", fontSize: "11px" }}>
+                      <div key={mi} style={{ background: "var(--paper)", padding: "10px 12px", borderRadius: "8px", border: "1px solid var(--line)", fontSize: "11px" }}>
                         <div style={{ fontWeight: 700, color: "var(--ink)", marginBottom: "3px" }}>{m.title}</div>
                         <div style={{ color: "var(--muted)", marginBottom: "4px" }}>{m.description}</div>
                         <div style={{ color: "var(--green)", fontStyle: "italic" }}>💡 构图: {m.visualSuggestion}</div>
@@ -760,7 +761,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
               {/* 业务打通：一键写入选品商品 Listing 草稿 */}
               <div
                 style={{
-                  background: "#ffffff",
+                  background: "var(--paper)",
                   padding: "14px 16px",
                   borderRadius: "10px",
                   border: "1px solid var(--line)",
@@ -791,7 +792,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                           borderRadius: "8px",
                           border: "1px solid var(--line)",
                           fontSize: "12px",
-                          background: "#fbfcfa",
+                          background: "var(--surface-subtle)",
                           color: "var(--ink)",
                           maxWidth: "260px",
                         }}
@@ -848,10 +849,10 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
 
           {/* 1688 定制改良询价单 (RFQ) 面板 */}
           {rfqData && (
-            <section className="panel" style={{ padding: "24px", background: "#fbfcfc", border: "1.5px solid #28543f" }}>
+            <section className="panel" style={{ padding: "24px", background: "var(--surface-subtle)", border: "1.5px solid #28543f" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px" }}>
                 <div>
-                  <div className="eyebrow" style={{ color: "#28543f" }}>SUPPLIER SOURCING RFQ · 1688 工业改良询价单</div>
+                  <div className="eyebrow" style={{ color: "var(--green)" }}>SUPPLIER SOURCING RFQ · 1688 工业改良询价单</div>
                   <h4 style={{ margin: "4px 0 0 0", fontSize: "17px", color: "var(--ink)", fontWeight: 800 }}>
                     🏭 针对竞品痛点的工厂开模/打样采购定制单 ({rfqData.productName})
                   </h4>
@@ -881,11 +882,11 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
 
               {/* 核心指标胶囊 */}
               <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginBottom: "16px" }}>
-                <div style={{ background: "#ffffff", padding: "8px 14px", borderRadius: "8px", border: "1px solid var(--line)" }}>
+                <div style={{ background: "var(--paper)", padding: "8px 14px", borderRadius: "8px", border: "1px solid var(--line)" }}>
                   <span style={{ fontSize: "11px", color: "var(--muted)" }}>目标采购单价: </span>
                   <strong style={{ fontSize: "14px", color: "var(--green)" }}>¥{rfqData.targetPriceRmb.toFixed(2)}</strong>
                 </div>
-                <div style={{ background: "#ffffff", padding: "8px 14px", borderRadius: "8px", border: "1px solid var(--line)" }}>
+                <div style={{ background: "var(--paper)", padding: "8px 14px", borderRadius: "8px", border: "1px solid var(--line)" }}>
                   <span style={{ fontSize: "11px", color: "var(--muted)" }}>建议试单 MOQ: </span>
                   <strong style={{ fontSize: "13px", color: "var(--ink)" }}>{rfqData.suggestedMoq}</strong>
                 </div>
@@ -912,7 +913,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                     <div
                       key={idx}
                       style={{
-                        background: "#ffffff",
+                        background: "var(--paper)",
                         padding: "10px 14px",
                         borderRadius: "8px",
                         border: "1px solid var(--line)",
@@ -937,7 +938,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
 
               {/* 质检验货标准 */}
               {rfqData.qualityStandard && rfqData.qualityStandard.length > 0 && (
-                <div style={{ background: "#f5f8f5", padding: "12px 14px", borderRadius: "8px", border: "1px solid var(--line)", marginBottom: "16px" }}>
+                <div style={{ background: "var(--surface-subtle)", padding: "12px 14px", borderRadius: "8px", border: "1px solid var(--line)", marginBottom: "16px" }}>
                   <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--ink)", marginBottom: "6px" }}>
                     🧪 打样与出货质检验收要求：
                   </div>
@@ -950,7 +951,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
               )}
 
               {/* 阿里旺旺完整文本 */}
-              <div style={{ background: "#ffffff", padding: "12px 14px", borderRadius: "8px", border: "1px solid var(--line)" }}>
+              <div style={{ background: "var(--paper)", padding: "12px 14px", borderRadius: "8px", border: "1px solid var(--line)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
                   <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--muted)" }}>阿里旺旺 / 微信工厂对接话术预览：</span>
                   <button
@@ -969,7 +970,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                     lineHeight: "1.5",
                     color: "var(--ink)",
                     fontFamily: "ui-monospace, monospace",
-                    background: "#fbfcfb",
+                    background: "var(--surface-subtle)",
                     padding: "10px",
                     borderRadius: "6px",
                   }}
@@ -981,7 +982,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
           )}
 
           {/* 业务大动脉闭环：采购成本核算、机会分测算与一键正式立项 */}
-          <section className="panel" style={{ padding: "20px 24px", background: "#fbfdfc", border: "1.5px solid var(--green)" }}>
+          <section className="panel" style={{ padding: "20px 24px", background: "var(--surface-subtle)", border: "1.5px solid var(--green)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "14px", flexWrap: "wrap", gap: "10px" }}>
               <div>
                 <div className="eyebrow" style={{ color: "var(--green)" }}>PIPELINE PROMOTION · 业务闭环立项</div>
@@ -1015,7 +1016,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                     value={quoteCostRmb}
                     onChange={(e) => setQuoteCostRmb(Number(e.target.value))}
                     step="0.5"
-                    style={{ width: "100%", padding: "7px 10px", borderRadius: "8px", border: "1px solid var(--line)", fontSize: "14px", fontWeight: 700, background: "#ffffff" }}
+                    style={{ width: "100%", padding: "7px 10px", borderRadius: "8px", border: "1px solid var(--line)", fontSize: "14px", fontWeight: 700, background: "var(--paper)" }}
                   />
                 </div>
                 <div style={{ fontSize: "10px", color: "var(--muted)", marginTop: "2px" }}>
@@ -1034,7 +1035,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                     value={targetPriceVal}
                     onChange={(e) => setTargetPriceVal(Number(e.target.value))}
                     step="0.5"
-                    style={{ width: "100%", padding: "7px 10px", borderRadius: "8px", border: "1px solid var(--line)", fontSize: "14px", fontWeight: 700, background: "#ffffff" }}
+                    style={{ width: "100%", padding: "7px 10px", borderRadius: "8px", border: "1px solid var(--line)", fontSize: "14px", fontWeight: 700, background: "var(--paper)" }}
                   />
                 </div>
                 <div style={{ fontSize: "10px", color: "var(--muted)", marginTop: "2px" }}>
@@ -1045,7 +1046,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
               {/* 实时财务指标看板 */}
               <div
                 style={{
-                  background: "#ffffff",
+                  background: "var(--paper)",
                   padding: "10px 14px",
                   borderRadius: "10px",
                   border: "1px solid var(--line)",
@@ -1076,7 +1077,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
               </div>
             </div>
 
-            <div style={{ fontSize: "11px", color: "var(--muted)", marginBottom: "12px", background: "#f8faf9", padding: "6px 12px", borderRadius: "6px" }}>
+            <div style={{ fontSize: "11px", color: "var(--muted)", marginBottom: "12px", background: "var(--surface-subtle)", padding: "6px 12px", borderRadius: "6px" }}>
               💡 <strong>与正式成本模型 100% 同源核算（零偏差）：</strong>
               已扣除：到岸采购运费 ({(economics.landedCostCents / 100).toFixed(2)}) · FBA 履约派送 ({(economics.fbaFeeCents / 100).toFixed(2)}) · 平台佣金 ({(economics.referralFeeCents / 100).toFixed(2)}) · PPC 广告 12% ({(economics.adCostCents / 100).toFixed(2)}) · 退货损耗 ({(economics.returnLossCents / 100).toFixed(2)}) · 优惠券仓储杂费 ({((economics.couponCents + economics.storageCents + economics.otherCostCents) / 100).toFixed(2)})。
             </div>
@@ -1129,14 +1130,14 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
             const themeColor = isS
               ? "var(--green)"
               : isA
-              ? "#1d6a3a"
+              ? "var(--green)"
               : isB
               ? "var(--amber)"
               : "var(--red)";
             const themeBg = isS
               ? "var(--green-soft)"
               : isA
-              ? "#edf7f1"
+              ? "var(--green-soft)"
               : isB
               ? "var(--amber-soft)"
               : "var(--red-soft)";
@@ -1181,7 +1182,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                 {showIndexHelp && (
                   <div
                     style={{
-                      background: "#f0f4f1",
+                      background: "var(--surface-subtle)",
                       border: "1px solid var(--line)",
                       borderRadius: "10px",
                       padding: "12px 16px",
@@ -1217,7 +1218,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                     gridTemplateColumns: "280px 1fr",
                     gap: "24px",
                     alignItems: "center",
-                    background: "#f8faf8",
+                    background: "var(--surface-subtle)",
                     padding: "20px",
                     borderRadius: "14px",
                     border: "1px solid var(--line)",
@@ -1359,7 +1360,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
             >
               <div
                 style={{
-                  background: "#f8faf8",
+                  background: "var(--surface-subtle)",
                   padding: "12px 14px",
                   borderRadius: "12px",
                   border: "1px solid var(--line)",
@@ -1373,7 +1374,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
 
               <div
                 style={{
-                  background: "#f8faf8",
+                  background: "var(--surface-subtle)",
                   padding: "12px 14px",
                   borderRadius: "12px",
                   border: "1px solid var(--line)",
@@ -1403,7 +1404,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
 
               <div
                 style={{
-                  background: "#f8faf8",
+                  background: "var(--surface-subtle)",
                   padding: "12px 14px",
                   borderRadius: "12px",
                   border: "1px solid var(--line)",
@@ -1417,7 +1418,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
 
               <div
                 style={{
-                  background: "#f8faf8",
+                  background: "var(--surface-subtle)",
                   padding: "12px 14px",
                   borderRadius: "12px",
                   border: "1px solid var(--line)",
@@ -1431,7 +1432,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
 
               <div
                 style={{
-                  background: "#f8faf8",
+                  background: "var(--surface-subtle)",
                   padding: "12px 14px",
                   borderRadius: "12px",
                   border: "1px solid var(--line)",
@@ -1481,7 +1482,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                   <div
                     key={item.id || idx}
                     style={{
-                      background: "#ffffff",
+                      background: "var(--paper)",
                       borderRadius: "14px",
                       border: "1px solid var(--line)",
                       padding: "18px",
@@ -1607,7 +1608,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                       {item.specifications && Object.keys(item.specifications).length > 0 && (
                         <div
                           style={{
-                            background: "#f8faf8",
+                            background: "var(--surface-subtle)",
                             padding: "8px 10px",
                             borderRadius: "8px",
                             border: "1px solid var(--line)",
@@ -1701,7 +1702,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                 style={{
                   padding: "16px",
                   borderRadius: "12px",
-                  background: "#f8faf8",
+                  background: "var(--surface-subtle)",
                   border: "1px solid var(--line)",
                   display: "flex",
                   flexDirection: "column",

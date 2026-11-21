@@ -95,7 +95,7 @@ export function ComplianceRadarCard({ radar }: { radar: ComplianceRadarResult })
               <div
                 key={f.id}
                 style={{
-                  background: "#ffffff",
+                  background: "var(--paper)",
                   padding: "10px 14px",
                   borderRadius: "8px",
                   border: isCrit ? "1px solid rgba(161, 61, 57, 0.3)" : "1px solid var(--line)",

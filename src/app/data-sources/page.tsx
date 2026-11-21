@@ -74,7 +74,7 @@ export default async function DataSourcesPage() {
 
       <div
         style={{
-          background: "#ffffff",
+          background: "var(--paper)",
           borderRadius: "8px",
           border: "1px solid var(--line)",
           padding: "16px 20px",

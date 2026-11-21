@@ -49,7 +49,7 @@ export function OpportunityScoreHelp() {
             aria-modal="true"
             aria-label="选品分与商品指数说明"
             style={{
-              background: "#ffffff",
+              background: "var(--paper)",
               borderRadius: "16px",
               padding: "24px 28px",
               maxWidth: "580px",
@@ -71,7 +71,7 @@ export function OpportunityScoreHelp() {
                 onClick={() => setOpen(false)}
                 aria-label="关闭说明"
                 style={{
-                  background: "#f0f4f1",
+                  background: "var(--surface-subtle)",
                   border: "none",
                   borderRadius: "50%",
                   width: "28px",
@@ -88,7 +88,7 @@ export function OpportunityScoreHelp() {
             </div>
 
             <div style={{ fontSize: "13px", lineHeight: "1.6" }}>
-              <div style={{ background: "#f8faf8", padding: "12px 14px", borderRadius: "10px", border: "1px solid var(--line)", marginBottom: "12px" }}>
+              <div style={{ background: "var(--surface-subtle)", padding: "12px 14px", borderRadius: "10px", border: "1px solid var(--line)", marginBottom: "12px" }}>
                 <strong style={{ color: "var(--green)" }}>机会分（列表里的「选品分」，0～100）</strong>
                 <ul style={{ margin: "6px 0 0 0", paddingLeft: "18px", fontSize: "12px" }}>
                   <li><strong>净利率得分（40 分）：</strong>30% 净利率为满分基准</li>
@@ -99,7 +99,7 @@ export function OpportunityScoreHelp() {
                 </ul>
               </div>
 
-              <div style={{ background: "#fff8f0", padding: "12px 14px", borderRadius: "10px", border: "1px solid #efd9bd", marginBottom: "12px", fontSize: "12px" }}>
+              <div style={{ background: "var(--amber-soft)", padding: "12px 14px", borderRadius: "10px", border: "1px solid #efd9bd", marginBottom: "12px", fontSize: "12px" }}>
                 <strong>GO 不是「分数够高」就能拿到。</strong>系统会逐项检查门禁：机会分 ≥65、已核实竞品证据 ≥20（AI / 模板素材不算）、差评样本 ≥50、供应商 ≥3、报价 ≥3、证据完整度 ≥80、净利率 ≥18%、样品评分 ≥80、MOQ ≤500、交期 ≤30 天、非 USD 需录入可追溯汇率等。<strong>全部通过才是 GO</strong>；出现净利率不足、压力利润 ≤0、专利或物流阻断等硬失败直接 NO-GO；其余为 HOLD。机会分只是其中一项。
               </div>
 

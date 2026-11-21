@@ -105,8 +105,8 @@ export function DashboardPipelineKanban({
       subtitle: "链接采集 · 指数测算",
       count: stage1Items.length,
       focusTask: stage1Task,
-      badgeColor: "#3766a6",
-      badgeBg: "#e8f0fc",
+      badgeColor: "var(--blue)",
+      badgeBg: "var(--blue-soft)",
       viewAllHref: `/competitors?market=${encodeURIComponent(marketCode)}&platform=${encodeURIComponent(platformCode)}`,
       items: stage1Items.slice(0, stage1Limit).map((r) => ({
         id: r.id,
@@ -126,8 +126,8 @@ export function DashboardPipelineKanban({
       subtitle: "1688 RFQ · 样品询价",
       count: stage2Items.length,
       focusTask: stage2Task,
-      badgeColor: "#a96610",
-      badgeBg: "#fff3d9",
+      badgeColor: "var(--amber)",
+      badgeBg: "var(--amber-soft)",
       viewAllHref: "/sourcing",
       items: stage2Items.slice(0, stage2Limit).map((c) => ({
         id: c.id,
@@ -147,8 +147,8 @@ export function DashboardPipelineKanban({
       subtitle: "压力测试 · 机会分保本",
       count: stage3Items.length,
       focusTask: stage3Task,
-      badgeColor: "#9333ea",
-      badgeBg: "#f3e8ff",
+      badgeColor: "#a855f7",
+      badgeBg: "rgba(168, 85, 247, 0.14)",
       viewAllHref: "/sourcing",
       items: stage3Items.slice(0, stage3Limit).map((c) => {
         const res = c.costModel?.results;
@@ -171,8 +171,8 @@ export function DashboardPipelineKanban({
       subtitle: "反制五点 · A+ 视觉",
       count: stage4Items.length,
       focusTask: stage4Task,
-      badgeColor: "#1f7a55",
-      badgeBg: "#e2f5ea",
+      badgeColor: "var(--green)",
+      badgeBg: "var(--green-soft)",
       viewAllHref: "/content",
       items: stage4Items.slice(0, stage4Limit).map((c) => ({
         id: c.id,
@@ -192,8 +192,8 @@ export function DashboardPipelineKanban({
       subtitle: "Flat File · 本地预检",
       count: stage5Items.length,
       focusTask: stage5Task,
-      badgeColor: "#10251c",
-      badgeBg: "#dfe6e0",
+      badgeColor: "var(--ink)",
+      badgeBg: "var(--surface-subtle)",
       viewAllHref: "/content",
       items: stage5Items.slice(0, stage5Limit).map((c) => ({
         id: c.id,
@@ -241,7 +241,7 @@ export function DashboardPipelineKanban({
           <div
             style={{
               display: "inline-flex",
-              background: "#edf2ee",
+              background: "var(--surface-subtle)",
               borderRadius: "8px",
               padding: "2px",
             }}
@@ -251,7 +251,7 @@ export function DashboardPipelineKanban({
               onClick={() => setActiveTab("kanban")}
               style={{
                 border: "none",
-                background: activeTab === "kanban" ? "#ffffff" : "transparent",
+                background: activeTab === "kanban" ? "var(--paper)" : "transparent",
                 color: activeTab === "kanban" ? "var(--ink)" : "var(--muted)",
                 fontWeight: activeTab === "kanban" ? 700 : 500,
                 fontSize: "12px",
@@ -267,7 +267,7 @@ export function DashboardPipelineKanban({
               onClick={() => setActiveTab("list")}
               style={{
                 border: "none",
-                background: activeTab === "list" ? "#ffffff" : "transparent",
+                background: activeTab === "list" ? "var(--paper)" : "transparent",
                 color: activeTab === "list" ? "var(--ink)" : "var(--muted)",
                 fontWeight: activeTab === "list" ? 700 : 500,
                 fontSize: "12px",
@@ -296,7 +296,7 @@ export function DashboardPipelineKanban({
             <div
               key={col.id}
               style={{
-                background: "#fbfcfb",
+                background: "var(--surface-subtle)",
                 borderRadius: "12px",
                 border: "1px solid var(--line)",
                 display: "flex",
@@ -309,7 +309,7 @@ export function DashboardPipelineKanban({
                 style={{
                   padding: "12px 14px",
                   borderBottom: "1px solid var(--line)",
-                  background: "#ffffff",
+                  background: "var(--paper)",
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "center",
@@ -368,8 +368,8 @@ export function DashboardPipelineKanban({
                   <Link
                     href={col.focusTask.href}
                     style={{
-                      background: "linear-gradient(180deg, #f0fdf4 0%, #ffffff 100%)",
-                      border: "1px solid #bbf7d0",
+                      background: "var(--green-soft)",
+                      border: "1px solid var(--line-strong)",
                       borderRadius: "8px",
                       padding: "10px 12px",
                       textDecoration: "none",
@@ -385,7 +385,7 @@ export function DashboardPipelineKanban({
                           fontSize: "10px",
                           fontWeight: 800,
                           color: "var(--green)",
-                          background: "#dcfce7",
+                          background: "var(--green-soft)",
                           padding: "1px 6px",
                           borderRadius: "4px",
                           display: "inline-flex",
@@ -426,7 +426,7 @@ export function DashboardPipelineKanban({
                         fontSize: "11px",
                         fontWeight: 700,
                         color: "var(--green)",
-                        borderTop: "1px dashed #dcfce7",
+                        borderTop: "1px dashed var(--line)",
                         paddingTop: "4px",
                         marginTop: "2px",
                       }}
@@ -440,7 +440,7 @@ export function DashboardPipelineKanban({
                     <div
                       key={item.id}
                       style={{
-                        background: "#ffffff",
+                        background: "var(--paper)",
                         padding: "10px 12px",
                         borderRadius: "8px",
                         border: "1px solid var(--line)",
@@ -466,7 +466,7 @@ export function DashboardPipelineKanban({
                       </div>
 
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "11px" }}>
-                        <span style={{ color: "var(--muted)", background: "#f5f7f5", padding: "1px 6px", borderRadius: "4px" }}>
+                        <span style={{ color: "var(--muted)", background: "var(--surface-subtle)", padding: "1px 6px", borderRadius: "4px" }}>
                           {item.tag}
                         </span>
                         <div style={{ textAlign: "right" }}>
@@ -513,7 +513,7 @@ export function DashboardPipelineKanban({
                       textAlign: "center",
                       padding: "8px 10px",
                       borderRadius: "6px",
-                      background: "#edf4ef",
+                      background: "var(--green-soft)",
                       color: "var(--green)",
                       fontSize: "11px",
                       fontWeight: 700,
@@ -546,7 +546,7 @@ export function DashboardPipelineKanban({
               <div
                 key={c.id}
                 style={{
-                  background: "#ffffff",
+                  background: "var(--paper)",
                   padding: "10px 14px",
                   borderRadius: "8px",
                   border: "1px solid var(--line)",

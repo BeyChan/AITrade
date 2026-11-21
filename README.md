@@ -5,7 +5,9 @@
 
 无需 Docker、无需付费 API Key，本机 30 秒启动。覆盖 **选品研判 → 财务/物流/合规门禁 → 1688 寻源比价 → 内容与视觉工坊 → 实盘经营复盘** 全链路。
 
-![AITrade 选品工作台 5 阶看板](docs/assets/aitrade-workspace-sidebar.png)
+| 白天模式（Light） | 黑夜模式（Dark） |
+|---|---|
+| ![AITrade 白天模式](docs/assets/aitrade-workspace-light.png) | ![AITrade 黑夜模式](docs/assets/aitrade-workspace-dark.png) |
 
 ---
 
@@ -70,6 +72,7 @@ flowchart TD
 | **6. 交付与实盘复盘** | `/operations` `/cases/[id]/report` | 一键导出 **Amazon 官方 Flat File (TSV)**、A4 **立项决策评审战报 PDF**、**Settlement V2 + FBA 库存实盘 vs 预测偏差与断货预警** |
 
 ### 全局效率体验
+- **白天 / 黑夜双模主题一键切换**：侧栏左下角提供「白天 / 黑夜」无缝切换（持久化至本地并支持 SSR 无闪烁渲染），配套 `npm run theme:check` 主题颜色变量审计门禁。
 - **真实数据 / 演示模式双切换**：演示模式内置经典选品样板并支持一键重置；切至真实模式后彻底隔离 Demo 数据。
 - **在场式 AI 副驾驶 & 全域检索（`⌘K` / `Ctrl+K`）**：自动感知当前案卷/研报上下文，实时输出 18% 门禁诊断与 1688 压价底牌话术（无 API Key 时自动回退确定性专家引擎）。
 - **Chrome 采集扩展（用户触发，零后台爬虫）**：在亚马逊详情页（`/dp/`）或搜索页（`/s?k=...`）一键采集最多 20 款可见竞品；在 1688 搜索页一键采集可见工厂卡片。
@@ -129,6 +132,7 @@ npm run dev
 
 ```bash
 npm run typecheck                  # TypeScript 类型检查
+npm run theme:check                # 深浅双模颜色变量审计
 npm test                           # 单元测试（225 项）
 npm run build                      # 生产构建
 npm run db:reset                   # 清空本地数据库与缓存

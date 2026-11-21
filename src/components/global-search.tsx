@@ -175,9 +175,9 @@ export function GlobalSearch() {
             <path d="M14.5 14.5L19.5 19.5" stroke="#ffffff" strokeWidth="2.2" strokeLinecap="round" />
             <path
               d="M19 1.5C19 3.4 20.6 5 22.5 5C20.6 5 19 6.6 19 8.5C19 6.6 17.4 5 15.5 5C17.4 5 19 3.4 19 1.5Z"
-              fill="#b9f26c"
+              fill="#93c5fd"
             />
-            <circle cx="6" cy="10" r="1.2" fill="#b9f26c" />
+            <circle cx="6" cy="10" r="1.2" fill="#93c5fd" />
           </svg>
           <span className="launcher-pulse-dot" />
         </div>

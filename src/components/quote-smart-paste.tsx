@@ -270,7 +270,7 @@ export function QuoteSmartPaste({ disabled }: { disabled?: boolean }) {
   return (
     <div
       style={{
-        background: "#f8fafc",
+        background: "var(--surface-subtle)",
         border: "1px dashed #cbd5e1",
         borderRadius: "8px",
         padding: "12px 16px",
@@ -296,7 +296,7 @@ export function QuoteSmartPaste({ disabled }: { disabled?: boolean }) {
               fontSize: "11px",
               padding: "2px 8px",
               background: "#e0f2fe",
-              color: "#0369a1",
+              color: "var(--blue)",
               borderRadius: "4px",
               fontWeight: 600,
             }}
@@ -339,7 +339,7 @@ export function QuoteSmartPaste({ disabled }: { disabled?: boolean }) {
               border: "1px solid var(--line)",
               fontFamily: "inherit",
               resize: "vertical",
-              background: "#ffffff",
+              background: "var(--paper)",
             }}
           />
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "8px" }}>

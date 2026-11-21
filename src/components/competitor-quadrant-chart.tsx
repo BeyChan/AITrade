@@ -65,10 +65,11 @@ export function CompetitorQuadrantChart({
 
     const maxSales = Math.max(500, ...valid.map((c) => c.monthlySalesEst || 300));
 
+    const round1 = (n: number) => Math.round(n * 10) / 10;
     const toX = (priceCents: number) =>
-      PAD.left + ((priceCents - xMin) / (xMax - xMin)) * PLOT_W;
+      round1(PAD.left + ((priceCents - xMin) / (xMax - xMin)) * PLOT_W);
     const toY = (reviewCount: number) =>
-      PAD.top + PLOT_H - ((logReview(reviewCount) - yMin) / (yMax - yMin)) * PLOT_H;
+      round1(PAD.top + PLOT_H - ((logReview(reviewCount) - yMin) / (yMax - yMin)) * PLOT_H);
 
     const p50X = p50PriceCents > 0 ? toX(p50PriceCents) : PAD.left + PLOT_W / 2;
     const medY = toY(medianReviews);

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ModeSwitcher } from "./mode-switcher";
+import { ThemeSwitcher, type AppTheme } from "./theme-switcher";
 import type { AppMode } from "@/lib/app-mode";
 
 type SubItem = {
@@ -228,24 +229,13 @@ function SidebarItem({ item, pathname }: { item: NavItem; pathname: string }) {
         {hasSub && (
           <button
             type="button"
+            className="sidebar-chevron"
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
               setIsExpanded((prev) => !prev);
             }}
             aria-label={`展开或收起 ${item.label}`}
-            style={{
-              background: "none",
-              border: "none",
-              color: "rgba(255, 255, 255, 0.4)",
-              cursor: "pointer",
-              padding: "6px 8px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: "10px",
-              transition: "transform 0.2s ease, color 0.15s ease",
-            }}
           >
             <span
               style={{
@@ -254,7 +244,7 @@ function SidebarItem({ item, pathname }: { item: NavItem; pathname: string }) {
                 transition: "transform 0.15s ease",
               }}
             >
-              ▶
+              ▸
             </span>
           </button>
         )}
@@ -303,7 +293,13 @@ function SidebarItem({ item, pathname }: { item: NavItem; pathname: string }) {
   );
 }
 
-export function AppSidebar({ mode = "sandbox" }: { mode?: AppMode }) {
+export function AppSidebar({
+  mode = "sandbox",
+  initialTheme = "light",
+}: {
+  mode?: AppMode;
+  initialTheme?: AppTheme;
+}) {
   const pathname = usePathname();
 
   return (
@@ -312,22 +308,13 @@ export function AppSidebar({ mode = "sandbox" }: { mode?: AppMode }) {
         <span className="brand-mark">A</span>
         <span>
           <strong>AITrade</strong>
-          <small>Cross-border Ops</small>
+          <small>跨境投研工作台</small>
         </span>
       </Link>
 
       <nav className="sidebar-nav" aria-label="主导航">
         <div style={{ marginBottom: "14px" }}>
-          <div
-            style={{
-              padding: "0 12px 6px 12px",
-              fontSize: "10px",
-              fontWeight: 800,
-              textTransform: "uppercase",
-              letterSpacing: "1px",
-              color: "rgba(255, 255, 255, 0.35)",
-            }}
-          >
+          <div className="sidebar-group-label">
             业务全生命周期
           </div>
           {MAIN_NAV_ITEMS.map((item) => (
@@ -336,16 +323,7 @@ export function AppSidebar({ mode = "sandbox" }: { mode?: AppMode }) {
         </div>
 
         <div className="sidebar-utility">
-          <div
-            style={{
-              padding: "0 12px 6px 12px",
-              fontSize: "10px",
-              fontWeight: 800,
-              textTransform: "uppercase",
-              letterSpacing: "1px",
-              color: "rgba(255, 255, 255, 0.35)",
-            }}
-          >
+          <div className="sidebar-group-label">
             设置
           </div>
           {SETTINGS_NAV_ITEMS.map((item) => (
@@ -355,6 +333,7 @@ export function AppSidebar({ mode = "sandbox" }: { mode?: AppMode }) {
       </nav>
 
       <div className="sidebar-footer">
+        <ThemeSwitcher initialTheme={initialTheme} />
         <ModeSwitcher currentMode={mode} />
       </div>
     </aside>

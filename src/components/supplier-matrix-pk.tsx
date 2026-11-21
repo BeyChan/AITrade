@@ -109,7 +109,7 @@ export function SupplierMatrixPk({
         <form
           action={onCreate1688Action}
           style={{
-            background: "#fbfcfb",
+            background: "var(--surface-subtle)",
             padding: "18px 20px",
             borderRadius: "12px",
             border: "1.5px solid var(--green)",
@@ -330,7 +330,7 @@ export function SupplierMatrixPk({
                   {/* 核心财务测算卡片 */}
                   <div
                     style={{
-                      background: "#f8faf8",
+                      background: "var(--surface-subtle)",
                       padding: "10px 12px",
                       borderRadius: "8px",
                       border: "1px solid var(--line)",
@@ -418,7 +418,7 @@ export function SupplierMatrixPk({
       ) : (
         <div
           style={{
-            background: "#fbfcfb",
+            background: "var(--surface-subtle)",
             padding: "32px 20px",
             borderRadius: "12px",
             border: "1px dashed var(--line)",

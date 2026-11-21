@@ -143,7 +143,7 @@ export default async function ProductCasesPage({ searchParams }: PageProps) {
                   textDecoration: "none",
                   fontWeight: active ? 700 : 500,
                   background: active ? "var(--deep)" : "var(--canvas)",
-                  color: active ? "#ffffff" : "var(--ink)",
+                  color: active ? "var(--deep-fg)" : "var(--ink)",
                   transition: "all 0.15s ease",
                 }}
               >

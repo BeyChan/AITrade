@@ -40,7 +40,7 @@ export function TerminatedCasesPanel({
               marginBottom: "8px",
               border: "1px solid var(--line)",
               borderRadius: "10px",
-              background: "#fbfcfa",
+              background: "var(--surface-subtle)",
             }}
           >
             <div style={{ minWidth: 0 }}>

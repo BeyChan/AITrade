@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { cookies } from "next/headers";
 import { connection } from "next/server";
 import { Noto_Sans_SC, JetBrains_Mono } from "next/font/google";
 import { AppSidebar } from "@/components/app-sidebar";
+import type { AppTheme } from "@/components/theme-switcher";
 import { SandboxBanner } from "@/components/sandbox-banner";
 import { TopbarSiteScope } from "@/components/topbar-site-scope";
 import { WorkContextBar } from "@/components/work-context-bar";
@@ -39,22 +41,36 @@ const jetbrainsMono = JetBrains_Mono({
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   // PGlite is process-local and must not be opened by parallel build workers.
   await connection();
-  const [options, workContext, mode, persistedScope] = await Promise.all([
+  const [options, workContext, mode, persistedScope, cookieStore] = await Promise.all([
     getSiteOptions(),
     loadWorkContext().catch(() => []),
     getAppMode(),
     resolvePersistedSiteScope(),
+    cookies(),
   ]);
+  const initialTheme: AppTheme = cookieStore.get("aitrade_theme")?.value === "dark" ? "dark" : "light";
   const markets = options.markets.map(({ code, name, currency }) => ({ code, name, currency }));
   const platforms = options.platforms.map(({ code, name }) => ({ code, name }));
 
   // 浏览器扩展（如沉浸式翻译）会在 hydration 前往 <html> 注入 data-* 属性，
   // 造成与服务端 HTML 不一致的误报；仅抑制该元素的属性差异警告。
   return (
-    <html lang="zh-CN" suppressHydrationWarning className={`${notoSansSC.variable} ${jetbrainsMono.variable}`}>
+    <html
+      lang="zh-CN"
+      data-theme={initialTheme}
+      suppressHydrationWarning
+      className={`${notoSansSC.variable} ${jetbrainsMono.variable}`}
+    >
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var p=new URLSearchParams(location.search).get('theme');var t=(p==='dark'||p==='light')?p:localStorage.getItem('aitrade-theme');if(t==='dark'||t==='light'){document.documentElement.dataset.theme=t;}}catch(e){}})();`,
+          }}
+        />
+      </head>
       <body>
         <div className="app-shell" data-mode={mode}>
-          <AppSidebar mode={mode} />
+          <AppSidebar mode={mode} initialTheme={initialTheme} />
           <div className="app-workspace">
             <SandboxBanner mode={mode} />
             <header className="topbar">

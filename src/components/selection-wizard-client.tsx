@@ -153,7 +153,7 @@ export function SelectionWizardClient({
     [marketCode, complianceAttrs, category, productTitle],
   );
 
-  const search1688Url = `https://s.1688.com/selloffer/offer_search.htm?keywords=${encodeURIComponent(
+  const search1688Url = `/api/sourcing/1688-search?q=${encodeURIComponent(
     (productTitle || category || "跨境新品").slice(0, 30),
   )}`;
 

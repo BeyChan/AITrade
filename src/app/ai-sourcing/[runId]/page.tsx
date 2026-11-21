@@ -474,7 +474,7 @@ function HypothesisCard({
                 style={{
                   padding: "10px 14px",
                   borderRadius: "8px",
-                  background: "#f0f7f2",
+                  background: "var(--green-soft)",
                   border: "1px solid #d4e8db",
                   marginBottom: "12px",
                   fontSize: "12px",
@@ -485,7 +485,7 @@ function HypothesisCard({
                   <span>💡</span>
                   <span>如何一步步完成这 8 项验证任务？</span>
                 </div>
-                <div style={{ color: "#374151" }}>
+                <div style={{ color: "var(--ink)" }}>
                   <strong>① 单独勾选完成：</strong>线下或第三方已完成的核验（如已做样品实测、已查专利），点击任务右侧<strong>「标记完成」</strong>或左侧<strong>○</strong>即可单独完成。<br />
                   <strong>② 数据达标自动完成：</strong>在下方录入真实竞品（≥20项）、差评（≥50项）、供应商（≥10家）、真实报价（≥3份），系统检测达标后将自动点亮完成。<br />
                   <strong>③ 门禁联动：</strong>任务完成度与真实证据链共同决定 <strong>GO / HOLD 门禁</strong>，门禁达标后方可转入正式商品立项。
