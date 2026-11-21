@@ -1,9 +1,11 @@
 import path from "node:path";
 import { ModelProfilesManager } from "@/components/model-profiles-manager";
+import { WorkspaceBackupCard } from "@/components/workspace-backup-card";
 import { PageHeader, QueryNotices } from "@/components/ui";
 import { getAIProviderStatus } from "@/lib/ai-provider";
 import { getImageProviderStatus } from "@/lib/image-provider";
 import { MODEL_VENDOR_PRESETS, listModelProfiles } from "@/lib/model-profiles";
+import { canManageSettings, getCurrentMember, WORKSPACE_ROLE_META } from "@/lib/operator";
 import { getVideoProviderStatus } from "@/lib/video-provider";
 
 export const dynamic = "force-dynamic";
@@ -13,13 +15,16 @@ type PageProps = {
 };
 
 export default async function SettingsPage({ searchParams }: PageProps) {
-  const [query, provider, imageProvider, videoProvider, profiles] = await Promise.all([
+  const [query, provider, imageProvider, videoProvider, profiles, member] = await Promise.all([
     searchParams,
     getAIProviderStatus(),
     getImageProviderStatus(),
     getVideoProviderStatus(),
     listModelProfiles(),
+    getCurrentMember(),
   ]);
+  const isAdmin = canManageSettings(member.role);
+  const pinEnabled = Boolean(process.env.APP_ACCESS_PIN?.trim());
   const workingDirectory = process.cwd();
   const configuredDataDirectory = process.env.PGLITE_DATA_DIR || ".data/aitrade";
   const dataDirectory = path.isAbsolute(configuredDataDirectory)
@@ -31,14 +36,23 @@ export default async function SettingsPage({ searchParams }: PageProps) {
       <PageHeader
         breadcrumbs={[
           { label: "工作台", href: "/" },
-          { label: "大模型设置" },
+          { label: "模型与系统设置" },
         ]}
-        eyebrow="系统设置 · 模型配置中心"
-        title="大模型设置"
-        description="统一管理文本、图片、视频三类模型与中转网关。未配置时默认运行在免 Key 本地模板模式；模型只负责提出待验证假设与素材草稿，是否立项与上架仍由确定性规则和人工确认决定。"
+        eyebrow="系统设置 · 模型配置与数据备份"
+        title="模型与系统设置"
+        description="统一管理文本、图片、视频三类模型与整库数据备份；可按需开启共享口令保护。"
       />
 
       <QueryNotices notice={query.notice} error={query.error} />
+
+      {!isAdmin ? (
+        <div className="notice warn">
+          <span className="badge status-review_pending">权限提示</span>
+          <span>
+            当前身份为「{member.name} · {WORKSPACE_ROLE_META[member.role].label}」，仅管理员角色可修改模型密钥或恢复整库备份。如需调整，请在左下角切换为管理员身份。
+          </span>
+        </div>
+      ) : null}
 
       {/* 当前生效默认模型摘要条 */}
       <section className="dashboard-kpi-grid" aria-label="当前生效模型摘要" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
@@ -90,6 +104,9 @@ export default async function SettingsPage({ searchParams }: PageProps) {
 
       {/* 统一模型配置列表 + 添加/编辑弹窗 + 导入导出 */}
       <ModelProfilesManager initialProfiles={profiles} presets={MODEL_VENDOR_PRESETS} />
+
+      {/* 整库数据备份与恢复 */}
+      <WorkspaceBackupCard pinEnabled={pinEnabled} />
 
       {/* 本机运行位置与安全边界 */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "18px" }}>

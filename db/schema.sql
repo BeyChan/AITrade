@@ -1202,3 +1202,105 @@ CREATE INDEX IF NOT EXISTS idx_ai_supplier_drafts_status
   ON ai_supplier_drafts(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ai_supplier_drafts_supplier
   ON ai_supplier_drafts(supplier_shortlist_id, created_at DESC);
+
+-- P4.0 Unified persistence: eliminate flat .data/*.json islands, persist real-world
+-- operations ledger, and add 1688 sample inspection logs for day-to-day workflows.
+CREATE TABLE IF NOT EXISTS competitor_comparison_reports (
+  id TEXT PRIMARY KEY,
+  market_code TEXT NOT NULL DEFAULT 'US',
+  platform_code TEXT NOT NULL DEFAULT 'amazon',
+  provenance TEXT NOT NULL DEFAULT 'unknown',
+  review_status TEXT NOT NULL DEFAULT 'pending',
+  payload JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_competitor_comparison_reports_site
+  ON competitor_comparison_reports(market_code, platform_code, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS studio_media_assets (
+  id TEXT PRIMARY KEY,
+  media_kind TEXT NOT NULL CHECK (media_kind IN ('image', 'video')),
+  case_id TEXT REFERENCES product_cases(id) ON DELETE SET NULL,
+  product_name TEXT NOT NULL DEFAULT '',
+  marketplace TEXT NOT NULL DEFAULT 'US',
+  payload JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_studio_media_assets_kind_created
+  ON studio_media_assets(media_kind, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_studio_media_assets_case
+  ON studio_media_assets(case_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS operations_settlement_batches (
+  id TEXT PRIMARY KEY,
+  label TEXT NOT NULL,
+  marketplace TEXT NOT NULL DEFAULT 'US',
+  currency TEXT NOT NULL DEFAULT 'USD',
+  period_start TEXT NOT NULL DEFAULT '',
+  period_end TEXT NOT NULL DEFAULT '',
+  settlement_file_name TEXT,
+  inventory_file_name TEXT,
+  sku_count INTEGER NOT NULL DEFAULT 0,
+  total_revenue_cents INTEGER NOT NULL DEFAULT 0,
+  total_contribution_cents INTEGER NOT NULL DEFAULT 0,
+  avg_margin_rate NUMERIC(8, 6) NOT NULL DEFAULT 0,
+  stockout_risk_count INTEGER NOT NULL DEFAULT 0,
+  created_by TEXT NOT NULL DEFAULT '管理员',
+  summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_operations_settlement_batches_created
+  ON operations_settlement_batches(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS operations_sku_snapshots (
+  id TEXT PRIMARY KEY,
+  batch_id TEXT NOT NULL REFERENCES operations_settlement_batches(id) ON DELETE CASCADE,
+  case_id TEXT REFERENCES product_cases(id) ON DELETE SET NULL,
+  sku TEXT NOT NULL,
+  period_key TEXT NOT NULL DEFAULT '',
+  units_sold INTEGER NOT NULL DEFAULT 0,
+  revenue_cents INTEGER NOT NULL DEFAULT 0,
+  refund_cents INTEGER NOT NULL DEFAULT 0,
+  ad_spend_cents INTEGER NOT NULL DEFAULT 0,
+  fba_fee_cents INTEGER NOT NULL DEFAULT 0,
+  contribution_cents INTEGER NOT NULL DEFAULT 0,
+  margin_rate NUMERIC(8, 6) NOT NULL DEFAULT 0,
+  available_units INTEGER,
+  days_of_supply INTEGER,
+  stockout_risk TEXT NOT NULL DEFAULT 'unknown'
+    CHECK (stockout_risk IN ('critical', 'warning', 'healthy', 'unknown')),
+  plan_margin_rate NUMERIC(8, 6),
+  margin_delta NUMERIC(8, 6),
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_operations_sku_snapshots_batch
+  ON operations_sku_snapshots(batch_id, contribution_cents DESC);
+CREATE INDEX IF NOT EXISTS idx_operations_sku_snapshots_case
+  ON operations_sku_snapshots(case_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS sourcing_sample_logs (
+  id TEXT PRIMARY KEY,
+  case_id TEXT NOT NULL REFERENCES product_cases(id) ON DELETE CASCADE,
+  supplier_name TEXT NOT NULL,
+  sample_cost_cny NUMERIC(10, 2) NOT NULL DEFAULT 0,
+  shipping_cost_cny NUMERIC(10, 2) NOT NULL DEFAULT 0,
+  tracking_no TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'ordered'
+    CHECK (status IN ('ordered', 'received', 'passed', 'failed', 'returned')),
+  quality_rating INTEGER CHECK (quality_rating IS NULL OR quality_rating BETWEEN 1 AND 5),
+  pros TEXT NOT NULL DEFAULT '',
+  defects TEXT NOT NULL DEFAULT '',
+  notes TEXT NOT NULL DEFAULT '',
+  created_by TEXT NOT NULL DEFAULT '管理员',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sourcing_sample_logs_case
+  ON sourcing_sample_logs(case_id, created_at DESC);

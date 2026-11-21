@@ -10,6 +10,7 @@ import { TopbarSiteScope } from "@/components/topbar-site-scope";
 import { WorkContextBar } from "@/components/work-context-bar";
 import { GlobalSearch } from "@/components/global-search";
 import { getAppMode } from "@/lib/app-mode";
+import { getCurrentMember } from "@/lib/operator";
 import { getSiteOptions } from "@/lib/repository";
 import { loadWorkContext } from "@/lib/work-context";
 import { resolvePersistedSiteScope } from "@/lib/site-scope";
@@ -41,12 +42,13 @@ const jetbrainsMono = JetBrains_Mono({
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   // PGlite is process-local and must not be opened by parallel build workers.
   await connection();
-  const [options, workContext, mode, persistedScope, cookieStore] = await Promise.all([
+  const [options, workContext, mode, persistedScope, cookieStore, currentMember] = await Promise.all([
     getSiteOptions(),
     loadWorkContext().catch(() => []),
     getAppMode(),
     resolvePersistedSiteScope(),
     cookies(),
+    getCurrentMember(),
   ]);
   const initialTheme: AppTheme = cookieStore.get("aitrade_theme")?.value === "dark" ? "dark" : "light";
   const markets = options.markets.map(({ code, name, currency }) => ({ code, name, currency }));
@@ -61,16 +63,16 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       suppressHydrationWarning
       className={`${notoSansSC.variable} ${jetbrainsMono.variable}`}
     >
-      <head>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{var p=new URLSearchParams(location.search).get('theme');var t=(p==='dark'||p==='light')?p:localStorage.getItem('aitrade-theme');if(t==='dark'||t==='light'){document.documentElement.dataset.theme=t;}}catch(e){}})();`,
-          }}
-        />
-      </head>
       <body>
         <div className="app-shell" data-mode={mode}>
-          <AppSidebar mode={mode} initialTheme={initialTheme} />
+          <Suspense fallback={<aside className="sidebar" />}>
+            <AppSidebar
+              mode={mode}
+              initialTheme={initialTheme}
+              initialOperator={currentMember.name}
+              initialRole={currentMember.role}
+            />
+          </Suspense>
           <div className="app-workspace">
             <SandboxBanner mode={mode} />
             <header className="topbar">

@@ -332,7 +332,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                     <span className="step-num">3</span>
                     <strong>随时查看演示样板</strong>
                     <p>如需复习全生命周期流程，可在左下角侧边栏随时切回「演示模式」</p>
-                    <Link href="/connections" className="button ghost">检查店铺连接</Link>
+                    <Link href="/settings" className="button ghost">模型与系统设置</Link>
                   </div>
                 </div>
               </div>

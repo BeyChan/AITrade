@@ -7,7 +7,10 @@ import { money, shortDate } from "@/lib/format";
 import { getSourcingDetail, listSupplierDirectory } from "@/lib/repository";
 import { SupplierMatrixPk } from "@/components/supplier-matrix-pk";
 import { QuoteSmartPaste } from "@/components/quote-smart-paste";
+import { SourcingPracticalTools } from "@/components/sourcing-practical-tools";
 import { PageHeader, QueryNotices } from "@/components/ui";
+import { getDb } from "@/lib/db";
+import type { SampleLogRecord, SampleLogStatus } from "@/app/api/cases/[id]/samples/route";
 
 export const dynamic = "force-dynamic";
 
@@ -25,12 +28,39 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
   const detail = await getSourcingDetail(id);
   if (!detail) notFound();
 
+  const initialSamples: SampleLogRecord[] = await getDb()
+    .then((db) =>
+      db.query<Record<string, unknown>>(
+        `SELECT * FROM sourcing_sample_logs WHERE case_id = $1 ORDER BY created_at DESC`,
+        [id],
+      ),
+    )
+    .then((res) =>
+      res.rows.map((r) => ({
+        id: String(r.id),
+        caseId: String(r.case_id),
+        supplierName: String(r.supplier_name ?? ""),
+        sampleCostCny: Number(r.sample_cost_cny ?? 0),
+        shippingCostCny: Number(r.shipping_cost_cny ?? 0),
+        trackingNo: String(r.tracking_no ?? ""),
+        status: (String(r.status || "ordered") as SampleLogStatus),
+        qualityRating: r.quality_rating != null ? Number(r.quality_rating) : null,
+        pros: String(r.pros ?? ""),
+        defects: String(r.defects ?? ""),
+        notes: String(r.notes ?? ""),
+        createdBy: String(r.created_by ?? "管理员"),
+        createdAt: String(r.created_at ?? ""),
+        updatedAt: String(r.updated_at ?? ""),
+      })),
+    )
+    .catch(() => []);
+
   const directorySuppliers = directoryData.suppliers || [];
   const { productCase, costModel, quotes, scoredQuotes, selection, auditLogs } = detail;
   const selectedQuote = quotes.find((quote) => quote.id === selection?.quote_id) ?? null;
   const selectedScore = scoredQuotes.find((quote) => quote.id === selection?.quote_id) ?? null;
   const preferred = scoredQuotes.find((quote) => quote.isPreferred) ?? null;
-  const canSource = productCase.status === "approved";
+  const canSource = productCase.status !== "archived" && productCase.status !== "rejected";
   const eligibleCount = scoredQuotes.filter((quote) => quote.isEligible).length;
 
   return (
@@ -70,15 +100,11 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
       />
 
       <QueryNotices notice={query.notice} error={query.error} />
-      {productCase.is_demo ? (
-        <div className="notice">
-          <span className="badge demo-badge">DEMO</span>
-          <span>当前商品为演示数据。录入的供应商和报价仍应明确标注为测试数据，不得据此下单或对外报价。</span>
-        </div>
-      ) : null}
       {!canSource ? (
-        <div className="notice warn"><span className="badge status-review_pending">LOCKED</span><span>只有状态为“已立项”的商品可以录入报价或定标。</span></div>
+        <div className="notice warn"><span className="badge status-review_pending">ARCHIVED</span><span>当前商品已归档或终止，如需继续询价请先恢复状态。</span></div>
       ) : null}
+
+      <SourcingPracticalTools caseId={productCase.id} initialSamples={initialSamples} />
 
       <section className="metrics-grid sourcing-summary-grid">
         <article className="metric-card">

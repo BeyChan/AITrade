@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>AITrade 跨境实战助手</title>
+  <style>
+    body {
+      width: 340px;
+      margin: 0;
+      padding: 14px;
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
+      background: #f5f7f5;
+      color: #18221d;
+      font-size: 13px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .title { font-weight: 800; font-size: 15px; color: #10251c; }
+    .badge {
+      padding: 2px 8px;
+      border-radius: 99px;
+      font-size: 11px;
+      font-weight: 700;
+      background: #e1efe6;
+      color: #1f7a55;
+    }
+    .card {
+      background: #ffffff;
+      border: 1px solid #dfe6e0;
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 10px;
+    }
+    label { display: block; font-size: 12px; color: #52635a; margin-bottom: 4px; font-weight: 600; }
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 7px 9px;
+      border-radius: 7px;
+      border: 1px solid #ccd6ce;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    button {
+      width: 100%;
+      padding: 9px 12px;
+      border-radius: 8px;
+      border: none;
+      background: #10251c;
+      color: #ffffff;
+      font-weight: 700;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .status {
+      margin-top: 8px;
+      font-size: 12px;
+      line-height: 1.5;
+      color: #52635a;
+      word-break: break-all;
+    }
+    .status.ok { color: #1f7a55; font-weight: 600; }
+    .status.err { color: #b8322a; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <span class="title">AITrade 跨境实战助手</span>
+    <span id="siteBadge" class="badge">检测页面中…</span>
+  </div>
+
+  <div class="card">
+    <label for="serverUrl">AITrade 服务地址（本机或共享服务器）</label>
+    <input id="serverUrl" type="url" placeholder="http://localhost:3000" />
+    <div id="extraFieldWrap" style="display:none;">
+      <label for="hypothesisId">目标研究假设 ID（1688 采集必填）</label>
+      <input id="hypothesisId" type="text" placeholder="在 AITrade 页面复制假设 ID" />
+    </div>
+    <button id="captureBtn" disabled>等待页面识别…</button>
+    <div id="status" class="status">请在 Amazon 商品/搜索页或 1688 搜索页打开本助手。</div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

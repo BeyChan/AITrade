@@ -1,0 +1,68 @@
+import { NextResponse } from "next/server";
+import { getCurrentOperator } from "@/lib/operator";
+import type { PipelineResult } from "@/lib/operations-pipeline";
+import {
+  deleteOperationsBatch,
+  listOperationsBatches,
+  saveOperationsBatch,
+} from "@/lib/operations-repository";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  try {
+    const batches = await listOperationsBatches(30);
+    return NextResponse.json({ batches });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "读取实盘账本失败" },
+      { status: 500 },
+    );
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const body = (await request.json()) as {
+      label?: string;
+      marketplace?: string;
+      currency?: string;
+      result?: PipelineResult;
+    };
+    if (!body.result || !Array.isArray(body.result.periods)) {
+      return NextResponse.json({ error: "缺少可保存的结算试算结果" }, { status: 400 });
+    }
+    const operator = await getCurrentOperator();
+    const saved = await saveOperationsBatch({
+      label: body.label || "",
+      marketplace: body.marketplace || "US",
+      currency: body.currency || "USD",
+      createdBy: operator,
+      result: body.result,
+    });
+    return NextResponse.json({ ok: true, batch: saved });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "保存实盘账本失败" },
+      { status: 500 },
+    );
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id")?.trim();
+    if (!id) {
+      return NextResponse.json({ error: "缺少批次 ID" }, { status: 400 });
+    }
+    await deleteOperationsBatch(id);
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "删除账本批次失败" },
+      { status: 500 },
+    );
+  }
+}

@@ -57,12 +57,15 @@ export default async function CaseDetailPage({ params }: PageProps) {
         }
         actions={
           <>
-            <Link href={`/cases/${productCase.id}/report`} className="button secondary">🖨️ 评审报告/PDF</Link>
-            <a href={`/api/cases/${productCase.id}/flatfile`} className="button secondary">📥 Flat File</a>
-            {hasSupplierSelection ? <Link href={`/cases/${productCase.id}/content`} className="button primary">进入内容工作台</Link> : null}
-            {hasSupplierSelection ? <Link href={`/cases/${productCase.id}/channels`} className="button secondary">上市矩阵</Link> : null}
-            {productCase.status === "approved" ? <Link href={`/cases/${productCase.id}/sourcing`} className={`button ${hasSupplierSelection ? "ghost" : "primary"}`}>{hasSupplierSelection ? "查看供应商定标" : "进入供应商询价"}</Link> : null}
-            {productCase.url ? <a className="button secondary" href={productCase.url} target="_blank" rel="noreferrer">打开商品页</a> : null}
+            <Link href={`/cases/${productCase.id}/sourcing`} className={`button ${hasSupplierSelection ? "secondary" : "primary"}`}>
+              {hasSupplierSelection ? "1688 寻源与打样" : "去 1688 比价定标"}
+            </Link>
+            <Link href={`/cases/${productCase.id}/content`} className="button secondary">文案与合规</Link>
+            <Link href={`/studio?tab=image&caseId=${encodeURIComponent(productCase.id)}`} className="button secondary">去视觉工坊</Link>
+            <a href={`/api/cases/${productCase.id}/media-pack`} className="button secondary" download>打包素材 ZIP</a>
+            <a href={`/api/cases/${productCase.id}/flatfile`} className="button secondary" download>导出 Flat File</a>
+            <Link href={`/cases/${productCase.id}/report`} className="button secondary">立项战报 PDF</Link>
+            {productCase.url ? <a className="button ghost" href={productCase.url} target="_blank" rel="noreferrer">打开商品页</a> : null}
           </>
         }
       />

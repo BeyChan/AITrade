@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "AITrade 跨境实战助手（Amazon + 1688 二合一）",
+  "version": "2.0.0",
+  "description": "自动识别当前页面：在亚马逊一键采集单品或 Top 20 搜索竞品；在 1688 一键采集源头工厂与报价，直推 AITrade 工作台。",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": [
+    "https://*.amazon.com/*",
+    "https://*.amazon.com.au/*",
+    "https://*.amazon.co.uk/*",
+    "https://*.amazon.de/*",
+    "https://*.amazon.co.jp/*",
+    "https://*.amazon.ca/*",
+    "https://*.amazon.sg/*",
+    "https://*.1688.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "https://*/*",
+    "http://*/*"
+  ],
+  "action": {
+    "default_title": "AITrade 跨境助手",
+    "default_popup": "popup.html"
+  }
+}

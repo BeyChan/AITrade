@@ -2,10 +2,12 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { ModeSwitcher } from "./mode-switcher";
+import { OperatorSwitcher } from "./operator-switcher";
 import { ThemeSwitcher, type AppTheme } from "./theme-switcher";
 import type { AppMode } from "@/lib/app-mode";
+import type { WorkspaceRole } from "@/lib/operator-shared";
 
 type SubItem = {
   href: string;
@@ -28,47 +30,44 @@ const MAIN_NAV_ITEMS: NavItem[] = [
   },
   {
     href: "/discover",
-    label: "选品中心",
+    label: "选品雷达",
     icon: "competitor",
     subItems: [
       { href: "/discover", label: "3 步快速选品" },
       { href: "/competitors", label: "竞品对比研报" },
-      { href: "/ai-sourcing", label: "AI 选品批次" },
       { href: "/import", label: "批量导入 CSV" },
     ],
   },
   {
     href: "/cases",
-    label: "商品案卷",
+    label: "我的商品",
     icon: "case",
   },
   {
-    href: "/sourcing",
-    label: "寻源与供应商",
-    icon: "sourcing",
-  },
-  {
-    href: "/content",
-    label: "内容与上架",
+    href: "/studio",
+    label: "视觉工坊",
     icon: "content",
     subItems: [
-      { href: "/content", label: "内容工作台" },
-      { href: "/image-studio", label: "AI 生图工坊" },
-      { href: "/video-studio", label: "AI 视频工坊" },
-      { href: "/media-library", label: "资源库" },
+      { href: "/studio?tab=image", label: "AI 生图" },
+      { href: "/studio?tab=video", label: "AI 视频" },
+      { href: "/studio?tab=library", label: "统一素材库" },
     ],
   },
   {
+    href: "/sourcing",
+    label: "1688 工厂库",
+    icon: "sourcing",
+  },
+  {
     href: "/operations",
-    label: "实盘复盘",
+    label: "实盘账本",
     icon: "data",
   },
 ];
 
 const SETTINGS_NAV_ITEMS: NavItem[] = [
-  { href: "/connections", label: "店铺连接", icon: "connection" },
-  { href: "/settings", label: "大模型设置", icon: "settings" },
-  { href: "/audit-logs", label: "操作日志", icon: "audit" },
+  { href: "/settings", label: "模型与系统设置", icon: "settings" },
+  { href: "/audit-logs", label: "操作记录", icon: "audit" },
 ];
 
 function NavIcon({ name }: { name: NavItem["icon"] }) {
@@ -208,21 +207,27 @@ function matchParentNav(item: NavItem, pathname: string): boolean {
   if (item.href === "/cases" && pathname.startsWith("/cases")) return true;
   if (item.href === "/sourcing" && pathname.startsWith("/sourcing")) return true;
   if (
-    item.href === "/content" &&
-    (pathname.startsWith("/content") ||
-      pathname.startsWith("/approvals") ||
+    item.href === "/studio" &&
+    (pathname.startsWith("/studio") ||
       pathname.startsWith("/image-studio") ||
       pathname.startsWith("/video-studio") ||
       pathname.startsWith("/media-library"))
   ) return true;
   if (item.href === "/operations" && pathname.startsWith("/operations")) return true;
-  if (item.href === "/connections" && pathname.startsWith("/connections")) return true;
   if (item.href === "/settings" && pathname.startsWith("/settings")) return true;
   if (item.href === "/audit-logs" && pathname.startsWith("/audit-logs")) return true;
   return false;
 }
 
-function SidebarItem({ item, pathname }: { item: NavItem; pathname: string }) {
+function SidebarItem({
+  item,
+  pathname,
+  currentTab,
+}: {
+  item: NavItem;
+  pathname: string;
+  currentTab: string | null;
+}) {
   const isMatch = matchParentNav(item, pathname);
   const [isExpanded, setIsExpanded] = useState(isMatch);
 
@@ -276,9 +281,11 @@ function SidebarItem({ item, pathname }: { item: NavItem; pathname: string }) {
       {hasSub && isExpanded && (
         <ul className="sidebar-subnav" style={{ marginTop: "2px" }}>
           {item.subItems!.map((sub) => {
-            const isSubActive =
-              pathname === sub.href ||
-              (sub.href !== "/" && pathname.startsWith(sub.href.split("?")[0]));
+            const [subPath, subQuery] = sub.href.split("?");
+            const subTab = subQuery ? new URLSearchParams(subQuery).get("tab") : null;
+            const isSubActive = subTab
+              ? pathname === subPath && (currentTab || "image") === subTab
+              : pathname === sub.href || (sub.href !== "/" && pathname.startsWith(subPath));
 
             return (
               <li key={sub.href + sub.label}>
@@ -318,11 +325,20 @@ function SidebarItem({ item, pathname }: { item: NavItem; pathname: string }) {
 export function AppSidebar({
   mode = "sandbox",
   initialTheme = "light",
+  initialOperator = "管理员",
+  initialRole = "owner",
 }: {
   mode?: AppMode;
   initialTheme?: AppTheme;
+  initialOperator?: string;
+  initialRole?: WorkspaceRole;
 }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const currentTab = searchParams.get("tab");
+  const visibleSettings = initialRole === "owner"
+    ? SETTINGS_NAV_ITEMS
+    : SETTINGS_NAV_ITEMS.filter((item) => item.href !== "/settings");
 
   return (
     <aside className="sidebar">
@@ -330,31 +346,32 @@ export function AppSidebar({
         <span className="brand-mark">A</span>
         <span>
           <strong>AITrade</strong>
-          <small>跨境电商 AI 工作台</small>
+          <small>跨境实战工作台</small>
         </span>
       </Link>
 
       <nav className="sidebar-nav" aria-label="主导航">
         <div style={{ marginBottom: "14px" }}>
           <div className="sidebar-group-label">
-            业务全生命周期
+            业务主线
           </div>
           {MAIN_NAV_ITEMS.map((item) => (
-            <SidebarItem key={item.href} item={item} pathname={pathname} />
+            <SidebarItem key={item.href} item={item} pathname={pathname} currentTab={currentTab} />
           ))}
         </div>
 
         <div className="sidebar-utility">
           <div className="sidebar-group-label">
-            设置
+            系统
           </div>
-          {SETTINGS_NAV_ITEMS.map((item) => (
-            <SidebarItem key={item.href} item={item} pathname={pathname} />
+          {visibleSettings.map((item) => (
+            <SidebarItem key={item.href} item={item} pathname={pathname} currentTab={currentTab} />
           ))}
         </div>
       </nav>
 
       <div className="sidebar-footer">
+        <OperatorSwitcher initialOperator={initialOperator} initialRole={initialRole} />
         <ThemeSwitcher initialTheme={initialTheme} />
         <ModeSwitcher currentMode={mode} />
       </div>

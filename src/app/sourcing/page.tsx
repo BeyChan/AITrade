@@ -47,15 +47,6 @@ export default async function SourcingPage({
         notice={query.notice}
         error={query.error}
       />
-
-      <div className="notice" style={{ marginTop: 24, marginBottom: 0 }}>
-        <span className="badge status-researching">原则</span>
-        <span>
-          <strong>供应链资产原则：</strong>
-          工厂名录为跨境卖家企业私域数据，系统支持记录 1688 外部链接、验厂要点与实报价。
-          实际下单、签署工模保密协议（NDA）及大货付款须遵照公司财务与线下流程。
-        </span>
-      </div>
     </div>
   );
 }

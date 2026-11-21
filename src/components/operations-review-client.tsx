@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import type { PipelineResult } from "@/lib/operations-pipeline";
-import { moneyIn, percent } from "@/lib/format";
+import type { SavedOperationsBatch } from "@/lib/operations-repository";
+import { moneyIn, percent, shortDate } from "@/lib/format";
 
 const SAMPLE_SETTLEMENT_TSV = [
   "settlement-id\tsettlement-start-date\tsettlement-end-date\tdeposit-date\tcurrency\ttransaction-type\torder-id\tamount-type\tamount-description\tamount\tposted-date\tposted-date-time\tsku\tquantity-purchased",
@@ -24,22 +26,72 @@ const SAMPLE_INVENTORY_TSV = [
 export function OperationsReviewClient({
   defaultMarket,
   defaultCurrency,
+  initialBatches = [],
 }: {
   defaultMarket: string;
   defaultCurrency: string;
+  initialBatches?: SavedOperationsBatch[];
 }) {
   const [marketplaceCode, setMarketplaceCode] = useState(defaultMarket || "US");
   const [reportingCurrency, setReportingCurrency] = useState(defaultCurrency || "USD");
   const [reportTimezone, setReportTimezone] = useState("America/Los_Angeles");
   const [policy, setPolicy] = useState<"settlement" | "order">("settlement");
   const [snapshotDate, setSnapshotDate] = useState("2026-10-31");
+  const [batchLabel, setBatchLabel] = useState("");
   const [settlementText, setSettlementText] = useState("");
   const [inventoryText, setInventoryText] = useState("");
   const [isSampleLoaded, setIsSampleLoaded] = useState(false);
 
   const [isRunning, setIsRunning] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [result, setResult] = useState<PipelineResult | null>(null);
+  const [savedBatches, setSavedBatches] = useState<SavedOperationsBatch[]>(initialBatches);
+  const [expandedBatchId, setExpandedBatchId] = useState<string | null>(initialBatches[0]?.id ?? null);
+
+  async function handleSaveToLedger() {
+    if (!result) return;
+    setError(null);
+    setNotice(null);
+    setIsSaving(true);
+    try {
+      const res = await fetch("/api/operations/batches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          label: batchLabel.trim() || `${marketplaceCode} 实盘账期 (${snapshotDate})`,
+          marketplace: marketplaceCode,
+          currency: reportingCurrency,
+          result,
+        }),
+      });
+      const json = (await res.json()) as { ok?: boolean; batch?: SavedOperationsBatch; error?: string };
+      if (!res.ok || !json.ok || !json.batch) {
+        setError(json.error || "写入实盘账本失败");
+        return;
+      }
+      setSavedBatches((prev) => [json.batch!, ...prev]);
+      setExpandedBatchId(json.batch.id);
+      setNotice(`已存入实盘账本：「${json.batch.label}」（${json.batch.skuCount} 条 SKU 核算记录）。`);
+      setBatchLabel("");
+    } catch {
+      setError("保存失败，请检查网络连接");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleDeleteBatch(id: string) {
+    setError(null);
+    setNotice(null);
+    const res = await fetch(`/api/operations/batches?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (res.ok) {
+      setSavedBatches((prev) => prev.filter((b) => b.id !== id));
+      if (expandedBatchId === id) setExpandedBatchId(null);
+      setNotice("已删除该历史账本批次。");
+    }
+  }
 
   function loadSample() {
     setMarketplaceCode("US");
@@ -104,8 +156,167 @@ export function OperationsReviewClient({
       <section className="section">
         <div className="section-header">
           <div>
-            <h2>零写入结算与库存试算（Actual vs Plan）</h2>
-            <p>粘贴或上传 Amazon Settlement V2 与 FBA 库存快照报表，系统自动匹配已立项案卷的成本模型，输出实盘偏差与断货预警（全程只读、不写库）。</p>
+            <h2>已存档实盘经营账本（{savedBatches.length} 期）</h2>
+            <p>历史导入的真实结算单与 FBA 库存快照已持久化保存，自动对比立项净利率并预警断货风险。</p>
+          </div>
+        </div>
+
+        {notice ? (
+          <div className="notice" style={{ marginBottom: 14 }}>
+            <span className="badge badge-success">已保存</span>
+            <span>{notice}</span>
+          </div>
+        ) : null}
+
+        {savedBatches.length === 0 ? (
+          <p className="muted" style={{ margin: 0 }}>
+            还没有存档的实盘账期。在下方粘贴或载入示例 Settlement V2 报表试算后，点击「存入实盘账本」即可永久沉淀。
+          </p>
+        ) : (
+          <div className="stack" style={{ gap: "12px" }}>
+            {savedBatches.map((batch) => {
+              const isOpen = expandedBatchId === batch.id;
+              return (
+                <article
+                  key={batch.id}
+                  style={{
+                    border: "1px solid var(--line)",
+                    borderRadius: "10px",
+                    background: "var(--paper)",
+                    padding: "14px 16px",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "12px",
+                    }}
+                  >
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                        <strong>{batch.label}</strong>
+                        <span className="badge badge-neutral">{batch.marketplace} · {batch.currency}</span>
+                        <span className="badge badge-neutral">{batch.skuCount} SKU</span>
+                        {batch.stockoutRiskCount > 0 ? (
+                          <span className="badge badge-danger">断货预警 {batch.stockoutRiskCount}</span>
+                        ) : (
+                          <span className="badge badge-success">库存健康</span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: "12px", color: "var(--muted)", marginTop: "4px" }}>
+                        账期 {batch.periodStart || "—"} ~ {batch.periodEnd || "—"} · 记录人 {batch.createdBy} · {shortDate(batch.createdAt)}
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: "16px", flexWrap: "wrap" }}>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: "12px", color: "var(--muted)" }}>净营收</div>
+                        <strong className="mono">{moneyIn(batch.currency, batch.totalRevenueCents)}</strong>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: "12px", color: "var(--muted)" }}>贡献毛利</div>
+                        <strong className="mono" style={{ color: batch.totalContributionCents >= 0 ? "var(--green)" : "var(--red)" }}>
+                          {moneyIn(batch.currency, batch.totalContributionCents)}
+                        </strong>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: "12px", color: "var(--muted)" }}>平均毛利率</div>
+                        <strong className="mono">{percent(batch.avgMarginRate, 1)}</strong>
+                      </div>
+                      <button
+                        type="button"
+                        className="button secondary"
+                        onClick={() => setExpandedBatchId(isOpen ? null : batch.id)}
+                      >
+                        {isOpen ? "收起明细" : "展开 SKU 明细"}
+                      </button>
+                      <button
+                        type="button"
+                        className="button ghost"
+                        onClick={() => handleDeleteBatch(batch.id)}
+                      >
+                        删除
+                      </button>
+                    </div>
+                  </div>
+
+                  {isOpen && batch.skus.length > 0 ? (
+                    <div className="heatmap-scroll" style={{ marginTop: "12px" }}>
+                      <table className="ops-table">
+                        <thead>
+                          <tr>
+                            <th>SKU / 关联商品</th>
+                            <th>期间</th>
+                            <th className="num">销量</th>
+                            <th className="num">净营收</th>
+                            <th className="num">贡献毛利</th>
+                            <th className="num">实盘毛利率</th>
+                            <th className="num">立项偏差</th>
+                            <th className="num">可售库存</th>
+                            <th className="num">可售天数</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {batch.skus.map((sku) => {
+                            const riskClass =
+                              sku.stockoutRisk === "critical"
+                                ? "is-no-go"
+                                : sku.stockoutRisk === "warning"
+                                  ? "is-hold"
+                                  : sku.stockoutRisk === "healthy"
+                                    ? "is-go"
+                                    : "";
+                            return (
+                              <tr key={sku.id}>
+                                <td className="mono">
+                                  {sku.caseId ? (
+                                    <Link href={`/cases/${encodeURIComponent(sku.caseId)}`} style={{ textDecoration: "underline", fontWeight: 700 }}>
+                                      {sku.sku}
+                                    </Link>
+                                  ) : (
+                                    <strong>{sku.sku}</strong>
+                                  )}
+                                </td>
+                                <td className="mono">{sku.periodKey}</td>
+                                <td className="num mono">{sku.unitsSold}</td>
+                                <td className="num mono">{moneyIn(batch.currency, sku.revenueCents)}</td>
+                                <td className="num mono">{moneyIn(batch.currency, sku.contributionCents)}</td>
+                                <td className="num mono">{percent(sku.marginRate, 1)}</td>
+                                <td className={`num mono ${sku.marginDelta !== null ? (sku.marginDelta >= 0 ? "is-go" : "is-danger") : ""}`}>
+                                  {sku.marginDelta !== null
+                                    ? `${sku.marginDelta >= 0 ? "+" : ""}${percent(sku.marginDelta, 1)}`
+                                    : "未匹配案卷"}
+                                </td>
+                                <td className="num mono">{sku.availableUnits ?? "—"}</td>
+                                <td className="num">
+                                  {sku.daysOfSupply !== null ? (
+                                    <span className={`verdict-pill ${riskClass} mono`}>{sku.daysOfSupply} 天</span>
+                                  ) : (
+                                    <span className="muted">—</span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : null}
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <section className="section">
+        <div className="section-header">
+          <div>
+            <h2>导入新账期（结算单与库存快照）</h2>
+            <p>粘贴 Amazon Settlement V2 与 FBA 库存快照报表，先试算核对无误，再一键存入实盘账本。</p>
           </div>
           <button type="button" className="button secondary" onClick={loadSample}>
             载入示例结算单与库存快照
@@ -217,8 +428,33 @@ export function OperationsReviewClient({
           <section className="section">
             <div className="section-header">
               <div>
-                <h2>SKU 级实盘 vs 立项预测偏差台账</h2>
-                <p>自动将结算单中的 SKU / ASIN 与系统内已立项案卷的成本模型进行对齐，偏差为负表示实盘低于立项预期。</p>
+                <h2>SKU 级实盘 vs 立项预测偏差台账（试算预览）</h2>
+                <p>核对数据无误后，填写账期名称并点击右侧「存入实盘账本」永久保存。</p>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                <input
+                  type="text"
+                  value={batchLabel}
+                  onChange={(e) => setBatchLabel(e.target.value)}
+                  placeholder={`${marketplaceCode} 实盘账期 (${snapshotDate})`}
+                  style={{
+                    padding: "7px 10px",
+                    borderRadius: "8px",
+                    border: "1px solid var(--line)",
+                    background: "var(--paper)",
+                    color: "var(--ink)",
+                    fontSize: "13px",
+                    minWidth: "220px",
+                  }}
+                />
+                <button
+                  type="button"
+                  className="button primary"
+                  disabled={isSaving}
+                  onClick={handleSaveToLedger}
+                >
+                  {isSaving ? "正在存档…" : "存入实盘账本"}
+                </button>
               </div>
             </div>
             <div className="heatmap-scroll">

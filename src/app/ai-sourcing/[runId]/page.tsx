@@ -654,23 +654,12 @@ function HypothesisCard({
               <p>把竞品页面、评论、CSV 或供应商报价文本整理成可追溯字段。AI 只提取，人工确认后才写入当前机会。</p>
             </div>
             <div className="ai-smart-intake-actions">
-              {aiInboxCounts?.pending ? <span className="badge status-review_pending">待审核 {aiInboxCounts.pending}</span> : null}
-              {aiInboxCounts?.inProgress ? <span className="badge badge-neutral">提取中 {aiInboxCounts.inProgress}</span> : null}
-              {aiInboxCounts?.failed ? <span className="badge badge-danger">失败 {aiInboxCounts.failed}</span> : null}
-              <Link
-                href={`/ai-inbox?targetHypothesisId=${encodeURIComponent(hypothesis.id)}`}
-                className="button primary"
-              >
-                AI 智能录入
+              <Link href="/competitors" className="button primary">
+                竞品对比研报
               </Link>
-              {aiInboxCounts?.pending ? (
-                <Link
-                  href={`/ai-inbox?targetHypothesisId=${encodeURIComponent(hypothesis.id)}&status=needs_review`}
-                  className="button secondary"
-                >
-                  继续审核
-                </Link>
-              ) : null}
+              <Link href="/import" className="button secondary">
+                批量导入 CSV
+              </Link>
             </div>
           </section>
 

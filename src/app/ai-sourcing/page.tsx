@@ -62,7 +62,7 @@ export default async function AISourcingBatchListPage({ searchParams }: PageProp
             actions={
               <>
                 <Link href="/" className="button primary">新建第一个研究</Link>
-                <Link href="/data-sources" className="button secondary">查看数据源</Link>
+                <Link href="/import" className="button secondary">批量导入 CSV</Link>
               </>
             }
           />

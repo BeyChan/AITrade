@@ -98,12 +98,11 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
       <PageHeader
         breadcrumbs={[
           { label: "工作台", href: "/" },
-          { label: "商品案卷", href: "/cases" },
+          { label: "我的商品", href: "/cases" },
           { label: productCase.asin, href: `/cases/${productCase.id}` },
-          { label: "上市矩阵", href: `/cases/${productCase.id}/channels` },
-          { label: "默认内容工作台" },
+          { label: "文案与合规" },
         ]}
-        eyebrow="内容与上架工作台"
+        eyebrow="文案、合规与货架测试"
         title={productCase.title}
         meta={
           <>
@@ -111,13 +110,16 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
             <span className="badge badge-neutral">{productCase.marketplace}</span>
             <span className="badge badge-neutral">{productCase.category}</span>
             {listing ? <span className="badge status-researching">Listing v{listing.version}</span> : <span className="badge badge-neutral">尚无 Listing 草稿</span>}
+            {!selection ? <span className="badge status-review_pending">尚未定标工厂（可先准备文案与主图）</span> : null}
           </>
         }
         actions={
           <>
-            <Link href={`/cases/${productCase.id}/report`} className="button secondary">🖨️ 评审报告/PDF</Link>
-            <Link href={`/cases/${productCase.id}`} className="button secondary">商品与成本详情</Link>
-            <Link href={`/cases/${productCase.id}/channels`} className="button primary">多国家 / 多平台矩阵</Link>
+            <a href={`/api/cases/${productCase.id}/flatfile`} className="button primary" download>导出 Amazon Flat File (TSV)</a>
+            <a href={`/api/cases/${productCase.id}/media-pack`} className="button secondary" download>打包下载上架素材 (ZIP)</a>
+            <Link href={`/studio?tab=image&caseId=${encodeURIComponent(productCase.id)}`} className="button secondary">去视觉工坊生图</Link>
+            <Link href={`/cases/${productCase.id}/report`} className="button secondary">立项战报 PDF</Link>
+            <Link href={`/cases/${productCase.id}`} className="button ghost">返回商品详情</Link>
             <Link href={`/cases/${productCase.id}/sourcing`} className="button ghost">供应商定标</Link>
           </>
         }
