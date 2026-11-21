@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { canManageSettings, getCurrentMember } from "@/lib/operator";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,11 +33,6 @@ type BackupPayload = {
 };
 
 export async function GET() {
-  const member = await getCurrentMember();
-  if (!canManageSettings(member.role)) {
-    return NextResponse.json({ error: "仅管理员角色可执行整库备份导出" }, { status: 403 });
-  }
-
   try {
     const db = await getDb();
     const tables: Partial<Record<BackupTable, Record<string, unknown>[]>> = {};
@@ -50,7 +44,7 @@ export async function GET() {
     const payload: BackupPayload = {
       schemaVersion: 1,
       exportedAt: new Date().toISOString(),
-      exportedBy: member.name,
+      exportedBy: "本机工作台",
       tables,
     };
 
@@ -72,11 +66,6 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const member = await getCurrentMember();
-  if (!canManageSettings(member.role)) {
-    return NextResponse.json({ error: "仅管理员角色可执行整库数据恢复" }, { status: 403 });
-  }
-
   try {
     const payload = (await request.json()) as Partial<BackupPayload>;
     if (!payload || typeof payload !== "object" || !payload.tables || typeof payload.tables !== "object") {

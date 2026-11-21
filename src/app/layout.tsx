@@ -10,7 +10,6 @@ import { TopbarSiteScope } from "@/components/topbar-site-scope";
 import { WorkContextBar } from "@/components/work-context-bar";
 import { GlobalSearch } from "@/components/global-search";
 import { getAppMode } from "@/lib/app-mode";
-import { getCurrentMember } from "@/lib/operator";
 import { getSiteOptions } from "@/lib/repository";
 import { loadWorkContext } from "@/lib/work-context";
 import { resolvePersistedSiteScope } from "@/lib/site-scope";
@@ -42,13 +41,12 @@ const jetbrainsMono = JetBrains_Mono({
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   // PGlite is process-local and must not be opened by parallel build workers.
   await connection();
-  const [options, workContext, mode, persistedScope, cookieStore, currentMember] = await Promise.all([
+  const [options, workContext, mode, persistedScope, cookieStore] = await Promise.all([
     getSiteOptions(),
     loadWorkContext().catch(() => []),
     getAppMode(),
     resolvePersistedSiteScope(),
     cookies(),
-    getCurrentMember(),
   ]);
   const initialTheme: AppTheme = cookieStore.get("aitrade_theme")?.value === "dark" ? "dark" : "light";
   const markets = options.markets.map(({ code, name, currency }) => ({ code, name, currency }));
@@ -66,12 +64,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       <body>
         <div className="app-shell" data-mode={mode}>
           <Suspense fallback={<aside className="sidebar" />}>
-            <AppSidebar
-              mode={mode}
-              initialTheme={initialTheme}
-              initialOperator={currentMember.name}
-              initialRole={currentMember.role}
-            />
+            <AppSidebar mode={mode} initialTheme={initialTheme} />
           </Suspense>
           <div className="app-workspace">
             <SandboxBanner mode={mode} />

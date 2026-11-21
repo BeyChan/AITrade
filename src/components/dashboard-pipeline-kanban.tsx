@@ -82,10 +82,10 @@ export function DashboardPipelineKanban({
   const stage4Task = attentionTasks.find((t) => t.stage === "stage4");
   const stage5Task = stage5Items.length > 0
     ? {
-        label: "可导出官方 Flat File",
+        label: "可导出上架素材与 Flat File",
         value: stage5Items.length,
-        detail: "已通过终审，可导出亚马逊批量上传模板至后台发布",
-        href: `/cases/${stage5Items[0].id}/channels`,
+        detail: "已通过终审，可导出 Flat File 表格与上架素材 ZIP",
+        href: `/cases/${stage5Items[0].id}/content`,
         action: "去导出",
         stage: "stage5" as const,
       }
@@ -188,21 +188,21 @@ export function DashboardPipelineKanban({
     {
       id: "stage5",
       stepNum: "5",
-      title: "渠道就绪",
-      subtitle: "Flat File · 本地预检",
+      title: "上架就绪",
+      subtitle: "Flat File · 素材打包",
       count: stage5Items.length,
       focusTask: stage5Task,
       badgeColor: "var(--ink)",
       badgeBg: "var(--surface-subtle)",
-      viewAllHref: "/content",
+      viewAllHref: "/cases",
       items: stage5Items.slice(0, stage5Limit).map((c) => ({
         id: c.id,
         title: c.title,
         tag: "Flat File 就绪",
         metricLabel: "置信度",
         metricVal: `${c.evidence_score}%`,
-        href: `/cases/${c.id}/channels`,
-        actionText: "批量导出 Flat File",
+        href: `/cases/${c.id}/content`,
+        actionText: "导出 Flat File / ZIP",
       })),
       emptyText: "暂无已完成准备的商品",
     },

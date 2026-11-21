@@ -102,7 +102,10 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       label: "待确认 AI 提案",
       value: proposals.total,
       detail: proposals.groups[0]?.reason ?? "模型产出等待人工确认，确认前不会写入业务表",
-      href: proposals.groups[0]?.href ?? "/ai-inbox",
+      href:
+        proposals.groups[0]?.href && !proposals.groups[0].href.startsWith("/ai-inbox")
+          ? proposals.groups[0].href
+          : "/discover",
       action: "去确认",
       stage: "stage1" as const,
     }] : []),

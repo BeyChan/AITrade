@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { getCurrentOperator } from "@/lib/operator";
 import type { PipelineResult } from "@/lib/operations-pipeline";
 import {
   deleteOperationsBatch,
@@ -33,12 +32,11 @@ export async function POST(request: Request) {
     if (!body.result || !Array.isArray(body.result.periods)) {
       return NextResponse.json({ error: "缺少可保存的结算试算结果" }, { status: 400 });
     }
-    const operator = await getCurrentOperator();
     const saved = await saveOperationsBatch({
       label: body.label || "",
       marketplace: body.marketplace || "US",
       currency: body.currency || "USD",
-      createdBy: operator,
+      createdBy: "本机用户",
       result: body.result,
     });
     return NextResponse.json({ ok: true, batch: saved });

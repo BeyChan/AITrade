@@ -119,15 +119,15 @@ export function deriveCaseStage(input: CaseStageInput): CaseStageDetail {
     };
   }
 
-  // 5. 渠道就绪：已定标且真实通过人工内容终审，可导出 Flat File 批量发布
+  // 5. 渠道就绪：已定标且真实通过人工内容终审，可导出 Flat File 与上架素材包
   if (status === "approved" && isSelected && hasApprovedContent) {
     return {
       key: "stage5_channels",
       stepNumber: 5,
-      name: "渠道就绪",
-      subName: "Flat File 导出",
-      badge: { label: "渠道就绪", className: "badge-success" },
-      nextAction: { label: "导出 Flat File", href: `/cases/${caseId}/channels` },
+      name: "上架就绪",
+      subName: "Flat File / 素材包",
+      badge: { label: "上架就绪", className: "badge-success" },
+      nextAction: { label: "导出上架包", href: `/cases/${caseId}/content` },
       stepProgress,
     };
   }

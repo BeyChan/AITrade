@@ -270,15 +270,13 @@ function normalizeAiInboxSourceKind(value: string): AiInboxSourceKind {
     : "paste";
 }
 
-function revalidateAiInbox(taskId?: string) {
+function revalidateAiInbox(_taskId?: string) {
   revalidatePath("/");
-  revalidatePath("/ai-inbox");
-  if (taskId) revalidatePath(`/ai-inbox/${taskId}`);
+  revalidatePath("/discover");
 }
 
-function aiInboxPath(taskId: string | null, key: "notice" | "error", message: string) {
-  const path = taskId ? `/ai-inbox/${encodeURIComponent(taskId)}` : "/ai-inbox";
-  return `${path}?${key}=${encodeURIComponent(message)}`;
+function aiInboxPath(_taskId: string | null, key: "notice" | "error", message: string) {
+  return `/discover?${key}=${encodeURIComponent(message)}`;
 }
 
 export async function selectHypothesisAction(formData: FormData) {
@@ -798,12 +796,12 @@ export async function createChannelTargetAction(formData: FormData) {
   const marketCode = String(formData.get("marketCode") || "");
   const actor = String(formData.get("actor") || "").trim();
   const outcome = await createChannelTarget(caseId, platformCode, marketCode, actor).catch((error) => {
-    redirect(`/cases/${encodeURIComponent(caseId)}/channels?error=${encodeURIComponent(errorMessage(error))}`);
+    redirect(`/cases/${encodeURIComponent(caseId)}/content?error=${encodeURIComponent(errorMessage(error))}`);
   });
   revalidateChannels(caseId, outcome.channelListingId);
   redirect(
-    `/cases/${encodeURIComponent(caseId)}/channels/${encodeURIComponent(outcome.channelListingId)}?notice=${encodeURIComponent(
-      outcome.created ? "渠道目标已创建；连接器仍未配置，不会发布" : "该国家 × 平台目标已存在，已打开现有记录",
+    `/cases/${encodeURIComponent(caseId)}/content?notice=${encodeURIComponent(
+      outcome.created ? "渠道目标已创建" : "该国家 × 平台目标已存在",
     )}`,
   );
 }
@@ -827,13 +825,13 @@ export async function saveChannelListingVersionAction(formData: FormData) {
     );
   } catch (error) {
     redirect(
-      `/cases/${encodeURIComponent(caseId)}/channels/${encodeURIComponent(channelListingId)}?error=${encodeURIComponent(errorMessage(error))}`,
+      `/cases/${encodeURIComponent(caseId)}/content?error=${encodeURIComponent(errorMessage(error))}`,
     );
   }
   revalidateChannels(caseId, channelListingId);
   redirect(
-    `/cases/${encodeURIComponent(caseId)}/channels/${encodeURIComponent(channelListingId)}?notice=${encodeURIComponent(
-      "渠道版本已保存并运行本地映射预检；未调用任何外部平台",
+    `/cases/${encodeURIComponent(caseId)}/content?notice=${encodeURIComponent(
+      "渠道版本已保存并完成本地预检",
     )}`,
   );
 }
@@ -847,13 +845,13 @@ export async function approveChannelListingAction(formData: FormData) {
     await approveChannelListing(caseId, channelListingId, reviewer, notes);
   } catch (error) {
     redirect(
-      `/cases/${encodeURIComponent(caseId)}/channels/${encodeURIComponent(channelListingId)}?error=${encodeURIComponent(errorMessage(error))}`,
+      `/cases/${encodeURIComponent(caseId)}/content?error=${encodeURIComponent(errorMessage(error))}`,
     );
   }
   revalidateChannels(caseId, channelListingId);
   redirect(
-    `/cases/${encodeURIComponent(caseId)}/channels/${encodeURIComponent(channelListingId)}?notice=${encodeURIComponent(
-      "渠道内容已通过人工检查，仅限内部门禁；连接器未配置，平台未发布",
+    `/cases/${encodeURIComponent(caseId)}/content?notice=${encodeURIComponent(
+      "渠道内容已通过人工检查",
     )}`,
   );
 }
@@ -867,13 +865,13 @@ export async function checkChannelLaunchReadinessAction(formData: FormData) {
     outcome = await recordChannelLaunchReadinessCheck(caseId, channelListingId, actor);
   } catch (error) {
     redirect(
-      `/cases/${encodeURIComponent(caseId)}/channels/${encodeURIComponent(channelListingId)}?error=${encodeURIComponent(errorMessage(error))}`,
+      `/cases/${encodeURIComponent(caseId)}/content?error=${encodeURIComponent(errorMessage(error))}`,
     );
   }
   revalidateChannels(caseId, channelListingId);
   redirect(
-    `/cases/${encodeURIComponent(caseId)}/channels/${encodeURIComponent(channelListingId)}?notice=${encodeURIComponent(
-      `发布准备检查已记录：${outcome.readiness.label}；外部写入仍为 none`,
+    `/cases/${encodeURIComponent(caseId)}/content?notice=${encodeURIComponent(
+      `发布准备检查已记录：${outcome.readiness.label}`,
     )}`,
   );
 }
@@ -887,13 +885,13 @@ export async function approveChannelLaunchQueueAction(formData: FormData) {
     await approveChannelLaunchQueue(caseId, channelListingId, reviewer, notes);
   } catch (error) {
     redirect(
-      `/cases/${encodeURIComponent(caseId)}/channels/${encodeURIComponent(channelListingId)}?error=${encodeURIComponent(errorMessage(error))}`,
+      `/cases/${encodeURIComponent(caseId)}/content?error=${encodeURIComponent(errorMessage(error))}`,
     );
   }
   revalidateChannels(caseId, channelListingId);
   redirect(
-    `/cases/${encodeURIComponent(caseId)}/channels/${encodeURIComponent(channelListingId)}?notice=${encodeURIComponent(
-      "当前版本已人工确认进入内部发布队列；尚未调用平台，published=false",
+    `/cases/${encodeURIComponent(caseId)}/content?notice=${encodeURIComponent(
+      "当前版本已确认就绪",
     )}`,
   );
 }
@@ -1106,12 +1104,10 @@ function settingsErrorMessage(error: unknown, apiKey: string) {
     .slice(0, 300);
 }
 
-function revalidateChannels(caseId: string, channelListingId?: string) {
+function revalidateChannels(caseId: string, _channelListingId?: string) {
   revalidatePath("/");
   revalidatePath(`/cases/${caseId}`);
   revalidatePath(`/cases/${caseId}/content`);
-  revalidatePath(`/cases/${caseId}/channels`);
-  if (channelListingId) revalidatePath(`/cases/${caseId}/channels/${channelListingId}`);
 }
 
 export async function createSupplierDirectoryEntryAction(formData: FormData) {

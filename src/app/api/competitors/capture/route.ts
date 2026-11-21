@@ -7,16 +7,17 @@ import type { CompetitorInputItem, CompetitorNumericField } from "@/lib/competit
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const LOCAL_HOSTS = new Set(["127.0.0.1:3000", "localhost:3000", "[::1]:3000"]);
-
 function isLocalRequest(request: Request): boolean {
   const host = (request.headers.get("host") || "").toLowerCase();
-  if (!LOCAL_HOSTS.has(host)) return false;
+  const isLocalHost =
+    /^localhost(:\d+)?$/.test(host) ||
+    /^127\.0\.0\.1(:\d+)?$/.test(host) ||
+    /^\[::1\](:\d+)?$/.test(host);
+  if (!isLocalHost) return false;
   const origin = request.headers.get("origin");
   if (!origin) return true;
   return origin.startsWith("chrome-extension://")
-    || origin.startsWith("http://127.0.0.1:3000")
-    || origin.startsWith("http://localhost:3000");
+    || /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin);
 }
 
 function corsHeaders(request: Request): Record<string, string> {

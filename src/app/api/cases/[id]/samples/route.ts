@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { getCurrentOperator } from "@/lib/operator";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -129,7 +128,7 @@ export async function POST(
     const defects = String(body.defects ?? "").trim().slice(0, 500);
     const notes = String(body.notes ?? "").trim().slice(0, 500);
 
-    const operator = await getCurrentOperator();
+    const operator = String(body.actor ?? "").trim() || "本机用户";
     await ensureSampleTable();
     const db = await getDb();
     const sampleId = `smp-${randomUUID().slice(0, 12)}`;

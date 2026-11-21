@@ -1,4 +1,4 @@
-const DEFAULT_SERVER = "http://localhost:3000";
+const DEFAULT_SERVER = "http://localhost:1688";
 
 const siteBadge = document.getElementById("siteBadge");
 const serverInput = document.getElementById("serverUrl");

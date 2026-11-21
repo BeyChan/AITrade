@@ -4,10 +4,8 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { ModeSwitcher } from "./mode-switcher";
-import { OperatorSwitcher } from "./operator-switcher";
 import { ThemeSwitcher, type AppTheme } from "./theme-switcher";
 import type { AppMode } from "@/lib/app-mode";
-import type { WorkspaceRole } from "@/lib/operator-shared";
 
 type SubItem = {
   href: string;
@@ -325,20 +323,13 @@ function SidebarItem({
 export function AppSidebar({
   mode = "sandbox",
   initialTheme = "light",
-  initialOperator = "管理员",
-  initialRole = "owner",
 }: {
   mode?: AppMode;
   initialTheme?: AppTheme;
-  initialOperator?: string;
-  initialRole?: WorkspaceRole;
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const currentTab = searchParams.get("tab");
-  const visibleSettings = initialRole === "owner"
-    ? SETTINGS_NAV_ITEMS
-    : SETTINGS_NAV_ITEMS.filter((item) => item.href !== "/settings");
 
   return (
     <aside className="sidebar">
@@ -364,14 +355,13 @@ export function AppSidebar({
           <div className="sidebar-group-label">
             系统
           </div>
-          {visibleSettings.map((item) => (
+          {SETTINGS_NAV_ITEMS.map((item) => (
             <SidebarItem key={item.href} item={item} pathname={pathname} currentTab={currentTab} />
           ))}
         </div>
       </nav>
 
       <div className="sidebar-footer">
-        <OperatorSwitcher initialOperator={initialOperator} initialRole={initialRole} />
         <ThemeSwitcher initialTheme={initialTheme} />
         <ModeSwitcher currentMode={mode} />
       </div>
