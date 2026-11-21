@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { DeleteResearchBatch } from "@/components/delete-research-batch";
+import { EmptyState, MetricGrid, PageHeader, QueryNotices } from "@/components/ui";
 import { getBatchSiteLabel, listAISourcingBatches } from "@/lib/ai-sourcing-repository";
 import { shortDate } from "@/lib/format";
 
@@ -16,25 +17,33 @@ export default async function AISourcingBatchListPage({ searchParams }: PageProp
 
   return (
     <div className="page ai-sourcing-page ai-batch-list-page">
-      <section className="ai-batch-overview ai-batch-list-overview">
-        <div>
-          <span className="eyebrow" style={{ color: "var(--lime)" }}>研究批次</span>
-          <h2>所有研究批次</h2>
-          <p>统一查看所有国家和平台的研究记录，按创建时间倒序完整展示。打开批次可继续补充证据、报价并执行确定性决策。</p>
-          <div className="button-row ai-batch-list-actions">
+      <PageHeader
+        breadcrumbs={[
+          { label: "工作台", href: "/" },
+          { label: "AI 选品批次" },
+        ]}
+        eyebrow="研究批次"
+        title="AI 选品批次"
+        description="统一查看所有国家和平台的研究记录，按创建时间倒序完整展示。打开批次可继续补充证据、报价并执行确定性决策。"
+        actions={
+          <>
             <Link href="/discover" className="button primary">新建选品（3 步向导）</Link>
             <Link href="/" className="button secondary">返回工作台</Link>
-          </div>
-        </div>
-        <div className="ai-batch-overview-side">
-          <span>全部批次</span>
-          <strong>{batches.length}</strong>
-          <small>{hypothesisCount} 个候选方向 · {promotedCount} 个已立项商品</small>
-        </div>
-      </section>
+          </>
+        }
+      />
 
-      {query.notice ? <div className="notice"><strong>已完成：</strong>{query.notice}</div> : null}
-      {query.error ? <div className="notice warn"><strong>未完成：</strong>{query.error}</div> : null}
+      <MetricGrid
+        ariaLabel="研究批次概览"
+        columns={3}
+        items={[
+          { label: "全部研究批次", value: batches.length, note: "覆盖所有国家与平台" },
+          { label: "候选方向总数", value: hypothesisCount, note: "待验证与已评估假设" },
+          { label: "已立项商品", value: promotedCount, note: "通过门禁并转入商品案卷", tone: "success" },
+        ]}
+      />
+
+      <QueryNotices notice={query.notice} error={query.error} />
 
       <section className="panel">
         <div className="panel-header">
@@ -47,14 +56,16 @@ export default async function AISourcingBatchListPage({ searchParams }: PageProp
         </div>
 
         {batches.length === 0 ? (
-          <div className="empty-state">
-            <h3>还没有选品研究</h3>
-            <p>回到工作台选择国家和平台，填写类目与研究条件即可创建第一个批次。</p>
-            <div className="button-row" style={{ justifyContent: "center" }}>
-              <Link href="/" className="button primary">新建第一个研究</Link>
-              <Link href="/data-sources" className="button secondary">查看数据源</Link>
-            </div>
-          </div>
+          <EmptyState
+            title="还没有选品研究"
+            description="回到工作台选择国家和平台，填写类目与研究条件即可创建第一个批次。"
+            actions={
+              <>
+                <Link href="/" className="button primary">新建第一个研究</Link>
+                <Link href="/data-sources" className="button secondary">查看数据源</Link>
+              </>
+            }
+          />
         ) : (
           <div className="ai-batch-list">
             {batches.map((batch) => (

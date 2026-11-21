@@ -2053,6 +2053,7 @@ export async function createAssetRecord(caseId: string, input: AssetUploadInput,
   return { assetId, assetType, fileUrl: `/api/assets/${assetId}`, metadata };
 }
 
+/** 将视频资产写入商品案卷 assets 表并记录审计日志（初始状态为 pending_review） */
 export async function createVideoAssetRecord(
   caseId: string,
   input: {

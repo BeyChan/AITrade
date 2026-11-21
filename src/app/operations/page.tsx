@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { OperationsReviewClient } from "@/components/operations-review-client";
+import { PageHeader } from "@/components/ui";
 import { getSiteOptions } from "@/lib/repository";
 import { resolvePersistedSiteScope } from "@/lib/site-scope";
 
@@ -11,21 +12,16 @@ export default async function OperationsReviewPage() {
 
   return (
     <div className="page">
-      <div className="breadcrumb">
-        <Link href="/">工作台大盘</Link> / 实盘复盘
-      </div>
-
-      <div className="title-row">
-        <div>
-          <h1>实盘经营复盘（Actual vs Plan）</h1>
-          <p className="muted">
-            将上架后的真实结算单与 FBA 库存快照回灌至系统，对照立项成本模型核验真实毛利偏差与断货风险，反哺下一轮选品门禁。
-          </p>
-        </div>
-        <div className="button-row">
-          <Link href="/cases" className="button secondary">返回案卷台账</Link>
-        </div>
-      </div>
+      <PageHeader
+        breadcrumbs={[
+          { label: "工作台", href: "/" },
+          { label: "实盘复盘" },
+        ]}
+        eyebrow="经营核算 · Actual vs Plan"
+        title="实盘经营复盘"
+        description="将上架后的真实结算单与 FBA 库存快照回灌至系统，对照立项成本模型核验真实毛利偏差与断货风险，反哺下一轮选品门禁。"
+        actions={<Link href="/cases" className="button secondary">返回案卷台账</Link>}
+      />
 
       <OperationsReviewClient
         defaultMarket={market?.code ?? "US"}

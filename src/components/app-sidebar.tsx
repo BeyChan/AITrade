@@ -55,6 +55,7 @@ const MAIN_NAV_ITEMS: NavItem[] = [
       { href: "/content", label: "内容工作台" },
       { href: "/image-studio", label: "AI 生图工坊" },
       { href: "/video-studio", label: "AI 视频工坊" },
+      { href: "/media-library", label: "资源库" },
     ],
   },
   {
@@ -206,7 +207,14 @@ function matchParentNav(item: NavItem, pathname: string): boolean {
   if (item.href === "/discover" && (pathname.startsWith("/discover") || pathname.startsWith("/competitors") || pathname === "/import" || pathname.startsWith("/ai-sourcing"))) return true;
   if (item.href === "/cases" && pathname.startsWith("/cases")) return true;
   if (item.href === "/sourcing" && pathname.startsWith("/sourcing")) return true;
-  if (item.href === "/content" && (pathname.startsWith("/content") || pathname.startsWith("/approvals") || pathname.startsWith("/image-studio"))) return true;
+  if (
+    item.href === "/content" &&
+    (pathname.startsWith("/content") ||
+      pathname.startsWith("/approvals") ||
+      pathname.startsWith("/image-studio") ||
+      pathname.startsWith("/video-studio") ||
+      pathname.startsWith("/media-library"))
+  ) return true;
   if (item.href === "/operations" && pathname.startsWith("/operations")) return true;
   if (item.href === "/connections" && pathname.startsWith("/connections")) return true;
   if (item.href === "/settings" && pathname.startsWith("/settings")) return true;
@@ -229,11 +237,11 @@ function SidebarItem({ item, pathname }: { item: NavItem; pathname: string }) {
 
   return (
     <div className={`sidebar-item${isMatch ? " active" : ""}`} style={{ marginBottom: "2px" }}>
-      <div style={{ display: "flex", alignItems: "center" }}>
+      <div className={`sidebar-row${isMatch ? " active" : ""}`}>
         <Link
           href={item.href}
           className={`sidebar-link${isMatch ? " active" : ""}`}
-          style={{ flex: 1 }}
+          style={{ flex: 1, minWidth: 0 }}
           aria-current={pathname === item.href ? "page" : undefined}
         >
           <span className="sidebar-icon"><NavIcon name={item.icon} /></span>
@@ -287,7 +295,7 @@ function SidebarItem({ item, pathname }: { item: NavItem; pathname: string }) {
                   {sub.badge && (
                     <span
                       style={{
-                        fontSize: "9px",
+                        fontSize: "12px",
                         padding: "1px 5px",
                         borderRadius: "3px",
                         background: "rgba(255,255,255,0.1)",

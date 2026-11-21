@@ -545,7 +545,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
             );
           })}
           {reports.length >= MAX_COMPARISON_REPORTS && (
-            <span style={{ fontSize: "11px", color: "var(--muted)", whiteSpace: "nowrap" }}>
+            <span style={{ fontSize: "12px", color: "var(--muted)", whiteSpace: "nowrap" }}>
               仅保留最近 {MAX_COMPARISON_REPORTS} 条，更早的研报会被覆盖
             </span>
           )}
@@ -572,17 +572,17 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                 <h3 style={{ margin: 0, fontSize: "17px", color: "var(--ink)", fontWeight: 700 }}>
                   {currentReport.title}
                 </h3>
-                <span className="badge badge-neutral" style={{ fontSize: "11px" }}>
+                <span className="badge badge-neutral" style={{ fontSize: "12px" }}>
                   {currentReport.marketCode} · {currentReport.platformCode.toUpperCase()}
                 </span>
                 <span
                   className={`badge ${PROVENANCE_VERIFIED.includes(currentReport.provenance) ? "badge-success" : "badge-warn"}`}
-                  style={{ fontSize: "11px" }}
+                  style={{ fontSize: "12px" }}
                   title="报告整体来源"
                 >
                   {PROVENANCE_LABELS[currentReport.provenance]}
                 </span>
-                <span className={`badge ${isConfirmed ? "badge-success" : "badge-warn"}`} style={{ fontSize: "11px" }}>
+                <span className={`badge ${isConfirmed ? "badge-success" : "badge-warn"}`} style={{ fontSize: "12px" }}>
                   {isConfirmed ? "已人工核对" : "待人工核对"}
                 </span>
                 <span style={{ fontSize: "12px", color: "var(--muted)" }}>
@@ -697,7 +697,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
 
               {/* 反制标题 */}
               <div style={{ background: "var(--paper)", padding: "12px 14px", borderRadius: "10px", border: "1px solid var(--line)", marginBottom: "16px" }}>
-                <div style={{ fontSize: "11px", color: "var(--green)", fontWeight: 700, marginBottom: "4px" }}>
+                <div style={{ fontSize: "12px", color: "var(--green)", fontWeight: 700, marginBottom: "4px" }}>
                   ✦ 推荐差异化商品标题 (Anti-Title):
                 </div>
                 <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--ink)", lineHeight: "1.4" }}>
@@ -722,7 +722,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                       <strong style={{ fontSize: "12px", color: "var(--green)" }}>{b.headline}</strong>
                       <span
                         style={{
-                          fontSize: "11px",
+                          fontSize: "12px",
                           padding: "2px 8px",
                           borderRadius: "4px",
                           background: "var(--red-soft)",
@@ -748,7 +748,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "10px" }}>
                     {antiListing.aplusModules.map((m, mi) => (
-                      <div key={mi} style={{ background: "var(--paper)", padding: "10px 12px", borderRadius: "8px", border: "1px solid var(--line)", fontSize: "11px" }}>
+                      <div key={mi} style={{ background: "var(--paper)", padding: "10px 12px", borderRadius: "8px", border: "1px solid var(--line)", fontSize: "12px" }}>
                         <div style={{ fontWeight: 700, color: "var(--ink)", marginBottom: "3px" }}>{m.title}</div>
                         <div style={{ color: "var(--muted)", marginBottom: "4px" }}>{m.description}</div>
                         <div style={{ color: "var(--green)", fontStyle: "italic" }}>💡 构图: {m.visualSuggestion}</div>
@@ -776,7 +776,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                   <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--ink)", marginBottom: "2px" }}>
                     📥 一键写入商品 Listing 草稿
                   </div>
-                  <div style={{ fontSize: "11px", color: "var(--muted)" }}>
+                  <div style={{ fontSize: "12px", color: "var(--muted)" }}>
                     将本套反制文案直接沉淀到商品库（自动生成新的文案版本，可随时在商品详情页微调与导出）：
                   </div>
                 </div>
@@ -883,11 +883,11 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
               {/* 核心指标胶囊 */}
               <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginBottom: "16px" }}>
                 <div style={{ background: "var(--paper)", padding: "8px 14px", borderRadius: "8px", border: "1px solid var(--line)" }}>
-                  <span style={{ fontSize: "11px", color: "var(--muted)" }}>目标采购单价: </span>
+                  <span style={{ fontSize: "12px", color: "var(--muted)" }}>目标采购单价: </span>
                   <strong style={{ fontSize: "14px", color: "var(--green)" }}>¥{rfqData.targetPriceRmb.toFixed(2)}</strong>
                 </div>
                 <div style={{ background: "var(--paper)", padding: "8px 14px", borderRadius: "8px", border: "1px solid var(--line)" }}>
-                  <span style={{ fontSize: "11px", color: "var(--muted)" }}>建议试单 MOQ: </span>
+                  <span style={{ fontSize: "12px", color: "var(--muted)" }}>建议试单 MOQ: </span>
                   <strong style={{ fontSize: "13px", color: "var(--ink)" }}>{rfqData.suggestedMoq}</strong>
                 </div>
               </div>
@@ -924,7 +924,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                         <span style={{ fontWeight: 700, color: "var(--ink)" }}>
                           {idx + 1}. 部件：{item.component}
                         </span>
-                        <span style={{ color: "var(--red)", fontSize: "11px", background: "var(--red-soft)", padding: "1px 6px", borderRadius: "4px" }}>
+                        <span style={{ color: "var(--red)", fontSize: "12px", background: "var(--red-soft)", padding: "1px 6px", borderRadius: "4px" }}>
                           靶向痛点: {item.painPointTargeted}
                         </span>
                       </div>
@@ -953,11 +953,11 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
               {/* 阿里旺旺完整文本 */}
               <div style={{ background: "var(--paper)", padding: "12px 14px", borderRadius: "8px", border: "1px solid var(--line)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
-                  <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--muted)" }}>阿里旺旺 / 微信工厂对接话术预览：</span>
+                  <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--muted)" }}>阿里旺旺 / 微信工厂对接话术预览：</span>
                   <button
                     type="button"
                     onClick={() => handleCopyRfqText(rfqData)}
-                    style={{ background: "none", border: "none", color: "var(--green)", fontSize: "11px", cursor: "pointer", fontWeight: 600 }}
+                    style={{ background: "none", border: "none", color: "var(--green)", fontSize: "12px", cursor: "pointer", fontWeight: 600 }}
                   >
                     {rfqCopied ? "已复制" : "复制文本"}
                   </button>
@@ -966,7 +966,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                   style={{
                     margin: 0,
                     whiteSpace: "pre-wrap",
-                    fontSize: "11px",
+                    fontSize: "12px",
                     lineHeight: "1.5",
                     color: "var(--ink)",
                     fontFamily: "ui-monospace, monospace",
@@ -1006,7 +1006,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
 
             <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.2fr 2fr", gap: "16px", alignItems: "center", marginBottom: "16px" }}>
               <div>
-                <label style={{ fontSize: "11px", fontWeight: 700, color: "var(--ink)", display: "block", marginBottom: "4px" }}>
+                <label style={{ fontSize: "12px", fontWeight: 700, color: "var(--ink)", display: "block", marginBottom: "4px" }}>
                   1688 工厂实报单价 (RMB)
                 </label>
                 <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
@@ -1019,13 +1019,13 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                     style={{ width: "100%", padding: "7px 10px", borderRadius: "8px", border: "1px solid var(--line)", fontSize: "14px", fontWeight: 700, background: "var(--paper)" }}
                   />
                 </div>
-                <div style={{ fontSize: "10px", color: "var(--muted)", marginTop: "2px" }}>
+                <div style={{ fontSize: "12px", color: "var(--muted)", marginTop: "2px" }}>
                   折合到岸约: {landedCostInCurr.toFixed(2)} {currentReport.currency} (含25%海运)
                 </div>
               </div>
 
               <div>
-                <label style={{ fontSize: "11px", fontWeight: 700, color: "var(--ink)", display: "block", marginBottom: "4px" }}>
+                <label style={{ fontSize: "12px", fontWeight: 700, color: "var(--ink)", display: "block", marginBottom: "4px" }}>
                   计划销售售价 ({currentReport.currency})
                 </label>
                 <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
@@ -1038,7 +1038,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                     style={{ width: "100%", padding: "7px 10px", borderRadius: "8px", border: "1px solid var(--line)", fontSize: "14px", fontWeight: 700, background: "var(--paper)" }}
                   />
                 </div>
-                <div style={{ fontSize: "10px", color: "var(--muted)", marginTop: "2px" }}>
+                <div style={{ fontSize: "12px", color: "var(--muted)", marginTop: "2px" }}>
                   竞品中位价: {(currentReport.priceStats.p50 / 100).toFixed(2)} {currentReport.currency}
                 </div>
               </div>
@@ -1057,27 +1057,27 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                 }}
               >
                 <div>
-                  <div style={{ fontSize: "10px", color: "var(--muted)" }}>测算毛利率</div>
+                  <div style={{ fontSize: "12px", color: "var(--muted)" }}>测算毛利率</div>
                   <div style={{ fontSize: "16px", fontWeight: 900, color: estMarginRate >= 0.2 ? "var(--green)" : "var(--red)" }}>
                     {(estMarginRate * 100).toFixed(1)}%
                   </div>
                 </div>
                 <div>
-                  <div style={{ fontSize: "10px", color: "var(--muted)" }}>单件净利润</div>
+                  <div style={{ fontSize: "12px", color: "var(--muted)" }}>单件净利润</div>
                   <div style={{ fontSize: "16px", fontWeight: 900, color: estNetProfit > 0 ? "var(--green)" : "var(--red)" }}>
                     {estNetProfit.toFixed(2)} {currentReport.currency}
                   </div>
                 </div>
                 <div>
-                  <div style={{ fontSize: "10px", color: "var(--muted)" }}>财务机会分</div>
+                  <div style={{ fontSize: "12px", color: "var(--muted)" }}>财务机会分</div>
                   <div style={{ fontSize: "16px", fontWeight: 900, color: calcOppScore >= 65 ? "var(--green)" : "var(--amber)" }}>
-                    {calcOppScore} <span style={{ fontSize: "11px", fontWeight: 600 }}>分</span>
+                    {calcOppScore} <span style={{ fontSize: "12px", fontWeight: 600 }}>分</span>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div style={{ fontSize: "11px", color: "var(--muted)", marginBottom: "12px", background: "var(--surface-subtle)", padding: "6px 12px", borderRadius: "6px" }}>
+            <div style={{ fontSize: "12px", color: "var(--muted)", marginBottom: "12px", background: "var(--surface-subtle)", padding: "6px 12px", borderRadius: "6px" }}>
               💡 <strong>与正式成本模型 100% 同源核算（零偏差）：</strong>
               已扣除：到岸采购运费 ({(economics.landedCostCents / 100).toFixed(2)}) · FBA 履约派送 ({(economics.fbaFeeCents / 100).toFixed(2)}) · 平台佣金 ({(economics.referralFeeCents / 100).toFixed(2)}) · PPC 广告 12% ({(economics.adCostCents / 100).toFixed(2)}) · 退货损耗 ({(economics.returnLossCents / 100).toFixed(2)}) · 优惠券仓储杂费 ({((economics.couponCents + economics.storageCents + economics.otherCostCents) / 100).toFixed(2)})。
             </div>
@@ -1253,7 +1253,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                       <span style={{ fontSize: "32px", fontWeight: 900, color: themeColor, lineHeight: 1 }}>
                         {index.totalScore}
                       </span>
-                      <span style={{ fontSize: "11px", fontWeight: 700, color: themeColor, marginTop: "2px" }}>
+                      <span style={{ fontSize: "12px", fontWeight: 700, color: themeColor, marginTop: "2px" }}>
                         {index.grade} 级 · 得分
                       </span>
                     </div>
@@ -1277,7 +1277,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                               <strong style={{ color: "var(--ink)" }}>{p.label}</strong>
                               <span
                                 style={{
-                                  fontSize: "11px",
+                                  fontSize: "12px",
                                   padding: "1px 6px",
                                   borderRadius: "4px",
                                   background: "#e8ede9",
@@ -1315,7 +1315,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                             />
                           </div>
 
-                          <div style={{ fontSize: "11px", color: "var(--muted)", lineHeight: "1.35" }}>
+                          <div style={{ fontSize: "12px", color: "var(--muted)", lineHeight: "1.35" }}>
                             {p.explanation}
                           </div>
                         </div>
@@ -1366,7 +1366,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                   border: "1px solid var(--line)",
                 }}
               >
-                <div style={{ fontSize: "11px", color: "var(--muted)", marginBottom: "4px" }}>最低售价 (Min)</div>
+                <div style={{ fontSize: "12px", color: "var(--muted)", marginBottom: "4px" }}>最低售价 (Min)</div>
                 <div style={{ fontSize: "17px", fontWeight: 700, color: "var(--ink)" }}>
                   {formatPrice(currentReport.priceStats.min, currentReport.currency)}
                 </div>
@@ -1380,7 +1380,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                   border: "1px solid var(--line)",
                 }}
               >
-                <div style={{ fontSize: "11px", color: "var(--muted)", marginBottom: "4px" }}>P25 分位价</div>
+                <div style={{ fontSize: "12px", color: "var(--muted)", marginBottom: "4px" }}>P25 分位价</div>
                 <div style={{ fontSize: "17px", fontWeight: 700, color: "var(--ink)" }}>
                   {formatPrice(currentReport.priceStats.p25, currentReport.currency)}
                 </div>
@@ -1394,7 +1394,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                   border: "1px solid rgba(31, 122, 85, 0.3)",
                 }}
               >
-                <div style={{ fontSize: "11px", color: "var(--green)", fontWeight: 700, marginBottom: "4px" }}>
+                <div style={{ fontSize: "12px", color: "var(--green)", fontWeight: 700, marginBottom: "4px" }}>
                   黄金中位价 (P50)
                 </div>
                 <div style={{ fontSize: "19px", fontWeight: 800, color: "var(--green)" }}>
@@ -1410,7 +1410,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                   border: "1px solid var(--line)",
                 }}
               >
-                <div style={{ fontSize: "11px", color: "var(--muted)", marginBottom: "4px" }}>P75 分位价</div>
+                <div style={{ fontSize: "12px", color: "var(--muted)", marginBottom: "4px" }}>P75 分位价</div>
                 <div style={{ fontSize: "17px", fontWeight: 700, color: "var(--ink)" }}>
                   {formatPrice(currentReport.priceStats.p75, currentReport.currency)}
                 </div>
@@ -1424,7 +1424,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                   border: "1px solid var(--line)",
                 }}
               >
-                <div style={{ fontSize: "11px", color: "var(--muted)", marginBottom: "4px" }}>P90 溢价门槛</div>
+                <div style={{ fontSize: "12px", color: "var(--muted)", marginBottom: "4px" }}>P90 溢价门槛</div>
                 <div style={{ fontSize: "17px", fontWeight: 700, color: "var(--ink)" }}>
                   {formatPrice(currentReport.priceStats.p90, currentReport.currency)}
                 </div>
@@ -1438,7 +1438,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                   border: "1px solid var(--line)",
                 }}
               >
-                <div style={{ fontSize: "11px", color: "var(--muted)", marginBottom: "4px" }}>最高售价 (Max)</div>
+                <div style={{ fontSize: "12px", color: "var(--muted)", marginBottom: "4px" }}>最高售价 (Max)</div>
                 <div style={{ fontSize: "17px", fontWeight: 700, color: "var(--ink)" }}>
                   {formatPrice(currentReport.priceStats.max, currentReport.currency)}
                 </div>
@@ -1497,7 +1497,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
                         <span
                           className={`badge ${isBudget ? "badge-neutral" : isPremium ? "badge-warn" : "badge-success"}`}
-                          style={{ fontSize: "11px" }}
+                          style={{ fontSize: "12px" }}
                         >
                           {isBudget ? "低价入门" : isPremium ? "高端溢价" : "中端主力"}
                         </span>
@@ -1546,12 +1546,12 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                         <span style={{ fontSize: "12px", color: "var(--amber)", fontWeight: 700 }}>
                           ★ {item.rating}
                         </span>
-                        <span style={{ fontSize: "11px", color: "var(--muted)" }}>
+                        <span style={{ fontSize: "12px", color: "var(--muted)" }}>
                           ({item.reviewCount.toLocaleString()} 评 · 约 {item.monthlySalesEst} 件/月)
                         </span>
                       </div>
                       {!isVerifiedCompetitorField(item, "priceCents") && (
-                        <div style={{ fontSize: "11px", color: "var(--amber)", marginTop: "-8px", marginBottom: "12px" }}>
+                        <div style={{ fontSize: "12px", color: "var(--amber)", marginTop: "-8px", marginBottom: "12px" }}>
                           售价、评分、评论数、销量为推断值（待核实），不计入价格分位与选品门禁
                         </div>
                       )}
@@ -1613,7 +1613,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                             borderRadius: "8px",
                             border: "1px solid var(--line)",
                             marginBottom: "12px",
-                            fontSize: "11px",
+                            fontSize: "12px",
                           }}
                         >
                           <div style={{ color: "var(--muted)", marginBottom: "4px", fontWeight: 600 }}>参数对标：</div>
@@ -1627,7 +1627,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                       )}
 
                       {/* 目标人群 */}
-                      <div style={{ fontSize: "11px", color: "var(--muted)", marginBottom: "12px", lineHeight: "1.4" }}>
+                      <div style={{ fontSize: "12px", color: "var(--muted)", marginBottom: "12px", lineHeight: "1.4" }}>
                         <strong style={{ color: "var(--ink)" }}>主要受众:</strong> {item.targetAudience}
                       </div>
                     </div>
@@ -1637,7 +1637,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                       style={{
                         borderTop: "1px dashed var(--line)",
                         paddingTop: "8px",
-                        fontSize: "11px",
+                        fontSize: "12px",
                         color: "var(--muted)",
                         lineHeight: "1.4",
                       }}

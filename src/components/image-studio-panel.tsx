@@ -143,7 +143,7 @@ export function ImageStudioPanel({
     setStudioError("");
   }
 
-  async function handleAiGenerateImagePrompt() {
+  async function handleAiGenerateImagePrompt(openPreview = false) {
     setStudioError("");
     setStudioNotice("");
     setAiGeneratingPrompt(true);
@@ -160,7 +160,7 @@ export function ImageStudioPanel({
           slot,
           aspectRatio,
           marketplace,
-          idea: customStyleDirectives.trim() || customInstruction.trim() || customSkillName.trim(),
+          idea: customInstruction.trim() || customStyleDirectives.trim() || customSkillName.trim(),
         }),
       });
       const data = (await resp.json()) as {
@@ -170,12 +170,30 @@ export function ImageStudioPanel({
         note?: string;
         error?: string;
       };
-      if (!resp.ok || !data.styleDirectives) throw new Error(data.error || "AI 生成提示词失败");
-      setCustomStyleDirectives(data.styleDirectives);
-      if (data.negativePrompt) setCustomNegativeDirectives(data.negativePrompt);
-      if (data.prompt) setPromptDraft(data.prompt);
-      setPreview(null);
-      setConfirmed(false);
+      if (!resp.ok || !data.prompt) throw new Error(data.error || "AI 生成提示词失败");
+      if (!openPreview && data.styleDirectives) {
+        setCustomStyleDirectives(data.styleDirectives);
+        if (data.negativePrompt) setCustomNegativeDirectives(data.negativePrompt);
+      }
+      if (openPreview) {
+        const activeSkillObj = availableSkills.find((s) => s.id === selectedSkillId);
+        setPreview({
+          skillId: selectedSkillId,
+          skillName: activeSkillObj?.name || customSkillName || "AI 商业摄影提示词",
+          slot,
+          aspectRatio,
+          prompt: data.prompt,
+          negativePrompt: data.negativePrompt || "",
+          complianceNotes: [],
+        });
+        setPromptDraft(data.prompt);
+        setNegativeDraft(data.negativePrompt || "");
+        setConfirmed(false);
+      } else {
+        setPromptDraft(data.prompt);
+        setPreview(null);
+        setConfirmed(false);
+      }
       if (data.note) setStudioNotice(data.note);
     } catch (err) {
       setStudioError(err instanceof Error ? err.message : "AI 生成提示词失败");
@@ -500,9 +518,9 @@ export function ImageStudioPanel({
                     <button
                       type="button"
                       className="button secondary"
-                      style={{ minHeight: "26px", padding: "0 10px", fontSize: "11.5px" }}
+                      style={{ minHeight: "26px", padding: "0 10px", fontSize: "12px" }}
                       disabled={aiGeneratingPrompt || loadingPreview || generating}
-                      onClick={handleAiGenerateImagePrompt}
+                      onClick={() => handleAiGenerateImagePrompt(false)}
                     >
                       {aiGeneratingPrompt ? "AI 扩写中..." : "✨ AI 生成专业提示词"}
                     </button>
@@ -661,14 +679,24 @@ export function ImageStudioPanel({
 
           <div className="form-actions" style={{ marginTop: 12 }}>
             <span className="help">{providerStatus.detail}</span>
-            <button
-              type="button"
-              className="button secondary"
-              onClick={handlePreviewPrompt}
-              disabled={loadingPreview || generating}
-            >
-              {loadingPreview ? "正在组装提示词..." : "1. 生成提示词预览"}
-            </button>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                className="button primary"
+                onClick={() => handleAiGenerateImagePrompt(true)}
+                disabled={aiGeneratingPrompt || loadingPreview || generating}
+              >
+                {aiGeneratingPrompt ? "AI 扩写中..." : "✨ AI 生成提示词"}
+              </button>
+              <button
+                type="button"
+                className="button secondary"
+                onClick={handlePreviewPrompt}
+                disabled={loadingPreview || aiGeneratingPrompt || generating}
+              >
+                {loadingPreview ? "正在组装..." : "模板预览"}
+              </button>
+            </div>
           </div>
         </div>
 

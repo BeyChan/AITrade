@@ -1,8 +1,9 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { StudioBoundCaseRef } from "./standalone-image-studio.ts";
 import type { VideoAspectRatio, VideoDurationSec, VideoTemplateId } from "./video-provider.ts";
 
-const MAX_STANDALONE_VIDEOS = 40;
+const MAX_STANDALONE_VIDEOS = 500;
 const DATA_DIR = path.resolve(/* turbopackIgnore: true */ process.cwd(), ".data");
 const MANIFEST_PATH = path.join(DATA_DIR, "standalone-video-studio.json");
 
@@ -22,6 +23,7 @@ export type StandaloneVideoAsset = {
   productName: string;
   actor: string;
   estimatedCostUsd: number;
+  boundCases?: StudioBoundCaseRef[];
   createdAt: string;
 };
 
@@ -73,5 +75,30 @@ export async function deleteStandaloneVideoAsset(id: string): Promise<Standalone
     await writeFile(tmp, JSON.stringify(next, null, 2), "utf8");
     await rename(tmp, MANIFEST_PATH);
     return target;
+  });
+}
+
+export async function markStandaloneVideoBound(
+  id: string,
+  ref: { caseId: string; caseTitle: string },
+): Promise<void> {
+  return serialized(async () => {
+    const existing = await listStandaloneVideoAssets();
+    let changed = false;
+    const next = existing.map((item) => {
+      if (item.id !== id) return item;
+      const current = Array.isArray(item.boundCases) ? item.boundCases : [];
+      if (current.some((c) => c.caseId === ref.caseId)) return item;
+      changed = true;
+      return {
+        ...item,
+        boundCases: [...current, { caseId: ref.caseId, caseTitle: ref.caseTitle, boundAt: new Date().toISOString() }],
+      };
+    });
+    if (!changed) return;
+    await mkdir(DATA_DIR, { recursive: true });
+    const tmp = `${MANIFEST_PATH}.${process.pid}.tmp`;
+    await writeFile(tmp, JSON.stringify(next, null, 2), "utf8");
+    await rename(tmp, MANIFEST_PATH);
   });
 }

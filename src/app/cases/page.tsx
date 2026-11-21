@@ -3,6 +3,7 @@ import { listCases } from "@/lib/repository";
 import { money, percent } from "@/lib/format";
 import { CasesAuditLedger, type AuditLedgerRow } from "@/components/cases-audit-ledger";
 import { IconClipboard } from "@/components/icons";
+import { MetricGrid, PageHeader } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -64,49 +65,35 @@ export default async function ProductCasesPage({ searchParams }: PageProps) {
 
   return (
     <div className="page">
-      {/* 头部标题与新建入口 */}
-      <header style={{ marginBottom: "18px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "16px" }}>
-          <div>
-            <h1>商品案卷</h1>
-            <p className="muted" style={{ fontSize: "14px", margin: 0 }}>
-              集中管理所有已立项商品案卷。追踪从竞品研报、工厂询价、财务核准、内容打磨到批量发布模板 (Flat File) 的完整进度。
-            </p>
-          </div>
-          <div style={{ display: "flex", gap: "10px" }}>
+      <PageHeader
+        breadcrumbs={[
+          { label: "工作台", href: "/" },
+          { label: "商品案卷" },
+        ]}
+        eyebrow="立项台账与全周期追踪"
+        title="商品案卷"
+        description="集中管理所有已立项商品案卷。追踪从竞品研报、工厂询价、财务核准、内容打磨到批量发布模板 (Flat File) 的完整进度。"
+        actions={
+          <>
             <Link href="/competitors" className="button primary">
               竞品横评并立项
             </Link>
             <Link href="/import" className="button secondary">
               批量导入商品
             </Link>
-          </div>
-        </div>
-      </header>
+          </>
+        }
+      />
 
-      {/* 核心指标概览 */}
-      <section className="metrics-grid" style={{ marginBottom: "24px" }}>
-        <article className="metric-card">
-          <div className="metric-label">已立项商品案卷</div>
-          <div className="metric-value">{totalCases}</div>
-          <div className="metric-note">覆盖活跃立项商品</div>
-        </article>
-        <article className="metric-card">
-          <div className="metric-label">已终审立项 (Approved)</div>
-          <div className="metric-value" style={{ color: "var(--green)" }}>{approvedCases}</div>
-          <div className="metric-note">已完成财务定标审批</div>
-        </article>
-        <article className="metric-card">
-          <div className="metric-label">待财务核准 (Review)</div>
-          <div className="metric-value" style={{ color: "var(--amber)" }}>{pendingCases}</div>
-          <div className="metric-note">等待管理层审批报价</div>
-        </article>
-        <article className="metric-card">
-          <div className="metric-label">预估月度利润贡献</div>
-          <div className="metric-value" style={{ color: "var(--green)" }}>{money(totalMonthlyProfitCents)}</div>
-          <div className="metric-note">按测算单件净利 × 月销估计</div>
-        </article>
-      </section>
+      <MetricGrid
+        ariaLabel="商品案卷核心指标"
+        items={[
+          { label: "已立项商品案卷", value: totalCases, note: "覆盖活跃立项商品" },
+          { label: "已终审立项 (Approved)", value: approvedCases, note: "已完成财务定标审批", tone: "success" },
+          { label: "待财务核准 (Review)", value: pendingCases, note: "等待管理层审批报价", tone: "warn" },
+          { label: "预估月度利润贡献", value: money(totalMonthlyProfitCents), note: "按测算单件净利 × 月销估计", tone: "success" },
+        ]}
+      />
 
       {/* 筛选过滤栏 */}
       <div

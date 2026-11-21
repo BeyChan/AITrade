@@ -2,6 +2,7 @@ import Link from "next/link";
 import { StatusBadge } from "@/components/badges";
 import { TerminateCaseControl } from "@/components/case-lifecycle-controls";
 import { TerminatedCasesPanel } from "@/components/terminated-cases-panel";
+import { EmptyState, MetricGrid, PageHeader, QueryNotices } from "@/components/ui";
 import { money, shortDate } from "@/lib/format";
 import { listSourcingCases, listTerminatedCases } from "@/lib/repository";
 
@@ -23,43 +24,27 @@ export default async function ContentWorkbenchPage({ searchParams }: Props) {
 
   return (
     <div className="page">
-      <section className="hero">
-        <div>
-          <div className="eyebrow">内容与上架工作台</div>
-          <h1>内容工作台</h1>
-          <p>集中管理已立项商品的主图、商品定义、Listing 草稿与发布预检。未完成供应商定标的商品只能查看状态，不能开始内容制作。</p>
-        </div>
-        <div className="button-row">
-          <Link href="/image-studio" className="button primary">AI 生图工坊</Link>
-          <Link href="/" className="button secondary">返回 AI 选品</Link>
-        </div>
-      </section>
+      <PageHeader
+        breadcrumbs={[
+          { label: "工作台", href: "/" },
+          { label: "内容工作台" },
+        ]}
+        eyebrow="素材、Listing 与发布预检"
+        title="内容工作台"
+        description="集中管理已立项商品的主图、视频、商品定义、Listing 草稿与发布预检。未完成供应商定标的商品只能查看状态，不能开始内容制作。"
+      />
 
-      {query.notice ? <div className="notice"><strong>已完成：</strong>{query.notice}</div> : null}
-      {query.error ? <div className="notice warn"><strong>未完成：</strong>{query.error}</div> : null}
+      <QueryNotices notice={query.notice} error={query.error} />
 
-      <section className="metrics-grid">
-        <article className="metric-card">
-          <div className="metric-label">已立项商品</div>
-          <div className="metric-value">{cases.length}</div>
-          <div className="metric-note">进入内容阶段的项目总数</div>
-        </article>
-        <article className="metric-card">
-          <div className="metric-label">可开始内容</div>
-          <div className="metric-value">{ready.length}</div>
-          <div className="metric-note">供应商已完成人工定标</div>
-        </article>
-        <article className="metric-card">
-          <div className="metric-label">待供应商定标</div>
-          <div className="metric-value">{pending.length}</div>
-          <div className="metric-note">完成定标后自动解锁内容页</div>
-        </article>
-        <article className="metric-card">
-          <div className="metric-label">已有供应商报价</div>
-          <div className="metric-value">{withQuotes.length}</div>
-          <div className="metric-note">至少录入一份真实报价</div>
-        </article>
-      </section>
+      <MetricGrid
+        ariaLabel="内容工作台统计"
+        items={[
+          { label: "已立项商品", value: cases.length, note: "进入内容阶段的项目总数" },
+          { label: "可开始内容", value: ready.length, note: "供应商已完成人工定标", tone: "success" },
+          { label: "待供应商定标", value: pending.length, note: "完成定标后自动解锁内容页", tone: "warn" },
+          { label: "已有供应商报价", value: withQuotes.length, note: "至少录入一份真实报价" },
+        ]}
+      />
 
       <div className="notice">
         <span className="badge badge-success">RULE</span>
@@ -68,11 +53,11 @@ export default async function ContentWorkbenchPage({ searchParams }: Props) {
 
       {cases.length === 0 && terminatedCases.length === 0 ? (
         <section className="panel">
-          <div className="empty-state">
-            <h3>还没有可进入内容阶段的商品</h3>
-            <p>先在 AI 选品工作台完成验证并转为商品立项，之后在这里继续内容制作。</p>
-            <Link href="/" className="button primary">前往 AI 选品工作台</Link>
-          </div>
+          <EmptyState
+            title="还没有可进入内容阶段的商品"
+            description="先在 AI 选品工作台完成验证并转为商品立项，之后在这里继续内容制作。"
+            actions={<Link href="/" className="button primary">前往工作台</Link>}
+          />
         </section>
       ) : null}
 

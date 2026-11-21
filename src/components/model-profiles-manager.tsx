@@ -479,7 +479,7 @@ export function ModelProfilesManager({ initialProfiles, presets }: Props) {
                     <tr key={profile.id} style={{ borderBottom: "1px solid var(--line)", background: "var(--paper)" }}>
                       <td style={{ padding: "12px 14px", fontWeight: 700, color: "var(--ink)" }}>
                         <div>{profile.name}</div>
-                        <div style={{ fontSize: "11px", fontWeight: 500, color: "var(--muted)", marginTop: "2px" }}>
+                        <div style={{ fontSize: "12px", fontWeight: 500, color: "var(--muted)", marginTop: "2px" }}>
                           {profile.apiKeyConfigured ? `Key ${profile.apiKeyHint}` : "未配置 Key"}
                         </div>
                       </td>
@@ -523,7 +523,7 @@ export function ModelProfilesManager({ initialProfiles, presets }: Props) {
                             alignItems: "center",
                             padding: "3px 9px",
                             borderRadius: "999px",
-                            fontSize: "11.5px",
+                            fontSize: "12px",
                             fontWeight: 700,
                             background: meta.bg,
                             color: meta.color,
@@ -562,7 +562,7 @@ export function ModelProfilesManager({ initialProfiles, presets }: Props) {
                               border: "1px solid var(--line)",
                               borderRadius: "6px",
                               padding: "3px 8px",
-                              fontSize: "11px",
+                              fontSize: "12px",
                               color: "var(--muted)",
                               cursor: "pointer",
                             }}

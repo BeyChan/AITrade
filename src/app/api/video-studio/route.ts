@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
+import { revalidatePath } from "next/cache";
 import { ApiInputError, apiError } from "@/app/api/ai-inbox/http";
 import { recordAuditLog } from "@/lib/audit-logs";
+import { createVideoAssetRecord, getAssetRecord, getContentDetail } from "@/lib/repository";
 import { getStandaloneStudioAsset } from "@/lib/standalone-image-studio";
 import {
   getStandaloneVideoAsset,
   listStandaloneVideoAssets,
+  markStandaloneVideoBound,
   saveStandaloneVideoAsset,
 } from "@/lib/standalone-video-studio";
 import { detectImageType, readStoredImage, saveVideoBuffer } from "@/lib/storage";
@@ -32,6 +35,68 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const STANDALONE_CASE_KEY = "standalone";
+
+function encodeJobSourceMeta(productName: string, linkedCaseId: string): string {
+  return linkedCaseId ? `${productName}::case::${linkedCaseId}` : productName;
+}
+
+function decodeJobSourceMeta(raw: string): { productName: string; linkedCaseId: string } {
+  const marker = "::case::";
+  const idx = raw.indexOf(marker);
+  if (idx < 0) return { productName: raw || "独立创作商品", linkedCaseId: "" };
+  return {
+    productName: raw.slice(0, idx) || "独立创作商品",
+    linkedCaseId: raw.slice(idx + marker.length).trim(),
+  };
+}
+
+async function autoBindVideoToCase(
+  linkedCaseId: string,
+  videoBytes: Buffer,
+  record: {
+    id: string;
+    originalName: string;
+    aspectRatio: string;
+    durationSec: number;
+    templateId: string;
+    provider: string;
+    model: string;
+    prompt: string;
+    estimatedCostUsd: number;
+    actor: string;
+  },
+): Promise<boolean> {
+  if (!linkedCaseId) return false;
+  const detail = await getContentDetail(linkedCaseId).catch(() => null);
+  if (!detail || detail.productCase.status !== "approved" || !detail.selection) return false;
+  const copied = await saveVideoBuffer(videoBytes, record.originalName);
+  await createVideoAssetRecord(
+    linkedCaseId,
+    {
+      storageKey: copied.storageKey,
+      originalName: copied.originalName,
+      mimeType: copied.mimeType,
+      size: copied.size,
+      extraMetadata: {
+        source: record.templateId === "stitched" ? "ffmpeg_stitched" : "ai_video_generated",
+        provider: record.provider,
+        model: record.model,
+        templateId: record.templateId,
+        aspectRatio: record.aspectRatio,
+        durationSec: record.durationSec,
+        prompt: record.prompt,
+        estimatedCostUsd: record.estimatedCostUsd,
+        importedFromStudioId: record.id,
+      },
+    },
+    record.actor,
+  );
+  await markStandaloneVideoBound(record.id, { caseId: linkedCaseId, caseTitle: detail.productCase.title });
+  revalidatePath(`/cases/${linkedCaseId}/content`);
+  revalidatePath("/video-studio");
+  revalidatePath("/content");
+  return true;
+}
 
 export async function GET() {
   try {
@@ -82,6 +147,7 @@ export async function POST(request: Request) {
             `studio-${job.template_id}-${job.aspect_ratio.replace(":", "x")}-${job.duration_sec}s.mp4`,
           );
           const assetId = randomUUID();
+          const { productName: decodedName, linkedCaseId } = decodeJobSourceMeta(job.source_asset_id);
           await saveStandaloneVideoAsset({
             id: assetId,
             storageKey: saved.storageKey,
@@ -95,11 +161,23 @@ export async function POST(request: Request) {
             provider: job.provider,
             model: job.model,
             prompt: job.prompt,
-            productName: job.source_asset_id || "独立创作商品",
+            productName: decodedName,
             actor: job.created_by,
             estimatedCostUsd: job.estimated_cost_usd,
             createdAt: new Date().toISOString(),
           });
+          await autoBindVideoToCase(linkedCaseId, polled.videoBytes, {
+            id: assetId,
+            originalName: saved.originalName,
+            aspectRatio: job.aspect_ratio,
+            durationSec: job.duration_sec,
+            templateId: job.template_id,
+            provider: job.provider,
+            model: job.model,
+            prompt: job.prompt,
+            estimatedCostUsd: job.estimated_cost_usd,
+            actor: job.created_by,
+          }).catch(() => {});
           const updated = await updateVideoJob(job.id, {
             status: "succeeded",
             resultAssetId: assetId,
@@ -179,10 +257,13 @@ export async function POST(request: Request) {
           details: { count: assetIds.length, aspectRatio, durationSec: totalDur },
         }).catch(() => {});
 
+        const linkedCaseId = String(body.caseId || "").trim();
+        const autoBound = await autoBindVideoToCase(linkedCaseId, stitchedBytes, record).catch(() => false);
         return Response.json({
           ok: true,
+          autoBound,
           createdAsset: record,
-          note: `已使用本机 ffmpeg 拼接 ${assetIds.length} 段镜头（约 ${totalDur}s · ${aspectRatio}）。`,
+          note: `已使用本机 ffmpeg 拼接 ${assetIds.length} 段镜头（约 ${totalDur}s · ${aspectRatio}）${autoBound ? "，并已自动同步入库至当前商品案卷" : ""}。`,
         });
       }
 
@@ -228,6 +309,7 @@ export async function POST(request: Request) {
     const promptOverride = String(form.get("promptOverride") || "").trim();
     const negativePromptOverride = String(form.get("negativePromptOverride") || "").trim();
     const studioImageId = String(form.get("studioImageId") || "").trim();
+    const linkedCaseId = String(form.get("caseId") || "").trim();
     const uploadedFile = form.get("referenceFile");
 
     const providerStatus = await getVideoProviderStatus();
@@ -254,6 +336,17 @@ export async function POST(request: Request) {
       const detected = detectImageType(bytes);
       if (!detected) throw new ApiInputError("参考底图仅支持 JPG、PNG 或 WebP 格式", 400);
       refPayload = { bytes, mimeType: detected.mimeType, fileName: uploadedFile.name || `ref.${detected.extension}` };
+    } else if (studioImageId.startsWith("case:")) {
+      const caseAssetId = studioImageId.slice("case:".length);
+      const caseAsset = await getAssetRecord(caseAssetId);
+      const storageKey = typeof caseAsset?.metadata?.storageKey === "string" ? caseAsset.metadata.storageKey : "";
+      if (!caseAsset || !storageKey) throw new ApiInputError("所选案卷图片不存在或缺少文件", 404);
+      const bytes = await readStoredImage(storageKey);
+      refPayload = {
+        bytes,
+        mimeType: typeof caseAsset.metadata?.mimeType === "string" ? caseAsset.metadata.mimeType : "image/png",
+        fileName: typeof caseAsset.metadata?.originalName === "string" ? caseAsset.metadata.originalName : "case-ref.png",
+      };
     } else if (studioImageId) {
       const studioImg = await getStandaloneStudioAsset(studioImageId);
       if (!studioImg) throw new ApiInputError("所选生图工坊图片不存在", 404);
@@ -311,13 +404,25 @@ export async function POST(request: Request) {
         estimatedCostUsd: submitted.estimatedCostUsd,
         createdAt: new Date().toISOString(),
       });
+      await autoBindVideoToCase(linkedCaseId, submitted.videoBytes, {
+        id: assetId,
+        originalName: saved.originalName,
+        aspectRatio,
+        durationSec,
+        templateId: template.id,
+        provider: submitted.provider,
+        model: submitted.model,
+        prompt: finalPrompt,
+        estimatedCostUsd: submitted.estimatedCostUsd,
+        actor,
+      }).catch(() => {});
       resultAssetId = assetId;
       jobStatus = "succeeded";
     }
 
     const job = await createVideoJob({
       caseId: STANDALONE_CASE_KEY,
-      sourceAssetId: productName,
+      sourceAssetId: encodeJobSourceMeta(productName, linkedCaseId),
       templateId: template.id,
       aspectRatio,
       durationSec,

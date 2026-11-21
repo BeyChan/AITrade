@@ -1,6 +1,7 @@
 "use client";
 
-import { usePathname, useSearchParams } from "next/navigation";
+import type { ReactNode } from "react";
+import { useSearchParams } from "next/navigation";
 import { SiteScopeSwitcher } from "@/components/site-scope-switcher";
 
 type MarketOption = {
@@ -19,6 +20,7 @@ type TopbarSiteScopeProps = {
   platforms: PlatformOption[];
   defaultMarket?: string;
   defaultPlatform?: string;
+  leftSlot?: ReactNode;
 };
 
 export function TopbarSiteScope({
@@ -26,10 +28,9 @@ export function TopbarSiteScope({
   platforms,
   defaultMarket = "US",
   defaultPlatform = "amazon",
+  leftSlot,
 }: TopbarSiteScopeProps) {
-  const pathname = usePathname();
   const searchParams = useSearchParams();
-  const sectionLabel = getSectionLabel(pathname);
 
   const requestedMarket = searchParams.get("market")?.trim().toUpperCase();
   const requestedPlatform = searchParams.get("platform")?.trim().toLowerCase();
@@ -47,7 +48,7 @@ export function TopbarSiteScope({
 
   return (
     <div className="topbar-inner">
-      <div className="topbar-context">{sectionLabel}</div>
+      <div className="topbar-left">{leftSlot}</div>
       {selectedMarket && selectedPlatform ? (
         <SiteScopeSwitcher
           markets={markets}
@@ -59,24 +60,4 @@ export function TopbarSiteScope({
       ) : null}
     </div>
   );
-}
-
-function getSectionLabel(pathname: string) {
-  if (pathname === "/") return "工作台";
-  if (pathname.startsWith("/ai-sourcing")) return "选品验证";
-  if (pathname.startsWith("/competitors")) return "竞品对比";
-  if (pathname.startsWith("/ai-inbox")) return "证据收件箱";
-  if (pathname.startsWith("/cases")) {
-    if (/\/sourcing(\/|$)/.test(pathname)) return "供应商 · 商品详情";
-    if (/\/content(\/|$)|\/channels(\/|$)/.test(pathname)) return "内容与上架 · 商品详情";
-    if (/\/report(\/|$)/.test(pathname)) return "立项决策战报 (Memo)";
-    return "商品案卷";
-  }
-  if (pathname === "/import" || pathname.startsWith("/data-sources")) return "数据导入";
-  if (pathname.startsWith("/sourcing")) return "供应商资产库";
-  if (pathname.startsWith("/content") || pathname.startsWith("/approvals")) return "内容与上架";
-  if (pathname.startsWith("/connections")) return "连接中心";
-  if (pathname.startsWith("/settings")) return "系统设置";
-  if (pathname.startsWith("/audit-logs")) return "操作日志";
-  return "AITrade";
 }

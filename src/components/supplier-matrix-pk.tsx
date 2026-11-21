@@ -128,7 +128,7 @@ export function SupplierMatrixPk({
 
           <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 1fr", gap: "12px", marginBottom: "12px" }}>
             <div>
-              <label style={{ fontSize: "11px", fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: "4px" }}>
+              <label style={{ fontSize: "12px", fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: "4px" }}>
                 1688 工厂全称 *
               </label>
               <input
@@ -140,7 +140,7 @@ export function SupplierMatrixPk({
             </div>
 
             <div>
-              <label style={{ fontSize: "11px", fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: "4px" }}>
+              <label style={{ fontSize: "12px", fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: "4px" }}>
                 工厂出厂单价 (RMB) *
               </label>
               <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
@@ -154,13 +154,13 @@ export function SupplierMatrixPk({
                   style={{ width: "100%", padding: "7px 10px", borderRadius: "8px", border: "1px solid var(--line)", fontSize: "13px", fontWeight: 700 }}
                 />
               </div>
-              <div style={{ fontSize: "10px", color: "var(--green)", marginTop: "2px" }}>
+              <div style={{ fontSize: "12px", color: "var(--green)", marginTop: "2px" }}>
                 ≈ {convUnitPrice} {currency}
               </div>
             </div>
 
             <div>
-              <label style={{ fontSize: "11px", fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: "4px" }}>
+              <label style={{ fontSize: "12px", fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: "4px" }}>
                 单件海运头程 (RMB)
               </label>
               <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
@@ -173,13 +173,13 @@ export function SupplierMatrixPk({
                   style={{ width: "100%", padding: "7px 10px", borderRadius: "8px", border: "1px solid var(--line)", fontSize: "13px" }}
                 />
               </div>
-              <div style={{ fontSize: "10px", color: "var(--muted)", marginTop: "2px" }}>
+              <div style={{ fontSize: "12px", color: "var(--muted)", marginTop: "2px" }}>
                 ≈ {convFreight} {currency}
               </div>
             </div>
 
             <div>
-              <label style={{ fontSize: "11px", fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: "4px" }}>
+              <label style={{ fontSize: "12px", fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: "4px" }}>
                 首单建议 MOQ (件) *
               </label>
               <input
@@ -194,7 +194,7 @@ export function SupplierMatrixPk({
 
           <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 1fr", gap: "12px", marginBottom: "14px" }}>
             <div>
-              <label style={{ fontSize: "11px", color: "var(--muted)", display: "block", marginBottom: "4px" }}>
+              <label style={{ fontSize: "12px", color: "var(--muted)", display: "block", marginBottom: "4px" }}>
                 1688 商品/店铺链接或旺旺号
               </label>
               <input
@@ -205,7 +205,7 @@ export function SupplierMatrixPk({
             </div>
 
             <div>
-              <label style={{ fontSize: "11px", color: "var(--muted)", display: "block", marginBottom: "4px" }}>
+              <label style={{ fontSize: "12px", color: "var(--muted)", display: "block", marginBottom: "4px" }}>
                 生产交期 (天)
               </label>
               <input
@@ -217,7 +217,7 @@ export function SupplierMatrixPk({
             </div>
 
             <div>
-              <label style={{ fontSize: "11px", color: "var(--muted)", display: "block", marginBottom: "4px" }}>
+              <label style={{ fontSize: "12px", color: "var(--muted)", display: "block", marginBottom: "4px" }}>
                 预估进口关税率
               </label>
               <input
@@ -228,7 +228,7 @@ export function SupplierMatrixPk({
             </div>
 
             <div>
-              <label style={{ fontSize: "11px", color: "var(--muted)", display: "block", marginBottom: "4px" }}>
+              <label style={{ fontSize: "12px", color: "var(--muted)", display: "block", marginBottom: "4px" }}>
                 工厂初评打分 (0~100)
               </label>
               <input
@@ -298,7 +298,7 @@ export function SupplierMatrixPk({
                       <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "4px" }}>
                         <span
                           style={{
-                            fontSize: "11px",
+                            fontSize: "12px",
                             fontWeight: 800,
                             padding: "1px 6px",
                             borderRadius: "4px",
@@ -308,13 +308,13 @@ export function SupplierMatrixPk({
                         >
                           #{idx + 1}
                         </span>
-                        {isSelected && <span className="badge badge-success" style={{ fontSize: "10px" }}>已定标</span>}
-                        {isPref && !isSelected && <span className="badge recommendation-go" style={{ fontSize: "10px" }}>系统推荐</span>}
+                        {isSelected && <span className="badge badge-success" style={{ fontSize: "12px" }}>已定标</span>}
+                        {isPref && !isSelected && <span className="badge recommendation-go" style={{ fontSize: "12px" }}>系统推荐</span>}
                       </div>
                       <h4 style={{ margin: 0, fontSize: "14px", color: "var(--ink)", fontWeight: 800, lineHeight: "1.3" }}>
                         {q.supplier.name}
                       </h4>
-                      <div style={{ fontSize: "11px", color: "var(--muted)", marginTop: "2px" }}>
+                      <div style={{ fontSize: "12px", color: "var(--muted)", marginTop: "2px" }}>
                         {q.supplier.platform || "1688 供应商"} · {q.supplier.country || "CN"}
                       </div>
                     </div>
@@ -323,7 +323,7 @@ export function SupplierMatrixPk({
                       <div style={{ fontSize: "20px", fontWeight: 900, color: "var(--green)", lineHeight: 1 }}>
                         {sq.score}
                       </div>
-                      <div style={{ fontSize: "10px", color: "var(--muted)" }}>综合得分</div>
+                      <div style={{ fontSize: "12px", color: "var(--muted)" }}>综合得分</div>
                     </div>
                   </div>
 
@@ -338,17 +338,17 @@ export function SupplierMatrixPk({
                     }}
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                      <span style={{ fontSize: "11px", color: "var(--muted)" }}>单件到岸成本:</span>
+                      <span style={{ fontSize: "12px", color: "var(--muted)" }}>单件到岸成本:</span>
                       <strong style={{ fontSize: "13px", color: "var(--ink)" }}>{money(sq.landedCostCents)}</strong>
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                      <span style={{ fontSize: "11px", color: "var(--muted)" }}>测算单件净利:</span>
+                      <span style={{ fontSize: "12px", color: "var(--muted)" }}>测算单件净利:</span>
                       <strong style={{ fontSize: "13px", color: sq.economics.netProfitCents > 0 ? "var(--green)" : "var(--red)" }}>
                         {money(sq.economics.netProfitCents)} ({percent(sq.economics.marginRate)})
                       </strong>
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <span style={{ fontSize: "11px", color: "var(--muted)" }}>压力保本净利:</span>
+                      <span style={{ fontSize: "12px", color: "var(--muted)" }}>压力保本净利:</span>
                       <strong style={{ fontSize: "12px", color: sq.economics.stressProfitCents > 0 ? "var(--green)" : "var(--red)" }}>
                         {money(sq.economics.stressProfitCents)}
                       </strong>
@@ -356,7 +356,7 @@ export function SupplierMatrixPk({
                   </div>
 
                   {/* 工厂硬性参数列表 */}
-                  <div style={{ fontSize: "11px", color: "var(--ink)", display: "flex", flexDirection: "column", gap: "4px", marginBottom: "14px" }}>
+                  <div style={{ fontSize: "12px", color: "var(--ink)", display: "flex", flexDirection: "column", gap: "4px", marginBottom: "14px" }}>
                     <div style={{ display: "flex", justifyContent: "space-between" }}>
                       <span style={{ color: "var(--muted)" }}>首单 MOQ:</span>
                       <strong>{q.moq.toLocaleString()} 件</strong>
@@ -379,7 +379,7 @@ export function SupplierMatrixPk({
                           href={q.supplier.url}
                           target="_blank"
                           rel="noreferrer"
-                          style={{ color: "var(--green)", fontSize: "11px", textDecoration: "underline" }}
+                          style={{ color: "var(--green)", fontSize: "12px", textDecoration: "underline" }}
                         >
                           打开 1688 商品主页 &rarr;
                         </a>

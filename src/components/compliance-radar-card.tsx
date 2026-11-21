@@ -34,7 +34,7 @@ export function ComplianceRadarCard({ radar }: { radar: ComplianceRadarResult })
             </span>
             <span
               className={`badge ${isSafe ? "badge-success" : "badge-danger"}`}
-              style={{ fontSize: "11px", margin: 0, lineHeight: 1, display: "inline-flex", alignItems: "center" }}
+              style={{ fontSize: "12px", margin: 0, lineHeight: 1, display: "inline-flex", alignItems: "center" }}
             >
               {isSafe ? "合规排查通过" : `发现 ${radar.criticalCount} 处高危风险`}
             </span>
@@ -58,7 +58,7 @@ export function ComplianceRadarCard({ radar }: { radar: ComplianceRadarResult })
           >
             {radar.score} <span style={{ fontSize: "12px", fontWeight: 600 }}>分</span>
           </div>
-          <div style={{ fontSize: "11px", color: "var(--muted)", marginTop: "2px" }}>
+          <div style={{ fontSize: "12px", color: "var(--muted)", marginTop: "2px" }}>
             {radar.criticalCount} 阻断 · {radar.warningCount} 提醒
           </div>
         </div>
@@ -106,7 +106,7 @@ export function ComplianceRadarCard({ radar }: { radar: ComplianceRadarResult })
                   <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                     <span
                       style={{
-                        fontSize: "10px",
+                        fontSize: "12px",
                         fontWeight: 700,
                         padding: "1px 6px",
                         borderRadius: "4px",
@@ -117,7 +117,7 @@ export function ComplianceRadarCard({ radar }: { radar: ComplianceRadarResult })
                       {isCrit ? "高危阻断" : "合规预警"}
                     </span>
                     <strong style={{ color: "var(--ink)" }}>触发词: &quot;{f.word}&quot;</strong>
-                    <span style={{ color: "var(--muted)", fontSize: "11px" }}>（位于 {fieldLabel}）</span>
+                    <span style={{ color: "var(--muted)", fontSize: "12px" }}>（位于 {fieldLabel}）</span>
                   </div>
                 </div>
 
@@ -126,7 +126,7 @@ export function ComplianceRadarCard({ radar }: { radar: ComplianceRadarResult })
                 </div>
 
                 {f.suggestedReplacement && (
-                  <div style={{ fontSize: "11px", color: "var(--green)", fontWeight: 600 }}>
+                  <div style={{ fontSize: "12px", color: "var(--green)", fontWeight: 600 }}>
                     💡 建议合规替换为: <span style={{ textDecoration: "underline" }}>{f.suggestedReplacement}</span>
                   </div>
                 )}

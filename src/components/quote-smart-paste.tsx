@@ -293,7 +293,7 @@ export function QuoteSmartPaste({ disabled }: { disabled?: boolean }) {
           </span>
           <span
             style={{
-              fontSize: "11px",
+              fontSize: "12px",
               padding: "2px 8px",
               background: "#e0f2fe",
               color: "var(--blue)",

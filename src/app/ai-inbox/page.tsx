@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { MetricGrid, PageHeader, QueryNotices } from "@/components/ui";
 import {
   createAiInboxTaskAction,
   retryAiInboxTaskAction,
@@ -73,57 +74,55 @@ export default async function AiInboxPage({ searchParams }: PageProps) {
 
   return (
     <div className="page ai-inbox-page">
-      {target ? (
-        <div className="ai-inbox-context-bar">
-          <Link href={returnHref ?? "/ai-inbox"}>← 返回「{target.concept}」验证</Link>
-          <span>{target.marketCode} / {target.platformCode} · {target.currency}</span>
-        </div>
-      ) : null}
-      <div className="title-row">
-        <div>
-          <div className="eyebrow">{target ? "机会证据录入" : "证据审核队列"}</div>
-          <h1>{target ? "AI 智能录入" : "AI 证据收件箱"}</h1>
-          <p className="muted ai-inbox-subtitle">
-            {target
-              ? `为「${target.concept}」整理竞品、评论或供应商报价。AI 只提取候选字段，人工确认后才写入当前机会。`
-              : "把竞品、供应商报价和评论证据整理成可追溯字段。AI 只负责提取，人工确认后才写入业务事实。"}
-          </p>
-        </div>
-        {returnHref ? (
-          <Link href={returnHref} className="button secondary">返回机会验证</Link>
-        ) : (
-          <span className="badge badge-neutral">仅本机 / 内部工作台</span>
-        )}
-      </div>
+      <PageHeader
+        breadcrumbs={
+          target
+            ? undefined
+            : [
+                { label: "工作台", href: "/" },
+                { label: "数据源", href: "/data-sources" },
+                { label: "AI 证据收件箱" },
+              ]
+        }
+        backLink={
+          target
+            ? {
+                label: `← 返回「${target.concept}」验证`,
+                href: returnHref ?? "/ai-inbox",
+                meta: `${target.marketCode} / ${target.platformCode} · ${target.currency}`,
+              }
+            : undefined
+        }
+        eyebrow={target ? "机会证据录入" : "证据审核队列"}
+        title={target ? "AI 智能录入" : "AI 证据收件箱"}
+        description={
+          target
+            ? `为「${target.concept}」整理竞品、评论或供应商报价。AI 只提取候选字段，人工确认后才写入当前机会。`
+            : "把竞品、供应商报价和评论证据整理成可追溯字段。AI 只负责提取，人工确认后才写入业务事实。"
+        }
+        actions={
+          returnHref ? (
+            <Link href={returnHref} className="button secondary">返回机会验证</Link>
+          ) : (
+            <span className="badge badge-neutral">仅本机 / 内部工作台</span>
+          )
+        }
+      />
 
-      {query.notice ? <div className="notice"><strong>已完成：</strong>{query.notice}</div> : null}
-      {query.error ? <div className="notice warn"><strong>未完成：</strong>{query.error}</div> : null}
+      <QueryNotices notice={query.notice} error={query.error} />
       {requestedTargetId && !target ? (
         <div className="notice warn"><strong>目标机会不可用：</strong>该机会可能已删除或已转商品立项，当前展示全部证据任务。</div>
       ) : null}
 
-      <div className="metrics-grid ai-inbox-metrics">
-        <div className="metric-card">
-          <span className="metric-label">{target ? "当前机会任务" : "当前筛选"}</span>
-          <strong className="metric-value">{tasks.length}</strong>
-          <span className="metric-note">最多展示最近 100 个任务</span>
-        </div>
-        <div className="metric-card">
-          <span className="metric-label">待审核 / 可应用</span>
-          <strong className="metric-value">{pendingCount}</strong>
-          <span className="metric-note">应用前必须完成字段审核</span>
-        </div>
-        <div className="metric-card">
-          <span className="metric-label">已写入业务事实</span>
-          <strong className="metric-value">{appliedCount}</strong>
-          <span className="metric-note">写入后重新计算确定性门禁</span>
-        </div>
-        <div className="metric-card">
-          <span className="metric-label">提取失败</span>
-          <strong className="metric-value">{failedCount}</strong>
-          <span className="metric-note">保留原始 artifact，可人工重试</span>
-        </div>
-      </div>
+      <MetricGrid
+        ariaLabel="证据收件箱统计"
+        items={[
+          { label: target ? "当前机会任务" : "当前筛选", value: tasks.length, note: "最多展示最近 100 个任务" },
+          { label: "待审核 / 可应用", value: pendingCount, note: "应用前必须完成字段审核", tone: pendingCount > 0 ? "warn" : "default" },
+          { label: "已写入业务事实", value: appliedCount, note: "写入后重新计算确定性门禁", tone: "success" },
+          { label: "提取失败", value: failedCount, note: "保留原始 artifact，可人工重试", tone: failedCount > 0 ? "danger" : "default" },
+        ]}
+      />
 
       <div className="ai-inbox-layout">
         <section className="panel ai-inbox-create">

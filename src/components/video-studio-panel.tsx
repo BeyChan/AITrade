@@ -395,7 +395,7 @@ export function VideoStudioPanel({
                       <span style={{ fontSize: "12px", fontWeight: 700, maxWidth: "140px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {img.originalName}
                       </span>
-                      <span style={{ fontSize: "11px", color: img.status === "approved" ? "var(--green)" : "var(--muted)" }}>
+                      <span style={{ fontSize: "12px", color: img.status === "approved" ? "var(--green)" : "var(--muted)" }}>
                         {img.status === "approved" ? "✓ 已审核" : "待审核"} · {img.assetType}
                       </span>
                     </div>
@@ -432,8 +432,8 @@ export function VideoStudioPanel({
                   }}
                 >
                   <div style={{ fontSize: "13px", fontWeight: 800 }}>{tpl.name}</div>
-                  <div style={{ fontSize: "11.5px", color: "var(--muted)", lineHeight: 1.45 }}>{tpl.tagline}</div>
-                  <div style={{ fontSize: "11px", color: "var(--green)", fontWeight: 600, marginTop: "2px" }}>{tpl.channelHint}</div>
+                  <div style={{ fontSize: "12px", color: "var(--muted)", lineHeight: 1.45 }}>{tpl.tagline}</div>
+                  <div style={{ fontSize: "12px", color: "var(--green)", fontWeight: 600, marginTop: "2px" }}>{tpl.channelHint}</div>
                 </button>
               );
             })}
@@ -526,11 +526,11 @@ export function VideoStudioPanel({
                     gap: "4px",
                   }}
                 >
-                  <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--green)" }}>
+                  <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--green)" }}>
                     镜头 {shot.shot}（{shot.durationSec}s）· {shot.role}
                   </div>
                   <div style={{ fontSize: "12px", color: "var(--ink)", lineHeight: 1.45 }}>{shot.captionEn}</div>
-                  <div style={{ fontSize: "11px", color: "var(--muted)" }}>{shot.captionZh}</div>
+                  <div style={{ fontSize: "12px", color: "var(--muted)" }}>{shot.captionZh}</div>
                 </div>
               ))}
             </div>
@@ -630,7 +630,7 @@ export function VideoStudioPanel({
                     <button
                       type="button"
                       className="button ghost"
-                      style={{ minHeight: "28px", padding: "0 10px", fontSize: "11px" }}
+                      style={{ minHeight: "28px", padding: "0 10px", fontSize: "12px" }}
                       onClick={() => handleManualPoll(job.id)}
                     >
                       立即刷新
@@ -735,7 +735,7 @@ export function VideoStudioPanel({
                           {asset.status === "approved" ? "已审核通过" : asset.status === "rejected" ? "已退回" : "待人工审核"}
                         </span>
                       </div>
-                      <div style={{ fontSize: "11px", color: "var(--muted)" }}>
+                      <div style={{ fontSize: "12px", color: "var(--muted)" }}>
                         来源：{providerName}
                       </div>
                       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
@@ -743,7 +743,7 @@ export function VideoStudioPanel({
                           <button
                             type="button"
                             className="button primary"
-                            style={{ minHeight: "28px", padding: "0 10px", fontSize: "11.5px" }}
+                            style={{ minHeight: "28px", padding: "0 10px", fontSize: "12px" }}
                             disabled={reviewingId === asset.id}
                             onClick={() => handleReviewVideo(asset.id, "approved")}
                           >
@@ -754,7 +754,7 @@ export function VideoStudioPanel({
                           <button
                             type="button"
                             className="button ghost"
-                            style={{ minHeight: "28px", padding: "0 10px", fontSize: "11.5px" }}
+                            style={{ minHeight: "28px", padding: "0 10px", fontSize: "12px" }}
                             disabled={reviewingId === asset.id}
                             onClick={() => handleReviewVideo(asset.id, "rejected")}
                           >
@@ -764,7 +764,7 @@ export function VideoStudioPanel({
                         <a
                           href={`${asset.file_url}?download=1`}
                           className="button secondary"
-                          style={{ minHeight: "28px", padding: "0 10px", fontSize: "11.5px" }}
+                          style={{ minHeight: "28px", padding: "0 10px", fontSize: "12px" }}
                         >
                           下载 MP4
                         </a>
@@ -790,7 +790,7 @@ export function VideoStudioPanel({
                           style={{
                             minHeight: "28px",
                             padding: "0 10px",
-                            fontSize: "11.5px",
+                            fontSize: "12px",
                             background: "transparent",
                             border: "1px solid var(--line)",
                             borderRadius: "6px",

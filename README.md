@@ -34,12 +34,13 @@ flowchart TD
         C1 --> C2
     end
 
-    subgraph S4["④ 内容打磨、视觉工坊与交付（/content · /image-studio）"]
+    subgraph S4["④ 内容打磨、视觉工坊与资源库（/content · /image-studio · /video-studio · /media-library）"]
         D1["反制五点文案 + 侵权/FDA 合规雷达"]
-        D2["视觉 Skill 生图 + Amazon 手机/PC 货架对比测试"]
+        D2["AI 生图 / 视频工坊（Skill 模板 + AI 提示词 + 异步渲染拼接）"]
+        D4["统一资源库：图片/视频集中检索 · 一键归属入库案卷 · 货架测试"]
         D3["导出官方 Flat File (TSV) · 打印 A4 立项战报 PDF"]
         D1 --> D3
-        D2 --> D3
+        D2 --> D4 --> D3
     end
 
     subgraph S5["⑤ 上架后实盘复盘（/operations）"]
@@ -68,7 +69,7 @@ flowchart TD
 | **2. 竞品研判** | `/competitors` | **市场格局四象限气泡图**（售价 × 评论壁垒 × 月销 × 评分痛点）、价格分位（P25–P90）、HHI 垄断指数与差评反制五点 |
 | **3. 财务与合规门禁** | `/cases/[id]` | **交互式 What-If 财务沙盘**（瀑布图 + 售价×ACoS 热力矩阵）、**FBA 尺寸降档提醒 + 抛货头程 + 站点 VAT + 90 天现金流回本**、立项前置专利/认证红线清单 |
 | **4. 1688 寻源比价** | `/cases/[id]/sourcing` | 多工厂横向 PK 矩阵与人工定标、**微信/1688 报价单截图多模态识别**、浏览器扩展半自动 1688 采集与 RFQ 内部草稿 |
-| **5. 内容、生图与视频工坊** | `/content` `/image-studio` `/video-studio` | 差评缺口自动传承到五点文案、侵权/FDA/广告法合规雷达、**AI 生图工坊**（自定义视觉 Skill + AI 生成提示词 + Amazon 货架测试）、**AI 视频工坊**（6 套内置/自定义视频 Skill + AI 扩写英文 I2V 分镜 + 异步渲染队列 + 本地 `ffmpeg` 多镜头拼接 + 素材管理与删除） |
+| **5. 内容、视觉工坊与资源库** | `/content` `/image-studio` `/video-studio` `/media-library` | 差评缺口自动传承到五点文案、侵权/FDA/广告法合规雷达、**AI 生图工坊**（自定义视觉 Skill + AI 生成提示词 + Amazon 货架测试）、**AI 视频工坊**（6 套内置/自定义视频 Skill + AI 扩写英文 I2V 分镜 + 异步渲染队列 + 本地 `ffmpeg` 多镜头拼接）、**统一资源库**（集中检索图片/视频作品，一键归属入库至商品案卷） |
 | **6. 交付与实盘复盘** | `/operations` `/cases/[id]/report` | 一键导出 **Amazon 官方 Flat File (TSV)**、A4 **立项决策评审战报 PDF**、**Settlement V2 + FBA 库存实盘 vs 预测偏差与断货预警** |
 
 ### 全局效率体验
@@ -81,7 +82,7 @@ flowchart TD
 
 ## 快速开始
 
-需要 **Node.js 20.9+**，内置嵌入式 PGlite，无需安装数据库或 Docker：
+需要 **Node.js 22.6+**，内置嵌入式 PGlite，无需安装数据库或 Docker：
 
 ```bash
 npm install
@@ -134,15 +135,15 @@ npm run dev
 ```bash
 npm run typecheck                  # TypeScript 类型检查
 npm run theme:check                # 深浅双模颜色变量审计
-npm test                           # 单元测试（225 项）
+npm test                           # 单元测试（42 个测试文件全量覆盖）
 npm run build                      # 生产构建
 npm run db:reset                   # 清空本地数据库与缓存
 npm run report:dry-run -- --help   # P3.0 报表 CLI 只读试算
 ```
 
 ```text
-src/app/         页面路由、Server Actions 与 API（含 /discover、/image-studio、/video-studio、/settings、/operations、/api/health）
-src/components/  交互组件（选品向导、财务沙盘、四象限图、物流现金流、货架测试、生图/视频工坊、模型配置中心）
+src/app/         页面路由、Server Actions 与 API（含 /discover、/image-studio、/video-studio、/media-library、/settings、/operations、/api/health）
+src/components/  交互组件（选品向导、财务沙盘、四象限图、物流现金流、货架测试、生图/视频工坊与资源库、模型配置中心）
 src/lib/         确定性经济/物流/合规/结算纯函数、AI/生图/视频供应商适配、Skill 规范与仓储层
 extensions/      Amazon 竞品采集 & 1688 供应商采集 Chrome 扩展
 db/schema.sql    PostgreSQL / PGlite 表结构

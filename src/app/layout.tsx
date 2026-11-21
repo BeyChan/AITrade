@@ -80,9 +80,9 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
                   platforms={platforms}
                   defaultMarket={persistedScope.marketCode}
                   defaultPlatform={persistedScope.platformCode}
+                  leftSlot={<WorkContextBar items={workContext} />}
                 />
               </Suspense>
-              <WorkContextBar items={workContext} />
             </header>
             <main>{children}</main>
             <GlobalSearch />

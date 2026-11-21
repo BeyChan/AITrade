@@ -56,7 +56,7 @@ export function TerminateCaseControl({
       <input type="hidden" name="caseId" value={caseId} />
       <input type="hidden" name="returnPath" value={returnPath} />
       <input type="hidden" name="actor" value="运营人员" />
-      <label htmlFor={`terminate-reason-${caseId}`} style={{ fontSize: "11px", color: "var(--muted)" }}>
+      <label htmlFor={`terminate-reason-${caseId}`} style={{ fontSize: "12px", color: "var(--muted)" }}>
         终止原因（必填，写入审计日志）
       </label>
       <input

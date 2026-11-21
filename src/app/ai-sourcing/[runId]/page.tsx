@@ -7,6 +7,7 @@ import { DetailTabCookie } from "@/components/detail-tab-cookie";
 import { ProposalMeta } from "@/components/ai-proposal-card";
 import { CostBackCalculator } from "@/components/cost-back-calculator";
 import { HashOpenDetails } from "@/components/hash-open-details";
+import { PageHeader, QueryNotices } from "@/components/ui";
 import {
   SupplierCandidateComparison,
   SupplierCandidateImportForm,
@@ -128,29 +129,31 @@ export default async function AISourcingDetailPage({ params, searchParams }: Pag
   return (
     <div className="page ai-sourcing-detail-page">
       <DetailTabCookie tab={activeTab} />
-      <div className="breadcrumb">
-        <Link href="/">工作台</Link> / <Link href="/ai-sourcing">选品验证</Link> / 批次详情
-      </div>
-
-      <div className="title-row">
-        <div>
-          <div className="eyebrow">证据优先的选品验证</div>
-          <h1>{batch.category} · 选品验证</h1>
-          <div className="title-meta">
+      <PageHeader
+        breadcrumbs={[
+          { label: "工作台", href: "/" },
+          { label: "AI 选品批次", href: "/ai-sourcing" },
+          { label: "批次详情" },
+        ]}
+        eyebrow="证据优先的选品验证"
+        title={`${batch.category} · 选品验证`}
+        meta={
+          <>
             <span className="badge badge-neutral">{siteLabel}</span>
             <span className="badge badge-neutral">{batch.currency}</span>
             <span className="badge badge-success">{goCount} 个 GO</span>
             <span className="badge status-review_pending">{selectedCount} 个验证中</span>
-          </div>
-        </div>
-        <div className="button-row">
-          <Link href="/ai-sourcing" className="button secondary">返回研究列表</Link>
-          <Link href={`/?market=${encodeURIComponent(batch.marketCode)}&platform=${encodeURIComponent(batch.platformCode)}#opportunities`} className="button ghost">查看已立项商品</Link>
-        </div>
-      </div>
+          </>
+        }
+        actions={
+          <>
+            <Link href="/ai-sourcing" className="button secondary">返回研究列表</Link>
+            <Link href={`/?market=${encodeURIComponent(batch.marketCode)}&platform=${encodeURIComponent(batch.platformCode)}#opportunities`} className="button ghost">查看已立项商品</Link>
+          </>
+        }
+      />
 
-      {query.notice ? <div className="notice"><strong>已完成：</strong>{query.notice}</div> : null}
-      {query.error ? <div className="notice warn"><strong>未完成：</strong>{query.error}</div> : null}
+      <QueryNotices notice={query.notice} error={query.error} />
       {batch.templateFallback ? (
         <div className="notice warn">
           <strong>本批假设由内置模板生成：</strong>模型调用失败，已自动回退（{batch.providerError ?? "原因未记录"}）。这 5 个方向不是 {batch.provider} / {batch.model} 的输出。
@@ -556,17 +559,17 @@ function HypothesisCard({
                             {task.title}
                           </strong>
                           {task.targetCount ? (
-                            <span className="badge badge-neutral" style={{ fontSize: "10px", padding: "1px 6px" }}>
+                            <span className="badge badge-neutral" style={{ fontSize: "12px", padding: "1px 6px" }}>
                               目标: {task.targetCount}
                             </span>
                           ) : null}
                           {isDone ? (
-                            <span className="badge badge-success" style={{ fontSize: "10px", padding: "1px 6px" }}>
+                            <span className="badge badge-success" style={{ fontSize: "12px", padding: "1px 6px" }}>
                               已达成
                             </span>
                           ) : null}
                         </div>
-                        <p style={{ fontSize: "11px", margin: "3px 0 0", color: "var(--muted)", lineHeight: "1.45" }}>
+                        <p style={{ fontSize: "12px", margin: "3px 0 0", color: "var(--muted)", lineHeight: "1.45" }}>
                           {task.description}
                         </p>
                       </div>
@@ -576,7 +579,7 @@ function HypothesisCard({
                             href={quickAction.href}
                             className="button ghost"
                             style={{
-                              fontSize: "11px",
+                              fontSize: "12px",
                               padding: "4px 8px",
                               height: "auto",
                               whiteSpace: "nowrap",
@@ -595,7 +598,7 @@ function HypothesisCard({
                             type="submit"
                             className={`button ${isDone ? "ghost" : "secondary"}`}
                             style={{
-                              fontSize: "11px",
+                              fontSize: "12px",
                               padding: "4px 10px",
                               height: "auto",
                               fontWeight: 600,

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
+import { PageHeader } from "@/components/ui";
 
 type ImportResponse = {
   imported?: number;
@@ -58,15 +59,17 @@ export default function ImportPage() {
   }
 
   return (
-    <div className="page page-narrow">
-      <div className="breadcrumb"><Link href="/">AI 选品</Link> / 导入候选品</div>
-      <section className="hero">
-        <div>
-          <div className="eyebrow">CSV 导入 · {site.market} × {site.platform}</div>
-          <h1>导入 {site.market} 站点候选品</h1>
-          <p>本次导入固定归属于首页选中的国家站点。CSV 中的 marketplace 会以当前站点覆盖，避免同一批候选品被错误归到其他市场。</p>
-        </div>
-      </section>
+    <div className="page">
+      <PageHeader
+        breadcrumbs={[
+          { label: "工作台", href: "/" },
+          { label: "数据源", href: "/data-sources" },
+          { label: "导入候选品" },
+        ]}
+        eyebrow={`CSV 导入 · ${site.market} × ${site.platform}`}
+        title={`导入 ${site.market} 站点候选品`}
+        description="本次导入固定归属于首页选中的国家站点。CSV 中的 marketplace 会以当前站点覆盖，避免同一批候选品被错误归到其他市场。"
+      />
 
       <div className="import-layout">
         <section className="section">

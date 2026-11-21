@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ConnectionCheckButton } from "@/components/connection-check";
+import { MetricGrid, PageHeader, QueryNotices } from "@/components/ui";
 import { clearConnectorSettingsAction, saveConnectorSettingsAction } from "./actions";
 import { getLatestConnectorHealthChecks } from "@/lib/connection-diagnostics";
 import { getConnectorSettingsStatus, loadConnectorEnv } from "@/lib/connector-settings";
@@ -41,45 +42,28 @@ export default async function ConnectionsPage({ searchParams }: Props) {
 
   return (
     <div className="page">
-      <div className="breadcrumb"><Link href="/">AI 选品</Link> / 连接中心</div>
+      <PageHeader
+        breadcrumbs={[
+          { label: "工作台", href: "/" },
+          { label: "连接中心" },
+        ]}
+        eyebrow="连接核验"
+        title="店铺连接中心"
+        description="店铺连接先验证，再开放任何写动作。这里只执行官方 API 的只读授权检查：Amazon 验证 LWA 与 Seller API，Shopify 读取店铺基本信息，eBay 只验证应用凭证。凭证可直接在本页填写，AES-256-GCM 加密后存入本机数据库。"
+        actions={<Link className="button secondary" href="/data-sources">回到数据源</Link>}
+      />
 
-      <section className="hero connection-hero">
-        <div>
-          <div className="eyebrow">连接核验</div>
-          <h1>店铺连接先验证，<br />再开放任何写动作。</h1>
-          <p>
-            这里只执行官方 API 的只读授权检查：Amazon 验证 LWA 与 Seller API，Shopify 读取店铺基本信息，eBay 只验证应用凭证。
-            凭证可直接在本页填写，AES-256-GCM 加密后存入本机数据库；页面不回显完整值，审计日志只记录字段名。
-          </p>
-        </div>
-        <Link className="button secondary" href="/data-sources">回到数据源</Link>
-      </section>
+      <QueryNotices notice={query.notice} error={query.error} />
 
-      {query.notice ? <div className="notice"><strong>已完成：</strong>{query.notice}</div> : null}
-      {query.error ? <div className="notice warn"><strong>未完成：</strong>{query.error}</div> : null}
-
-      <section className="metrics-grid" aria-label="连接器指标">
-        <article className="metric-card">
-          <div className="metric-label">已支持诊断</div>
-          <div className="metric-value">3</div>
-          <div className="metric-note">Amazon / Shopify / eBay</div>
-        </article>
-        <article className="metric-card">
-          <div className="metric-label">验证通过</div>
-          <div className="metric-value">{verifiedCount}</div>
-          <div className="metric-note">包含应用凭证级验证</div>
-        </article>
-        <article className="metric-card">
-          <div className="metric-label">写连接</div>
-          <div className="metric-value">0</div>
-          <div className="metric-note">发布、改价、库存与订单写入均未开放</div>
-        </article>
-        <article className="metric-card">
-          <div className="metric-label">外部动作</div>
-          <div className="metric-value connection-readonly-value">READ ONLY</div>
-          <div className="metric-note">不发送 RFQ、不定标、不下单或付款</div>
-        </article>
-      </section>
+      <MetricGrid
+        ariaLabel="连接器指标"
+        items={[
+          { label: "已支持诊断", value: 3, note: "Amazon / Shopify / eBay" },
+          { label: "验证通过", value: verifiedCount, note: "包含应用凭证级验证", tone: verifiedCount > 0 ? "success" : "default" },
+          { label: "写连接", value: 0, note: "发布、改价、库存与订单写入均未开放" },
+          { label: "外部动作", value: <span className="connection-readonly-value">READ ONLY</span>, note: "不发送 RFQ、不定标、不下单或付款" },
+        ]}
+      />
 
       <div className="notice source-notice">
         <span className="badge badge-success">CONNECTION GUARD</span>

@@ -45,7 +45,7 @@ export function TerminatedCasesPanel({
           >
             <div style={{ minWidth: 0 }}>
               <strong style={{ fontSize: "13px" }}>{entry.caseItem.title}</strong>
-              <div className="muted" style={{ fontSize: "11px", marginTop: "4px" }}>
+              <div className="muted" style={{ fontSize: "12px", marginTop: "4px" }}>
                 原因：{entry.reason}
                 {entry.archivedAt ? ` · ${shortDate(entry.archivedAt)}` : ""}
                 {entry.archivedBy ? ` · ${entry.archivedBy}` : ""}

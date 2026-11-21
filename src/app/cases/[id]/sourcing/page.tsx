@@ -7,6 +7,7 @@ import { money, shortDate } from "@/lib/format";
 import { getSourcingDetail, listSupplierDirectory } from "@/lib/repository";
 import { SupplierMatrixPk } from "@/components/supplier-matrix-pk";
 import { QuoteSmartPaste } from "@/components/quote-smart-paste";
+import { PageHeader, QueryNotices } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -34,9 +35,30 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
 
   return (
     <div className="page">
-      <div className="breadcrumb">
-        <Link href="/">AI 选品</Link> / <Link href={`/cases/${productCase.id}`}>{productCase.asin}</Link> / 供应商询价
-      </div>
+      <PageHeader
+        breadcrumbs={[
+          { label: "工作台", href: "/" },
+          { label: "商品案卷", href: "/cases" },
+          { label: productCase.asin, href: `/cases/${productCase.id}` },
+          { label: "供应商询价" },
+        ]}
+        eyebrow="供应商询价与定标"
+        title={productCase.title}
+        meta={
+          <>
+            <StatusBadge status={productCase.status} />
+            <span className="badge badge-neutral">{productCase.marketplace}</span>
+            <span className="badge badge-neutral">{productCase.category}</span>
+            <span className="muted">到岸成本 = 采购价 + 单件运费 + 关税</span>
+          </>
+        }
+        actions={
+          <>
+            <Link href={`/cases/${productCase.id}`} className="button secondary">商品与成本详情</Link>
+            <Link href="/sourcing" className="button ghost">返回询价看板</Link>
+          </>
+        }
+      />
 
       <CaseStepper
         caseId={productCase.id}
@@ -47,28 +69,7 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
         status={productCase.status}
       />
 
-      <div className="title-row">
-        <div>
-          <h1>{productCase.title}</h1>
-          <div className="title-meta">
-            <StatusBadge status={productCase.status} />
-            <span className="badge badge-neutral">{productCase.marketplace}</span>
-            <span className="badge badge-neutral">{productCase.category}</span>
-            <span className="muted">到岸成本 = 采购价 + 单件运费 + 关税</span>
-          </div>
-        </div>
-        <div className="button-row">
-          <Link href={`/cases/${productCase.id}`} className="button secondary">商品与成本详情</Link>
-          <Link href="/sourcing" className="button ghost">返回询价看板</Link>
-        </div>
-      </div>
-
-      {query.error ? (
-        <div className="notice warn"><span className="badge badge-danger">ERROR</span><span>{query.error}</span></div>
-      ) : null}
-      {query.notice ? (
-        <div className="notice"><span className="badge badge-success">DONE</span><span>{query.notice}</span></div>
-      ) : null}
+      <QueryNotices notice={query.notice} error={query.error} />
       {productCase.is_demo ? (
         <div className="notice">
           <span className="badge demo-badge">DEMO</span>

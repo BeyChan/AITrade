@@ -228,7 +228,7 @@ export function DashboardPipelineKanban({
             <span className="eyebrow" style={{ color: "var(--green)", margin: 0, lineHeight: 1 }}>
               操盘手业务大盘
             </span>
-            <span className="badge badge-success" style={{ fontSize: "11px", margin: 0, lineHeight: 1, display: "inline-flex", alignItems: "center" }}>
+            <span className="badge badge-success" style={{ fontSize: "12px", margin: 0, lineHeight: 1, display: "inline-flex", alignItems: "center" }}>
               活跃管道: {totalActiveCases} 项
             </span>
           </div>
@@ -324,7 +324,7 @@ export function DashboardPipelineKanban({
                         borderRadius: "50%",
                         background: col.badgeBg,
                         color: col.badgeColor,
-                        fontSize: "11px",
+                        fontSize: "12px",
                         fontWeight: 800,
                         display: "inline-grid",
                         placeItems: "center",
@@ -334,7 +334,7 @@ export function DashboardPipelineKanban({
                     </span>
                     <strong style={{ fontSize: "13px", color: "var(--ink)" }}>{col.title}</strong>
                   </div>
-                  <div style={{ fontSize: "10px", color: "var(--muted)", marginTop: "2px" }}>
+                  <div style={{ fontSize: "12px", color: "var(--muted)", marginTop: "2px" }}>
                     {col.subtitle}
                   </div>
                 </div>
@@ -344,7 +344,7 @@ export function DashboardPipelineKanban({
                     borderRadius: "10px",
                     background: col.badgeBg,
                     color: col.badgeColor,
-                    fontSize: "11px",
+                    fontSize: "12px",
                     fontWeight: 700,
                   }}
                 >
@@ -382,7 +382,7 @@ export function DashboardPipelineKanban({
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <span
                         style={{
-                          fontSize: "10px",
+                          fontSize: "12px",
                           fontWeight: 800,
                           color: "var(--green)",
                           background: "var(--green-soft)",
@@ -397,7 +397,7 @@ export function DashboardPipelineKanban({
                       </span>
                       <span
                         style={{
-                          fontSize: "11px",
+                          fontSize: "12px",
                           fontWeight: 800,
                           color: "#fff",
                           background: "var(--green)",
@@ -414,7 +414,7 @@ export function DashboardPipelineKanban({
                       {col.focusTask.label}
                     </div>
 
-                    <div style={{ fontSize: "10.5px", color: "var(--muted)", lineHeight: 1.3 }}>
+                    <div style={{ fontSize: "12px", color: "var(--muted)", lineHeight: 1.3 }}>
                       {col.focusTask.detail}
                     </div>
 
@@ -423,7 +423,7 @@ export function DashboardPipelineKanban({
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "flex-end",
-                        fontSize: "11px",
+                        fontSize: "12px",
                         fontWeight: 700,
                         color: "var(--green)",
                         borderTop: "1px dashed var(--line)",
@@ -465,12 +465,12 @@ export function DashboardPipelineKanban({
                         {item.title}
                       </div>
 
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "11px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12px" }}>
                         <span style={{ color: "var(--muted)", background: "var(--surface-subtle)", padding: "1px 6px", borderRadius: "4px" }}>
                           {item.tag}
                         </span>
                         <div style={{ textAlign: "right" }}>
-                          <span style={{ color: "var(--muted)", fontSize: "10px" }}>{item.metricLabel}: </span>
+                          <span style={{ color: "var(--muted)", fontSize: "12px" }}>{item.metricLabel}: </span>
                           <strong style={{ color: "var(--green)" }}>{item.metricVal}</strong>
                         </div>
                       </div>
@@ -479,7 +479,7 @@ export function DashboardPipelineKanban({
                         <Link
                           href={item.href}
                           style={{
-                            fontSize: "11px",
+                            fontSize: "12px",
                             fontWeight: 700,
                             color: col.badgeColor,
                             display: "inline-block",
@@ -495,7 +495,7 @@ export function DashboardPipelineKanban({
                     style={{
                       textAlign: "center",
                       color: "var(--muted)",
-                      fontSize: "11px",
+                      fontSize: "12px",
                       padding: "24px 8px",
                       lineHeight: "1.4",
                     }}
@@ -515,7 +515,7 @@ export function DashboardPipelineKanban({
                       borderRadius: "6px",
                       background: "var(--green-soft)",
                       color: "var(--green)",
-                      fontSize: "11px",
+                      fontSize: "12px",
                       fontWeight: 700,
                       textDecoration: "none",
                       border: "1px dashed #c0dcce",
@@ -557,7 +557,7 @@ export function DashboardPipelineKanban({
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <span className="badge badge-neutral" style={{ fontSize: "11px" }}>
+                  <span className="badge badge-neutral" style={{ fontSize: "12px" }}>
                     {c.asin}
                   </span>
                   <strong style={{ color: "var(--ink)" }}>{c.title}</strong>
@@ -574,10 +574,10 @@ export function DashboardPipelineKanban({
                     <strong>{res ? money(res.netProfitCents) : "—"}</strong>
                   </div>
                   <span className="badge badge-success">{statusLabel}</span>
-                  <Link href={`/cases/${c.id}/report`} className="button secondary" style={{ fontSize: "11px", padding: "4px 8px", height: "auto" }}>
+                  <Link href={`/cases/${c.id}/report`} className="button secondary" style={{ fontSize: "12px", padding: "4px 8px", height: "auto" }}>
                     🖨️ 打印报告
                   </Link>
-                  <Link href={`/cases/${c.id}`} className="button secondary" style={{ fontSize: "11px", padding: "4px 10px", height: "auto" }}>
+                  <Link href={`/cases/${c.id}`} className="button secondary" style={{ fontSize: "12px", padding: "4px 10px", height: "auto" }}>
                     进入案卷 &rarr;
                   </Link>
                 </div>

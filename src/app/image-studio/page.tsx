@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { StandaloneImageStudioClient } from "@/components/standalone-image-studio-client";
+import { PageHeader } from "@/components/ui";
 import { getImageProviderStatus } from "@/lib/image-provider";
 import { listAvailableImageSkills } from "@/lib/image-skills";
 import { getSiteOptions, listSourcingCases } from "@/lib/repository";
@@ -9,7 +10,7 @@ import { listStandaloneStudioAssets } from "@/lib/standalone-image-studio";
 export const dynamic = "force-dynamic";
 
 type PageProps = {
-  searchParams: Promise<{ market?: string; platform?: string }>;
+  searchParams: Promise<{ caseId?: string; market?: string; platform?: string }>;
 };
 
 export default async function StandaloneImageStudioPage({ searchParams }: PageProps) {
@@ -40,31 +41,45 @@ export default async function StandaloneImageStudioPage({ searchParams }: PagePr
 
   return (
     <div className="page">
-      <header className="studio-topbar">
-        <div className="studio-topbar-title">
-          <h1>AI 生图工坊</h1>
-          <span className="badge badge-neutral">{marketName} · {marketCode}</span>
-          <span
-            className={`badge ${
-              providerStatus.provider !== "template" && providerStatus.configured
-                ? "badge-success"
-                : "badge-neutral"
-            }`}
-          >
-            {providerStatus.label} · {providerStatus.model}
-          </span>
-        </div>
-        <div className="button-row">
-          <Link href="/settings" className="button secondary">配置生图模型</Link>
-          <Link href="/content" className="button ghost">内容工作台</Link>
-        </div>
-      </header>
+      <PageHeader
+        breadcrumbs={[
+          { label: "工作台", href: "/" },
+          { label: "内容工作台", href: "/content" },
+          { label: "AI 生图工坊" },
+        ]}
+        title="AI 生图工坊"
+        titleBadges={
+          <>
+            <span className="badge badge-neutral">{marketName} · {marketCode}</span>
+            <span
+              className={`badge ${
+                providerStatus.provider !== "template" && providerStatus.configured
+                  ? "badge-success"
+                  : "badge-neutral"
+              }`}
+            >
+              {providerStatus.label} · {providerStatus.model}
+            </span>
+          </>
+        }
+        actions={
+          <>
+            {query.caseId ? (
+              <Link href={`/cases/${encodeURIComponent(query.caseId)}/content`} className="button primary">
+                ← 返回商品案卷
+              </Link>
+            ) : null}
+            <Link href="/settings" className="button secondary">配置生图模型</Link>
+          </>
+        }
+      />
 
       <StandaloneImageStudioClient
         skills={skills}
         providerStatus={providerStatus}
         initialAssets={initialAssets}
         cases={cases}
+        initialCaseId={query.caseId ?? ""}
         activeMarketCode={marketCode}
         activeMarketName={marketName}
       />

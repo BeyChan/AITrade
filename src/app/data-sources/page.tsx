@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { DataSourceImport } from "@/components/data-source-import";
+import { MetricGrid, PageHeader } from "@/components/ui";
 import { getDataSourcesDashboard } from "@/lib/ingestion";
 
 export const dynamic = "force-dynamic";
@@ -26,41 +27,26 @@ export default async function DataSourcesPage() {
 
   return (
     <div className="page">
-      <div className="breadcrumb"><Link href="/">AI 选品</Link> / 数据源</div>
-      <section className="hero source-hero">
-        <div>
-          <div className="eyebrow">数据导入 · CSV / 人工录入</div>
-          <h1>用已有数据，<br />推进选品验证和上架准备。</h1>
-          <p>
-            平台后台导出、ERP 记录、供应商报价和人工核验结果，都可以通过 CSV 或页面录入。
-            系统会保留来源、观察时间和原始快照，不要求先订阅选品 API。
-          </p>
-        </div>
-        <Link className="button secondary" href="/import">快速导入候选品</Link>
-      </section>
+      <PageHeader
+        breadcrumbs={[
+          { label: "工作台", href: "/" },
+          { label: "数据源" },
+        ]}
+        eyebrow="数据导入 · CSV / 人工录入"
+        title="数据源与本地导入"
+        description="平台后台导出、ERP 记录、供应商报价和人工核验结果，都可以通过 CSV 或页面录入。系统会保留来源、观察时间和原始快照，不要求先订阅选品 API。"
+        actions={<Link className="button secondary" href="/import">快速导入候选品</Link>}
+      />
 
-      <section className="metrics-grid" aria-label="真实数据指标">
-        <article className="metric-card">
-          <div className="metric-label">真实候选品</div>
-          <div className="metric-value">{dashboard.stats.realCandidateCount}</div>
-          <div className="metric-note">不含演示商品</div>
-        </article>
-        <article className="metric-card">
-          <div className="metric-label">供应商档案</div>
-          <div className="metric-value">{dashboard.stats.supplierCount}</div>
-          <div className="metric-note">按外部 ID、链接或名称去重</div>
-        </article>
-        <article className="metric-card">
-          <div className="metric-label">导入批次</div>
-          <div className="metric-value">{freeRuns.length}</div>
-          <div className="metric-note">最近 20 次本地导入记录</div>
-        </article>
-        <article className="metric-card">
-          <div className="metric-label">原始证据快照</div>
-          <div className="metric-value">{dashboard.stats.snapshotCount}</div>
-          <div className="metric-note">保留导入时的原始内容</div>
-        </article>
-      </section>
+      <MetricGrid
+        ariaLabel="真实数据指标"
+        items={[
+          { label: "真实候选品", value: dashboard.stats.realCandidateCount, note: "不含演示商品" },
+          { label: "供应商档案", value: dashboard.stats.supplierCount, note: "按外部 ID、链接或名称去重" },
+          { label: "导入批次", value: freeRuns.length, note: "最近 20 次本地导入记录" },
+          { label: "原始证据快照", value: dashboard.stats.snapshotCount, note: "保留导入时的原始内容" },
+        ]}
+      />
 
       <div className="notice source-notice">
         <span className="badge badge-success">数据边界</span>

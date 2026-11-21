@@ -1,3 +1,4 @@
+import { PageHeader } from "@/components/ui";
 import { getComparisonReports } from "@/lib/competitor-compare/storage";
 import { resolvePersistedSiteScope } from "@/lib/site-scope";
 import { CompetitorClient } from "./competitor-client";
@@ -22,20 +23,16 @@ export default async function CompetitorsPage({ searchParams }: PageProps) {
   const reports = await getComparisonReports();
 
   return (
-    <div className="page" style={{ maxWidth: "1280px", margin: "0 auto", padding: "26px 28px 60px" }}>
-      <header style={{ marginBottom: "24px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
-          <div>
-            <span className="eyebrow" style={{ color: "var(--green)" }}>竞品情报与多维对标</span>
-            <h1 style={{ fontSize: "28px", margin: "6px 0 6px 0", fontWeight: 800, color: "var(--ink)", letterSpacing: "-0.02em" }}>
-              竞品对比
-            </h1>
-            <p style={{ color: "var(--muted)", fontSize: "14px", margin: 0 }}>
-              输入竞品链接或用浏览器扩展采集前台数据。AI 只辅助整理特点与差评线索；价格、评分等数值需采集或人工核实，商品指数仅供参考、不参与 GO 判定。
-            </p>
-          </div>
-        </div>
-      </header>
+    <div className="page">
+      <PageHeader
+        breadcrumbs={[
+          { label: "工作台", href: "/" },
+          { label: "竞品对比" },
+        ]}
+        eyebrow="竞品情报与多维对标"
+        title="竞品对比"
+        description="输入竞品链接或用浏览器扩展采集前台数据。AI 只辅助整理特点与差评线索；价格、评分等数值需采集或人工核实，商品指数仅供参考、不参与 GO 判定。"
+      />
 
       <CompetitorClient
         initialReports={reports}

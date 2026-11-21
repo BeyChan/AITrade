@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import Link from "next/link";
 import { SelectionWizardClient } from "@/components/selection-wizard-client";
+import { PageHeader } from "@/components/ui";
 import { listAISourcingBatches } from "@/lib/ai-sourcing-repository";
 import { getComparisonReports } from "@/lib/competitor-compare/storage";
 import { getSiteOptions } from "@/lib/repository";
@@ -40,23 +40,20 @@ export default async function DiscoverPage({ searchParams }: PageProps) {
 
   return (
     <div className="page">
-      <div className="breadcrumb">
-        <Link href="/">工作台大盘</Link> / 选品中心
-      </div>
-
-      <div className="title-row">
-        <div>
-          <h1>选品中心 · 3 步极简选品向导</h1>
-          <p className="muted">
-            按你手里现有的线索直接开干：看市场（竞品与痛点）→ 核成本（18% 硬门禁倒推）→ 拍板立项（合规红线与一键生成案卷）。
-          </p>
-        </div>
-        <div className="button-row">
+      <PageHeader
+        breadcrumbs={[
+          { label: "工作台", href: "/" },
+          { label: "选品中心" },
+        ]}
+        eyebrow="3 步极简选品向导"
+        title="选品中心"
+        description="按你手里现有的线索直接开干：看市场（竞品与痛点）→ 核成本（18% 硬门禁倒推）→ 拍板立项（合规红线与一键生成案卷）。"
+        actions={
           <span className="badge badge-neutral">
             {market?.name ?? "美国"}站 · {platform?.name ?? "Amazon"} · {market?.currency ?? "USD"}
           </span>
-        </div>
-      </div>
+        }
+      />
 
       <SelectionWizardClient
         marketCode={marketCode}

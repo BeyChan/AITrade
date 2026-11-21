@@ -1,7 +1,10 @@
 "use client";
 
-import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { StudioLoadingCard } from "@/components/studio/studio-loading-card";
+import { StudioMediaGallery, type StudioGalleryMediaItem } from "@/components/studio/studio-media-gallery";
+import { StudioPromptCard } from "@/components/studio/studio-prompt-card";
+import { StudioReferenceDropzone, type QuickPickImage } from "@/components/studio/studio-reference-dropzone";
 import type { StandaloneStudioAsset } from "@/lib/standalone-image-studio";
 import type { StandaloneVideoAsset } from "@/lib/standalone-video-studio";
 import type { VideoGenerationJob } from "@/lib/video-jobs";
@@ -13,12 +16,22 @@ import type {
 } from "@/lib/video-provider";
 import type { VideoSkillDefinition } from "@/lib/video-skills";
 
+type CaseOption = {
+  id: string;
+  asin: string;
+  title: string;
+  marketplace: string;
+};
+
 type Props = {
   initialAssets: StandaloneVideoAsset[];
   initialJobs: VideoGenerationJob[];
   studioImages: StandaloneStudioAsset[];
+  caseQuickImages?: QuickPickImage[];
   providerStatus: VideoProviderStatus;
   initialSkills: VideoSkillDefinition[];
+  cases: CaseOption[];
+  initialCaseId?: string;
   ffmpegReady: boolean;
   activeMarketCode: string;
 };
@@ -27,14 +40,19 @@ export function StandaloneVideoStudioClient({
   initialAssets,
   initialJobs,
   studioImages,
+  caseQuickImages = [],
   providerStatus,
   initialSkills,
+  cases,
+  initialCaseId = "",
   ffmpegReady,
   activeMarketCode,
 }: Props) {
+  const initialMatchedCase = initialCaseId ? cases.find((c) => c.id === initialCaseId) : undefined;
   const [skills, setSkills] = useState<VideoSkillDefinition[]>(initialSkills);
   const [selectedSkillId, setSelectedSkillId] = useState<string>(initialSkills[0]?.id ?? "amazon-hero-orbit");
-  const [productName, setProductName] = useState("");
+  const [selectedCaseId, setSelectedCaseId] = useState<string>(initialMatchedCase?.id ?? "");
+  const [productName, setProductName] = useState(initialMatchedCase?.title ?? "");
   const [coreDifferentiator, setCoreDifferentiator] = useState("");
   const [customInstruction, setCustomInstruction] = useState("");
   const [aspectRatio, setAspectRatio] = useState<VideoAspectRatio>(initialSkills[0]?.aspectRatio ?? "16:9");
@@ -49,29 +67,43 @@ export function StandaloneVideoStudioClient({
   const [customLighting, setCustomLighting] = useState("");
   const [customNegative, setCustomNegative] = useState("");
   const [savingSkill, setSavingSkill] = useState(false);
-  const [aiGeneratingPrompt, setAiGeneratingPrompt] = useState(false);
 
+  // 首帧参考图
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedFilePreview, setSelectedFilePreview] = useState<string | null>(null);
-  const [selectedStudioImageId, setSelectedStudioImageId] = useState<string>(studioImages[0]?.id ?? "");
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [selectedStudioImageId, setSelectedStudioImageId] = useState<string>(
+    caseQuickImages[0]?.id ?? studioImages[0]?.id ?? "",
+  );
 
+  // 预览与提交
   const [preview, setPreview] = useState<ComposedVideoPrompt | null>(null);
   const [promptText, setPromptText] = useState("");
   const [negativePromptText, setNegativePromptText] = useState("");
   const [confirmed, setConfirmed] = useState(false);
 
+  // 队列与画廊
   const [assets, setAssets] = useState<StandaloneVideoAsset[]>(initialAssets);
   const [jobs, setJobs] = useState<VideoGenerationJob[]>(initialJobs);
   const [selectedForStitch, setSelectedForStitch] = useState<string[]>([]);
   const [stitchRatio, setStitchRatio] = useState<VideoAspectRatio>("16:9");
 
   const [loadingPreview, setLoadingPreview] = useState(false);
+  const [aiGeneratingPrompt, setAiGeneratingPrompt] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [stitching, setStitching] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [sessionIds, setSessionIds] = useState<string[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const quickPickImages: QuickPickImage[] = [
+    ...caseQuickImages,
+    ...studioImages.slice(0, 6).map((img) => ({
+      id: img.id,
+      fileUrl: img.fileUrl,
+      label: img.productName || img.originalName,
+      sublabel: `生图工坊 · ${img.aspectRatio}`,
+    })),
+  ].slice(0, 8);
 
   const refreshState = useCallback(async () => {
     try {
@@ -88,14 +120,14 @@ export function StandaloneVideoStudioClient({
     }
   }, []);
 
-  const hasPending = jobs.some((j) => j.status === "queued" || j.status === "running");
+  const pendingJobs = jobs.filter((j) => j.status === "queued" || j.status === "running");
+  const hasPending = pendingJobs.length > 0;
 
   useEffect(() => {
     if (!hasPending) return;
     const timer = setInterval(async () => {
-      const pending = jobs.filter((j) => j.status === "queued" || j.status === "running");
       let changed = false;
-      for (const job of pending) {
+      for (const job of pendingJobs) {
         try {
           const resp = await fetch("/api/video-studio", {
             method: "POST",
@@ -112,7 +144,15 @@ export function StandaloneVideoStudioClient({
       if (changed) await refreshState();
     }, 4500);
     return () => clearInterval(timer);
-  }, [hasPending, jobs, refreshState]);
+  }, [hasPending, pendingJobs, refreshState]);
+
+  function handleSelectCase(caseId: string) {
+    setSelectedCaseId(caseId);
+    const chosen = cases.find((c) => c.id === caseId);
+    if (chosen) {
+      setProductName(chosen.title);
+    }
+  }
 
   function handleFileChange(file: File | null) {
     if (selectedFilePreview) URL.revokeObjectURL(selectedFilePreview);
@@ -125,16 +165,17 @@ export function StandaloneVideoStudioClient({
     }
   }
 
-  function handlePickStudioImage(img: StandaloneStudioAsset) {
+  function handlePickGalleryImage(img: QuickPickImage) {
     handleFileChange(null);
     setSelectedStudioImageId(img.id);
-    if (!productName && img.productName) setProductName(img.productName);
+    if (!productName && img.label) setProductName(img.label);
   }
 
   function handleSelectSkill(skill: VideoSkillDefinition) {
     setSelectedSkillId(skill.id);
     setAspectRatio(skill.aspectRatio);
     setDurationSec(skill.durationSec);
+    setShowCustomSkillForm(false);
     setPreview(null);
     setConfirmed(false);
   }
@@ -243,7 +284,10 @@ export function StandaloneVideoStudioClient({
             ...baseData.preview,
             prompt: data.prompt,
             negativePrompt: data.negativePrompt || baseData.preview.negativePrompt,
-            storyboard: Array.isArray(data.storyboard) && data.storyboard.length > 0 ? data.storyboard : baseData.preview.storyboard,
+            storyboard:
+              Array.isArray(data.storyboard) && data.storyboard.length > 0
+                ? data.storyboard
+                : baseData.preview.storyboard,
           });
         }
         setPromptText(data.prompt);
@@ -311,6 +355,9 @@ export function StandaloneVideoStudioClient({
       form.append("marketplace", activeMarketCode);
       form.append("promptOverride", promptText);
       form.append("negativePromptOverride", negativePromptText);
+      if (selectedCaseId) {
+        form.append("caseId", selectedCaseId);
+      }
       if (selectedFile) {
         form.append("referenceFile", selectedFile);
       } else if (selectedStudioImageId) {
@@ -341,7 +388,7 @@ export function StandaloneVideoStudioClient({
       const data = (await resp.json()) as { job?: VideoGenerationJob; error?: string };
       if (!resp.ok) throw new Error(data.error || "刷新状态失败");
       await refreshState();
-      if (data.job?.status === "succeeded") setNotice("视频生成完成并已保存到图库。");
+      if (data.job?.status === "succeeded") setNotice("视频生成完成并已保存到作品库。");
       if (data.job?.status === "failed") setError(data.job.error_message || "外部视频生成失败");
     } catch (err) {
       setError(err instanceof Error ? err.message : "刷新状态失败");
@@ -364,13 +411,9 @@ export function StandaloneVideoStudioClient({
   }
 
   async function handleDeleteAsset(asset: StandaloneVideoAsset) {
-    if (!window.confirm(`确认删除视频「${asset.originalName}」？磁盘文件也会一并清理。`)) return;
     setError(null);
-    setDeletingId(asset.id);
     try {
-      const resp = await fetch(`/api/video-studio/file/${encodeURIComponent(asset.id)}`, {
-        method: "DELETE",
-      });
+      const resp = await fetch(`/api/video-studio/file/${encodeURIComponent(asset.id)}`, { method: "DELETE" });
       const data = (await resp.json()) as { error?: string };
       if (!resp.ok) throw new Error(data.error || "删除视频失败");
       setAssets((prev) => prev.filter((item) => item.id !== asset.id));
@@ -378,8 +421,6 @@ export function StandaloneVideoStudioClient({
       setNotice("已删除该视频资产。");
     } catch (err) {
       setError(err instanceof Error ? err.message : "删除视频失败");
-    } finally {
-      setDeletingId(null);
     }
   }
 
@@ -395,11 +436,15 @@ export function StandaloneVideoStudioClient({
           action: "stitch",
           assetIds: selectedForStitch,
           aspectRatio: stitchRatio,
+          caseId: selectedCaseId || undefined,
           actor: actor || "本机管理员",
         }),
       });
-      const data = (await resp.json()) as { note?: string; error?: string };
+      const data = (await resp.json()) as { note?: string; createdAsset?: StandaloneVideoAsset; error?: string };
       if (!resp.ok) throw new Error(data.error || "合成成片失败");
+      if (data.createdAsset?.id) {
+        setSessionIds((prev) => [data.createdAsset!.id, ...prev]);
+      }
       setNotice(data.note || "已完成多镜头合成。");
       setSelectedForStitch([]);
       await refreshState();
@@ -410,552 +455,401 @@ export function StandaloneVideoStudioClient({
     }
   }
 
-  return (
-    <div style={{ display: "grid", gap: "20px" }}>
-      {notice ? <div className="notice"><strong>已完成：</strong>{notice}</div> : null}
-      {error ? <div className="notice warn"><strong>未完成：</strong>{error}</div> : null}
+  const galleryItems: StudioGalleryMediaItem[] = useMemo(
+    () =>
+      assets.map((asset) => ({
+        id: asset.id,
+        kind: "video",
+        fileUrl: asset.fileUrl,
+        title: asset.productName || asset.originalName,
+        originalName: asset.originalName,
+        provider: asset.provider,
+        model: asset.model,
+        aspectRatio: asset.aspectRatio,
+        metaLabel: `${asset.durationSec}s`,
+        slot: asset.templateId,
+        prompt: asset.prompt,
+        boundCases: asset.boundCases ?? [],
+        createdAt: asset.createdAt,
+      })),
+    [assets],
+  );
 
-      {/* 创作台主面板 */}
-      <section className="panel" style={{ padding: "22px 24px", display: "grid", gap: "18px" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "14px" }}>
-          <div className="field" style={{ margin: 0 }}>
-            <label htmlFor="sv-product-name">商品名称 / 主题</label>
+  const activeSkill = skills.find((s) => s.id === selectedSkillId) ?? skills[0];
+
+  return (
+    <div className="studio-split" id="standalone-video-workbench">
+      {/* 左侧控制栏（与 AI 生图工坊完全对齐） */}
+      <aside className="studio-controls panel">
+        <div className="studio-controls-body">
+          {cases.length > 0 ? (
+            <div className="field">
+              <label htmlFor="sv-case-select">快速带入工作区商品（可选）</label>
+              <select
+                id="sv-case-select"
+                value={selectedCaseId}
+                onChange={(e) => handleSelectCase(e.target.value)}
+              >
+                <option value="">自由创作（不绑定商品案卷）</option>
+                {cases.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.title} ({c.marketplace})
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+
+          <div className="field">
+            <label htmlFor="sv-product-name">商品名称 *</label>
             <input
               id="sv-product-name"
               type="text"
               value={productName}
               onChange={(e) => setProductName(e.target.value)}
-              placeholder="例如：不锈钢静音宠物饮水机（可自由填写，无需先建案卷）"
+              placeholder="例：304 不锈钢静音宠物饮水机"
             />
           </div>
-          <div className="field" style={{ margin: 0 }}>
-            <label htmlFor="sv-diff">核心卖点 / 场景亮点（可选）</label>
-            <input
-              id="sv-diff"
-              type="text"
-              value={coreDifferentiator}
-              onChange={(e) => setCoreDifferentiator(e.target.value)}
-              placeholder="例如：22dB 超静音无刷水泵、304 不锈钢可拆卸清洗"
-            />
-          </div>
-        </div>
 
-        {/* 首帧底图：支持自由上传 或 一键选用生图工坊图库 */}
-        <div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", flexWrap: "wrap", gap: "8px" }}>
-            <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--muted)" }}>
-              首帧商品底图（上传本地图片，或直接点选「AI 生图工坊」已生成图片）
-            </span>
-            <div style={{ display: "flex", gap: "8px" }}>
-              <button
-                type="button"
-                className="button secondary"
-                style={{ minHeight: "30px", fontSize: "12px", padding: "0 12px" }}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                + 上传本地参考图
-              </button>
-              {selectedFile ? (
+          <StudioReferenceDropzone
+            title="首帧参考底图（I2V 锁定商品外观）"
+            hint="上传本地实拍图，或在下方点选 AI 生图工坊已生成主图"
+            selectedFile={selectedFile}
+            selectedFilePreview={selectedFilePreview}
+            selectedGalleryId={selectedStudioImageId}
+            quickPickImages={quickPickImages}
+            onFileChange={handleFileChange}
+            onSelectGalleryImage={handlePickGalleryImage}
+            emptyGalleryNote="提示：也可先在「AI 生图工坊」生成主图，这里会自动出现快捷点选缩略图。"
+          />
+
+          {/* 视频 Skill 下拉选择（与生图工坊视觉规范完全对齐） */}
+          <div className="field">
+            <div className="studio-label-row">
+              <label htmlFor="sv-skill-select">视频运镜 Skill（{skills.length} 套）</label>
+              {activeSkill?.source === "local" && !showCustomSkillForm ? (
                 <button
                   type="button"
-                  className="button ghost"
-                  style={{ minHeight: "30px", fontSize: "12px", padding: "0 10px" }}
-                  onClick={() => handleFileChange(null)}
+                  className="studio-inline-danger"
+                  onClick={() => handleDeleteCustomSkill(activeSkill)}
                 >
-                  清除已上传图
+                  删除当前规范
                 </button>
               ) : null}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                onChange={(e) => handleFileChange(e.target.files?.[0] ?? null)}
-                style={{ display: "none" }}
-              />
             </div>
-          </div>
-
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-            {selectedFile && selectedFilePreview ? (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "10px",
-                  padding: "6px 12px 6px 6px",
-                  borderRadius: "10px",
-                  border: "2px solid var(--green)",
-                  background: "var(--green-soft)",
-                }}
-              >
-                <img
-                  src={selectedFilePreview}
-                  alt={selectedFile.name}
-                  style={{ width: "48px", height: "48px", objectFit: "cover", borderRadius: "6px" }}
-                />
-                <div style={{ display: "grid", gap: "2px" }}>
-                  <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--ink)" }}>{selectedFile.name}</span>
-                  <span style={{ fontSize: "11px", color: "var(--green)" }}>✓ 已选为首帧底图（本地上传）</span>
-                </div>
-              </div>
-            ) : null}
-
-            {studioImages.slice(0, 8).map((img) => {
-              const active = !selectedFile && selectedStudioImageId === img.id;
-              return (
-                <button
-                  key={img.id}
-                  type="button"
-                  onClick={() => handlePickStudioImage(img)}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    padding: "6px 10px 6px 6px",
-                    borderRadius: "10px",
-                    border: active ? "2px solid var(--green)" : "1px solid var(--line)",
-                    background: active ? "var(--green-soft)" : "var(--surface-subtle)",
-                    color: "var(--ink)",
-                    cursor: "pointer",
-                    textAlign: "left",
-                  }}
-                >
-                  <img
-                    src={img.fileUrl}
-                    alt={img.productName || img.originalName}
-                    style={{ width: "44px", height: "44px", objectFit: "cover", borderRadius: "6px" }}
-                  />
-                  <div style={{ display: "grid", gap: "2px" }}>
-                    <span style={{ fontSize: "12px", fontWeight: 700, maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {img.productName || img.originalName}
-                    </span>
-                    <span style={{ fontSize: "11px", color: "var(--muted)" }}>生图工坊 · {img.aspectRatio}</span>
-                  </div>
-                </button>
-              );
-            })}
-
-            {!selectedFile && studioImages.length === 0 ? (
-              <span style={{ fontSize: "12.5px", color: "var(--muted)" }}>
-                点击右上角「+ 上传本地参考图」，或先去 <Link href="/image-studio" style={{ textDecoration: "underline" }}>AI 生图工坊</Link> 生成商品主图。
-              </span>
-            ) : null}
-          </div>
-        </div>
-
-        {/* 内置 + 自定义 Video Skills */}
-        <div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", flexWrap: "wrap", gap: "8px" }}>
-            <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--muted)" }}>
-              视频运镜 Skill（内置 6 套电商高转化规范 + 支持自定义沉淀）
-            </span>
-            <button
-              type="button"
-              className="button ghost"
-              style={{ minHeight: "28px", fontSize: "12px", padding: "0 10px" }}
-              onClick={() => setShowCustomSkillForm((v) => !v)}
-            >
-              {showCustomSkillForm ? "收起自定义 Skill" : "+ 新增自定义视频 Skill"}
-            </button>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: "10px" }}>
-            {skills.map((skill) => {
-              const active = selectedSkillId === skill.id;
-              return (
-                <div
-                  key={skill.id}
-                  onClick={() => handleSelectSkill(skill)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") handleSelectSkill(skill);
-                  }}
-                  style={{
-                    textAlign: "left",
-                    padding: "11px 13px",
-                    borderRadius: "10px",
-                    border: active ? "1.5px solid var(--green)" : "1px solid var(--line)",
-                    background: active ? "var(--green-soft)" : "var(--surface-subtle)",
-                    color: "var(--ink)",
-                    cursor: "pointer",
-                    display: "grid",
-                    gap: "4px",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "6px" }}>
-                    <span style={{ fontSize: "13px", fontWeight: 800 }}>{skill.name}</span>
-                    {skill.source === "local" ? (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteCustomSkill(skill);
-                        }}
-                        style={{ background: "none", border: "none", color: "var(--red)", fontSize: "11px", cursor: "pointer", padding: 0 }}
-                      >
-                        删除
-                      </button>
-                    ) : (
-                      <span style={{ fontSize: "10.5px", color: "var(--muted)" }}>{skill.aspectRatio} · {skill.durationSec}s</span>
-                    )}
-                  </div>
-                  <div style={{ fontSize: "11.5px", color: "var(--muted)", lineHeight: 1.45 }}>{skill.description}</div>
-                  <div style={{ fontSize: "11px", color: "var(--green)", fontWeight: 600 }}>{skill.channelHint}</div>
-                </div>
-              );
-            })}
-          </div>
-
-          {showCustomSkillForm ? (
-            <div
-              style={{
-                marginTop: "12px",
-                padding: "14px 16px",
-                borderRadius: "10px",
-                border: "1px solid var(--line-strong)",
-                background: "var(--surface-subtle)",
-                display: "grid",
-                gap: "10px",
+            <select
+              id="sv-skill-select"
+              value={showCustomSkillForm ? "__custom__" : selectedSkillId}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val === "__custom__") {
+                  setShowCustomSkillForm(true);
+                  return;
+                }
+                const found = skills.find((s) => s.id === val);
+                if (found) handleSelectSkill(found);
               }}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
-                <strong style={{ fontSize: "13px", color: "var(--ink)" }}>创建并持久化自定义视频 Skill（保存为 SKILL.md）</strong>
+              <optgroup label="内置电商视频规范">
+                {skills
+                  .filter((s) => s.source === "builtin")
+                  .map((skill) => (
+                    <option key={skill.id} value={skill.id}>
+                      {skill.name}（{skill.aspectRatio} · {skill.durationSec}s）
+                    </option>
+                  ))}
+              </optgroup>
+              {skills.some((s) => s.source === "local") ? (
+                <optgroup label="本地自定义规范">
+                  {skills
+                    .filter((s) => s.source === "local")
+                    .map((skill) => (
+                      <option key={skill.id} value={skill.id}>
+                        {skill.name}（{skill.aspectRatio} · {skill.durationSec}s）
+                      </option>
+                    ))}
+                </optgroup>
+              ) : null}
+              <optgroup label="新建">
+                <option value="__custom__">+ 自定义视频规范（可保存复用）</option>
+              </optgroup>
+            </select>
+            {activeSkill && !showCustomSkillForm ? (
+              <small className="field-hint">{activeSkill.description}</small>
+            ) : null}
+          </div>
+
+          {/* 自定义 Video Skill 表单盒 */}
+          {showCustomSkillForm ? (
+            <div className="studio-custom-box">
+              <div className="studio-label-row">
+                <strong style={{ fontSize: "12.5px", color: "var(--ink)" }}>新建可复用视频 Skill</strong>
                 <button
                   type="button"
                   className="button secondary"
-                  style={{ minHeight: "28px", fontSize: "12px", padding: "0 10px" }}
+                  style={{ minHeight: "26px", padding: "0 10px", fontSize: "12px" }}
                   disabled={aiGeneratingPrompt}
                   onClick={() => handleAiGeneratePrompt(true)}
                 >
-                  {aiGeneratingPrompt ? "AI 生成中..." : "✨ AI 帮我生成英文运镜规范"}
+                  {aiGeneratingPrompt ? "AI 生成中..." : "✨ AI 帮写规范"}
                 </button>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+              <div className="field">
+                <label htmlFor="sv-cs-name">规范名称 *</label>
                 <input
-                  type="text"
+                  id="sv-cs-name"
                   value={customSkillName}
                   onChange={(e) => setCustomSkillName(e.target.value)}
-                  placeholder="Skill 名称（如：宠物饮水机慢推水流）"
-                />
-                <input
-                  type="text"
-                  value={customSkillChannel}
-                  onChange={(e) => setCustomSkillChannel(e.target.value)}
-                  placeholder="适用渠道（如：TikTok Shop / Amazon 主图）"
+                  placeholder="例：宠物饮水机慢推水流规范"
                 />
               </div>
-              <textarea
-                rows={2}
-                value={customMotion}
-                onChange={(e) => setCustomMotion(e.target.value)}
-                placeholder="运镜与动作规范（Motion Directives，支持中/英文，或点右上角让 AI 自动生成）"
-              />
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+              <div className="field">
+                <label htmlFor="sv-cs-motion">运镜与动作规范 *</label>
+                <textarea
+                  id="sv-cs-motion"
+                  rows={2}
+                  value={customMotion}
+                  onChange={(e) => setCustomMotion(e.target.value)}
+                  placeholder="描述运镜路径、主体动作与防变形要求（中英文均可）"
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="sv-cs-light">光影氛围（可选）</label>
                 <input
-                  type="text"
+                  id="sv-cs-light"
                   value={customLighting}
                   onChange={(e) => setCustomLighting(e.target.value)}
-                  placeholder="光影氛围规范（Lighting Directives，可选）"
+                  placeholder="例：柔和自然窗光，浅景深商业质感"
                 />
+              </div>
+              <div className="field">
+                <label htmlFor="sv-cs-neg">负向禁止项（可选）</label>
                 <input
-                  type="text"
+                  id="sv-cs-neg"
                   value={customNegative}
                   onChange={(e) => setCustomNegative(e.target.value)}
-                  placeholder="规避词（Negative Directives，可选）"
+                  placeholder="例：水印、字幕、闪烁、商品变形"
                 />
               </div>
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
-                <button type="button" className="button ghost" onClick={() => setShowCustomSkillForm(false)}>取消</button>
-                <button type="button" className="button primary" disabled={savingSkill} onClick={handleSaveCustomSkill}>
-                  {savingSkill ? "保存中..." : "保存自定义视频 Skill"}
-                </button>
-              </div>
-            </div>
-          ) : null}
-        </div>
-
-        {/* 规格 & AI 生成 / 预览触发 */}
-        <div style={{ display: "grid", gridTemplateColumns: "145px 115px minmax(0, 1fr) auto auto", gap: "10px", alignItems: "end" }}>
-          <div className="field" style={{ margin: 0 }}>
-            <label htmlFor="sv-ratio">画幅比例</label>
-            <select id="sv-ratio" value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value as VideoAspectRatio)}>
-              <option value="16:9">16:9（Amazon 横屏）</option>
-              <option value="1:1">1:1（详情方屏）</option>
-              <option value="9:16">9:16（TikTok 竖屏）</option>
-            </select>
-          </div>
-          <div className="field" style={{ margin: 0 }}>
-            <label htmlFor="sv-dur">单镜时长</label>
-            <select id="sv-dur" value={durationSec} onChange={(e) => setDurationSec(Number(e.target.value) >= 8 ? 10 : 5)}>
-              <option value={5}>5 秒（推荐）</option>
-              <option value={10}>10 秒</option>
-            </select>
-          </div>
-          <div className="field" style={{ margin: 0 }}>
-            <label htmlFor="sv-custom">中文创意想法 / 补充运镜（交给 AI 扩写）</label>
-            <input
-              id="sv-custom"
-              type="text"
-              value={customInstruction}
-              onChange={(e) => setCustomInstruction(e.target.value)}
-              placeholder="例如：镜头缓慢推近展示流动清水与不锈钢拉丝质感，柔和日光"
-            />
-          </div>
-          <button
-            type="button"
-            className="button primary"
-            disabled={aiGeneratingPrompt}
-            onClick={() => handleAiGeneratePrompt(false)}
-            title="调用当前默认文本大模型，将中文创意扩写为电影级英文 I2V 提示词与 3 镜分镜脚本"
-          >
-            {aiGeneratingPrompt ? "AI 扩写中..." : "✨ AI 生成提示词"}
-          </button>
-          <button type="button" className="button secondary" disabled={loadingPreview} onClick={handlePreview}>
-            {loadingPreview ? "生成中..." : "模板预览"}
-          </button>
-        </div>
-
-        {/* 分镜预览 & 费用二次确认 */}
-        {preview ? (
-          <div
-            style={{
-              padding: "16px 18px",
-              borderRadius: "12px",
-              border: "1px solid var(--line-strong)",
-              background: "var(--surface-subtle)",
-              display: "grid",
-              gap: "14px",
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
-              <strong style={{ fontSize: "13px", color: "var(--ink)" }}>
-                分镜与 I2V 提示词预览（{preview.aspectRatio} · {preview.durationSec}s）
-              </strong>
-              <span className="badge badge-neutral">
-                预估费用：${preview.estimatedCostUsd.toFixed(2)} · {preview.estimatedLatencyLabel}
-              </span>
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "10px" }}>
-              {preview.storyboard.map((shot) => (
-                <div
-                  key={shot.shot}
-                  style={{
-                    padding: "10px 12px",
-                    borderRadius: "8px",
-                    border: "1px solid var(--line)",
-                    background: "var(--paper)",
-                    display: "grid",
-                    gap: "4px",
-                  }}
-                >
-                  <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--green)" }}>
-                    镜头 {shot.shot}（{shot.durationSec}s）· {shot.role}
-                  </div>
-                  <div style={{ fontSize: "12px", color: "var(--ink)", lineHeight: 1.45 }}>{shot.captionEn}</div>
-                  <div style={{ fontSize: "11px", color: "var(--muted)" }}>{shot.captionZh}</div>
-                </div>
-              ))}
-            </div>
-
-            <div className="field" style={{ margin: 0 }}>
-              <label htmlFor="sv-prompt-edit">英文 I2V Prompt（可直接编辑）</label>
-              <textarea id="sv-prompt-edit" rows={3} value={promptText} onChange={(e) => setPromptText(e.target.value)} />
-            </div>
-
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
-              <label style={{ display: "inline-flex", alignItems: "center", gap: "8px", fontSize: "12.5px", color: "var(--ink)", cursor: "pointer" }}>
-                <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
-                <span>确认预估费用（约 <strong>${preview.estimatedCostUsd.toFixed(2)}</strong>）并提交异步视频生成</span>
-              </label>
-
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <input
-                  type="text"
-                  value={actor}
-                  onChange={(e) => setActor(e.target.value)}
-                  placeholder="操作人"
-                  style={{ width: "110px", padding: "6px 10px", fontSize: "12px" }}
-                />
-                <button
-                  type="button"
-                  className="button primary"
-                  disabled={!confirmed || submitting}
-                  onClick={handleGenerate}
-                >
-                  {submitting
-                    ? "提交中..."
-                    : providerStatus.provider === "template"
-                      ? "生成分镜包（免 Key）"
-                      : "提交异步生成 MP4"}
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : null}
-      </section>
-
-      {/* 异步任务队列 */}
-      {jobs.length > 0 ? (
-        <section className="panel" style={{ padding: "18px 22px", display: "grid", gap: "10px" }}>
-          <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--ink)" }}>
-            异步渲染队列（{jobs.length} 条{hasPending ? " · 每 4.5 秒自动轮询" : ""}）
-          </div>
-          {jobs.slice(0, 8).map((job) => (
-            <div
-              key={job.id}
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                gap: "10px",
-                padding: "10px 12px",
-                borderRadius: "8px",
-                border: "1px solid var(--line)",
-                background: "var(--surface-subtle)",
-                fontSize: "12px",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                <span className={`badge ${job.status === "succeeded" ? "badge-success" : job.status === "failed" ? "badge-danger" : "badge-neutral"}`}>
-                  {job.status === "succeeded" ? "已完成" : job.status === "failed" ? "失败" : job.status === "running" ? "渲染中" : "排队中"}
-                </span>
-                <strong style={{ color: "var(--ink)" }}>{job.provider} / {job.model}</strong>
-                <span style={{ color: "var(--muted)" }}>{job.aspect_ratio} · {job.duration_sec}s</span>
-                {job.error_message ? <span style={{ color: "var(--red)" }}>{job.error_message}</span> : null}
-              </div>
-              <div style={{ display: "flex", gap: "8px" }}>
-                {(job.status === "queued" || job.status === "running") ? (
-                  <button type="button" className="button ghost" style={{ minHeight: "26px", padding: "0 10px", fontSize: "11px" }} onClick={() => handleManualPoll(job.id)}>
-                    立即刷新
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => handleDeleteJob(job.id)}
-                  style={{ background: "none", border: "none", color: "var(--red)", fontSize: "12px", cursor: "pointer", padding: "0 4px" }}
-                >
-                  删除
-                </button>
-              </div>
-            </div>
-          ))}
-        </section>
-      ) : null}
-
-      {/* 视频作品库 + ffmpeg 拼接 + 删除 */}
-      <section className="panel" style={{ padding: "20px 24px", display: "grid", gap: "14px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
-          <div>
-            <h2 style={{ margin: 0, fontSize: "16px", color: "var(--ink)" }}>已生成视频作品库（{assets.length} 条）</h2>
-            <p style={{ margin: "2px 0 0", fontSize: "12px", color: "var(--muted)" }}>
-              勾选 2–5 段视频可使用本机 ffmpeg 一键拼接为 10–15 秒成片；支持在线播放、下载与删除。
-            </p>
-          </div>
-          {assets.length >= 2 ? (
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <select
-                value={stitchRatio}
-                onChange={(e) => setStitchRatio(e.target.value as VideoAspectRatio)}
-                style={{ width: "auto", minHeight: "32px", fontSize: "12px", padding: "4px 8px" }}
-              >
-                <option value="16:9">成片 16:9</option>
-                <option value="9:16">成片 9:16</option>
-                <option value="1:1">成片 1:1</option>
-              </select>
               <button
                 type="button"
                 className="button secondary"
-                style={{ minHeight: "32px", fontSize: "12px", padding: "0 12px" }}
-                disabled={selectedForStitch.length < 2 || stitching || !ffmpegReady}
-                onClick={handleStitch}
+                style={{ width: "100%" }}
+                disabled={savingSkill}
+                onClick={handleSaveCustomSkill}
               >
-                {stitching ? "ffmpeg 合成中..." : `一键合成成片（已选 ${selectedForStitch.length} 段）`}
+                {savingSkill ? "正在保存..." : "保存为可复用视频规范"}
               </button>
             </div>
           ) : null}
-        </div>
 
-        {assets.length === 0 ? (
-          <div style={{ padding: "28px 16px", borderRadius: "10px", border: "1px dashed var(--line)", textAlign: "center", color: "var(--muted)", fontSize: "13px" }}>
-            暂无已生成的视频。在上方上传参考底图并提交生成后，视频将出现在这里。
+          {/* 画幅 & 时长分段按钮（与生图工坊 .studio-pill 完全一致） */}
+          <div className="studio-quick-row">
+            <div className="field" style={{ flex: 1 }}>
+              <label>画幅比例</label>
+              <div className="studio-pill-group">
+                {(["16:9", "1:1", "9:16"] as const).map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    className={`studio-pill${aspectRatio === r ? " active" : ""}`}
+                    onClick={() => setAspectRatio(r)}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="field" style={{ width: "110px" }}>
+              <label>时长</label>
+              <div className="studio-pill-group">
+                {([5, 10] as const).map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    className={`studio-pill${durationSec === d ? " active" : ""}`}
+                    onClick={() => setDurationSec(d)}
+                  >
+                    {d}s
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
-        ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "14px" }}>
-            {assets.map((asset) => {
-              const checked = selectedForStitch.includes(asset.id);
-              return (
-                <div
-                  key={asset.id}
-                  style={{
-                    borderRadius: "12px",
-                    border: checked ? "2px solid var(--green)" : "1px solid var(--line)",
-                    background: "var(--surface-subtle)",
-                    overflow: "hidden",
-                    display: "flex",
-                    flexDirection: "column",
-                  }}
+
+          <div className="field">
+            <label htmlFor="sv-idea">中文创意想法 / 运镜要求</label>
+            <textarea
+              id="sv-idea"
+              rows={2}
+              value={customInstruction}
+              onChange={(e) => setCustomInstruction(e.target.value)}
+              placeholder="例如：镜头缓慢推近展示水流循环与拉丝金属光泽，画面稳定无文字"
+            />
+          </div>
+
+          <details className="studio-more-details">
+            <summary>补充卖点与细节（可选）</summary>
+            <div className="studio-more-body">
+              <div className="field">
+                <label htmlFor="sv-diff">核心差异点 / 卖点</label>
+                <input
+                  id="sv-diff"
+                  value={coreDifferentiator}
+                  onChange={(e) => setCoreDifferentiator(e.target.value)}
+                  placeholder="例：22dB 超静音无刷水泵、可拆卸清洗"
+                />
+              </div>
+            </div>
+          </details>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginTop: "4px" }}>
+            <button
+              type="button"
+              className="button primary"
+              disabled={aiGeneratingPrompt || loadingPreview}
+              onClick={() => handleAiGeneratePrompt(false)}
+              title="调用默认文本大模型，将中文创意扩写为专业英文 I2V 提示词与 3 镜分镜"
+            >
+              {aiGeneratingPrompt ? "AI 扩写中..." : "✨ AI 生成提示词"}
+            </button>
+            <button
+              type="button"
+              className="button secondary"
+              disabled={loadingPreview || aiGeneratingPrompt}
+              onClick={handlePreview}
+            >
+              {loadingPreview ? "生成中..." : "模板预览"}
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      {/* 右侧画布与作品库 */}
+      <div className="studio-canvas stack">
+        {notice ? <div className="notice"><strong>已完成：</strong>{notice}</div> : null}
+        {error ? <div className="notice warn"><strong>未完成：</strong>{error}</div> : null}
+
+        {/* 1. 提示词与 3 镜分镜预览卡（共享组件） */}
+        {preview ? (
+          <StudioPromptCard
+            title={`I2V 分镜与提示词预览（${preview.aspectRatio} · ${preview.durationSec}s）`}
+            metaBadge={`预估 $${preview.estimatedCostUsd.toFixed(2)} · ${preview.estimatedLatencyLabel}`}
+            prompt={promptText}
+            negativePrompt={negativePromptText}
+            onPromptChange={setPromptText}
+            onNegativePromptChange={setNegativePromptText}
+            storyboard={preview.storyboard}
+            onAiRefine={() => handleAiGeneratePrompt(false)}
+            aiRefining={aiGeneratingPrompt}
+            confirmed={confirmed}
+            onConfirmedChange={setConfirmed}
+            confirmLabel={`确认预估费用（约 $${preview.estimatedCostUsd.toFixed(2)}）并提交异步视频生成`}
+            actor={actor}
+            onActorChange={setActor}
+            submitLabel={
+              submitting
+                ? "提交中..."
+                : providerStatus.provider === "template"
+                  ? "生成分镜包（免 Key）"
+                  : "提交异步生成 MP4"
+            }
+            submitting={submitting}
+            onSubmit={handleGenerate}
+          />
+        ) : null}
+
+        {/* 2. 异步渲染进度动效卡（共享组件） */}
+        {pendingJobs.map((job) => (
+          <StudioLoadingCard
+            key={job.id}
+            title={`正在异步渲染 ${job.provider} / ${job.model}（${job.aspect_ratio} · ${job.duration_sec}s）`}
+            subtitle={job.status === "running" ? "模型渲染中，每 4.5 秒自动轮询进度..." : "已进入云端队列，正在等待调度..."}
+            actionLabel="立即刷新进度"
+            onAction={() => handleManualPoll(job.id)}
+          />
+        ))}
+
+        {/* 失败任务提示条 */}
+        {jobs.filter((j) => j.status === "failed").slice(0, 3).map((job) => (
+          <div
+            key={job.id}
+            className="panel"
+            style={{
+              padding: "10px 14px",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: "10px",
+              fontSize: "12px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+              <span className="badge badge-danger">渲染失败</span>
+              <strong style={{ color: "var(--ink)" }}>{job.provider} / {job.model}</strong>
+              <span style={{ color: "var(--red)" }}>{job.error_message || "外部接口返回错误"}</span>
+            </div>
+            <button type="button" className="studio-inline-danger" onClick={() => handleDeleteJob(job.id)}>
+              清除记录
+            </button>
+          </div>
+        ))}
+
+        {/* 3. 统一可复用媒体列表（默认当前生成 + 一键查看全部历史 + 前往资源库） */}
+        <StudioMediaGallery
+          mode="studio"
+          kind="video"
+          items={galleryItems}
+          sessionIds={sessionIds}
+          selectedCaseId={selectedCaseId}
+          cases={cases}
+          actor={actor || "本机管理员"}
+          selectedIds={selectedForStitch}
+          onToggleSelect={(id) =>
+            setSelectedForStitch((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+          }
+          extraHeaderActions={
+            assets.length >= 2 ? (
+              <>
+                <select
+                  value={stitchRatio}
+                  onChange={(e) => setStitchRatio(e.target.value as VideoAspectRatio)}
+                  style={{ width: "auto", minHeight: "30px", fontSize: "12px", padding: "4px 8px" }}
                 >
-                  <video
-                    src={asset.fileUrl}
-                    controls
-                    playsInline
-                    preload="metadata"
-                    style={{ width: "100%", maxHeight: "220px", background: "#000", display: "block" }}
-                  />
-                  <div style={{ padding: "12px", display: "grid", gap: "8px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px" }}>
-                      <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12.5px", fontWeight: 700, color: "var(--ink)", cursor: "pointer" }}>
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() =>
-                            setSelectedForStitch((prev) =>
-                              prev.includes(asset.id) ? prev.filter((id) => id !== asset.id) : [...prev, asset.id],
-                            )
-                          }
-                        />
-                        <span>{asset.productName || asset.originalName}</span>
-                      </label>
-                      <span className="badge badge-neutral">{asset.aspectRatio} · {asset.durationSec}s</span>
-                    </div>
-                    <div style={{ fontSize: "11px", color: "var(--muted)" }}>
-                      {asset.provider} · {asset.model}
-                    </div>
-                    <div style={{ display: "flex", gap: "8px", justifyContent: "space-between", alignItems: "center" }}>
-                      <a
-                        href={`${asset.fileUrl}?download=1`}
-                        className="button secondary"
-                        style={{ minHeight: "28px", padding: "0 10px", fontSize: "11.5px" }}
-                      >
-                        下载 MP4
-                      </a>
-                      <button
-                        type="button"
-                        disabled={deletingId === asset.id}
-                        onClick={() => handleDeleteAsset(asset)}
-                        style={{
-                          background: "none",
-                          border: "1px solid var(--line)",
-                          borderRadius: "6px",
-                          padding: "4px 10px",
-                          fontSize: "11.5px",
-                          fontWeight: 600,
-                          color: "var(--red)",
-                          cursor: "pointer",
-                        }}
-                      >
-                        {deletingId === asset.id ? "删除中..." : "删除"}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
+                  <option value="16:9">成片 16:9</option>
+                  <option value="9:16">成片 9:16</option>
+                  <option value="1:1">成片 1:1</option>
+                </select>
+                <button
+                  type="button"
+                  className="button secondary"
+                  style={{ minHeight: "30px", fontSize: "12px", padding: "0 12px" }}
+                  disabled={selectedForStitch.length < 2 || stitching || !ffmpegReady}
+                  onClick={handleStitch}
+                >
+                  {stitching ? "合成中..." : `拼接成片 (${selectedForStitch.length})`}
+                </button>
+              </>
+            ) : null
+          }
+          onBound={(itemId, ref, msg) => {
+            setNotice(msg);
+            setError(null);
+            setAssets((prev) =>
+              prev.map((x) =>
+                x.id === itemId
+                  ? { ...x, boundCases: [...(x.boundCases ?? []).filter((c) => c.caseId !== ref.caseId), ref] }
+                  : x,
+              ),
+            );
+          }}
+          onDelete={async (item) => {
+            const target = assets.find((a) => a.id === item.id);
+            if (target) await handleDeleteAsset(target);
+          }}
+          onError={(msg) => setError(msg)}
+        />
+      </div>
     </div>
   );
 }

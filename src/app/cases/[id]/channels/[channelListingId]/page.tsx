@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { PageHeader, QueryNotices } from "@/components/ui";
 import {
   approveChannelLaunchQueueAction,
   approveChannelListingAction,
@@ -41,15 +42,18 @@ export default async function ChannelTargetPage({ params, searchParams }: PagePr
 
   return (
     <div className="page">
-      <div className="breadcrumb">
-        <Link href="/">AI 选品</Link> / <Link href={`/cases/${id}`}>{contentDetail?.productCase.asin ?? id}</Link> / <Link href={`/cases/${id}/channels`}>上市矩阵</Link> / {target.market.code} × {target.platform.name}
-      </div>
-
-      <div className="title-row">
-        <div>
-          <div className="eyebrow">渠道上架工作台</div>
-          <h1>{target.market.code} × {target.platform.name}</h1>
-          <div className="title-meta">
+      <PageHeader
+        breadcrumbs={[
+          { label: "工作台", href: "/" },
+          { label: "商品案卷", href: "/cases" },
+          { label: contentDetail?.productCase.asin ?? id, href: `/cases/${id}` },
+          { label: "上市矩阵", href: `/cases/${id}/channels` },
+          { label: `${target.market.code} × ${target.platform.name}` },
+        ]}
+        eyebrow="渠道上架工作台"
+        title={`${target.market.code} × ${target.platform.name}`}
+        meta={
+          <>
             <span className="badge status-researching">{target.market.locale}</span>
             <span className="badge badge-neutral">{target.market.currency}</span>
             <span className={`badge ${target.account.status === "connected" ? "badge-success" : "status-review_pending"}`}>
@@ -57,16 +61,17 @@ export default async function ChannelTargetPage({ params, searchParams }: PagePr
             </span>
             {latest ? <span className={`badge ${approved ? "badge-success" : "status-researching"}`}>Listing v{latest.version} · {approved ? "内容已确认" : "草稿"}</span> : null}
             <span className={`badge ${launchStatusClass(launch.status)}`}>发布准备 · {launch.label}</span>
-          </div>
-        </div>
-        <div className="button-row">
-          <Link href={`/cases/${id}/channels`} className="button secondary">返回上市矩阵</Link>
-          <Link href={`/cases/${id}/content`} className="button ghost">默认内容工作台</Link>
-        </div>
-      </div>
+          </>
+        }
+        actions={
+          <>
+            <Link href={`/cases/${id}/channels`} className="button secondary">返回上市矩阵</Link>
+            <Link href={`/cases/${id}/content`} className="button ghost">默认内容工作台</Link>
+          </>
+        }
+      />
 
-      {query.error ? <div className="notice warn"><span className="badge badge-danger">ERROR</span><span>{query.error}</span></div> : null}
-      {query.notice ? <div className="notice"><span className="badge badge-success">DONE</span><span>{query.notice}</span></div> : null}
+      <QueryNotices notice={query.notice} error={query.error} />
 
       <div className="notice warn">
         <span className="badge status-review_pending">NO EXTERNAL ACTION</span>

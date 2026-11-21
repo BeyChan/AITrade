@@ -272,17 +272,17 @@ export function SupplierDirectoryClient({
                           <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "4px" }}>
                             <span
                               className={`badge ${is1688 ? "badge-success" : "badge-neutral"}`}
-                              style={{ fontSize: "11px", fontWeight: 700 }}
+                              style={{ fontSize: "12px", fontWeight: 700 }}
                             >
                               {supplier.platform || "1688"}
                             </span>
                             {supplier.country && (
-                              <span className="badge badge-neutral" style={{ fontSize: "11px" }}>
+                              <span className="badge badge-neutral" style={{ fontSize: "12px" }}>
                                 {supplier.country}
                               </span>
                             )}
                             {supplier.selectionCount > 0 && (
-                              <span className="badge badge-success" style={{ fontSize: "11px" }}>
+                              <span className="badge badge-success" style={{ fontSize: "12px" }}>
                                 🏆 定标 {supplier.selectionCount} 次
                               </span>
                             )}
@@ -294,7 +294,7 @@ export function SupplierDirectoryClient({
                         {supplier.rating ? (
                           <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                             <strong style={{ color: "var(--green)", fontSize: "16px" }}>★ {supplier.rating}</strong>
-                            <div style={{ fontSize: "11px", color: "var(--muted)" }}>综合评分</div>
+                            <div style={{ fontSize: "12px", color: "var(--muted)" }}>综合评分</div>
                           </div>
                         ) : null}
                       </div>
@@ -342,14 +342,14 @@ export function SupplierDirectoryClient({
                       {/* 历史关联案卷 */}
                       {supplier.cases.length > 0 && (
                         <div style={{ marginTop: "12px", borderTop: "1px dashed var(--line)", paddingTop: "8px" }}>
-                          <span style={{ fontSize: "11px", color: "var(--muted)" }}>曾参与询价商品 ({supplier.cases.length}):</span>
+                          <span style={{ fontSize: "12px", color: "var(--muted)" }}>曾参与询价商品 ({supplier.cases.length}):</span>
                           <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "4px" }}>
                             {supplier.cases.map((c) => (
                               <Link
                                 key={c.id}
                                 href={`/cases/${c.id}/sourcing`}
                                 style={{
-                                  fontSize: "11px",
+                                  fontSize: "12px",
                                   padding: "2px 8px",
                                   background: "var(--green-soft)",
                                   border: "1px solid var(--line-strong)",
@@ -396,10 +396,10 @@ export function SupplierDirectoryClient({
                           打开 1688 主页
                         </a>
                       ) : (
-                        <span style={{ fontSize: "11px", color: "var(--muted)" }}>暂无外链</span>
+                        <span style={{ fontSize: "12px", color: "var(--muted)" }}>暂无外链</span>
                       )}
 
-                      <span style={{ fontSize: "11px", color: "var(--muted)" }}>
+                      <span style={{ fontSize: "12px", color: "var(--muted)" }}>
                         参与案卷: {supplier.quoteCount} 个
                       </span>
                     </div>

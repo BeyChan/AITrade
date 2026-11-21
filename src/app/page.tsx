@@ -13,6 +13,7 @@ import { getSiteOptions, listCasesForSite, listSourcingCases, listTerminatedCase
 import { TerminateCaseControl } from "@/components/case-lifecycle-controls";
 import { TerminatedCasesPanel } from "@/components/terminated-cases-panel";
 import { DashboardPipelineKanban } from "@/components/dashboard-pipeline-kanban";
+import { QueryNotices } from "@/components/ui";
 import { getComparisonReports } from "@/lib/competitor-compare/storage";
 import { resolvePersistedSiteScope } from "@/lib/site-scope";
 
@@ -210,8 +211,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         </aside>
       </section>
 
-      {query.notice ? <div className="notice"><strong>已完成：</strong>{query.notice}</div> : null}
-      {query.error ? <div className="notice warn"><strong>未完成：</strong>{query.error}</div> : null}
+      <QueryNotices notice={query.notice} error={query.error} />
 
       {/* 宏观商业大盘 KPI 摘要条（可点击跳转至对应工作区） */}
       <section className="dashboard-kpi-grid" aria-label="大盘测算潜力指标">

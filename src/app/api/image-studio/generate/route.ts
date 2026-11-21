@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { revalidatePath } from "next/cache";
 import { recordAuditLog } from "@/lib/audit-logs";
 import { generateImagesWithProvider, getImageProviderStatus } from "@/lib/image-provider";
 import {
@@ -8,8 +9,10 @@ import {
   isSupportedImageSlot,
   normalizeAspectRatio,
 } from "@/lib/image-skills";
+import { createAssetRecord, getContentDetail } from "@/lib/repository";
 import {
   getStandaloneStudioAsset,
+  markStandaloneImageBound,
   saveStandaloneStudioAsset,
   type StandaloneStudioAsset,
 } from "@/lib/standalone-image-studio";
@@ -192,6 +195,52 @@ export async function POST(request: Request) {
       }
     }
 
+    // 若已绑定商品案卷且该案卷已解锁内容阶段，自动同步入库（无需手动再点「入库到案卷」）
+    const linkedCaseId = readField(formData, "caseId", 120);
+    let autoBoundCount = 0;
+    if (linkedCaseId && createdAssets.length > 0) {
+      const detail = await getContentDetail(linkedCaseId).catch(() => null);
+      if (detail && detail.productCase.status === "approved" && detail.selection) {
+        for (const asset of createdAssets) {
+          try {
+            const bytes = await readStoredImage(asset.storageKey);
+            const copied = await saveImageBuffer(bytes, asset.originalName);
+            await createAssetRecord(
+              linkedCaseId,
+              {
+                assetType: asset.slot,
+                storageKey: copied.storageKey,
+                originalName: copied.originalName,
+                mimeType: copied.mimeType,
+                size: copied.size,
+                width: copied.width,
+                height: copied.height,
+                extraMetadata: {
+                  source: "ai_generated",
+                  provider: asset.provider,
+                  model: asset.model,
+                  skillId: asset.skillId,
+                  skillName: asset.skillName,
+                  aspectRatio: asset.aspectRatio,
+                  prompt: asset.prompt,
+                  negativePrompt: asset.negativePrompt,
+                  importedFromStudioId: asset.id,
+                },
+              },
+              actor,
+            );
+            await markStandaloneImageBound(asset.id, { caseId: linkedCaseId, caseTitle: detail.productCase.title });
+            autoBoundCount += 1;
+          } catch {
+            // 不阻断主流程，失败时仍可手动点入库
+          }
+        }
+        if (autoBoundCount > 0) {
+          revalidatePath(`/cases/${linkedCaseId}/content`);
+        }
+      }
+    }
+
     await recordAuditLog({
       actor,
       action: "image_studio.generated",
@@ -211,7 +260,11 @@ export async function POST(request: Request) {
       mode: "model",
       preview: { ...preview, prompt: finalPrompt, negativePrompt: finalNegativePrompt },
       providerStatus,
-      note: generated.note,
+      autoBoundCount,
+      note:
+        autoBoundCount > 0
+          ? `${generated.note} 已自动同步入库 ${autoBoundCount} 张至当前商品案卷（待人工审核）。`
+          : generated.note,
       createdAssets,
     });
   } catch (error) {

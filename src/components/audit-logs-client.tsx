@@ -275,7 +275,7 @@ export function AuditLogsClient({
                       </td>
                       <td>
                         <div style={{ fontWeight: 600 }}>{item.actionLabel}</div>
-                        <div style={{ fontSize: "11px", color: "var(--muted)", fontFamily: "var(--font-mono, monospace)" }}>
+                        <div style={{ fontSize: "12px", color: "var(--muted)", fontFamily: "var(--font-mono, monospace)" }}>
                           {item.action}
                         </div>
                       </td>

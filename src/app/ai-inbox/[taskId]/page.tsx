@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { PageHeader, QueryNotices } from "@/components/ui";
 import {
   applyAiInboxTaskAction,
   retryAiInboxTaskAction,
@@ -90,31 +91,32 @@ export default async function AiInboxTaskPage({ params, searchParams }: PageProp
 
   return (
     <div className="page ai-inbox-page ai-inbox-detail-page">
-      <div className="ai-inbox-detail-breadcrumb">
-        <Link href={returnHref}>
-          {task.targetRunId ? `← 返回「${task.targetHypothesisConcept ?? "当前机会"}」验证` : "← 返回 AI 证据收件箱"}
-        </Link>
-        <span>任务 {task.id.slice(0, 8)}</span>
-      </div>
+      <PageHeader
+        backLink={{
+          label: task.targetRunId
+            ? `← 返回「${task.targetHypothesisConcept ?? "当前机会"}」验证`
+            : "← 返回 AI 证据收件箱",
+          href: returnHref,
+          meta: `任务 ${task.id.slice(0, 8)}`,
+        }}
+        eyebrow="证据审核"
+        title={task.targetHypothesisConcept ?? "目标机会已删除"}
+        description={`${DOCUMENT_TYPE_LABELS[documentType]} · ${SOURCE_KIND_LABELS[task.sourceKind]} · ${artifact?.fileName ?? `${artifact?.contentText.length ?? 0} 个字符`}`}
+        actions={
+          <>
+            <span className={`badge ${taskStatusClass(task.status)}`}>{TASK_STATUS_LABELS[task.status]}</span>
+            {sensitiveCount > 0 ? <span className="badge badge-danger">{sensitiveCount} 个敏感字段</span> : null}
+            {task.targetRunId ? <Link className="button ghost" href={returnHref}>返回机会验证</Link> : null}
+          </>
+        }
+      />
 
-      <div className="title-row ai-inbox-detail-title">
-        <div>
-          <div className="eyebrow">证据审核</div>
-          <h1>{task.targetHypothesisConcept ?? "目标机会已删除"}</h1>
-          <p className="muted ai-inbox-subtitle">
-            {DOCUMENT_TYPE_LABELS[documentType]} · {SOURCE_KIND_LABELS[task.sourceKind]} · {artifact?.fileName ?? `${artifact?.contentText.length ?? 0} 个字符`}
-          </p>
-        </div>
-        <div className="ai-inbox-detail-title-meta">
-          <span className={`badge ${taskStatusClass(task.status)}`}>{TASK_STATUS_LABELS[task.status]}</span>
-          {sensitiveCount > 0 ? <span className="badge badge-danger">{sensitiveCount} 个敏感字段</span> : null}
-          {task.targetRunId ? <Link className="button ghost" href={returnHref}>返回机会验证</Link> : null}
-        </div>
-      </div>
-
-      {query.notice ? <div className="notice"><strong>已完成：</strong>{query.notice}</div> : null}
-      {query.error ? <div className="notice warn"><strong>未完成：</strong>{query.error}</div> : null}
-      {task.errorMessage ? <div className="notice warn"><strong>任务提示：</strong>{task.errorMessage}</div> : null}
+      <QueryNotices
+        notice={query.notice}
+        error={query.error}
+        extraError={task.errorMessage}
+        extraErrorTitle="任务提示："
+      />
 
       <div className="ai-inbox-detail-metrics">
         <div className="metric-card">

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createChannelTargetAction } from "@/app/actions";
 import { StatusBadge } from "@/components/badges";
 import { CaseStepper } from "@/components/case-stepper";
+import { PageHeader, QueryNotices } from "@/components/ui";
 import { getChannelProfile } from "@/lib/channels";
 import { shortDate } from "@/lib/format";
 import { getChannelMatrix } from "@/lib/repository";
@@ -26,9 +27,37 @@ export default async function ChannelMatrixPage({ params, searchParams }: PagePr
 
   return (
     <div className="page">
-      <div className="breadcrumb">
-        <Link href="/">AI 选品</Link> / <Link href={`/cases/${productCase.id}`}>{productCase.asin}</Link> / 上市矩阵
-      </div>
+      <PageHeader
+        breadcrumbs={[
+          { label: "工作台", href: "/" },
+          { label: "商品案卷", href: "/cases" },
+          { label: productCase.asin, href: `/cases/${productCase.id}` },
+          { label: "上市矩阵" },
+        ]}
+        eyebrow="站点 × 渠道矩阵"
+        title={productCase.title}
+        meta={
+          <>
+            <StatusBadge status={productCase.status} />
+            <span className="badge badge-neutral">SKU {product?.sku ?? "待生成"}</span>
+            <span className="badge badge-neutral">{targets.length} 个国家 × 平台目标</span>
+            <span className="badge status-researching">P1.1 本地适配层</span>
+          </>
+        }
+        actions={
+          <>
+            <a
+              href={`/api/cases/${productCase.id}/flatfile`}
+              className="button primary"
+              download
+            >
+              📥 导出官方 Flat File (TSV)
+            </a>
+            <Link href={`/cases/${productCase.id}`} className="button secondary">商品详情</Link>
+            <Link href={`/cases/${productCase.id}/content`} className="button secondary">默认内容工作台</Link>
+          </>
+        }
+      />
 
       <CaseStepper
         caseId={productCase.id}
@@ -38,37 +67,7 @@ export default async function ChannelMatrixPage({ params, searchParams }: PagePr
         status={productCase.status}
       />
 
-      <div className="title-row">
-        <div>
-          <div className="eyebrow">站点 × 渠道矩阵</div>
-          <h1>{productCase.title}</h1>
-          <div className="title-meta">
-            <StatusBadge status={productCase.status} />
-            <span className="badge badge-neutral">SKU {product?.sku ?? "待生成"}</span>
-            <span className="badge badge-neutral">{targets.length} 个国家 × 平台目标</span>
-            <span className="badge status-researching">P1.1 本地适配层</span>
-          </div>
-        </div>
-        <div className="button-row">
-          <a
-            href={`/api/cases/${productCase.id}/flatfile`}
-            className="button primary"
-            download
-            style={{ textDecoration: "none" }}
-          >
-            📥 导出官方 Flat File (TSV)
-          </a>
-          <Link href={`/cases/${productCase.id}`} className="button secondary">商品详情</Link>
-          <Link href={`/cases/${productCase.id}/content`} className="button secondary">默认内容工作台</Link>
-        </div>
-      </div>
-
-      {query.error ? (
-        <div className="notice warn"><span className="badge badge-danger">ERROR</span><span>{query.error}</span></div>
-      ) : null}
-      {query.notice ? (
-        <div className="notice"><span className="badge badge-success">DONE</span><span>{query.notice}</span></div>
-      ) : null}
+      <QueryNotices notice={query.notice} error={query.error} />
 
       <div className="notice warn">
         <span className="badge status-review_pending">LOCAL ONLY</span>

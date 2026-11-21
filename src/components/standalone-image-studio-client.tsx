@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { StudioMediaGallery, type StudioGalleryMediaItem } from "@/components/studio/studio-media-gallery";
 import type { ImageProviderStatus } from "@/lib/image-provider";
 import {
   IMAGE_SLOT_LABELS,
@@ -26,6 +27,7 @@ type Props = {
   providerStatus: ImageProviderStatus;
   initialAssets: StandaloneStudioAsset[];
   cases: StudioCaseOption[];
+  initialCaseId?: string;
   activeMarketCode: string;
   activeMarketName: string;
 };
@@ -47,21 +49,23 @@ export function StandaloneImageStudioClient({
   providerStatus,
   initialAssets,
   cases,
+  initialCaseId = "",
   activeMarketCode,
   activeMarketName,
 }: Props) {
   const router = useRouter();
   const [availableSkills, setAvailableSkills] = useState<ImageSkillDefinition[]>(skills);
   const initialSkill = availableSkills[0] ?? skills[0]!;
+  const initialMatchedCase = initialCaseId ? cases.find((c) => c.id === initialCaseId) : undefined;
 
-  const [selectedCaseId, setSelectedCaseId] = useState<string>("");
+  const [selectedCaseId, setSelectedCaseId] = useState<string>(initialMatchedCase?.id ?? "");
   const [selectedSkillId, setSelectedSkillId] = useState<string>(initialSkill.id);
   const [slot, setSlot] = useState<ImageAssetSlot>(initialSkill.slot);
   const [aspectRatio, setAspectRatio] = useState<ImageAspectRatio>(initialSkill.aspectRatio);
   const [count, setCount] = useState<number>(1);
 
-  const [productName, setProductName] = useState<string>("");
-  const [marketplace, setMarketplace] = useState<string>(activeMarketCode);
+  const [productName, setProductName] = useState<string>(initialMatchedCase?.title ?? "");
+  const [marketplace, setMarketplace] = useState<string>(initialMatchedCase?.marketplace || activeMarketCode);
   const [targetCustomer, setTargetCustomer] = useState<string>("");
   const [coreDifferentiator, setCoreDifferentiator] = useState<string>("");
   const [specifications, setSpecifications] = useState<string>("");
@@ -88,6 +92,7 @@ export function StandaloneImageStudioClient({
   const [savingSkill, setSavingSkill] = useState<boolean>(false);
   const [deletingSkill, setDeletingSkill] = useState<boolean>(false);
   const [aiGeneratingPrompt, setAiGeneratingPrompt] = useState<boolean>(false);
+  const [sessionIds, setSessionIds] = useState<string[]>([]);
   const [notice, setNotice] = useState<string>("");
   const [error, setError] = useState<string>("");
   const [copiedPrompt, setCopiedPrompt] = useState<boolean>(false);
@@ -158,9 +163,24 @@ export function StandaloneImageStudioClient({
     return counts;
   }, [initialAssets]);
 
-  const filteredAssets = useMemo(
-    () => (activeFilter === "all" ? initialAssets : initialAssets.filter((item) => item.slot === activeFilter)),
-    [initialAssets, activeFilter],
+  const galleryItems: StudioGalleryMediaItem[] = useMemo(
+    () =>
+      initialAssets.map((item) => ({
+        id: item.id,
+        kind: "image",
+        fileUrl: item.fileUrl,
+        title: item.productName || item.originalName,
+        originalName: item.originalName,
+        provider: item.provider,
+        model: item.model,
+        aspectRatio: item.aspectRatio,
+        metaLabel: IMAGE_SLOT_LABELS[item.slot] || item.skillName,
+        slot: item.slot,
+        prompt: item.prompt,
+        boundCases: item.boundCases ?? [],
+        createdAt: item.createdAt,
+      })),
+    [initialAssets],
   );
 
   function handleSelectSkillById(nextId: string) {
@@ -178,7 +198,7 @@ export function StandaloneImageStudioClient({
     setError("");
   }
 
-  async function handleAiGenerateImagePrompt() {
+  async function handleAiGenerateImagePrompt(openPreview = false) {
     setError("");
     setNotice("");
     setAiGeneratingPrompt(true);
@@ -195,7 +215,7 @@ export function StandaloneImageStudioClient({
           slot,
           aspectRatio,
           marketplace,
-          idea: customStyleDirectives.trim() || customInstruction.trim() || customSkillName.trim(),
+          idea: customInstruction.trim() || customStyleDirectives.trim() || customSkillName.trim(),
         }),
       });
       const data = (await resp.json()) as {
@@ -205,12 +225,30 @@ export function StandaloneImageStudioClient({
         note?: string;
         error?: string;
       };
-      if (!resp.ok || !data.styleDirectives) throw new Error(data.error || "AI 生成提示词失败");
-      setCustomStyleDirectives(data.styleDirectives);
-      if (data.negativePrompt) setCustomNegativeDirectives(data.negativePrompt);
-      if (data.prompt) setPromptDraft(data.prompt);
-      setPreview(null);
-      setConfirmed(false);
+      if (!resp.ok || !data.prompt) throw new Error(data.error || "AI 生成提示词失败");
+      if (!openPreview && data.styleDirectives) {
+        setCustomStyleDirectives(data.styleDirectives);
+        if (data.negativePrompt) setCustomNegativeDirectives(data.negativePrompt);
+      }
+      if (openPreview) {
+        const activeSkillObj = availableSkills.find((s) => s.id === selectedSkillId);
+        setPreview({
+          skillId: selectedSkillId,
+          skillName: activeSkillObj?.name || customSkillName || "AI 商业摄影提示词",
+          slot,
+          aspectRatio,
+          prompt: data.prompt,
+          negativePrompt: data.negativePrompt || "",
+          complianceNotes: [],
+        });
+        setPromptDraft(data.prompt);
+        setNegativeDraft(data.negativePrompt || "");
+        setConfirmed(false);
+      } else {
+        setPromptDraft(data.prompt);
+        setPreview(null);
+        setConfirmed(false);
+      }
       if (data.note) setNotice(data.note);
     } catch (err) {
       setError(err instanceof Error ? err.message : "AI 生成提示词失败");
@@ -330,6 +368,9 @@ export function StandaloneImageStudioClient({
       form.set("customNegativeDirectives", customNegativeDirectives);
     }
     form.set("actor", actor.trim() || "运营人员");
+    if (selectedCaseId) {
+      form.set("caseId", selectedCaseId);
+    }
     if (referenceFile) {
       form.set("referenceFile", referenceFile);
     } else if (referenceAssetId) {
@@ -404,7 +445,9 @@ export function StandaloneImageStudioClient({
       }
       setNotice(data.note || "生成完成");
       setConfirmed(false);
-      if (data.mode === "model" && (data.createdAssets?.length ?? 0) > 0) {
+      if (data.mode === "model" && data.createdAssets && data.createdAssets.length > 0) {
+        const newIds = data.createdAssets.map((a) => a.id);
+        setSessionIds((prev) => [...newIds, ...prev]);
         router.refresh();
       }
     } catch (err) {
@@ -495,9 +538,9 @@ export function StandaloneImageStudioClient({
                   <button
                     type="button"
                     className="button secondary"
-                    style={{ minHeight: "26px", padding: "0 10px", fontSize: "11.5px" }}
+                    style={{ minHeight: "26px", padding: "0 10px", fontSize: "12px" }}
                     disabled={aiGeneratingPrompt || loadingPreview || generating}
-                    onClick={handleAiGenerateImagePrompt}
+                    onClick={() => handleAiGenerateImagePrompt(false)}
                   >
                     {aiGeneratingPrompt ? "AI 扩写中..." : "✨ AI 生成专业提示词"}
                   </button>
@@ -596,7 +639,7 @@ export function StandaloneImageStudioClient({
                 <button
                   type="button"
                   className="button ghost"
-                  style={{ minHeight: 28, padding: "2px 8px", fontSize: 11.5 }}
+                  style={{ minHeight: 28, padding: "2px 8px", fontSize: 12 }}
                   onClick={() => {
                     setReferenceFile(null);
                     setReferenceAssetId("");
@@ -772,15 +815,25 @@ export function StandaloneImageStudioClient({
             </div>
           </details>
 
-          <button
-            type="button"
-            className="button primary"
-            style={{ width: "100%" }}
-            onClick={handlePreviewPrompt}
-            disabled={loadingPreview || generating}
-          >
-            {loadingPreview ? "正在生成提示词..." : "生成提示词预览"}
-          </button>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+            <button
+              type="button"
+              className="button primary"
+              onClick={() => handleAiGenerateImagePrompt(true)}
+              disabled={aiGeneratingPrompt || loadingPreview || generating}
+              title="调用默认文本大模型，将中文商品想法扩写为专业英文商业摄影提示词"
+            >
+              {aiGeneratingPrompt ? "AI 扩写中..." : "✨ AI 生成提示词"}
+            </button>
+            <button
+              type="button"
+              className="button secondary"
+              onClick={handlePreviewPrompt}
+              disabled={loadingPreview || aiGeneratingPrompt || generating}
+            >
+              {loadingPreview ? "生成中..." : "模板预览"}
+            </button>
+          </div>
 
           {error ? (
             <div className="notice warn" style={{ marginBottom: 0, padding: "10px 12px" }}>
@@ -876,138 +929,55 @@ export function StandaloneImageStudioClient({
           </section>
         ) : null}
 
-        <section className="section">
-          <div className="image-gallery-header">
-            <h3>生成作品（{initialAssets.length}）</h3>
-            <div className="image-filter-tabs">
-              <button
-                type="button"
-                className={`image-filter-pill ${activeFilter === "all" ? "active" : ""}`}
-                onClick={() => setActiveFilter("all")}
-              >
-                全部 ({initialAssets.length})
-              </button>
-              {SLOT_OPTIONS.map((opt) => (
-                <button
-                  type="button"
-                  key={opt.value}
-                  className={`image-filter-pill ${activeFilter === opt.value ? "active" : ""}`}
-                  onClick={() => setActiveFilter(opt.value)}
-                >
-                  {IMAGE_SLOT_LABELS[opt.value]} ({slotCounts[opt.value]})
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {filteredAssets.length || (generating && providerStatus.provider !== "template") ? (
-            <div className="studio-gallery-grid">
-              {generating && providerStatus.provider !== "template"
-                ? Array.from({ length: count }).map((_, idx) => (
-                    <article className="asset-card studio-loading-card" key={`loading-${idx}`} aria-busy="true">
-                      <div className="studio-loading-media">
-                        <div className="studio-loading-inner">
-                          <span className="studio-spinner studio-spinner-lg" aria-hidden="true" />
-                          <strong>正在生成第 {idx + 1} / {count} 张...</strong>
-                          <span>已等待 {elapsedSeconds}s · {providerStatus.model}</span>
-                        </div>
+        <StudioMediaGallery
+          mode="studio"
+          kind="image"
+          items={galleryItems}
+          sessionIds={sessionIds}
+          selectedCaseId={selectedCaseId}
+          cases={cases.filter((c) => c.hasSelection)}
+          actor={actor.trim() || "运营人员"}
+          loadingCards={
+            generating && providerStatus.provider !== "template"
+              ? Array.from({ length: count }).map((_, idx) => (
+                  <article className="asset-card studio-loading-card" key={`loading-${idx}`} aria-busy="true">
+                    <div className="studio-loading-media">
+                      <div className="studio-loading-inner">
+                        <span className="studio-spinner studio-spinner-lg" aria-hidden="true" />
+                        <strong>正在生成第 {idx + 1} / {count} 张...</strong>
+                        <span>已等待 {elapsedSeconds}s · {providerStatus.model}</span>
                       </div>
-                      <div className="asset-body">
-                        <div className="asset-top">
-                          <strong>{productName || "AI 视觉素材"}</strong>
-                          <span className="badge status-researching">{aspectRatio}</span>
-                        </div>
-                        <div className="subvalue">
-                          {IMAGE_SLOT_LABELS[slot]} · 生成完成后自动展示
-                        </div>
-                      </div>
-                    </article>
-                  ))
-                : null}
-              {filteredAssets.map((item) => {
-                const lowResolution =
-                  typeof item.width === "number" &&
-                  typeof item.height === "number" &&
-                  Math.max(item.width, item.height) < 1000 &&
-                  (item.slot === "main_image" || item.slot === "lifestyle_image");
-                return (
-                  <article className="asset-card" key={item.id}>
-                    <div className="asset-media-wrap">
-                      <img
-                        src={item.fileUrl}
-                        alt={item.productName || item.originalName}
-                        className="asset-thumb studio-gallery-thumb"
-                      />
-                      <div className="asset-overlay-badges">
-                        <span className="badge badge-neutral">{IMAGE_SLOT_LABELS[item.slot]}</span>
-                        <span className="badge status-researching">{item.aspectRatio}</span>
-                      </div>
-                    </div>
-                    <div className="asset-body">
-                      <div className="asset-top">
-                        <strong>{item.productName || item.originalName}</strong>
-                        <span className="badge badge-neutral">{item.marketplace}</span>
-                      </div>
-                      <div className="subvalue">
-                        {item.width && item.height ? `${item.width}×${item.height}px · ` : ""}
-                        {item.skillName} · {item.createdAt.slice(0, 10)}
-                      </div>
-                      {lowResolution ? (
-                        <div className="asset-resolution-warn">
-                          长边不足 1000px，正式上架建议重绘高清图。
-                        </div>
-                      ) : null}
-                      <div className="asset-quick-actions">
-                        <button
-                          type="button"
-                          className="button ghost"
-                          onClick={() => {
-                            setReferenceFile(null);
-                            setReferenceAssetId(item.id);
-                            setPreview(null);
-                            setConfirmed(false);
-                            document.getElementById("standalone-workbench")?.scrollIntoView({ behavior: "smooth" });
-                          }}
-                        >
-                          设为参考底图
-                        </button>
-                        <a href={`${item.fileUrl}?download=1`} className="button ghost">
-                          下载
-                        </a>
-                        <button
-                          type="button"
-                          className="button ghost"
-                          style={{ color: "var(--red)" }}
-                          onClick={async () => {
-                            if (!window.confirm("确认删除这张生成图片？磁盘文件也会一并清理。")) return;
-                            try {
-                              const resp = await fetch(`/api/image-studio/file/${encodeURIComponent(item.id)}`, {
-                                method: "DELETE",
-                              });
-                              if (!resp.ok) throw new Error("删除图片失败");
-                              setNotice("已删除该图片。");
-                              router.refresh();
-                            } catch (err) {
-                              setError(err instanceof Error ? err.message : "删除图片失败");
-                            }
-                          }}
-                        >
-                          删除
-                        </button>
-                      </div>
-                      <details className="review-details" style={{ marginTop: 8, paddingTop: 8 }}>
-                        <summary>Prompt</summary>
-                        <pre className="asset-prompt-pre">{item.prompt}</pre>
-                      </details>
                     </div>
                   </article>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="empty-inline">当前筛选下暂无作品。</div>
-          )}
-        </section>
+                ))
+              : null
+          }
+          onUseAsReference={(item) => {
+            setReferenceFile(null);
+            setReferenceAssetId(item.id);
+            setPreview(null);
+            setConfirmed(false);
+            document.getElementById("standalone-workbench")?.scrollIntoView({ behavior: "smooth" });
+          }}
+          onBound={(_id, _ref, msg) => {
+            setNotice(msg);
+            setError("");
+            router.refresh();
+          }}
+          onDelete={async (item) => {
+            try {
+              const resp = await fetch(`/api/image-studio/file/${encodeURIComponent(item.id)}`, {
+                method: "DELETE",
+              });
+              if (!resp.ok) throw new Error("删除图片失败");
+              setNotice("已删除该图片。");
+              router.refresh();
+            } catch (err) {
+              setError(err instanceof Error ? err.message : "删除图片失败");
+            }
+          }}
+          onError={(msg) => setError(msg)}
+        />
       </div>
     </div>
   );

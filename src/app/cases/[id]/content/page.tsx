@@ -11,6 +11,7 @@ import { ProposalMeta } from "@/components/ai-proposal-card";
 import { StatusBadge } from "@/components/badges";
 import { CaseStepper } from "@/components/case-stepper";
 import { CopyDraftButton } from "@/components/copy-draft-button";
+import { PageHeader, QueryNotices } from "@/components/ui";
 import { generateStructuredJSON } from "@/lib/ai-provider";
 import {
   loadCaseCompetitorBenchmark,
@@ -28,15 +29,10 @@ import {
 import { money, moneyIn, shortDate } from "@/lib/format";
 import { emptyListingContent, normalizeListingContent, preflightListing } from "@/lib/listing";
 import { getContentDetail } from "@/lib/repository";
+import { CaseAssetLibraryPanel } from "@/components/case-asset-library-panel";
 import { ComplianceRadarCard } from "@/components/compliance-radar-card";
-import { ImageStudioPanel } from "@/components/image-studio-panel";
 import { SerpShelfTest } from "@/components/serp-shelf-test";
-import { VideoStudioPanel } from "@/components/video-studio-panel";
 import { scanListingCompliance } from "@/lib/compliance-radar";
-import { getImageProviderStatus } from "@/lib/image-provider";
-import { listAvailableImageSkills } from "@/lib/image-skills";
-import { isFfmpegAvailable, listVideoJobsForCase } from "@/lib/video-jobs";
-import { VIDEO_TEMPLATES, getVideoProviderStatus } from "@/lib/video-provider";
 
 export const dynamic = "force-dynamic";
 
@@ -53,16 +49,10 @@ type PageProps = {
 
 export default async function ContentStudioPage({ params, searchParams }: PageProps) {
   const [{ id }, query] = await Promise.all([params, searchParams]);
-  const [detail, benchmarkLookup, imageSkills, imageProviderStatus, videoProviderStatus, videoJobs, ffmpegReady] =
-    await Promise.all([
-      getContentDetail(id),
-      loadCaseCompetitorBenchmark(id, query.hypothesisId),
-      listAvailableImageSkills(),
-      getImageProviderStatus(),
-      getVideoProviderStatus(),
-      listVideoJobsForCase(id).catch(() => []),
-      isFfmpegAvailable(),
-    ]);
+  const [detail, benchmarkLookup] = await Promise.all([
+    getContentDetail(id),
+    loadCaseCompetitorBenchmark(id, query.hypothesisId),
+  ]);
   if (!detail) notFound();
 
   const { productCase, costModel, selection, selectedSupplierName, profile, assets, listing, listingReviews, auditLogs } = detail;
@@ -105,9 +95,33 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
 
   return (
     <div className="page">
-      <div className="breadcrumb">
-        <Link href="/">AI 选品</Link> / <Link href={`/cases/${productCase.id}`}>{productCase.asin}</Link> / <Link href={`/cases/${productCase.id}/channels`}>上市矩阵</Link> / 默认内容工作台
-      </div>
+      <PageHeader
+        breadcrumbs={[
+          { label: "工作台", href: "/" },
+          { label: "商品案卷", href: "/cases" },
+          { label: productCase.asin, href: `/cases/${productCase.id}` },
+          { label: "上市矩阵", href: `/cases/${productCase.id}/channels` },
+          { label: "默认内容工作台" },
+        ]}
+        eyebrow="内容与上架工作台"
+        title={productCase.title}
+        meta={
+          <>
+            <StatusBadge status={productCase.status} />
+            <span className="badge badge-neutral">{productCase.marketplace}</span>
+            <span className="badge badge-neutral">{productCase.category}</span>
+            {listing ? <span className="badge status-researching">Listing v{listing.version}</span> : <span className="badge badge-neutral">尚无 Listing 草稿</span>}
+          </>
+        }
+        actions={
+          <>
+            <Link href={`/cases/${productCase.id}/report`} className="button secondary">🖨️ 评审报告/PDF</Link>
+            <Link href={`/cases/${productCase.id}`} className="button secondary">商品与成本详情</Link>
+            <Link href={`/cases/${productCase.id}/channels`} className="button primary">多国家 / 多平台矩阵</Link>
+            <Link href={`/cases/${productCase.id}/sourcing`} className="button ghost">供应商定标</Link>
+          </>
+        }
+      />
 
       <CaseStepper
         caseId={productCase.id}
@@ -118,31 +132,7 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
         status={productCase.status}
       />
 
-      <div className="title-row">
-        <div>
-          <div className="eyebrow">内容与上架工作台</div>
-          <h1>{productCase.title}</h1>
-          <div className="title-meta">
-            <StatusBadge status={productCase.status} />
-            <span className="badge badge-neutral">{productCase.marketplace}</span>
-            <span className="badge badge-neutral">{productCase.category}</span>
-            {listing ? <span className="badge status-researching">Listing v{listing.version}</span> : <span className="badge badge-neutral">尚无 Listing 草稿</span>}
-          </div>
-        </div>
-        <div className="button-row">
-          <Link href={`/cases/${productCase.id}/report`} className="button secondary">🖨️ 评审报告/PDF</Link>
-          <Link href={`/cases/${productCase.id}`} className="button secondary">商品与成本详情</Link>
-          <Link href={`/cases/${productCase.id}/channels`} className="button primary">多国家 / 多平台矩阵</Link>
-          <Link href={`/cases/${productCase.id}/sourcing`} className="button ghost">供应商定标</Link>
-        </div>
-      </div>
-
-      {query.error ? (
-        <div className="notice warn"><span className="badge badge-danger">ERROR</span><span>{query.error}</span></div>
-      ) : null}
-      {query.notice ? (
-        <div className="notice"><span className="badge badge-success">DONE</span><span>{query.notice}</span></div>
-      ) : null}
+      <QueryNotices notice={query.notice} error={query.error} />
       {productCase.is_demo ? (
         <div className="notice">
           <span className="badge demo-badge">DEMO</span>
@@ -262,38 +252,11 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
                 </form>
               </section>
 
-              <ImageStudioPanel
+              <CaseAssetLibraryPanel
                 caseId={productCase.id}
-                marketplace={productCase.marketplace || "US"}
-                assets={assets.filter((item) => item.asset_type !== "product_video")}
-                skills={imageSkills}
-                providerStatus={imageProviderStatus}
-                hasProfile={Boolean(profile)}
-                claimsToAvoid={profile?.claims_to_avoid ?? ""}
-                topPainPoints={benchmark ? benchmark.themes.slice(0, 3).map((theme) => theme.theme) : []}
+                assets={assets}
                 uploadAction={uploadMainImageAction}
                 reviewAction={reviewMainImageAction}
-              />
-
-              <VideoStudioPanel
-                caseId={productCase.id}
-                imageAssets={assets
-                  .filter((item) => item.asset_type !== "product_video")
-                  .map((item) => ({
-                    id: item.id,
-                    assetType: item.asset_type,
-                    status: item.status,
-                    fileUrl: item.file_url,
-                    originalName:
-                      typeof item.metadata?.originalName === "string" && item.metadata.originalName.trim()
-                        ? item.metadata.originalName
-                        : item.asset_type,
-                  }))}
-                initialVideoAssets={assets.filter((item) => item.asset_type === "product_video")}
-                initialJobs={videoJobs}
-                providerStatus={videoProviderStatus}
-                templates={VIDEO_TEMPLATES}
-                ffmpegReady={ffmpegReady}
               />
 
               <SerpShelfTest

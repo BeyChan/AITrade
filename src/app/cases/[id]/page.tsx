@@ -7,6 +7,7 @@ import { EconomicsSandbox } from "@/components/economics-sandbox";
 import { LogisticsCashflowPanel } from "@/components/logistics-cashflow-panel";
 import { OpportunityScoreHelp } from "@/components/opportunity-score-help";
 import { PrelaunchCompliancePanel } from "@/components/prelaunch-compliance-panel";
+import { PageHeader } from "@/components/ui";
 import { money, percent, shortDate } from "@/lib/format";
 import { opportunityScore, recommendationFor } from "@/lib/economics";
 import { getCaseDetail } from "@/lib/repository";
@@ -36,7 +37,35 @@ export default async function CaseDetailPage({ params }: PageProps) {
 
   return (
     <div className="page">
-      <div className="breadcrumb"><Link href="/">AI 选品</Link> / {productCase.asin}</div>
+      <PageHeader
+        breadcrumbs={[
+          { label: "工作台", href: "/" },
+          { label: "商品案卷", href: "/cases" },
+          { label: productCase.asin },
+        ]}
+        eyebrow="商品案卷详情"
+        title={productCase.title}
+        meta={
+          <>
+            <StatusBadge status={productCase.status} />
+            <RecommendationBadge value={recommendation} />
+            <span className="badge badge-neutral">{productCase.marketplace}</span>
+            <span className="badge badge-neutral">{productCase.category}</span>
+            <span className="muted">机会分 {score} · 负责人 {productCase.owner}</span>
+            <OpportunityScoreHelp />
+          </>
+        }
+        actions={
+          <>
+            <Link href={`/cases/${productCase.id}/report`} className="button secondary">🖨️ 评审报告/PDF</Link>
+            <a href={`/api/cases/${productCase.id}/flatfile`} className="button secondary">📥 Flat File</a>
+            {hasSupplierSelection ? <Link href={`/cases/${productCase.id}/content`} className="button primary">进入内容工作台</Link> : null}
+            {hasSupplierSelection ? <Link href={`/cases/${productCase.id}/channels`} className="button secondary">上市矩阵</Link> : null}
+            {productCase.status === "approved" ? <Link href={`/cases/${productCase.id}/sourcing`} className={`button ${hasSupplierSelection ? "ghost" : "primary"}`}>{hasSupplierSelection ? "查看供应商定标" : "进入供应商询价"}</Link> : null}
+            {productCase.url ? <a className="button secondary" href={productCase.url} target="_blank" rel="noreferrer">打开商品页</a> : null}
+          </>
+        }
+      />
 
       <CaseStepper
         caseId={productCase.id}
@@ -45,28 +74,6 @@ export default async function CaseDetailPage({ params }: PageProps) {
         hasApprovedContent={detail.productCase.status === "approved" && hasSupplierSelection}
         status={productCase.status}
       />
-
-      <div className="title-row">
-        <div>
-          <h1>{productCase.title}</h1>
-          <div className="title-meta">
-            <StatusBadge status={productCase.status} />
-            <RecommendationBadge value={recommendation} />
-            <span className="badge badge-neutral">{productCase.marketplace}</span>
-            <span className="badge badge-neutral">{productCase.category}</span>
-            <span className="muted">机会分 {score} · 负责人 {productCase.owner}</span>
-            <OpportunityScoreHelp />
-          </div>
-        </div>
-        <div className="button-row">
-          <Link href={`/cases/${productCase.id}/report`} className="button secondary">🖨️ 评审报告/PDF</Link>
-          <a href={`/api/cases/${productCase.id}/flatfile`} className="button secondary">📥 Flat File</a>
-          {hasSupplierSelection ? <Link href={`/cases/${productCase.id}/content`} className="button primary">进入内容工作台</Link> : null}
-          {hasSupplierSelection ? <Link href={`/cases/${productCase.id}/channels`} className="button secondary">上市矩阵</Link> : null}
-          {productCase.status === "approved" ? <Link href={`/cases/${productCase.id}/sourcing`} className={`button ${hasSupplierSelection ? "ghost" : "primary"}`}>{hasSupplierSelection ? "查看供应商定标" : "进入供应商询价"}</Link> : null}
-          {productCase.url ? <a className="button secondary" href={productCase.url} target="_blank" rel="noreferrer">打开商品页</a> : null}
-        </div>
-      </div>
 
       {riskMessages.length ? (
         <div className="notice warn">

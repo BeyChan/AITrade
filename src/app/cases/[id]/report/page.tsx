@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getCaseDetail, getContentDetail } from "@/lib/repository";
 import { CaseStepper } from "@/components/case-stepper";
 import { StatusBadge } from "@/components/badges";
+import { PageHeader } from "@/components/ui";
 import { emptyListingContent, normalizeListingContent } from "@/lib/listing";
 import { opportunityScore, recommendationFor } from "@/lib/economics";
 import { money, percent } from "@/lib/format";
@@ -47,13 +48,43 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
 
   return (
     <div className="page">
-      {/* 1. 标准面包屑导航 (与其他所有页面完全对齐) */}
-      <div className="breadcrumb no-print">
-        <Link href="/">AI 选品</Link> / <Link href="/cases">商品案卷</Link> /{" "}
-        <Link href={`/cases/${productCase.id}`}>{productCase.asin}</Link> / 决策战报
-      </div>
+      <PageHeader
+        className="no-print"
+        breadcrumbs={[
+          { label: "工作台", href: "/" },
+          { label: "商品案卷", href: "/cases" },
+          { label: productCase.asin, href: `/cases/${productCase.id}` },
+          { label: "决策战报" },
+        ]}
+        eyebrow="立项评审报告 / PDF"
+        title={productCase.title}
+        meta={
+          <>
+            <StatusBadge status={productCase.status} />
+            <span className="badge badge-neutral">{productCase.marketplace}</span>
+            <span className="badge badge-neutral">{productCase.category}</span>
+            <span className="muted">
+              ASIN: <strong>{productCase.asin}</strong> · 责任操盘手: {productCase.owner}
+            </span>
+          </>
+        }
+        actions={
+          <>
+            <Link href={`/cases/${id}`} className="button secondary">
+              返回商品案卷
+            </Link>
+            <a
+              href={`/api/cases/${id}/flatfile`}
+              className="button secondary"
+              download
+            >
+              📥 下载 Flat File
+            </a>
+            <PrintButton />
+          </>
+        }
+      />
 
-      {/* 2. 标准生命周期步骤条 (全宽对齐) */}
       <div className="no-print" style={{ marginBottom: "20px" }}>
         <CaseStepper
           caseId={productCase.id}
@@ -62,36 +93,6 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
           hasApprovedContent={Boolean(contentDetail?.listing)}
           status={productCase.status}
         />
-      </div>
-
-      {/* 3. 标准标题与动作栏 (与其他所有详情页一致) */}
-      <div className="title-row no-print" style={{ marginBottom: "24px" }}>
-        <div>
-          <h1 style={{ margin: "4px 0 6px 0" }}>{productCase.title}</h1>
-          <div className="title-meta">
-            <StatusBadge status={productCase.status} />
-            <span className="badge badge-neutral">{productCase.marketplace}</span>
-            <span className="badge badge-neutral">{productCase.category}</span>
-            <span className="muted">
-              ASIN: <strong>{productCase.asin}</strong> · 责任操盘手: {productCase.owner}
-            </span>
-          </div>
-        </div>
-
-        <div className="button-row">
-          <Link href={`/cases/${id}`} className="button secondary">
-            返回商品案卷
-          </Link>
-          <a
-            href={`/api/cases/${id}/flatfile`}
-            className="button secondary"
-            download
-            style={{ textDecoration: "none" }}
-          >
-            📥 下载 Flat File
-          </a>
-          <PrintButton />
-        </div>
       </div>
 
       {/* 4. 战报主排版容器 (作为标准 panel 满宽融入页面排版) */}
@@ -209,7 +210,7 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
                     boxShadow: "0 1px 2px rgba(0,0,0,0.02)",
                   }}
                 >
-                  <div style={{ fontSize: "11px", color: "var(--muted)", marginBottom: "2px" }}>销售单价</div>
+                  <div style={{ fontSize: "12px", color: "var(--muted)", marginBottom: "2px" }}>销售单价</div>
                   <strong style={{ fontSize: "17px", color: "var(--ink)" }}>{money(assumptions.salePriceCents)}</strong>
                 </div>
                 <div
@@ -221,7 +222,7 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
                     boxShadow: "0 1px 2px rgba(0,0,0,0.02)",
                   }}
                 >
-                  <div style={{ fontSize: "11px", color: "var(--muted)", marginBottom: "2px" }}>到岸采购成本</div>
+                  <div style={{ fontSize: "12px", color: "var(--muted)", marginBottom: "2px" }}>到岸采购成本</div>
                   <strong style={{ fontSize: "17px", color: "var(--ink)" }}>{money(assumptions.landedCostCents)}</strong>
                 </div>
                 <div
@@ -233,7 +234,7 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
                     boxShadow: "0 1px 2px rgba(0,0,0,0.02)",
                   }}
                 >
-                  <div style={{ fontSize: "11px", color: "var(--muted)", marginBottom: "2px" }}>测算单件净利</div>
+                  <div style={{ fontSize: "12px", color: "var(--muted)", marginBottom: "2px" }}>测算单件净利</div>
                   <strong style={{ fontSize: "17px", color: "var(--green)" }}>{money(result.netProfitCents)}</strong>
                 </div>
                 <div
@@ -245,7 +246,7 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
                     boxShadow: "0 1px 2px rgba(0,0,0,0.02)",
                   }}
                 >
-                  <div style={{ fontSize: "11px", color: "var(--muted)", marginBottom: "2px" }}>基准净利率</div>
+                  <div style={{ fontSize: "12px", color: "var(--muted)", marginBottom: "2px" }}>基准净利率</div>
                   <strong style={{ fontSize: "17px", color: "var(--green)" }}>{percent(result.marginRate)}</strong>
                 </div>
               </div>

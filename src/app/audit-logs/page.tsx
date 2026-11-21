@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { AuditLogsClient } from "@/components/audit-logs-client";
+import { MetricGrid, PageHeader } from "@/components/ui";
 import {
   queryAuditLogs,
   type AuditLogLevel,
@@ -45,43 +45,25 @@ export default async function AuditLogsPage({ searchParams }: PageProps) {
 
   return (
     <div className="page">
-      <div className="breadcrumb">
-        <Link href="/">工作台</Link> / 操作日志
-      </div>
+      <PageHeader
+        breadcrumbs={[
+          { label: "工作台", href: "/" },
+          { label: "操作日志" },
+        ]}
+        eyebrow="系统治理 · 决策可追溯"
+        title="操作日志"
+        description="集中追踪全站立项创建、财务模型调整、供应商定标、数据导入导出与模型连接配置变更。所有记录持久化于本地数据库，后续接入用户与权限体系后将自动关联真实操作账号。"
+      />
 
-      <section className="hero">
-        <div>
-          <div className="eyebrow">系统治理 · 决策可追溯</div>
-          <h1>操作日志</h1>
-          <p>
-            集中追踪全站立项创建、财务模型调整、供应商定标、数据导入导出与模型连接配置变更。
-            所有记录持久化于本地数据库，后续接入用户与权限体系后将自动关联真实操作账号。
-          </p>
-        </div>
-      </section>
-
-      <section className="metrics-grid" aria-label="操作日志统计">
-        <div className="metric-card">
-          <span className="metric-label">累计审计记录</span>
-          <strong className="metric-value">{result.summary.total}</strong>
-          <span className="metric-note">最近 2,000 条持久化留痕</span>
-        </div>
-        <div className="metric-card">
-          <span className="metric-label">近 24 小时操作</span>
-          <strong className="metric-value">{result.summary.last24h}</strong>
-          <span className="metric-note">覆盖 {result.summary.actorCount} 类操作主体</span>
-        </div>
-        <div className="metric-card">
-          <span className="metric-label">敏感 / 配置变更</span>
-          <strong className="metric-value">{result.summary.sensitiveCount}</strong>
-          <span className="metric-note">含成本改写、归档、API 配置与模式切换</span>
-        </div>
-        <div className="metric-card">
-          <span className="metric-label">异常 / 删除事件</span>
-          <strong className="metric-value">{result.summary.errorCount}</strong>
-          <span className="metric-note">同步失败、导入失败或批次删除</span>
-        </div>
-      </section>
+      <MetricGrid
+        ariaLabel="操作日志统计"
+        items={[
+          { label: "累计审计记录", value: result.summary.total, note: "最近 2,000 条持久化留痕" },
+          { label: "近 24 小时操作", value: result.summary.last24h, note: `覆盖 ${result.summary.actorCount} 类操作主体` },
+          { label: "敏感 / 配置变更", value: result.summary.sensitiveCount, note: "含成本改写、归档、API 配置与模式切换" },
+          { label: "异常 / 删除事件", value: result.summary.errorCount, note: "同步失败、导入失败或批次删除" },
+        ]}
+      />
 
       <AuditLogsClient
         items={result.items}

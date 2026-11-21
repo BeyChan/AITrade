@@ -334,6 +334,11 @@ async function ensureProfilesTable() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  await db.query(`
+    UPDATE model_provider_profiles
+    SET name = BTRIM(REGEXP_REPLACE(name, '\\s*（已迁移）$', ''))
+    WHERE name LIKE '%（已迁移）'
+  `);
   ensured = true;
 }
 
@@ -364,7 +369,7 @@ async function seedLegacySettingsIfEmpty() {
       serviceType: "text",
       vendor: ai.provider,
       protocol: ai.provider,
-      name: `${ai.model || ai.provider}（已迁移）`,
+      name: `${ai.model || ai.provider}`,
       baseUrl: ai.baseUrl,
       apiKey: ai.apiKey,
       defaultModel: ai.model,
@@ -375,7 +380,7 @@ async function seedLegacySettingsIfEmpty() {
       serviceType: "image",
       vendor: img.provider,
       protocol: img.provider,
-      name: `${img.model || img.provider}（已迁移）`,
+      name: `${img.model || img.provider}`,
       baseUrl: img.baseUrl,
       apiKey: img.apiKey,
       defaultModel: img.model,
@@ -386,7 +391,7 @@ async function seedLegacySettingsIfEmpty() {
       serviceType: "video",
       vendor: vid.provider,
       protocol: vid.provider,
-      name: `${vid.model || vid.provider}（已迁移）`,
+      name: `${vid.model || vid.provider}`,
       baseUrl: vid.baseUrl,
       apiKey: vid.apiKey,
       defaultModel: vid.model,

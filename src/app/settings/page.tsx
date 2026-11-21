@@ -1,6 +1,6 @@
 import path from "node:path";
-import Link from "next/link";
 import { ModelProfilesManager } from "@/components/model-profiles-manager";
+import { PageHeader, QueryNotices } from "@/components/ui";
 import { getAIProviderStatus } from "@/lib/ai-provider";
 import { getImageProviderStatus } from "@/lib/image-provider";
 import { MODEL_VENDOR_PRESETS, listModelProfiles } from "@/lib/model-profiles";
@@ -28,21 +28,17 @@ export default async function SettingsPage({ searchParams }: PageProps) {
 
   return (
     <div className="page settings-page">
-      <div className="breadcrumb"><Link href="/">AI 选品</Link> / 大模型设置</div>
+      <PageHeader
+        breadcrumbs={[
+          { label: "工作台", href: "/" },
+          { label: "大模型设置" },
+        ]}
+        eyebrow="系统设置 · 模型配置中心"
+        title="大模型设置"
+        description="统一管理文本、图片、视频三类模型与中转网关。未配置时默认运行在免 Key 本地模板模式；模型只负责提出待验证假设与素材草稿，是否立项与上架仍由确定性规则和人工确认决定。"
+      />
 
-      <section className="hero settings-hero">
-        <div>
-          <div className="eyebrow">系统设置 · 模型配置中心</div>
-          <h1>大模型设置</h1>
-          <p>
-            统一管理文本、图片、视频三类模型与中转网关。未配置时默认运行在免 Key 本地模板模式；
-            模型只负责提出待验证假设与素材草稿，是否立项与上架仍由确定性规则和人工确认决定。
-          </p>
-        </div>
-      </section>
-
-      {query.notice ? <div className="notice"><strong>已完成：</strong>{query.notice}</div> : null}
-      {query.error ? <div className="notice warn"><strong>未完成：</strong>{query.error}</div> : null}
+      <QueryNotices notice={query.notice} error={query.error} />
 
       {/* 当前生效默认模型摘要条 */}
       <section className="dashboard-kpi-grid" aria-label="当前生效模型摘要" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>

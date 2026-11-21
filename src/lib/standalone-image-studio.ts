@@ -2,9 +2,15 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ImageAspectRatio, ImageAssetSlot } from "./image-skills.ts";
 
-const MAX_STANDALONE_ASSETS = 50;
+const MAX_STANDALONE_ASSETS = 500;
 const DATA_DIR = path.resolve(/* turbopackIgnore: true */ process.cwd(), ".data");
 const MANIFEST_PATH = path.join(DATA_DIR, "standalone-image-studio.json");
+
+export type StudioBoundCaseRef = {
+  caseId: string;
+  caseTitle: string;
+  boundAt: string;
+};
 
 export type StandaloneStudioAsset = {
   id: string;
@@ -27,6 +33,7 @@ export type StandaloneStudioAsset = {
   marketplace: string;
   actor: string;
   parentAssetId?: string | null;
+  boundCases?: StudioBoundCaseRef[];
   createdAt: string;
 };
 
@@ -78,5 +85,30 @@ export async function deleteStandaloneStudioAsset(id: string): Promise<Standalon
     await writeFile(tmp, JSON.stringify(next, null, 2), "utf8");
     await rename(tmp, MANIFEST_PATH);
     return target;
+  });
+}
+
+export async function markStandaloneImageBound(
+  id: string,
+  ref: { caseId: string; caseTitle: string },
+): Promise<void> {
+  return serialized(async () => {
+    const existing = await listStandaloneStudioAssets();
+    let changed = false;
+    const next = existing.map((item) => {
+      if (item.id !== id) return item;
+      const current = Array.isArray(item.boundCases) ? item.boundCases : [];
+      if (current.some((c) => c.caseId === ref.caseId)) return item;
+      changed = true;
+      return {
+        ...item,
+        boundCases: [...current, { caseId: ref.caseId, caseTitle: ref.caseTitle, boundAt: new Date().toISOString() }],
+      };
+    });
+    if (!changed) return;
+    await mkdir(DATA_DIR, { recursive: true });
+    const tmp = `${MANIFEST_PATH}.${process.pid}.tmp`;
+    await writeFile(tmp, JSON.stringify(next, null, 2), "utf8");
+    await rename(tmp, MANIFEST_PATH);
   });
 }
