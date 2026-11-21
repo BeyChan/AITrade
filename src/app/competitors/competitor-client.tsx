@@ -23,10 +23,15 @@ import {
   convertReportToHypothesisAction,
   deleteComparisonReportAction,
   generateAntiListingAction,
+  generateCompetitorConclusionAction,
   generateSupplierRfqAction,
   getAvailableCasesAction,
   promoteCompetitorReportToCaseAction,
+  reanalyzeCompetitorReportAction,
   runCompetitorAnalysisAction,
+  saveCompetitorItemShippingAction,
+  saveCompetitorManualCostAction,
+  translateTo1688KeywordAction,
 } from "./actions";
 
 type Props = {
@@ -56,6 +61,93 @@ function countDraftPlaceholders(result: AntiListingResult | null): number {
     ...(result.aplusModules ?? []).flatMap((m) => [m.title, m.description, m.visualSuggestion]),
   ];
   return texts.reduce((sum, text) => sum + (text.split("[VERIFY:").length - 1), 0);
+}
+
+/** 计算买家真实总支付额（券后价 + 买家另付单独运费；亚马逊佣金与卖家毛收入均按总支付额核算） */
+function getBuyerTotalPriceCents(item: Pick<CompetitorProfile, "priceCents" | "effectivePriceCents" | "shippingCents">): number {
+  const base =
+    item.effectivePriceCents && item.effectivePriceCents > 0 && item.effectivePriceCents < item.priceCents
+      ? item.effectivePriceCents
+      : item.priceCents;
+  if (!base || base <= 0) return 0;
+  return base + (item.shippingCents && item.shippingCents > 0 ? item.shippingCents : 0);
+}
+
+/** 基于权威财务内核 calculateEconomics，按 18% 净利率硬门禁倒推该单品的 1688 采购上限 (RMB) */
+function estimateMaxPurchaseRmb(
+  salePriceCents: number,
+  currency: string,
+  platformCode: string,
+  targetMargin = 0.18,
+): number {
+  if (!salePriceCents || salePriceCents <= 0) return 0;
+  const defaults = platformEconomicDefaults(platformCode || "amazon", salePriceCents);
+  const checkMargin = (rmb: number) => {
+    const purchaseCents = convertRmbToForeignCents(rmb, currency);
+    const landedCostCents = Math.round(purchaseCents * 1.25);
+    return calculateEconomics({
+      currency,
+      salePriceCents,
+      landedCostCents,
+      ...defaults,
+    }).marginRate;
+  };
+  if (checkMargin(0.5) < targetMargin) return 0;
+  let lo = 0;
+  let hi = 2000;
+  for (let i = 0; i < 16; i++) {
+    const mid = (lo + hi) / 2;
+    if (checkMargin(mid) >= targetMargin) lo = mid;
+    else hi = mid;
+  }
+  return Math.max(0, Math.round(lo * 10) / 10);
+}
+
+/** 计算单品在指定拿货价 (RMB) 下的毛利率与单件净利润（外币 + 人民币） */
+function calcItemProfitEstimate(
+  salePriceCents: number,
+  purchaseRmb: number,
+  currency: string,
+  platformCode: string,
+): { marginPct: number; netProfitCents: number; netProfitRmb: number } {
+  if (!salePriceCents || salePriceCents <= 0 || !purchaseRmb || purchaseRmb <= 0) {
+    return { marginPct: 0, netProfitCents: 0, netProfitRmb: 0 };
+  }
+  const defaults = platformEconomicDefaults(platformCode || "amazon", salePriceCents);
+  const purchaseCents = convertRmbToForeignCents(purchaseRmb, currency);
+  const landedCostCents = Math.round(purchaseCents * 1.25);
+  const econ = calculateEconomics({
+    currency,
+    salePriceCents,
+    landedCostCents,
+    ...defaults,
+  });
+  const fxRate = (OFFICIAL_FX_CONFIG[currency] || OFFICIAL_FX_CONFIG.USD).rateToRmb;
+  return {
+    marginPct: Number((econ.marginRate * 100).toFixed(1)),
+    netProfitCents: econ.netProfitCents,
+    netProfitRmb: Number(((econ.netProfitCents / 100) * fxRate).toFixed(1)),
+  };
+}
+
+/** 计算单品在指定 1688 实采进价 (RMB) 下的真实净利率 */
+function calcItemRealMarginPct(
+  salePriceCents: number,
+  actualCny: number,
+  currency: string,
+  platformCode: string,
+): number {
+  if (!salePriceCents || salePriceCents <= 0 || !actualCny || actualCny <= 0) return 0;
+  const defaults = platformEconomicDefaults(platformCode || "amazon", salePriceCents);
+  const purchaseCents = convertRmbToForeignCents(actualCny, currency);
+  const landedCostCents = Math.round(purchaseCents * 1.25);
+  const econ = calculateEconomics({
+    currency,
+    salePriceCents,
+    landedCostCents,
+    ...defaults,
+  });
+  return Number((econ.marginRate * 100).toFixed(1));
 }
 
 const SAMPLE_PRESETS = [
@@ -102,7 +194,20 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
   const [isConfirming, setIsConfirming] = useState(false);
   const [reviewer, setReviewer] = useState("");
   const [quoteCostRmb, setQuoteCostRmb] = useState<number>(25);
+  const [costSource, setCostSource] = useState<"estimated" | "manual" | "captured_1688">("estimated");
   const [targetPriceVal, setTargetPriceVal] = useState<number>(39.99);
+  const [benchmarkAsin, setBenchmarkAsin] = useState<string | null>(null);
+  const [isReanalyzing, setIsReanalyzing] = useState(false);
+  const [removingAsin, setRemovingAsin] = useState<string | null>(null);
+  const [translatingKey, setTranslatingKey] = useState<string | null>(null);
+  const [translatedKwMap, setTranslatedKwMap] = useState<Record<string, { keyword: string; searchUrl: string }>>({});
+  const [editingCostAsin, setEditingCostAsin] = useState<string | null>(null);
+  const [editingCostVal, setEditingCostVal] = useState<string>("");
+  const [isSavingItemCost, setIsSavingItemCost] = useState(false);
+  const [editingShippingAsin, setEditingShippingAsin] = useState<string | null>(null);
+  const [editingShippingVal, setEditingShippingVal] = useState<string>("");
+  const [isSavingShipping, setIsSavingShipping] = useState(false);
+  const [isGeneratingConclusion, setIsGeneratingConclusion] = useState(false);
   const [isPromoting, setIsPromoting] = useState(false);
   const [promotedCaseId, setPromotedCaseId] = useState<string | null>(null);
   const [showPromotionSuccess, setShowPromotionSuccess] = useState(false);
@@ -141,7 +246,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
       if (res.success && res.report) {
         setReports((prev) => [res.report!, ...prev]);
         setSelectedReportId(res.report.id);
-        setStatusMsg({ type: "success", text: "AI 竞品对比分析已完成！" });
+        setStatusMsg({ type: "success", text: "AI 竞品研报已生成！" });
       } else {
         setStatusMsg({ type: "error", text: res.error || "对比分析失败，请稍后重试" });
       }
@@ -195,7 +300,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
         setConvertBatchId(res.batchId);
         setStatusMsg({
           type: "success",
-          text: `已成功将该竞品对比转入选品池！批次 ID: ${res.batchId.slice(0, 8)}...`,
+          text: `已成功将该竞品研报转入选品池！批次 ID: ${res.batchId.slice(0, 8)}...`,
         });
       } else {
         setStatusMsg({ type: "error", text: res.error || "转入选品失败" });
@@ -251,7 +356,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
         selectedCaseId,
         currentReport.id,
         antiListing,
-        reviewer.trim() || "竞品对比工作台",
+        reviewer.trim() || "竞品研报工作台",
       );
       if (res.success) {
         setAppliedSuccessCaseId(selectedCaseId);
@@ -272,20 +377,272 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
     }
   };
 
+  const singleItem = currentReport?.competitors.length === 1 ? currentReport.competitors[0] : null;
+  const singleItemActualCny = singleItem?.sourcingCost?.actualCny ?? null;
+
   useEffect(() => {
-    if (currentReport) {
-      if (currentReport.sourcingAction?.suggestedCostCents) {
-        setQuoteCostRmb(Number((currentReport.sourcingAction.suggestedCostCents / 100).toFixed(1)));
-      }
-      if (currentReport.priceStats?.p50) {
-        setTargetPriceVal(Number((currentReport.priceStats.p50 / 100).toFixed(2)));
-      }
+    if (!currentReport) return;
+    // 单品研报且已回补/手工录入了进价：自动联动顶部核算面板，零手工重复填写
+    if (singleItem && singleItem.sourcingCost?.actualCny && singleItem.sourcingCost.actualCny > 0) {
+      setQuoteCostRmb(singleItem.sourcingCost.actualCny);
+      setCostSource(singleItem.sourcingCost.bestSupplierName === "手工录入" ? "manual" : "captured_1688");
+    } else if (currentReport.sourcingAction?.suggestedCostCents) {
+      setQuoteCostRmb(Number((currentReport.sourcingAction.suggestedCostCents / 100).toFixed(1)));
+      setCostSource("estimated");
+    } else {
+      setCostSource("estimated");
     }
-  }, [currentReport?.id]);
+    if (singleItem && singleItem.priceCents > 0) {
+      setTargetPriceVal(Number((getBuyerTotalPriceCents(singleItem) / 100).toFixed(2)));
+    } else if (currentReport.priceStats?.p50) {
+      setTargetPriceVal(Number((currentReport.priceStats.p50 / 100).toFixed(2)));
+    }
+  }, [currentReport?.id, singleItemActualCny]);
+
+  // 查看「尚未回补进价」的单品研报时自动静默登记为当前 1688 回补目标；已有进价后不再重复加入待回补列表
+  useEffect(() => {
+    if (!currentReport || !singleItem || singleItem.sourcingCost?.actualCny) return;
+    const maxCny = estimateMaxPurchaseRmb(
+      getBuyerTotalPriceCents(singleItem),
+      singleItem.currency || currentReport.currency,
+      currentReport.platformCode,
+    );
+    fetch("/api/competitors/sourcing-target", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        reportId: currentReport.id,
+        asin: singleItem.asin,
+        title: singleItem.title,
+        marketCode: currentReport.marketCode,
+        targetMaxCny: maxCny,
+        competitorCount: 1,
+      }),
+    }).catch(() => {});
+  }, [currentReport?.id, singleItem?.asin]);
 
   const currency = currentReport?.currency || "USD";
   const fxDef = OFFICIAL_FX_CONFIG[currency] || OFFICIAL_FX_CONFIG.USD;
   const currentFx = fxDef.rateToRmb;
+
+  const isSingleProduct = (currentReport?.competitors.length ?? 0) <= 1;
+
+  const handleGenerateConclusion = async () => {
+    if (!currentReport || isGeneratingConclusion) return;
+    setIsGeneratingConclusion(true);
+    setStatusMsg(null);
+    try {
+      const res = await generateCompetitorConclusionAction(currentReport.id);
+      if (res.success && res.report) {
+        const updatedReport = res.report;
+        setReports((prev) => prev.map((r) => (r.id === updatedReport.id ? updatedReport : r)));
+        setStatusMsg({ type: "success", text: "AI 综合结论已生成并保存！" });
+      } else {
+        setStatusMsg({ type: "error", text: res.error || "生成 AI 结论失败" });
+      }
+    } catch {
+      setStatusMsg({ type: "error", text: "生成 AI 结论失败，请稍后重试" });
+    } finally {
+      setIsGeneratingConclusion(false);
+    }
+  };
+
+  const handleClearManualItemCost = async (asin: string) => {
+    if (!currentReport || isSavingItemCost) return;
+    setIsSavingItemCost(true);
+    try {
+      const res = await saveCompetitorManualCostAction(currentReport.id, asin, null);
+      if (res.success && res.report) {
+        const updatedReport = res.report;
+        setReports((prev) => prev.map((r) => (r.id === updatedReport.id ? updatedReport : r)));
+        setEditingCostAsin(null);
+        setStatusMsg({ type: "success", text: `已清空 ${asin} 的实采/手工进价，恢复为 18% 门禁倒推预估上限。` });
+      }
+    } finally {
+      setIsSavingItemCost(false);
+    }
+  };
+
+  const handleSaveManualItemCost = async (asin: string) => {
+    if (!currentReport || isSavingItemCost) return;
+    const parsed = Number(editingCostVal);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setStatusMsg({ type: "error", text: "请输入大于 0 的有效人民币进价" });
+      return;
+    }
+    setIsSavingItemCost(true);
+    try {
+      const res = await saveCompetitorManualCostAction(currentReport.id, asin, parsed);
+      if (res.success && res.report) {
+        const updatedReport = res.report;
+        setReports((prev) => prev.map((r) => (r.id === updatedReport.id ? updatedReport : r)));
+        setEditingCostAsin(null);
+        setEditingCostVal("");
+        setStatusMsg({ type: "success", text: `已保存 ${asin} 拿货进价 ¥${parsed.toFixed(2)}，实算净利率已更新！` });
+      } else {
+        setStatusMsg({ type: "error", text: res.error || "保存进价失败" });
+      }
+    } catch {
+      setStatusMsg({ type: "error", text: "保存进价失败，请稍后重试" });
+    } finally {
+      setIsSavingItemCost(false);
+    }
+  };
+
+  const handleSaveItemShipping = async (asin: string, amountOverride?: number | null) => {
+    if (!currentReport || isSavingShipping) return;
+    const nextVal = amountOverride !== undefined ? amountOverride : Number(editingShippingVal);
+    if (nextVal !== null && (!Number.isFinite(nextVal) || nextVal < 0)) {
+      setStatusMsg({ type: "error", text: "请输入不小于 0 的运费金额" });
+      return;
+    }
+    setIsSavingShipping(true);
+    try {
+      const res = await saveCompetitorItemShippingAction(currentReport.id, asin, nextVal);
+      if (res.success && res.report) {
+        const updatedReport = res.report;
+        setReports((prev) => prev.map((r) => (r.id === updatedReport.id ? updatedReport : r)));
+        setEditingShippingAsin(null);
+        setEditingShippingVal("");
+        setStatusMsg({
+          type: "success",
+          text:
+            nextVal && nextVal > 0
+              ? `已记录 ${asin} 单独运费 ${nextVal.toFixed(2)} ${currentReport.currency}，毛利率、净利润与进价上限已按含运费实付价重算！`
+              : `已清除 ${asin} 的单独运费，恢复按免邮口径核算。`,
+        });
+      } else {
+        setStatusMsg({ type: "error", text: res.error || "保存运费失败" });
+      }
+    } catch {
+      setStatusMsg({ type: "error", text: "保存运费失败，请稍后重试" });
+    } finally {
+      setIsSavingShipping(false);
+    }
+  };
+
+  const registerSourcingBackfillTarget = (item: CompetitorProfile, targetMaxCny: number) => {
+    if (!currentReport) return;
+    fetch("/api/competitors/sourcing-target", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        reportId: currentReport.id,
+        asin: item.asin,
+        title: item.title,
+        marketCode: currentReport.marketCode,
+        targetMaxCny,
+        competitorCount: currentReport.competitors.length,
+      }),
+    }).catch(() => {});
+  };
+
+  const handleSearch1688Translated = async (
+    item: CompetitorProfile,
+    targetMaxCny: number,
+    fallbackKeywords?: string[],
+  ) => {
+    const cacheKey = `item_${item.asin}`;
+    registerSourcingBackfillTarget(item, targetMaxCny);
+    const cached = translatedKwMap[cacheKey];
+    if (cached) {
+      window.open(cached.searchUrl, "_blank", "noopener,noreferrer");
+      setStatusMsg({
+        type: "success",
+        text: `已用中文词「${cached.keyword}」打开 1688（已自动锁定 ${item.asin} 为回补目标，在 1688 点扩展采集即可回填进价）`,
+      });
+      return;
+    }
+    // 同步预开空白标签页，避免 await 翻译后被浏览器拦截弹窗
+    const popup = window.open("about:blank", "_blank");
+    setTranslatingKey(cacheKey);
+    try {
+      const genericFallback = /^(跨境源头工厂|外贸现货批发|跨境现货批发)$/;
+      const chineseFallback = (fallbackKeywords || []).find((k) => {
+        if (genericFallback.test(k.trim())) return false;
+        const stripped = k.replace(/(源头工厂|外贸批发|工厂)$/g, "").trim();
+        return /[\u4e00-\u9fa5]{2,}/.test(stripped);
+      });
+      const { keyword, searchUrl } = await translateTo1688KeywordAction(item.title, chineseFallback);
+      setTranslatedKwMap((prev) => ({ ...prev, [cacheKey]: { keyword, searchUrl } }));
+      if (popup) popup.location.href = searchUrl;
+      else window.open(searchUrl, "_blank", "noopener,noreferrer");
+      setStatusMsg({
+        type: "success",
+        text: `已翻译为「${keyword}」并打开 1688（GBK 无乱码）；在 1688 页面点 Chrome 扩展一键采集后将自动回补 ${item.asin} 真实进价！`,
+      });
+    } catch {
+      if (popup) popup.close();
+      setStatusMsg({ type: "error", text: "关键词翻译失败，请稍后重试" });
+    } finally {
+      setTranslatingKey(null);
+    }
+  };
+
+  const handleDownloadImageAndOpen1688 = (item: CompetitorProfile, targetMaxCny: number) => {
+    if (!item.imageUrl) return;
+    registerSourcingBackfillTarget(item, targetMaxCny);
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(item.imageUrl).catch(() => {});
+    }
+    window.open("https://www.1688.com/", "_blank", "noopener,noreferrer");
+    setStatusMsg({
+      type: "success",
+      text: `已复制 ${item.asin} 主图链接并锁定回补目标：在 1688 点相机图标搜同款后，用扩展一键采集即可自动回填该商品进价！`,
+    });
+  };
+
+  const handleReanalyze = async (excludeAsin?: string) => {
+    if (!currentReport || isReanalyzing) return;
+    setIsReanalyzing(true);
+    if (excludeAsin) setRemovingAsin(excludeAsin);
+    setStatusMsg(null);
+    try {
+      const res = await reanalyzeCompetitorReportAction(currentReport.id, excludeAsin);
+      if (res.success && res.report) {
+        const updatedReport = res.report;
+        setReports((prev) => prev.map((r) => (r.id === updatedReport.id ? updatedReport : r)));
+        setStatusMsg({
+          type: "success",
+          text: excludeAsin
+            ? `已移除干扰竞品 ${excludeAsin}，并基于剩余 ${updatedReport.competitors.length} 款真实数据重新计算分位与研报！`
+            : "已基于本地采集的真实数据原地重新分析完成！",
+        });
+      } else {
+        setStatusMsg({ type: "error", text: res.error || "重新分析失败" });
+      }
+    } catch {
+      setStatusMsg({ type: "error", text: "重新分析失败，请稍后重试" });
+    } finally {
+      setIsReanalyzing(false);
+      setRemovingAsin(null);
+    }
+  };
+
+  const handleSelectBenchmark = (comp: CompetitorProfile | null) => {
+    if (!comp) {
+      setBenchmarkAsin(null);
+      if (currentReport?.priceStats?.p50 && currentReport.priceStats.p50 > 0) {
+        setTargetPriceVal(Number((currentReport.priceStats.p50 / 100).toFixed(2)));
+      }
+      setStatusMsg({
+        type: "success",
+        text: "已取消主攻标杆设置，已恢复默认 P50 拟定价。",
+      });
+      return;
+    }
+    setBenchmarkAsin(comp.asin);
+    const effCents = comp.effectivePriceCents && comp.effectivePriceCents > 0
+      ? comp.effectivePriceCents
+      : comp.priceCents;
+    if (effCents > 0) {
+      setTargetPriceVal(Number((effCents / 100).toFixed(2)));
+    }
+    setStatusMsg({
+      type: "success",
+      text: `已将 ${comp.brand ? `${comp.brand} · ` : ""}${comp.asin} 设为主攻标杆，并自动带入券后拟定价。`,
+    });
+  };
 
   // 1. 到岸成本计算（采购单价按官方权威汇率折算外币 + 25% 头程海运预估）
   const purchaseCostCents = convertRmbToForeignCents(quoteCostRmb, currency);
@@ -431,7 +788,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
           <div>
             <div className="eyebrow" style={{ color: "var(--green)" }}>多维竞品解析</div>
             <h2 style={{ fontSize: "20px", margin: "4px 0 6px 0", color: "var(--ink)" }}>
-              输入链接，自动生成竞品对比研报
+              输入链接，自动生成竞品研报
             </h2>
             <p style={{ margin: 0, color: "var(--muted)", fontSize: "13px" }}>
               输入 1~4 个竞品链接或 ASIN（当前站点 {currentMarket} · {currentPlatform}）。AI 只辅助整理特点与差评线索；
@@ -535,7 +892,8 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                   style={{
                     background: "transparent",
                     border: "none",
-                    color: isSelected ? "rgba(255,255,255,0.6)" : "var(--muted)",
+                    color: isSelected ? "var(--deep-fg)" : "var(--muted)",
+                    opacity: isSelected ? 0.75 : 1,
                     cursor: "pointer",
                     padding: "0 2px",
                     fontSize: "14px",
@@ -579,6 +937,11 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                 <span className="badge badge-neutral" style={{ fontSize: "12px" }}>
                   {currentReport.marketCode} · {currentReport.platformCode.toUpperCase()}
                 </span>
+                {isSingleProduct ? (
+                  <span className="badge badge-neutral" style={{ fontSize: "12px" }}>
+                    单品深挖模式
+                  </span>
+                ) : null}
                 <span
                   className={`badge ${PROVENANCE_VERIFIED.includes(currentReport.provenance) ? "badge-success" : "badge-warn"}`}
                   style={{ fontSize: "12px" }}
@@ -631,6 +994,17 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                 style={{ fontSize: "12px", padding: "6px 14px", height: "34px", borderRadius: "10px", borderColor: "var(--line)", color: "var(--ink)", fontWeight: 600 }}
               >
                 {isGeneratingRfq ? "生成 RFQ 中..." : "🏭 1688 改良询价单"}
+              </button>
+
+              <button
+                type="button"
+                className="button secondary"
+                disabled={isReanalyzing}
+                onClick={() => handleReanalyze()}
+                title="保留已采集的真实价格/月销/差评/主图，原地重跑 AI 洞察与指标计算（如需最新前台价格请用 Chrome 扩展重抓）"
+                style={{ fontSize: "12px", padding: "6px 14px", height: "34px", borderRadius: "10px", fontWeight: 600 }}
+              >
+                {isReanalyzing && !removingAsin ? "重新分析中..." : "🔄 重新分析"}
               </button>
 
               <button
@@ -986,15 +1360,15 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
           )}
 
           {/* 业务大动脉闭环：采购成本核算、机会分测算与一键正式立项 */}
-          <section className="panel" style={{ padding: "20px 24px", background: "var(--surface-subtle)", border: "1.5px solid var(--green)" }}>
+          <section id="section-launch" className="panel" style={{ padding: "20px 24px", background: "var(--surface-subtle)", border: "1.5px solid var(--green)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "14px", flexWrap: "wrap", gap: "10px" }}>
               <div>
                 <div className="eyebrow" style={{ color: "var(--green)" }}>PIPELINE PROMOTION · 业务闭环立项</div>
                 <h4 style={{ margin: "2px 0 0 0", fontSize: "16px", color: "var(--ink)", fontWeight: 800 }}>
-                  ⚡ 真实工厂报价核算 & 快速立项为商品案卷 (New Case)
+                  ⚡ 拿货成本试算 & 快速立项为商品案卷 (New Case)
                 </h4>
                 <p style={{ margin: "2px 0 0 0", color: "var(--muted)", fontSize: "12px" }}>
-                  输入 1688 实报单价与目标售价，系统自动联动汇率、FBA 费率与头程运费，实时测算真实净利与财务「机会分」。
+                  默认按中位售价 25% 倒推预估拿货价（非工厂实报）；手工填入 1688 真实报价或由下方单品实采回补后，实时测算净利与财务「机会分」。
                 </p>
               </div>
               {promotedCaseId && (
@@ -1010,15 +1384,30 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
 
             <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.2fr 2fr", gap: "16px", alignItems: "center", marginBottom: "16px" }}>
               <div>
-                <label style={{ fontSize: "12px", fontWeight: 700, color: "var(--ink)", display: "block", marginBottom: "4px" }}>
-                  1688 工厂实报单价 (RMB)
+                <label style={{ fontSize: "12px", fontWeight: 700, color: "var(--ink)", display: "flex", alignItems: "center", gap: "6px", marginBottom: "4px", flexWrap: "wrap" }}>
+                  <span>
+                    {costSource === "captured_1688"
+                      ? "1688 实采进价 (RMB)"
+                      : costSource === "manual"
+                        ? "手工输入拿货价 (RMB)"
+                        : "预估拿货单价 (RMB)"}
+                  </span>
+                  <span
+                    className={`badge ${costSource === "captured_1688" ? "badge-success" : costSource === "manual" ? "badge-neutral" : "badge-warn"}`}
+                    style={{ fontSize: "10px", padding: "1px 6px" }}
+                  >
+                    {costSource === "captured_1688" ? "1688 实采" : costSource === "manual" ? "手工试算" : "倒推预估 · 非实报"}
+                  </span>
                 </label>
                 <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                   <span style={{ fontSize: "14px", color: "var(--muted)" }}>¥</span>
                   <input
                     type="number"
                     value={quoteCostRmb}
-                    onChange={(e) => setQuoteCostRmb(Number(e.target.value))}
+                    onChange={(e) => {
+                      setQuoteCostRmb(Number(e.target.value));
+                      setCostSource("manual");
+                    }}
                     step="0.5"
                     style={{ width: "100%", padding: "7px 10px", borderRadius: "8px", border: "1px solid var(--line)", fontSize: "14px", fontWeight: 700, background: "var(--paper)" }}
                   />
@@ -1124,9 +1513,80 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
             </div>
           </section>
 
+          {/* 视角快捷导航条（单品 / 多品自适应标签） */}
+          <nav
+            aria-label="研报视角导航"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              gap: "10px",
+              padding: "10px 16px",
+              borderRadius: "12px",
+              background: "var(--surface-subtle)",
+              border: "1px solid var(--line)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+              <span style={{ fontSize: "12px", color: "var(--muted)", fontWeight: 600 }}>视角直达：</span>
+              <a href="#section-overview" className="button ghost" style={{ fontSize: "12px", padding: "4px 10px", height: "28px" }}>
+                {isSingleProduct ? "① 单品诊断" : "① 格局总览"}
+              </a>
+              <a href="#section-pk" className="button ghost" style={{ fontSize: "12px", padding: "4px 10px", height: "28px" }}>
+                {isSingleProduct ? "② 卖点与差评拆解" : "② 横向 PK 矩阵"}
+              </a>
+              <a href="#section-launch" className="button ghost" style={{ fontSize: "12px", padding: "4px 10px", height: "28px" }}>
+                ③ 财务测算与立项
+              </a>
+              <a href="#section-conclusion" className="button ghost" style={{ fontSize: "12px", padding: "4px 10px", height: "28px" }}>
+                ④ AI 结论
+              </a>
+            </div>
+            <span style={{ fontSize: "12px", color: "var(--muted)" }}>
+              {isSingleProduct
+                ? "单品深挖模式：已自动隐藏多品格局图与价格分位噪声"
+                : `多品对标模式 · 共 ${currentReport.competitors.length} 款竞品`}
+            </span>
+          </nav>
+
+          {/* -0.5 快照版本异动预警（同站点/同赛道再次采集时自动触发） */}
+          {currentReport.snapshotDiff && (currentReport.snapshotDiff.alerts.length > 0 || currentReport.snapshotDiff.avgPriceDeltaPercent !== null) ? (
+            <section
+              className="panel"
+              style={{
+                padding: "16px 20px",
+                borderLeft: "4px solid var(--amber)",
+                background: "var(--amber-soft)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px", marginBottom: "6px" }}>
+                <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--ink)" }}>
+                  ⚡ 快照对比异动预警（对比上次采集 {shortDate(currentReport.snapshotDiff.previousCapturedAt)}）
+                </div>
+                {currentReport.snapshotDiff.avgPriceDeltaPercent !== null ? (
+                  <span className="badge badge-warn mono" style={{ fontSize: "12px" }}>
+                    均价变动 {currentReport.snapshotDiff.avgPriceDeltaPercent > 0 ? "+" : ""}{currentReport.snapshotDiff.avgPriceDeltaPercent}%
+                  </span>
+                ) : null}
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", fontSize: "12px", color: "var(--ink)" }}>
+                {currentReport.snapshotDiff.alerts.map((alert, idx) => (
+                  <span key={idx} className="badge badge-neutral" style={{ background: "var(--panel)" }}>
+                    {alert}
+                  </span>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
           {/* 0. 科学量化：商品指数 (Product Index, 0~100 分) */}
           {(() => {
-            const index = currentReport.productIndex || calculateProductIndex(currentReport);
+            const liveMarginPct = Number((estMarginRate * 100).toFixed(1));
+            const index = calculateProductIndex(currentReport, {
+              overrideMarginPercent: targetPriceCents > 0 ? liveMarginPct : null,
+            });
+            const signals = currentReport.marketSignals;
             const isS = index.grade === "S";
             const isA = index.grade === "A";
             const isB = index.grade === "B";
@@ -1147,16 +1607,22 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
               : "var(--red-soft)";
 
             return (
-              <section className="panel" style={{ padding: "24px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px" }}>
+              <section id="section-overview" className="panel" style={{ padding: "24px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px", flexWrap: "wrap", marginBottom: "16px" }}>
                   <div>
                     <div className="eyebrow" style={{ color: themeColor }}>
-                      QUANTITATIVE RETAIL MODEL · 科学量化判定
+                      QUANTITATIVE RETAIL MODEL · 观测值驱动量化判定
                     </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "4px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "4px", flexWrap: "wrap" }}>
                       <h4 style={{ margin: 0, fontSize: "18px", color: "var(--ink)", fontWeight: 800 }}>
                         商品指数 (Product Index)
                       </h4>
+                      <span
+                        className={`badge ${index.evidenceCompleteness >= 70 ? "badge-success" : index.evidenceCompleteness >= 45 ? "badge-warn" : "badge-danger"}`}
+                        style={{ fontSize: "12px" }}
+                      >
+                        证据完整度 {index.evidenceCompleteness}%
+                      </span>
                       <button
                         type="button"
                         onClick={() => setShowIndexHelp((prev) => !prev)}
@@ -1181,6 +1647,49 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                     参考评级（非选品门禁）: {index.decision}
                   </span>
                 </div>
+
+                {/* 市场微观信号条（仅多品模式展示，单品分析自动隐藏） */}
+                {signals && !isSingleProduct ? (
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(145px, 1fr))",
+                      gap: "10px",
+                      marginBottom: "16px",
+                    }}
+                  >
+                    <div style={{ padding: "10px 12px", borderRadius: "10px", background: "var(--surface-subtle)", border: "1px solid var(--line)" }}>
+                      <div style={{ fontSize: "11px", color: "var(--muted)" }}>Top 3 品牌占比 (CR3)</div>
+                      <div className="mono" style={{ fontSize: "16px", fontWeight: 800, color: signals.brandCr3Percent > 60 ? "var(--red)" : "var(--ink)", marginTop: "2px" }}>
+                        {signals.brandCr3Percent}%
+                      </div>
+                    </div>
+                    <div style={{ padding: "10px 12px", borderRadius: "10px", background: "var(--surface-subtle)", border: "1px solid var(--line)" }}>
+                      <div style={{ fontSize: "11px", color: "var(--muted)" }}>首页广告位密度</div>
+                      <div className="mono" style={{ fontSize: "16px", fontWeight: 800, color: signals.sponsoredRatioPercent >= 45 ? "var(--amber)" : "var(--ink)", marginTop: "2px" }}>
+                        {signals.sponsoredRatioPercent}% ({signals.sponsoredCount}款)
+                      </div>
+                    </div>
+                    <div style={{ padding: "10px 12px", borderRadius: "10px", background: "var(--surface-subtle)", border: "1px solid var(--line)" }}>
+                      <div style={{ fontSize: "11px", color: "var(--muted)" }}>Coupon 隐藏折扣</div>
+                      <div className="mono" style={{ fontSize: "16px", fontWeight: 800, color: "var(--ink)", marginTop: "2px" }}>
+                        {signals.couponCount > 0 ? `${signals.couponCount}款 (均省 ${signals.avgDiscountPercent}%)` : "0 款"}
+                      </div>
+                    </div>
+                    <div style={{ padding: "10px 12px", borderRadius: "10px", background: "var(--surface-subtle)", border: "1px solid var(--line)" }}>
+                      <div style={{ fontSize: "11px", color: "var(--muted)" }}>官方月销实证</div>
+                      <div className="mono" style={{ fontSize: "16px", fontWeight: 800, color: signals.verifiedSalesCount > 0 ? "var(--green)" : "var(--muted)", marginTop: "2px" }}>
+                        {signals.verifiedSalesCount} / {currentReport.competitors.length} 款
+                      </div>
+                    </div>
+                    <div style={{ padding: "10px 12px", borderRadius: "10px", background: "var(--surface-subtle)", border: "1px solid var(--line)" }}>
+                      <div style={{ fontSize: "11px", color: "var(--muted)" }}>Amazon 自营 / 黑马新品</div>
+                      <div className="mono" style={{ fontSize: "16px", fontWeight: 800, color: "var(--ink)", marginTop: "2px" }}>
+                        1P: {signals.amazon1pCount} · 黑马: {signals.darkHorseAsins.length}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
 
                 {/* 指标关系说明抽屉 */}
                 {showIndexHelp && (
@@ -1270,21 +1779,25 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                     </p>
                   </div>
 
-                  {/* 右侧：5 大量化支柱得分明细 */}
+                  {/* 右侧：量化支柱得分明细（单品模式自动隐藏无意义的品牌 HHI 垄断支柱） */}
                   <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                    {Object.values(index.pillars).map((p) => {
-                      const percent = Math.round((p.score / p.max) * 100);
+                    {Object.values(index.pillars)
+                      .filter((p) => !(isSingleProduct && p.key === "hhi"))
+                      .map((p) => {
+                      const available = p.isAvailable !== false;
+                      const percent = available ? Math.round((p.score / p.max) * 100) : 0;
                       return (
-                        <div key={p.key} style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                        <div key={p.key} style={{ display: "flex", flexDirection: "column", gap: "4px", opacity: available ? 1 : 0.65 }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: "12px" }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                               <strong style={{ color: "var(--ink)" }}>{p.label}</strong>
                               <span
                                 style={{
                                   fontSize: "12px",
                                   padding: "1px 6px",
                                   borderRadius: "4px",
-                                  background: "#e8ede9",
+                                  background: "var(--panel)",
+                                  border: "1px solid var(--line)",
                                   color: "var(--muted)",
                                   fontFamily: "ui-monospace, monospace",
                                 }}
@@ -1293,8 +1806,14 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                               </span>
                             </div>
                             <div>
-                              <strong style={{ color: themeColor }}>{p.score}</strong>
-                              <span style={{ color: "var(--muted)" }}> / {p.max} 分</span>
+                              {available ? (
+                                <>
+                                  <strong style={{ color: themeColor }}>{p.score}</strong>
+                                  <span style={{ color: "var(--muted)" }}> / {p.max} 分</span>
+                                </>
+                              ) : (
+                                <span style={{ color: "var(--muted)", fontSize: "12px" }}>未采集 · 不计分</span>
+                              )}
                             </div>
                           </div>
 
@@ -1303,7 +1822,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                             style={{
                               width: "100%",
                               height: "6px",
-                              background: "#e5eae6",
+                              background: "var(--line)",
                               borderRadius: "3px",
                               overflow: "hidden",
                             }}
@@ -1312,7 +1831,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                               style={{
                                 width: `${percent}%`,
                                 height: "100%",
-                                background: themeColor,
+                                background: available ? themeColor : "var(--muted)",
                                 borderRadius: "3px",
                                 transition: "width 0.4s ease",
                               }}
@@ -1331,7 +1850,8 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
             );
           })()}
 
-          {/* 1. 价格分位数带与大盘基准 */}
+          {/* 1. 价格分位数带与大盘基准（单品模式自动隐藏，1 款商品不需要分位带） */}
+          {!isSingleProduct ? (
           <section className="panel" style={{ padding: "20px 24px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
               <div>
@@ -1451,21 +1971,81 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
             </div>
             )}
           </section>
+          ) : null}
 
-          {/* 1.5 市场格局四象限气泡图 */}
-          <CompetitorQuadrantChart
-            competitors={currentReport.competitors}
-            currency={currentReport.currency}
-            p50PriceCents={currentReport.priceStats.p50}
-            targetPriceCents={Math.round(targetPriceVal * 100)}
-          />
+          {/* 1.5 市场格局四象限气泡图（单品模式自动隐藏） */}
+          {!isSingleProduct ? (
+            <CompetitorQuadrantChart
+              competitors={currentReport.competitors}
+              currency={currentReport.currency}
+              p50PriceCents={currentReport.priceStats.p50}
+              targetPriceCents={Math.round(targetPriceVal * 100)}
+              darkHorseAsins={currentReport.marketSignals?.darkHorseAsins ?? []}
+              benchmarkAsin={benchmarkAsin ?? currentReport.targetBenchmarkAsin ?? null}
+              onSelectBenchmark={handleSelectBenchmark}
+            />
+          ) : null}
 
-          {/* 2. 竞品多维横向 PK 矩阵 */}
-          <section className="panel" style={{ padding: "24px" }}>
+          {/* 1.7 差评可改良性分级矩阵（Actionable Pain Matrix） */}
+          {currentReport.painPointMatrix && currentReport.painPointMatrix.length > 0 ? (
+            <section className="panel" style={{ padding: "20px 24px" }}>
+              <div style={{ marginBottom: "14px" }}>
+                <div className="eyebrow" style={{ color: "var(--amber)" }}>差评攻防分级</div>
+                <h4 style={{ margin: "2px 0 4px 0", fontSize: "16px", color: "var(--ink)" }}>
+                  差评可改良性矩阵（区分改模 / 快赢包装 / 预期管理 / 物理限制）
+                </h4>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "12px" }}>
+                {currentReport.painPointMatrix.map((item, idx) => {
+                  const catMap = {
+                    structural_design: { label: "结构/材质可改", badge: "badge-success" },
+                    packaging_accessories: { label: "配件包装快赢", badge: "badge-success" },
+                    expectation_mgmt: { label: "预期管理降退货", badge: "badge-warn" },
+                    physical_limit: { label: "物理限制 · 避坑", badge: "badge-danger" },
+                  } as const;
+                  const meta = catMap[item.category] || catMap.structural_design;
+                  const costLabel = item.costToFix === "low" ? "低成本快赢" : item.costToFix === "medium" ? "中等改良成本" : item.costToFix === "high" ? "高成本改模" : "不可解决";
+                  return (
+                    <div
+                      key={idx}
+                      style={{
+                        padding: "14px",
+                        borderRadius: "12px",
+                        background: "var(--surface-subtle)",
+                        border: "1px solid var(--line)",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "6px",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                        <span className={`badge ${meta.badge}`} style={{ fontSize: "11px" }}>{meta.label}</span>
+                        <span className="badge badge-neutral" style={{ fontSize: "11px" }}>{costLabel}</span>
+                      </div>
+                      <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--ink)", lineHeight: 1.4 }}>{item.pain}</div>
+                      <div style={{ fontSize: "12px", color: "var(--green)", lineHeight: 1.45 }}>
+                        → {item.solution}
+                      </div>
+                      {item.sourceQuote ? (
+                        <div style={{ fontSize: "11px", color: "var(--muted)", borderLeft: "2px solid var(--line)", paddingLeft: "8px", marginTop: "2px", lineHeight: 1.4 }}>
+                          原评依据：{item.sourceQuote}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
+
+          {/* 2. 竞品多维横向 PK 矩阵 / 单品深度拆解 */}
+          <section id="section-pk" className="panel" style={{ padding: "24px" }}>
             <div style={{ marginBottom: "18px" }}>
-              <div className="eyebrow" style={{ color: "var(--green)" }}>横向 PK 对标</div>
+              <div className="eyebrow" style={{ color: "var(--green)" }}>
+                {isSingleProduct ? "单品深度拆解" : "横向 PK 对标"}
+              </div>
               <h4 style={{ margin: "2px 0 4px 0", fontSize: "16px", color: "var(--ink)" }}>
-                竞品核心卖点与差评痛点对决
+                {isSingleProduct ? "核心卖点与买家差评拆解" : "竞品核心卖点与差评痛点对决"}
               </h4>
               <p style={{ margin: 0, color: "var(--muted)", fontSize: "13px" }}>
                 透视各款竞品的长处（买家满意因子）与死穴（高频退货/差评诱因），精准确立改良切入点。
@@ -1500,71 +2080,235 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                   >
                     <div>
                       {/* 标头段位与外链 */}
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                        <span
-                          className={`badge ${isBudget ? "badge-neutral" : isPremium ? "badge-warn" : "badge-success"}`}
-                          style={{ fontSize: "12px" }}
-                        >
-                          {isBudget ? "低价入门" : isPremium ? "高端溢价" : "中端主力"}
-                        </span>
-                        <a
-                          href={item.sourceUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          style={{
-                            fontSize: "12px",
-                            color: "var(--green)",
-                            fontFamily: "monospace",
-                            textDecoration: "underline",
-                            fontWeight: 600,
-                          }}
-                        >
-                          {item.asin}
-                        </a>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "6px", flexWrap: "wrap", marginBottom: "8px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                          <span
+                            className={`badge ${isBudget ? "badge-neutral" : isPremium ? "badge-warn" : "badge-success"}`}
+                            style={{ fontSize: "12px" }}
+                          >
+                            {isBudget ? "低价入门" : isPremium ? "高端溢价" : "中端主力"}
+                          </span>
+                          {item.isSponsored ? <span className="badge badge-warn" style={{ fontSize: "11px" }}>广告位</span> : null}
+                          {item.fulfillmentType === "amazon_1p" ? <span className="badge badge-danger" style={{ fontSize: "11px" }}>1P 自营</span> : null}
+                          {item.boughtPastMonth && item.boughtPastMonth > 0 ? (
+                            <span className="badge badge-success mono" style={{ fontSize: "11px" }}>
+                              月销 {item.boughtPastMonth.toLocaleString()}+
+                            </span>
+                          ) : null}
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                          <a
+                            href={item.sourceUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{
+                              fontSize: "12px",
+                              color: "var(--green)",
+                              fontFamily: "monospace",
+                              textDecoration: "underline",
+                              fontWeight: 600,
+                            }}
+                          >
+                            {item.asin}
+                          </a>
+                          {!isSingleProduct ? (
+                            <button
+                              type="button"
+                              disabled={isReanalyzing}
+                              onClick={() => handleReanalyze(item.asin)}
+                              title="移除这条干扰竞品并基于剩余竞品重新计算分位与四象限"
+                              style={{
+                                background: "none",
+                                border: "1px solid var(--line)",
+                                borderRadius: "6px",
+                                padding: "1px 6px",
+                                fontSize: "11px",
+                                color: "var(--muted)",
+                                cursor: "pointer",
+                              }}
+                            >
+                              {removingAsin === item.asin ? "移除中..." : "移除"}
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
 
-                      <h5
-                        style={{
-                          margin: "0 0 10px 0",
-                          fontSize: "14px",
-                          lineHeight: "1.4",
-                          color: "var(--ink)",
-                          fontWeight: 700,
-                        }}
-                      >
-                        [{item.brand}] {item.title}
-                      </h5>
+                      <div style={{ display: "flex", gap: "10px", alignItems: "flex-start", marginBottom: "10px" }}>
+                        {item.imageUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={item.imageUrl}
+                            alt={item.title}
+                            style={{ width: "52px", height: "52px", objectFit: "contain", borderRadius: "8px", border: "1px solid var(--line)", background: "var(--panel)", flexShrink: 0 }}
+                          />
+                        ) : null}
+                        <h5
+                          style={{
+                            margin: 0,
+                            fontSize: "14px",
+                            lineHeight: "1.4",
+                            color: "var(--ink)",
+                            fontWeight: 700,
+                          }}
+                        >
+                          [{item.brand}] {item.title}
+                        </h5>
+                      </div>
 
-                      {/* 价格与销售表现 */}
+                      {/* 价格与销售表现（含单独运费录入与实付总价） */}
                       <div
                         style={{
                           display: "flex",
-                          alignItems: "baseline",
-                          gap: "8px",
+                          flexDirection: "column",
+                          gap: "6px",
                           paddingBottom: "12px",
                           marginBottom: "14px",
                           borderBottom: "1px solid var(--line)",
-                          flexWrap: "wrap",
                         }}
                       >
-                        <span style={{ fontSize: "20px", fontWeight: 800, color: item.priceCents > 0 ? "var(--ink)" : "var(--muted)" }}>
-                          {item.priceCents > 0 ? formatPrice(item.priceCents, item.currency) : "待采集售价"}
-                        </span>
-                        {item.rating > 0 ? (
-                          <span style={{ fontSize: "12px", color: "var(--amber)", fontWeight: 700 }}>
-                            ★ {item.rating}
-                          </span>
+                        <div style={{ display: "flex", alignItems: "baseline", gap: "8px", flexWrap: "wrap" }}>
+                          {(() => {
+                            const sell = item.priceCents;
+                            const list = item.listPriceCents && item.listPriceCents > sell ? item.listPriceCents : 0;
+                            const listOffPct = list > 0 && sell > 0 ? Math.round(((list - sell) / list) * 100) : 0;
+                            const eff = item.effectivePriceCents && item.effectivePriceCents > 0 && item.effectivePriceCents < sell
+                              ? item.effectivePriceCents
+                              : 0;
+                            const couponPct = eff > 0 && sell > 0 ? Math.round(((sell - eff) / sell) * 100) : 0;
+                            return (
+                              <>
+                                <span style={{ fontSize: "20px", fontWeight: 800, color: sell > 0 ? "var(--ink)" : "var(--muted)" }}>
+                                  {sell > 0 ? formatPrice(sell, item.currency) : "待采集售价"}
+                                </span>
+                                {list > 0 ? (
+                                  <span style={{ fontSize: "12px", color: "var(--muted)" }}>
+                                    <span style={{ textDecoration: "line-through" }}>{formatPrice(list, item.currency)}</span>
+                                    {listOffPct > 0 ? <strong style={{ color: "var(--red)", marginLeft: "4px" }}>-{listOffPct}%</strong> : null}
+                                  </span>
+                                ) : null}
+                                {eff > 0 ? (
+                                  <span className="badge badge-warn" style={{ fontSize: "11px" }}>
+                                    券后 {formatPrice(eff, item.currency)} (-{couponPct}%)
+                                  </span>
+                                ) : null}
+                              </>
+                            );
+                          })()}
+                          {item.rating > 0 ? (
+                            <span style={{ fontSize: "12px", color: "var(--amber)", fontWeight: 700 }}>
+                              ★ {item.rating}
+                            </span>
+                          ) : null}
+                          {item.reviewCount > 0 || item.monthlySalesEst > 0 ? (
+                            <span style={{ fontSize: "12px", color: "var(--muted)" }}>
+                              ({item.reviewCount > 0 ? `${item.reviewCount.toLocaleString()} 评` : "评论待采集"}
+                              {item.monthlySalesEst > 0 ? ` · 约 ${item.monthlySalesEst} 件/月` : ""})
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: "12px", color: "var(--muted)" }}>
+                              评分与评论数待采集
+                            </span>
+                          )}
+                        </div>
+
+                        {/* 买家另付单独运费行 */}
+                        {item.priceCents > 0 ? (
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", fontSize: "11.5px" }}>
+                            {item.shippingCents && item.shippingCents > 0 ? (
+                              <>
+                                <span className="badge badge-warn" style={{ fontSize: "11px" }}>
+                                  + 单独运费 {formatPrice(item.shippingCents, item.currency)} · 买家实付 {formatPrice(getBuyerTotalPriceCents(item), item.currency)}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingShippingAsin(item.asin);
+                                    setEditingShippingVal((item.shippingCents! / 100).toFixed(2));
+                                  }}
+                                  style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", padding: 0, textDecoration: "underline", fontSize: "11px" }}
+                                >
+                                  改运费
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isSavingShipping}
+                                  onClick={() => handleSaveItemShipping(item.asin, 0)}
+                                  style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", padding: 0, textDecoration: "underline", fontSize: "11px" }}
+                                >
+                                  清零
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingShippingAsin(editingShippingAsin === item.asin ? null : item.asin);
+                                  setEditingShippingVal("");
+                                }}
+                                style={{
+                                  background: "none",
+                                  border: "none",
+                                  color: "var(--muted)",
+                                  cursor: "pointer",
+                                  padding: 0,
+                                  textDecoration: "underline",
+                                  fontSize: "11px",
+                                }}
+                              >
+                                {editingShippingAsin === item.asin ? "取消运费录入" : "+ 买家另付运费（如不包邮点此补录）"}
+                              </button>
+                            )}
+                          </div>
                         ) : null}
-                        {item.reviewCount > 0 || item.monthlySalesEst > 0 ? (
-                          <span style={{ fontSize: "12px", color: "var(--muted)" }}>
-                            ({item.reviewCount > 0 ? `${item.reviewCount.toLocaleString()} 评` : "评论待采集"}
-                            {item.monthlySalesEst > 0 ? ` · 约 ${item.monthlySalesEst} 件/月` : ""})
-                          </span>
-                        ) : (
-                          <span style={{ fontSize: "12px", color: "var(--muted)" }}>
-                            评分与评论数待采集
-                          </span>
-                        )}
+
+                        {editingShippingAsin === item.asin ? (
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "2px" }}>
+                            <span style={{ fontSize: "11.5px", color: "var(--muted)", whiteSpace: "nowrap" }}>
+                              运费 ({item.currency || currentReport.currency})
+                            </span>
+                            <input
+                              type="number"
+                              step="0.5"
+                              min="0"
+                              placeholder="如 9.99"
+                              value={editingShippingVal}
+                              onChange={(e) => setEditingShippingVal(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  handleSaveItemShipping(item.asin);
+                                }
+                              }}
+                              style={{
+                                width: "92px",
+                                padding: "3px 8px",
+                                borderRadius: "6px",
+                                border: "1px solid var(--line)",
+                                background: "var(--paper)",
+                                color: "var(--ink)",
+                                fontSize: "12px",
+                                fontWeight: 700,
+                              }}
+                            />
+                            <button
+                              type="button"
+                              disabled={isSavingShipping}
+                              onClick={() => handleSaveItemShipping(item.asin)}
+                              className="button primary"
+                              style={{ fontSize: "11px", padding: "3px 10px", height: "26px" }}
+                            >
+                              {isSavingShipping ? "保存中" : "重算利润"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingShippingAsin(null)}
+                              className="button ghost"
+                              style={{ fontSize: "11px", padding: "3px 6px", height: "26px" }}
+                            >
+                              取消
+                            </button>
+                          </div>
+                        ) : null}
                       </div>
                       {!isVerifiedCompetitorField(item, "priceCents") && (
                         <div style={{ fontSize: "12px", color: "var(--amber)", marginTop: "-8px", marginBottom: "12px" }}>
@@ -1642,13 +2386,62 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                         </div>
                       )}
 
-                      {/* 目标人群 */}
-                      <div style={{ fontSize: "12px", color: "var(--muted)", marginBottom: "12px", lineHeight: "1.4" }}>
-                        <strong style={{ color: "var(--ink)" }}>主要受众:</strong> {item.targetAudience}
-                      </div>
+                      {/* 单品毛利率与单件利润估算（按券后价 + 买家另付运费总实付口径重算） */}
+                      {item.priceCents > 0 ? (() => {
+                        const itemCurr = item.currency || currentReport.currency;
+                        const fxRate = (OFFICIAL_FX_CONFIG[itemCurr] || OFFICIAL_FX_CONFIG.USD).rateToRmb;
+                        const totalBuyerCents = getBuyerTotalPriceCents(item);
+                        const hasRealCost = Boolean(item.sourcingCost?.actualCny && item.sourcingCost.actualCny > 0);
+                        // 有实录/实采进价用真实进价算；未录进价时按实付总价 25% 折算人民币做参考估算并明确标注
+                        const basisRmb = hasRealCost
+                          ? item.sourcingCost!.actualCny
+                          : Number((((totalBuyerCents / 100) * 0.25) * fxRate).toFixed(1));
+                        const est = calcItemProfitEstimate(totalBuyerCents, basisRmb, itemCurr, currentReport.platformCode);
+                        const isHealthy = est.marginPct >= 18;
+                        const hasShipping = Boolean(item.shippingCents && item.shippingCents > 0);
+                        return (
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "1fr 1fr",
+                              gap: "8px",
+                              marginBottom: "12px",
+                              padding: "8px 10px",
+                              borderRadius: "8px",
+                              background: "var(--surface-subtle)",
+                              border: "1px solid var(--line)",
+                              fontSize: "12px",
+                            }}
+                          >
+                            <div>
+                              <div style={{ fontSize: "11px", color: "var(--muted)" }}>
+                                {hasRealCost ? "实算毛利率" : "预估毛利率"}
+                                <span style={{ marginLeft: "4px", fontSize: "10px" }}>
+                                  ({hasRealCost ? `按 ¥${basisRmb}` : `按 25% ≈ ¥${basisRmb}`})
+                                </span>
+                              </div>
+                              <div className="mono" style={{ fontSize: "15px", fontWeight: 800, color: isHealthy ? "var(--green)" : "var(--red)", marginTop: "2px" }}>
+                                {est.marginPct}%
+                              </div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: "11px", color: "var(--muted)" }}>
+                                {hasRealCost ? "单件净利润" : "预估单件利润"}
+                                {hasShipping ? <span style={{ marginLeft: "4px", fontSize: "10px", color: "var(--amber)" }}>含运费口径</span> : null}
+                              </div>
+                              <div className="mono" style={{ fontSize: "15px", fontWeight: 800, color: est.netProfitCents > 0 ? "var(--ink)" : "var(--red)", marginTop: "2px" }}>
+                                {est.netProfitCents >= 0 ? "+" : ""}{(est.netProfitCents / 100).toFixed(2)} {itemCurr}
+                                <span style={{ fontSize: "11px", fontWeight: 500, color: "var(--muted)", marginLeft: "4px" }}>
+                                  (≈¥{est.netProfitRmb})
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })() : null}
                     </div>
 
-                    {/* AI 单品简评 */}
+                    {/* AI 单品简评 + 1688 搜同款入口 */}
                     <div
                       style={{
                         borderTop: "1px dashed var(--line)",
@@ -1658,7 +2451,228 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                         lineHeight: "1.4",
                       }}
                     >
-                      <strong>诊断:</strong> {item.verdict}
+                      <div>
+                        <strong>诊断:</strong> {item.verdict}
+                      </div>
+                      {(() => {
+                        const key = `item_${item.asin}`;
+                        const cached = translatedKwMap[key];
+                        const totalBuyerCents = getBuyerTotalPriceCents(item);
+                        const maxPurchaseRmb = estimateMaxPurchaseRmb(
+                          totalBuyerCents,
+                          item.currency || currentReport.currency,
+                          currentReport.platformCode,
+                        );
+                        const cost = item.sourcingCost;
+                        const realMarginPct = cost?.actualCny
+                          ? calcItemRealMarginPct(
+                              totalBuyerCents,
+                              cost.actualCny,
+                              item.currency || currentReport.currency,
+                              currentReport.platformCode,
+                            )
+                          : null;
+                        const passedGate = realMarginPct !== null && realMarginPct >= 18;
+
+                        return (
+                          <>
+                            {/* 单品预估进价上限 / 1688 实采回补进价条 */}
+                            {item.priceCents > 0 ? (
+                              <div
+                                style={{
+                                  marginTop: "10px",
+                                  padding: "8px 10px",
+                                  borderRadius: "8px",
+                                  background: "var(--surface-subtle)",
+                                  border: "1px solid var(--line)",
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  gap: "4px",
+                                }}
+                              >
+                                {cost?.actualCny ? (
+                                  <>
+                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                                      <span style={{ color: "var(--ink)", fontWeight: 700 }}>
+                                        1688 实采进价：<span className="mono" style={{ color: "var(--green)" }}>¥{cost.actualCny}</span>
+                                      </span>
+                                      <span className={`badge ${passedGate ? "badge-success" : "badge-danger"} mono`} style={{ fontSize: "11px" }}>
+                                        净利 {realMarginPct}% {passedGate ? "✓ 过 18% 门禁" : "✕ 低于 18%"}
+                                      </span>
+                                    </div>
+                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "6px", flexWrap: "wrap", fontSize: "11px", color: "var(--muted)" }}>
+                                      <span>
+                                        {cost.bestSupplierName === "手工录入"
+                                          ? "手工录入"
+                                          : cost.bestOfferUrl
+                                            ? (
+                                              <>
+                                                <a href={cost.bestOfferUrl} target="_blank" rel="noreferrer" style={{ color: "var(--green)", textDecoration: "underline" }}>
+                                                  {cost.bestSupplierName || "1688 货源"}
+                                                </a>
+                                                {` · 采自 ${cost.sampleCount} 家${cost.minCny ? ` (最低 ¥${cost.minCny})` : ""}`}
+                                              </>
+                                            )
+                                            : `采自 ${cost.sampleCount} 家${cost.minCny ? ` · 最低 ¥${cost.minCny}` : ""}`}
+                                        {maxPurchaseRmb > 0 ? ` · 上限 ≤ ¥${maxPurchaseRmb}` : ""}
+                                      </span>
+                                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setEditingCostAsin(item.asin);
+                                            setEditingCostVal(String(cost.actualCny));
+                                          }}
+                                          style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", padding: 0, textDecoration: "underline", fontSize: "11px" }}
+                                        >
+                                          改价
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={isSavingItemCost}
+                                          onClick={() => handleClearManualItemCost(item.asin)}
+                                          style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", padding: 0, textDecoration: "underline", fontSize: "11px" }}
+                                        >
+                                          清空
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setQuoteCostRmb(cost.actualCny);
+                                            setCostSource(cost.bestSupplierName === "手工录入" ? "manual" : "captured_1688");
+                                            setTargetPriceVal(Number((totalBuyerCents / 100).toFixed(2)));
+                                            setBenchmarkAsin(item.asin);
+                                            document.getElementById("section-launch")?.scrollIntoView({ behavior: "smooth" });
+                                            setStatusMsg({
+                                              type: "success",
+                                              text: `已将 ${item.asin} 的进价 ¥${cost.actualCny} 与售价带入立项核算面板！`,
+                                            });
+                                          }}
+                                          style={{
+                                            background: "none",
+                                            border: "none",
+                                            color: "var(--green)",
+                                            fontWeight: 700,
+                                            cursor: "pointer",
+                                            padding: 0,
+                                            textDecoration: "underline",
+                                            fontSize: "11px",
+                                          }}
+                                        >
+                                          按此实价立项 →
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                                    <span style={{ color: "var(--ink)" }}>
+                                      预估进价上限：
+                                      <strong className="mono" style={{ color: maxPurchaseRmb > 0 ? "var(--amber)" : "var(--red)" }}>
+                                        {maxPurchaseRmb > 0 ? `≤ ¥${maxPurchaseRmb}` : "客单过低难达 18%"}
+                                      </strong>
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditingCostAsin(item.asin);
+                                        setEditingCostVal(maxPurchaseRmb > 0 ? String(Math.round(maxPurchaseRmb * 0.7)) : "");
+                                      }}
+                                      style={{
+                                        background: "none",
+                                        border: "none",
+                                        color: "var(--green)",
+                                        fontWeight: 600,
+                                        cursor: "pointer",
+                                        padding: 0,
+                                        textDecoration: "underline",
+                                        fontSize: "11px",
+                                      }}
+                                    >
+                                      + 手动填进价
+                                    </button>
+                                  </div>
+                                )}
+                                {editingCostAsin === item.asin ? (
+                                  <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "4px" }}>
+                                    <span style={{ fontSize: "12px", color: "var(--muted)" }}>¥</span>
+                                    <input
+                                      type="number"
+                                      step="0.5"
+                                      min="0.1"
+                                      placeholder="输入人民币进价"
+                                      value={editingCostVal}
+                                      onChange={(e) => setEditingCostVal(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") {
+                                          e.preventDefault();
+                                          handleSaveManualItemCost(item.asin);
+                                        }
+                                      }}
+                                      style={{
+                                        flex: 1,
+                                        minWidth: "70px",
+                                        padding: "4px 8px",
+                                        borderRadius: "6px",
+                                        border: "1px solid var(--line)",
+                                        background: "var(--paper)",
+                                        color: "var(--ink)",
+                                        fontSize: "12px",
+                                        fontWeight: 700,
+                                      }}
+                                    />
+                                    <button
+                                      type="button"
+                                      disabled={isSavingItemCost}
+                                      onClick={() => handleSaveManualItemCost(item.asin)}
+                                      className="button primary"
+                                      style={{ fontSize: "11px", padding: "3px 10px", height: "26px" }}
+                                    >
+                                      {isSavingItemCost ? "保存中" : "保存"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditingCostAsin(null)}
+                                      className="button ghost"
+                                      style={{ fontSize: "11px", padding: "3px 6px", height: "26px" }}
+                                    >
+                                      取消
+                                    </button>
+                                  </div>
+                                ) : null}
+                              </div>
+                            ) : null}
+
+                            <div style={{ display: "flex", gap: "8px", marginTop: "8px", flexWrap: "wrap" }}>
+                              <button
+                                type="button"
+                                disabled={translatingKey === key}
+                                onClick={() => handleSearch1688Translated(item, maxPurchaseRmb, currentReport.sourcingAction?.recommendedKeywords1688)}
+                                className="button secondary"
+                                style={{ flex: 1, minWidth: "130px", fontSize: "12px", padding: "6px 10px", height: "32px", justifyContent: "center" }}
+                                title={cached ? `在 1688 搜索「${cached.keyword}」（GBK 无乱码）` : "自动翻译为中文采购词并在 1688 搜索同款（GBK 编码不乱码）"}
+                              >
+                                {translatingKey === key
+                                  ? "翻译中..."
+                                  : cached
+                                    ? `🔍 1688搜「${cached.keyword.slice(0, 8)}」`
+                                    : "🔍 翻译搜 1688 同款"}
+                              </button>
+                              {item.imageUrl ? (
+                                <button
+                                  type="button"
+                                  className="button ghost"
+                                  style={{ fontSize: "12px", padding: "6px 10px", height: "32px", border: "1px solid var(--line)" }}
+                                  title="复制主图链接并打开 1688，点击相机图标粘贴图片链接即可搜同款"
+                                  onClick={() => handleDownloadImageAndOpen1688(item, maxPurchaseRmb)}
+                                >
+                                  📷 复制图链搜同款
+                                </button>
+                              ) : null}
+                            </div>
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 );
@@ -1666,119 +2680,120 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
             </div>
           </section>
 
-          {/* 3. 操盘手破局建议与 1688 货源线索 */}
-          <section className="panel" style={{ padding: "24px" }}>
-            <div style={{ marginBottom: "16px" }}>
-              <div className="eyebrow" style={{ color: "var(--green)" }}>破局推演</div>
-              <h4 style={{ margin: "2px 0 0 0", fontSize: "16px", color: "var(--ink)" }}>
-                综合进攻策略与供应链线索
-              </h4>
+          {/* 4. AI 综合结论（默认无结果，需手动点击触发） */}
+          <section id="section-conclusion" className="panel" style={{ padding: "24px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px", flexWrap: "wrap", marginBottom: "16px" }}>
+              <div>
+                <div className="eyebrow" style={{ color: "var(--green)" }}>AI DECISION CONCLUSION · 手动触发</div>
+                <h4 style={{ margin: "2px 0 0 0", fontSize: "17px", color: "var(--ink)", fontWeight: 800 }}>
+                  AI 综合结论与立项裁决
+                </h4>
+              </div>
+              <button
+                type="button"
+                className={currentReport.aiConclusion ? "button secondary" : "button primary"}
+                disabled={isGeneratingConclusion}
+                onClick={handleGenerateConclusion}
+                style={{ fontSize: "12px", padding: "7px 14px", height: "34px", borderRadius: "10px" }}
+              >
+                {isGeneratingConclusion
+                  ? "AI 正在综合研判中..."
+                  : currentReport.aiConclusion
+                    ? "🔄 重新生成 AI 结论"
+                    : "✨ 生成 AI 综合结论"}
+              </button>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "20px" }}>
-              {/* 左侧：打法分析 */}
-              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                <div
-                  style={{
-                    padding: "14px 16px",
-                    borderRadius: "12px",
-                    background: "var(--red-soft)",
-                    border: "1px solid rgba(161, 61, 57, 0.2)",
-                  }}
-                >
-                  <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--red)", marginBottom: "6px" }}>
-                    🎯 行业通病与差评机会缺口
-                  </div>
-                  <ul style={{ margin: 0, paddingLeft: "16px", fontSize: "12px", color: "var(--ink)", lineHeight: "1.5" }}>
-                    {currentReport.summary.commonWeaknesses.map((w, idx) => (
-                      <li key={idx} style={{ marginBottom: "2px" }}>{w}</li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div
-                  style={{
-                    padding: "14px 16px",
-                    borderRadius: "12px",
-                    background: "var(--green-soft)",
-                    border: "1px solid rgba(31, 122, 85, 0.3)",
-                  }}
-                >
-                  <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--green)", marginBottom: "6px" }}>
-                    🚀 推荐进攻切入策略 (Attack Vector)
-                  </div>
-                  <p style={{ margin: 0, fontSize: "13px", lineHeight: "1.5", color: "var(--ink)" }}>
-                    {currentReport.summary.attackVector}
-                  </p>
-                </div>
-              </div>
-
-              {/* 右侧：1688 货源线索 */}
+            {!currentReport.aiConclusion ? (
               <div
                 style={{
-                  padding: "16px",
+                  padding: "20px",
                   borderRadius: "12px",
                   background: "var(--surface-subtle)",
-                  border: "1px solid var(--line)",
-                  display: "flex",
-                  flexDirection: "column",
-                  justifyContent: "space-between",
+                  border: "1px dashed var(--line)",
+                  textAlign: "center",
+                  color: "var(--muted)",
+                  fontSize: "13px",
+                  lineHeight: 1.6,
                 }}
               >
-                <div>
-                  <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--ink)", marginBottom: "10px" }}>
-                    1688 货源搜索词
-                  </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "16px" }}>
-                    {currentReport.sourcingAction.recommendedKeywords1688.map((kw, i) => (
-                      <a
-                        key={i}
-                        href={`https://s.1688.com/youxuan.html?keywords=${encodeURIComponent(kw)}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="button secondary"
-                        style={{ fontSize: "12px", padding: "4px 10px", height: "auto", borderRadius: "8px" }}
-                      >
-                        🔍 {kw}
-                      </a>
-                    ))}
-                  </div>
-
-                  <div style={{ fontSize: "12px", color: "var(--muted)", lineHeight: "1.6" }}>
-                    <div>
-                      建议到岸采购上限:{" "}
-                      <strong style={{ color: "var(--ink)" }}>
-                        ¥{(currentReport.sourcingAction.suggestedCostCents / 100).toFixed(2)}
-                      </strong>
-                    </div>
-                    <div>
-                      目标毛利率基准:{" "}
-                      <strong style={{ color: "var(--green)" }}>
-                        {currentReport.sourcingAction.targetMarginPercent}%
-                      </strong>
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ marginTop: "16px" }}>
-                  <Link
-                    href={`/sourcing?query=${encodeURIComponent(
-                      currentReport.sourcingAction.recommendedKeywords1688[0] || "",
-                    )}`}
-                    className="button secondary"
-                    style={{ width: "100%", justifyContent: "center", fontSize: "12px" }}
-                  >
-                    前往供应商找货 &rarr;
-                  </Link>
-                </div>
+                当前暂无 AI 综合结论（默认不自动生成，避免无意义消耗额度）。<br />
+                建议补齐 1688 进价与买家差评后，点击右上角 <strong>「✨ 生成 AI 综合结论」</strong> 获取最终 GO / HOLD / NO-GO 研判。
               </div>
-            </div>
+            ) : (() => {
+              const c = currentReport.aiConclusion;
+              const verdictBadge =
+                c.verdict === "GO"
+                  ? "badge-success"
+                  : c.verdict === "NO-GO"
+                    ? "badge-danger"
+                    : "badge-warn";
+              return (
+                <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                  <div
+                    style={{
+                      padding: "16px 18px",
+                      borderRadius: "12px",
+                      background: "var(--surface-subtle)",
+                      border: "1px solid var(--line)",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", marginBottom: "8px" }}>
+                      <span className={`badge ${verdictBadge}`} style={{ fontSize: "13px", fontWeight: 800, padding: "3px 10px" }}>
+                        AI 裁决：{c.verdict}
+                      </span>
+                      <strong style={{ fontSize: "15px", color: "var(--ink)" }}>{c.headline}</strong>
+                      {c.bestCandidateAsin ? (
+                        <span className="badge badge-neutral mono" style={{ fontSize: "11px" }}>
+                          推荐对标：{c.bestCandidateAsin}
+                        </span>
+                      ) : null}
+                    </div>
+                    <p style={{ margin: 0, fontSize: "13px", color: "var(--ink)", lineHeight: 1.65 }}>
+                      {c.summary}
+                    </p>
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "12px" }}>
+                    {c.keyRisks.length > 0 ? (
+                      <div style={{ padding: "14px 16px", borderRadius: "12px", background: "var(--red-soft)", border: "1px solid rgba(161, 61, 57, 0.2)" }}>
+                        <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--red)", marginBottom: "6px" }}>
+                          ⚠️ 核心风险与证据缺口
+                        </div>
+                        <ul style={{ margin: 0, paddingLeft: "16px", fontSize: "12px", color: "var(--ink)", lineHeight: 1.55 }}>
+                          {c.keyRisks.map((risk, idx) => (
+                            <li key={idx} style={{ marginBottom: "3px" }}>{risk}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+
+                    {c.recommendedActions.length > 0 ? (
+                      <div style={{ padding: "14px 16px", borderRadius: "12px", background: "var(--green-soft)", border: "1px solid rgba(31, 122, 85, 0.25)" }}>
+                        <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--green)", marginBottom: "6px" }}>
+                          ✅ 下一步可执行动作
+                        </div>
+                        <ol style={{ margin: 0, paddingLeft: "18px", fontSize: "12px", color: "var(--ink)", lineHeight: 1.55 }}>
+                          {c.recommendedActions.map((act, idx) => (
+                            <li key={idx} style={{ marginBottom: "3px" }}>{act}</li>
+                          ))}
+                        </ol>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div style={{ fontSize: "11px", color: "var(--muted)", textAlign: "right" }}>
+                    生成模型：{c.modelUsed} · {shortDate(c.generatedAt)}
+                  </div>
+                </div>
+              );
+            })()}
           </section>
         </div>
       ) : (
         <section className="panel" style={{ padding: "48px 24px", textAlign: "center" }}>
           <p style={{ color: "var(--muted)", fontSize: "14px", margin: 0 }}>
-            当前站点暂无竞品对比报告。系统不会自动生成示例数据 —— 请在上方输入链接、点击「填入示例」，或用浏览器扩展采集真实商品页。
+            当前站点暂无竞品研报。系统不会自动生成示例数据 —— 请在上方输入链接、点击「填入示例」，或用浏览器扩展采集真实商品页。
           </p>
         </section>
       )}

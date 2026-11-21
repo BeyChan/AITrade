@@ -24,6 +24,68 @@ export type CompetitorNumericField =
   | "bsr"
   | "monthlySalesEst";
 
+export type CompetitorFulfillmentType = "amazon_1p" | "fba" | "fbm" | "unknown";
+
+export type RatingDistribution = {
+  star5?: number;
+  star4?: number;
+  star3?: number;
+  star2?: number;
+  star1?: number;
+};
+
+export type AttributeMatrixTier =
+  | "baseline"
+  | "premium_differentiator"
+  | "vacuum_opportunity";
+
+export type AttributeMatrixDimension = {
+  key: string;
+  label: string;
+  tier: AttributeMatrixTier;
+  insight: string;
+  valuesByAsin: Record<string, string>;
+};
+
+export type ActionablePainCategory =
+  | "structural_design"
+  | "packaging_accessories"
+  | "expectation_mgmt"
+  | "physical_limit";
+
+export type ActionablePainPoint = {
+  pain: string;
+  category: ActionablePainCategory;
+  frequency: "high" | "medium" | "low";
+  costToFix: "low" | "medium" | "high" | "unfixable";
+  solution: string;
+  sourceAsins?: string[];
+  sourceQuote?: string;
+};
+
+export type MarketSignalsSummary = {
+  sponsoredCount: number;
+  sponsoredRatioPercent: number;
+  amazon1pCount: number;
+  couponCount: number;
+  avgDiscountPercent: number;
+  verifiedSalesCount: number;
+  brandCr3Percent: number;
+  topBrands: Array<{ brand: string; count: number; sharePercent: number }>;
+  darkHorseAsins: string[];
+};
+
+export type SnapshotDiff = {
+  previousReportId: string;
+  previousCapturedAt: string;
+  avgPriceDeltaPercent: number | null;
+  p50PriceDeltaCents: number | null;
+  newAsins: string[];
+  droppedAsins: string[];
+  reviewSurges: Array<{ asin: string; title: string; deltaReviews: number }>;
+  alerts: string[];
+};
+
 export type CompetitorInputItem = {
   raw: string; // URL, ASIN or title
   asin?: string;
@@ -35,7 +97,30 @@ export type CompetitorInputItem = {
     currency?: string;
     bullets?: string[];
     criticalReviews?: string[];
+    boughtPastMonth?: number;
+    isSponsored?: boolean;
+    couponText?: string;
+    effectivePriceCents?: number;
+    /** 买家另付的单独运费（不含免运费；单位：分） */
+    shippingCents?: number;
+    listPriceCents?: number;
+    imageUrl?: string;
+    fulfillmentType?: CompetitorFulfillmentType;
+    dateFirstAvailable?: string;
+    dimensionsText?: string;
+    ratingDistribution?: RatingDistribution;
   };
+};
+
+export type CompetitorSourcingCost = {
+  /** 1688 实采参考单价（中位价，RMB） */
+  actualCny: number;
+  minCny?: number;
+  maxCny?: number;
+  sampleCount: number;
+  bestSupplierName?: string;
+  bestOfferUrl?: string;
+  updatedAt: string;
 };
 
 export type CompetitorProfile = {
@@ -45,11 +130,30 @@ export type CompetitorProfile = {
   brand: string;
   sourceUrl: string;
   priceCents: number;
+  /** 券后真实到手价（若页面存在 Coupon 则自动扣减；无 Coupon 时等于 priceCents） */
+  effectivePriceCents?: number;
+  /** 买家另付的单独运费（如 +$9.99 delivery；单位：分，0/空表示免邮） */
+  shippingCents?: number;
+  listPriceCents?: number;
+  couponText?: string;
   currency: string;
   rating: number;
   reviewCount: number;
   bsr: number;
   monthlySalesEst: number;
+  /** Amazon 前台「X+ bought in past month」真实月销下限 */
+  boughtPastMonth?: number;
+  isSponsored?: boolean;
+  imageUrl?: string;
+  fulfillmentType?: CompetitorFulfillmentType;
+  dateFirstAvailable?: string;
+  dimensionsText?: string;
+  ratingDistribution?: RatingDistribution;
+  /** 原始采集五点与差评，供 UI 溯源 */
+  capturedBullets?: string[];
+  capturedReviews?: string[];
+  /** 1688 实采回补进价（RMB） */
+  sourcingCost?: CompetitorSourcingCost;
   pricePosition?: "budget" | "mid_market" | "premium";
   features: string[]; // 核心特点与亮点
   drawbacks: string[]; // 致命缺点与差评痛点
@@ -94,6 +198,17 @@ export type ComparisonPriceStats = {
   verifiedSampleCount: number;
 };
 
+export type CompetitorAIConclusion = {
+  verdict: "GO" | "HOLD" | "NO-GO";
+  headline: string;
+  summary: string;
+  bestCandidateAsin?: string | null;
+  keyRisks: string[];
+  recommendedActions: string[];
+  generatedAt: string;
+  modelUsed: string;
+};
+
 export type CompetitorComparisonReport = {
   id: string;
   title: string;
@@ -123,6 +238,18 @@ export type CompetitorComparisonReport = {
     differentiator: string;
     recommendedPriceCents: number;
   };
+  /** 对齐式横向属性对比矩阵（全员标配 / 溢价点 / 真空机会） */
+  attributeMatrix?: AttributeMatrixDimension[];
+  /** 差评可改良性分级矩阵（结构设计 / 配件包装 / 预期管理 / 物理限制） */
+  painPointMatrix?: ActionablePainPoint[];
+  /** 市场微观信号（广告密度、1P自营占比、Coupon折扣、品牌集中度、黑马新品） */
+  marketSignals?: MarketSignalsSummary;
+  /** 与上一次同指纹采集快照的差异预警 */
+  snapshotDiff?: SnapshotDiff | null;
+  /** 用户在四象限或对比表中选定的主攻标杆 ASIN */
+  targetBenchmarkAsin?: string | null;
+  /** 用户手动触发生成的 AI 综合结论（默认无，绝不自动生成） */
+  aiConclusion?: CompetitorAIConclusion | null;
   productIndex?: import("./competitiveness").ProductIndexScore;
   /** 整体来源；新增报告必须显式写入 */
   provenance: CompetitorProvenance;

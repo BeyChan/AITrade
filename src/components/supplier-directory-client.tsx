@@ -1,12 +1,93 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { money, shortDate } from "@/lib/format";
 import { StatusBadge } from "@/components/badges";
 import { IconClipboard, IconFactory } from "@/components/icons";
-import type { SupplierDirectoryItem, SourcingCaseSummary } from "@/lib/types";
+import type {
+  SupplierDirectoryItem,
+  SupplierProfileMeta,
+  SupplierStatus,
+  SourcingCaseSummary,
+} from "@/lib/types";
+
+type SupplierQuoteHistoryItem = {
+  quoteId: string;
+  caseId: string;
+  asin: string;
+  caseTitle: string;
+  marketplace: string;
+  unitPriceCents: number;
+  priceCny: number | null;
+  moq: number;
+  leadTimeDays: number | null;
+  currency: string;
+  isSelected: boolean;
+  createdAt: string;
+};
+
+type SupplierSampleHistoryItem = {
+  id: string;
+  caseId: string;
+  supplierName: string;
+  totalCostCny: number;
+  trackingNo: string;
+  status: string;
+  qualityRating: number | null;
+  pros: string;
+  defects: string;
+  createdAt: string;
+};
+
+type SupplierDetailData = {
+  quoteHistory: SupplierQuoteHistoryItem[];
+  sampleHistory: SupplierSampleHistoryItem[];
+};
+
+const STATUS_META: Record<SupplierStatus, { label: string; badgeClass: string }> = {
+  new: { label: "待联系", badgeClass: "badge-neutral" },
+  contacted: { label: "已加微信", badgeClass: "status-review_pending" },
+  sampled: { label: "已拿样", badgeClass: "status-researching" },
+  preferred: { label: "⭐ 核心优选厂", badgeClass: "badge-success" },
+  blacklisted: { label: "🚫 黑名单避雷", badgeClass: "badge-danger" },
+};
+
+const SAMPLE_STATUS_LABEL: Record<string, string> = {
+  ordered: "已下单",
+  shipped: "已寄出",
+  received: "已签收",
+  passed: "验货通过",
+  rejected: "验货淘汰",
+};
+
+function getProfile(supplier: SupplierDirectoryItem): SupplierProfileMeta {
+  return supplier.profile && typeof supplier.profile === "object" ? supplier.profile : {};
+}
+
+function getStatus(supplier: SupplierDirectoryItem): SupplierStatus {
+  const status = getProfile(supplier).status;
+  if (status && status in STATUS_META) return status;
+  return "new";
+}
+
+function buildRfqScript(supplier: SupplierDirectoryItem, selectedCase: SourcingCaseSummary | undefined): string {
+  const profile = getProfile(supplier);
+  const contactName = supplier.contact && supplier.contact !== "待补充" ? `${supplier.contact}您好` : "您好";
+  const productLine = selectedCase
+    ? `我们正在做亚马逊 ${selectedCase.productCase.marketplace} 站点的「${selectedCase.productCase.title}」`
+    : "我们正在选品开发跨境电商货源";
+  const moqHint = profile.moq ? `${profile.moq} 件` : "100 / 300 / 500 件";
+  return [
+    `${contactName}，在 1688 看到贵司（${supplier.name}）的产品，${productLine}，想咨询一下拿货合作：`,
+    `1. 请问该款目前现货阶梯拿货价是多少（${moqHint} 分别什么价格，是否含税/开票）？`,
+    `2. 支持拿 1-2 个样品测品质吗？样品费和寄样时间大概多久？`,
+    `3. 后续如果走亚马逊 FBA，支持小批量贴牌 OEM / 定制彩盒 / 贴 FNSKU 条码吗？起订量各是多少？`,
+    `4. 方便提供一下单品净重、彩盒尺寸以及整箱装箱规格（长宽高/箱规毛重）吗？我们需要核算头程运费。`,
+    `方便的话留个微信，我们发参考图和具体需求给您核价，感谢！`,
+  ].join("\n");
+}
 
 type Props = {
   suppliers: SupplierDirectoryItem[];
@@ -42,7 +123,159 @@ export function SupplierDirectoryClient({
   const [activeTab, setActiveTab] = useState<"directory" | "cases">("directory");
   const [searchQuery, setSearchQuery] = useState("");
   const [platformFilter, setPlatformFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | SupplierStatus>("all");
   const [showAddForm, setShowAddForm] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  // 档案抽屉状态
+  const [drawerSupplierId, setDrawerSupplierId] = useState<string | null>(null);
+  const [drawerLoading, setDrawerLoading] = useState(false);
+  const [drawerDetail, setDrawerDetail] = useState<SupplierDetailData | null>(null);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [drawerMsg, setDrawerMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [rfqCaseId, setRfqCaseId] = useState<string>(cases[0]?.productCase.id ?? "");
+
+  // 表单受控字段
+  const [editName, setEditName] = useState("");
+  const [editStatus, setEditStatus] = useState<SupplierStatus>("new");
+  const [editRating, setEditRating] = useState("4.5");
+  const [editContact, setEditContact] = useState("");
+  const [editCountry, setEditCountry] = useState("CN");
+  const [editUrl, setEditUrl] = useState("");
+  const [editWechat, setEditWechat] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editMoq, setEditMoq] = useState("");
+  const [editLeadTime, setEditLeadTime] = useState("");
+  const [editPaymentTerms, setEditPaymentTerms] = useState("");
+  const [editOem, setEditOem] = useState(false);
+  const [editCustomBox, setEditCustomBox] = useState(false);
+  const [editNotes, setEditNotes] = useState("");
+
+  const drawerSupplier = drawerSupplierId
+    ? supplierList.find((item) => item.id === drawerSupplierId) ?? null
+    : null;
+
+  useEffect(() => {
+    setSupplierList(suppliers);
+  }, [suppliers]);
+
+  function openDrawer(supplier: SupplierDirectoryItem) {
+    const profile = getProfile(supplier);
+    setDrawerSupplierId(supplier.id);
+    setDrawerMsg(null);
+    setEditName(supplier.name || "");
+    setEditStatus(getStatus(supplier));
+    setEditRating(String(supplier.rating ?? 4.5));
+    setEditContact(supplier.contact || "");
+    setEditCountry(supplier.country || "CN");
+    setEditUrl(supplier.url || "");
+    setEditWechat(profile.wechat || "");
+    setEditPhone(profile.phone || "");
+    setEditMoq(profile.moq ? String(profile.moq) : "");
+    setEditLeadTime(profile.leadTimeDays ? String(profile.leadTimeDays) : "");
+    setEditPaymentTerms(profile.paymentTerms || "");
+    setEditOem(Boolean(profile.supportsOem));
+    setEditCustomBox(Boolean(profile.supportsCustomBox));
+    setEditNotes(supplier.notes || "");
+
+    setDrawerLoading(true);
+    setDrawerDetail(null);
+    fetch(`/api/suppliers/${encodeURIComponent(supplier.id)}`)
+      .then((res) => res.json())
+      .then((data: { quoteHistory?: SupplierQuoteHistoryItem[]; sampleHistory?: SupplierSampleHistoryItem[] }) => {
+        setDrawerDetail({
+          quoteHistory: Array.isArray(data.quoteHistory) ? data.quoteHistory : [],
+          sampleHistory: Array.isArray(data.sampleHistory) ? data.sampleHistory : [],
+        });
+      })
+      .catch(() => {
+        setDrawerDetail({ quoteHistory: [], sampleHistory: [] });
+      })
+      .finally(() => {
+        setDrawerLoading(false);
+      });
+  }
+
+  function closeDrawer() {
+    setDrawerSupplierId(null);
+    setDrawerMsg(null);
+  }
+
+  async function handleCopy(text: string, key: string) {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedKey(key);
+      window.setTimeout(() => {
+        setCopiedKey((curr) => (curr === key ? null : curr));
+      }, 1800);
+    } catch {
+      setActionMsg({ type: "err", text: "剪贴板复制失败，请手动选中复制。" });
+    }
+  }
+
+  async function handleSaveProfile(e: React.FormEvent) {
+    e.preventDefault();
+    if (!drawerSupplier) return;
+    setSavingProfile(true);
+    setDrawerMsg(null);
+    try {
+      const payload = {
+        name: editName.trim(),
+        contact: editContact.trim(),
+        country: editCountry.trim() || "CN",
+        url: editUrl.trim(),
+        rating: Number(editRating) || 4.5,
+        notes: editNotes.trim(),
+        profile: {
+          status: editStatus,
+          wechat: editWechat.trim(),
+          phone: editPhone.trim(),
+          moq: editMoq ? Number(editMoq) : null,
+          leadTimeDays: editLeadTime ? Number(editLeadTime) : null,
+          paymentTerms: editPaymentTerms.trim(),
+          supportsOem: editOem,
+          supportsCustomBox: editCustomBox,
+        },
+      };
+      const res = await fetch(`/api/suppliers/${encodeURIComponent(drawerSupplier.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        supplier?: Partial<SupplierDirectoryItem>;
+        error?: string;
+      };
+      if (!res.ok || !json.ok || !json.supplier) {
+        setDrawerMsg({ type: "err", text: json.error || "保存档案失败" });
+        return;
+      }
+      setSupplierList((prev) =>
+        prev.map((item) =>
+          item.id === drawerSupplier.id
+            ? {
+                ...item,
+                name: json.supplier?.name ?? item.name,
+                contact: json.supplier?.contact ?? null,
+                country: json.supplier?.country ?? item.country,
+                url: json.supplier?.url ?? null,
+                rating: json.supplier?.rating ?? item.rating,
+                notes: json.supplier?.notes ?? "",
+                profile: (json.supplier?.profile as SupplierProfileMeta | null) ?? payload.profile,
+              }
+            : item,
+        ),
+      );
+      setDrawerMsg({ type: "ok", text: "工厂档案已更新并保存到本地数据库。" });
+      router.refresh();
+    } catch {
+      setDrawerMsg({ type: "err", text: "网络异常，请重试" });
+    } finally {
+      setSavingProfile(false);
+    }
+  }
 
   async function handleLinkToCase(supplier: SupplierDirectoryItem) {
     if (!linkCaseId) {
@@ -107,16 +340,23 @@ export function SupplierDirectoryClient({
   }
 
   const filteredSuppliers = supplierList.filter((s) => {
+    const profile = getProfile(s);
+    const status = getStatus(s);
+    const q = searchQuery.trim().toLowerCase();
     const matchQuery =
-      !searchQuery ||
-      s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (s.notes || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (s.contact || "").toLowerCase().includes(searchQuery.toLowerCase());
+      !q ||
+      s.name.toLowerCase().includes(q) ||
+      (s.notes || "").toLowerCase().includes(q) ||
+      (s.contact || "").toLowerCase().includes(q) ||
+      (profile.wechat || "").toLowerCase().includes(q) ||
+      (profile.phone || "").toLowerCase().includes(q) ||
+      (profile.paymentTerms || "").toLowerCase().includes(q);
     const matchPlatform =
       platformFilter === "all" ||
       (platformFilter === "1688" && (s.platform || "").toLowerCase().includes("1688")) ||
       (platformFilter === "other" && !(s.platform || "").toLowerCase().includes("1688"));
-    return matchQuery && matchPlatform;
+    const matchStatus = statusFilter === "all" || status === statusFilter;
+    return matchQuery && matchPlatform && matchStatus;
   });
 
   return (
@@ -193,7 +433,7 @@ export function SupplierDirectoryClient({
             style={{ fontSize: "13px", height: "36px", padding: "0 16px" }}
           >
             <IconFactory size={15} />
-            <span>1688 工厂名录资产池 ({suppliers.length})</span>
+            <span>1688 工厂名录资产池 ({supplierList.length})</span>
           </button>
           <button
             type="button"
@@ -292,7 +532,7 @@ export function SupplierDirectoryClient({
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
             <input
               type="text"
-              placeholder="搜索工厂名称、主营类目、联系人..."
+              placeholder="搜索工厂名称、微信号、联系人、验厂备注..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               style={{
@@ -305,8 +545,9 @@ export function SupplierDirectoryClient({
               }}
             />
             <select
-              value={platformFilter}
-              onChange={(e) => setPlatformFilter(e.target.value)}
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as "all" | SupplierStatus)}
+              aria-label="按合作状态筛选"
               style={{
                 height: "36px",
                 padding: "0 10px",
@@ -314,6 +555,28 @@ export function SupplierDirectoryClient({
                 border: "1px solid var(--line)",
                 fontSize: "13px",
                 background: "var(--paper)",
+                color: "var(--ink)",
+              }}
+            >
+              <option value="all">全部合作状态</option>
+              <option value="preferred">⭐ 核心优选厂</option>
+              <option value="sampled">📦 已拿样</option>
+              <option value="contacted">💬 已加微信</option>
+              <option value="new">待联系</option>
+              <option value="blacklisted">🚫 黑名单避雷</option>
+            </select>
+            <select
+              value={platformFilter}
+              onChange={(e) => setPlatformFilter(e.target.value)}
+              aria-label="按平台来源筛选"
+              style={{
+                height: "36px",
+                padding: "0 10px",
+                borderRadius: "8px",
+                border: "1px solid var(--line)",
+                fontSize: "13px",
+                background: "var(--paper)",
+                color: "var(--ink)",
               }}
             >
               <option value="all">所有平台来源</option>
@@ -325,7 +588,7 @@ export function SupplierDirectoryClient({
           {filteredSuppliers.length === 0 ? (
             <div className="empty-state" style={{ padding: "40px", background: "var(--paper)", borderRadius: "12px", border: "1px solid var(--line)" }}>
               <h3>未找到匹配的工厂档案</h3>
-              <p>请尝试更换搜索关键词，或点击右上角「+ 录入新 1688 工厂」添加。</p>
+              <p>请尝试更换搜索关键词或状态筛选，或点击右上角「+ 录入新 1688 工厂」添加。</p>
             </div>
           ) : (
             <div
@@ -337,12 +600,28 @@ export function SupplierDirectoryClient({
             >
               {filteredSuppliers.map((supplier) => {
                 const is1688 = (supplier.platform || "").toLowerCase().includes("1688");
+                const profile = getProfile(supplier);
+                const status = getStatus(supplier);
+                const statusMeta = STATUS_META[status];
+                const isBlacklisted = status === "blacklisted";
+                const isPreferred = status === "preferred";
+                const quickContact = profile.wechat || profile.phone || (supplier.contact && supplier.contact !== "待补充" ? supplier.contact : "");
+                const quickContactLabel = profile.wechat
+                  ? `微信 ${profile.wechat}`
+                  : profile.phone
+                    ? `电话 ${profile.phone}`
+                    : supplier.contact || "待补充";
+
                 return (
                   <article
                     key={supplier.id}
                     style={{
                       background: "var(--paper)",
-                      border: "1px solid var(--line)",
+                      border: isBlacklisted
+                        ? "1px solid var(--red)"
+                        : isPreferred
+                          ? "1px solid var(--green)"
+                          : "1px solid var(--line)",
                       borderRadius: "12px",
                       padding: "18px",
                       display: "flex",
@@ -350,13 +629,20 @@ export function SupplierDirectoryClient({
                       justifyContent: "space-between",
                       gap: "14px",
                       boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+                      opacity: isBlacklisted ? 0.86 : 1,
                     }}
                   >
                     <div>
-                      {/* 头部：名称与平台徽标 */}
+                      {/* 头部：名称与状态/平台徽标 */}
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px" }}>
-                        <div>
-                          <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "4px" }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "6px", marginBottom: "6px" }}>
+                            <span
+                              className={`badge ${statusMeta.badgeClass}`}
+                              style={{ fontSize: "12px", fontWeight: 700 }}
+                            >
+                              {statusMeta.label}
+                            </span>
                             <span
                               className={`badge ${is1688 ? "badge-success" : "badge-neutral"}`}
                               style={{ fontSize: "12px", fontWeight: 700 }}
@@ -374,19 +660,67 @@ export function SupplierDirectoryClient({
                               </span>
                             )}
                           </div>
-                          <h3 style={{ margin: 0, fontSize: "16px", color: "var(--ink)", fontWeight: 700, lineHeight: 1.3 }}>
+                          <button
+                            type="button"
+                            onClick={() => openDrawer(supplier)}
+                            style={{
+                              padding: 0,
+                              border: "none",
+                              background: "transparent",
+                              textAlign: "left",
+                              cursor: "pointer",
+                              fontSize: "16px",
+                              color: "var(--ink)",
+                              fontWeight: 700,
+                              lineHeight: 1.35,
+                            }}
+                            title="点击打开工厂档案与历史报价"
+                          >
                             {supplier.name}
-                          </h3>
+                          </button>
                         </div>
                         {supplier.rating ? (
                           <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                            <strong style={{ color: "var(--green)", fontSize: "16px" }}>★ {supplier.rating}</strong>
-                            <div style={{ fontSize: "12px", color: "var(--muted)" }}>综合评分</div>
+                            <strong style={{ color: isBlacklisted ? "var(--red)" : "var(--green)", fontSize: "16px" }}>
+                              ★ {supplier.rating}
+                            </strong>
+                            <div style={{ fontSize: "12px", color: "var(--muted)" }}>自评分数</div>
                           </div>
                         ) : null}
                       </div>
 
-                      {/* 工厂描述与类目资质 */}
+                      {/* 核心生产条款标签（起订量 / 交期 / OEM / 彩盒 / 账期） */}
+                      {(profile.moq || profile.leadTimeDays || profile.supportsOem || profile.supportsCustomBox || profile.paymentTerms) && (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px" }}>
+                          {profile.moq ? (
+                            <span className="badge badge-neutral" style={{ fontSize: "11.5px" }}>
+                              MOQ {profile.moq} 件
+                            </span>
+                          ) : null}
+                          {profile.leadTimeDays ? (
+                            <span className="badge badge-neutral" style={{ fontSize: "11.5px" }}>
+                              交期 {profile.leadTimeDays} 天
+                            </span>
+                          ) : null}
+                          {profile.supportsOem ? (
+                            <span className="badge badge-success" style={{ fontSize: "11.5px" }}>
+                              支持贴牌 OEM
+                            </span>
+                          ) : null}
+                          {profile.supportsCustomBox ? (
+                            <span className="badge badge-success" style={{ fontSize: "11.5px" }}>
+                              支持定制彩盒
+                            </span>
+                          ) : null}
+                          {profile.paymentTerms ? (
+                            <span className="badge badge-neutral" style={{ fontSize: "11.5px" }}>
+                              {profile.paymentTerms}
+                            </span>
+                          ) : null}
+                        </div>
+                      )}
+
+                      {/* 工厂描述与验厂避雷备注 */}
                       {supplier.notes && (
                         <p
                           style={{
@@ -403,7 +737,7 @@ export function SupplierDirectoryClient({
                         </p>
                       )}
 
-                      {/* 关键信息项 */}
+                      {/* 关键信息项：联系人 / 微信一键复制 */}
                       <div
                         style={{
                           display: "grid",
@@ -411,17 +745,50 @@ export function SupplierDirectoryClient({
                           gap: "8px",
                           marginTop: "12px",
                           fontSize: "12px",
+                          alignItems: "center",
                         }}
                       >
-                        <div style={{ minWidth: 0 }}>
-                          <span style={{ color: "var(--muted)" }}>对接联系人: </span>
-                          {/* 电话号码不允许在数字中间折行：改造前会断成「135-」/「0921-6650」 */}
+                        <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                          <span style={{ color: "var(--muted)" }}>对接: </span>
                           <strong style={{ color: "var(--ink)", whiteSpace: "nowrap" }}>
-                            {supplier.contact || "待补充"}
+                            {quickContactLabel}
                           </strong>
+                          {quickContact ? (
+                            <button
+                              type="button"
+                              onClick={() => handleCopy(quickContact, `card-${supplier.id}`)}
+                              style={{
+                                padding: "1px 6px",
+                                borderRadius: "4px",
+                                border: "1px solid var(--line)",
+                                background: "var(--bg)",
+                                color: copiedKey === `card-${supplier.id}` ? "var(--green)" : "var(--muted)",
+                                fontSize: "11px",
+                                cursor: "pointer",
+                              }}
+                            >
+                              {copiedKey === `card-${supplier.id}` ? "已复制" : "复制"}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => openDrawer(supplier)}
+                              style={{
+                                padding: "1px 6px",
+                                borderRadius: "4px",
+                                border: "1px dashed var(--line)",
+                                background: "transparent",
+                                color: "var(--muted)",
+                                fontSize: "11px",
+                                cursor: "pointer",
+                              }}
+                            >
+                              + 补微信/电话
+                            </button>
+                          )}
                         </div>
                         <div>
-                          <span style={{ color: "var(--muted)" }}>录入时间: </span>
+                          <span style={{ color: "var(--muted)" }}>录入: </span>
                           <span style={{ color: "var(--ink)" }}>{shortDate(supplier.created_at)}</span>
                         </div>
                       </div>
@@ -466,6 +833,8 @@ export function SupplierDirectoryClient({
                         display: "flex",
                         justifyContent: "space-between",
                         alignItems: "center",
+                        gap: "8px",
+                        flexWrap: "wrap",
                       }}
                     >
                       {supplier.url ? (
@@ -486,15 +855,28 @@ export function SupplierDirectoryClient({
                         <span style={{ fontSize: "12px", color: "var(--muted)" }}>暂无外链</span>
                       )}
 
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                        <span style={{ fontSize: "12px", color: "var(--muted)" }}>
-                          参与商品: {supplier.quoteCount} 个
-                        </span>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          onClick={() => openDrawer(supplier)}
+                          style={{
+                            padding: "3px 9px",
+                            borderRadius: "6px",
+                            border: "1px solid var(--line-strong)",
+                            background: "var(--bg)",
+                            color: "var(--ink)",
+                            fontSize: "12px",
+                            cursor: "pointer",
+                            fontWeight: 600,
+                          }}
+                        >
+                          编辑档案
+                        </button>
                         <button
                           type="button"
                           onClick={() => setLinkingId(linkingId === supplier.id ? null : supplier.id)}
                           style={{
-                            padding: "2px 8px",
+                            padding: "3px 9px",
                             borderRadius: "6px",
                             border: "1px solid var(--green)",
                             background: "transparent",
@@ -504,14 +886,14 @@ export function SupplierDirectoryClient({
                             fontWeight: 600,
                           }}
                         >
-                          {linkingId === supplier.id ? "取消" : "+ 参与商品"}
+                          {linkingId === supplier.id ? "取消" : "+ 关联商品"}
                         </button>
                         <button
                           type="button"
                           disabled={deletingId === supplier.id}
                           onClick={() => handleRemoveSupplier(supplier)}
                           style={{
-                            padding: "2px 8px",
+                            padding: "3px 8px",
                             borderRadius: "6px",
                             border: "1px solid var(--line)",
                             background: "transparent",
@@ -684,6 +1066,505 @@ export function SupplierDirectoryClient({
               })}
             </section>
           )}
+        </div>
+      )}
+
+      {/* 工厂私域档案抽屉（编辑资料 + 一键询价话术 + 历史报价与拿样记录） */}
+      {drawerSupplier && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`编辑工厂档案：${drawerSupplier.name}`}
+          onClick={closeDrawer}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 80,
+            background: "rgba(0, 0, 0, 0.55)",
+            display: "flex",
+            justifyContent: "flex-end",
+          }}
+        >
+          <aside
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "min(620px, 100vw)",
+              height: "100vh",
+              overflowY: "auto",
+              background: "var(--paper)",
+              borderLeft: "1px solid var(--line)",
+              padding: "24px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "20px",
+              boxShadow: "-8px 0 32px rgba(0, 0, 0, 0.25)",
+            }}
+          >
+            {/* 抽屉头部 */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                gap: "12px",
+                borderBottom: "1px solid var(--line)",
+                paddingBottom: "14px",
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "6px" }}>
+                  <span className={`badge ${STATUS_META[getStatus(drawerSupplier)].badgeClass}`}>
+                    {STATUS_META[getStatus(drawerSupplier)].label}
+                  </span>
+                  <span className="badge badge-neutral">{drawerSupplier.platform || "1688"}</span>
+                  {drawerSupplier.url && (
+                    <a
+                      href={drawerSupplier.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ fontSize: "12px", color: "var(--green)", textDecoration: "underline", fontWeight: 600 }}
+                    >
+                      打开 1688 主页 ↗
+                    </a>
+                  )}
+                </div>
+                <h2 style={{ margin: 0, fontSize: "18px", color: "var(--ink)", fontWeight: 700, lineHeight: 1.35 }}>
+                  {drawerSupplier.name}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={closeDrawer}
+                className="button ghost"
+                style={{ padding: "4px 10px", fontSize: "14px" }}
+                aria-label="关闭档案抽屉"
+              >
+                ✕
+              </button>
+            </div>
+
+            {drawerMsg && (
+              <div className={`notice ${drawerMsg.type === "err" ? "warn" : ""}`}>
+                <span className={`badge ${drawerMsg.type === "err" ? "badge-danger" : "badge-success"}`}>
+                  {drawerMsg.type === "err" ? "失败" : "已保存"}
+                </span>
+                <span>{drawerMsg.text}</span>
+              </div>
+            )}
+
+            {/* 区块 1：可编辑工厂合作档案 */}
+            <form onSubmit={handleSaveProfile} className="stack" style={{ gap: "12px" }}>
+              <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--ink)" }}>
+                1. 私域合作档案与谈判底价记录
+              </div>
+
+              <div className="form-grid">
+                <div className="field full">
+                  <label htmlFor="edit-sup-name">工厂名称 *</label>
+                  <input
+                    id="edit-sup-name"
+                    required
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                  />
+                </div>
+
+                <div className="field">
+                  <label htmlFor="edit-sup-status">合作状态分级</label>
+                  <select
+                    id="edit-sup-status"
+                    value={editStatus}
+                    onChange={(e) => setEditStatus(e.target.value as SupplierStatus)}
+                  >
+                    <option value="new">待联系</option>
+                    <option value="contacted">💬 已加微信</option>
+                    <option value="sampled">📦 已拿样</option>
+                    <option value="preferred">⭐ 核心优选厂</option>
+                    <option value="blacklisted">🚫 黑名单避雷</option>
+                  </select>
+                </div>
+
+                <div className="field">
+                  <label htmlFor="edit-sup-rating">综合自评 (1-5)</label>
+                  <input
+                    id="edit-sup-rating"
+                    type="number"
+                    min="1"
+                    max="5"
+                    step="0.1"
+                    value={editRating}
+                    onChange={(e) => setEditRating(e.target.value)}
+                  />
+                </div>
+
+                <div className="field">
+                  <label htmlFor="edit-sup-contact">业务员姓名</label>
+                  <input
+                    id="edit-sup-contact"
+                    value={editContact}
+                    onChange={(e) => setEditContact(e.target.value)}
+                    placeholder="如：陈经理"
+                  />
+                </div>
+
+                <div className="field">
+                  <label htmlFor="edit-sup-country">产地 / 地区</label>
+                  <input
+                    id="edit-sup-country"
+                    value={editCountry}
+                    onChange={(e) => setEditCountry(e.target.value)}
+                    placeholder="如：浙江义乌 / CN"
+                  />
+                </div>
+
+                <div className="field">
+                  <label htmlFor="edit-sup-wechat">
+                    业务员微信号{" "}
+                    {editWechat ? (
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(editWechat, "drawer-wechat")}
+                        style={{
+                          marginLeft: "6px",
+                          padding: "0 6px",
+                          borderRadius: "4px",
+                          border: "1px solid var(--line)",
+                          background: "var(--bg)",
+                          color: copiedKey === "drawer-wechat" ? "var(--green)" : "var(--muted)",
+                          fontSize: "11px",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {copiedKey === "drawer-wechat" ? "已复制" : "复制"}
+                      </button>
+                    ) : null}
+                  </label>
+                  <input
+                    id="edit-sup-wechat"
+                    value={editWechat}
+                    onChange={(e) => setEditWechat(e.target.value)}
+                    placeholder="加微信后记这里，下次直接搜"
+                  />
+                </div>
+
+                <div className="field">
+                  <label htmlFor="edit-sup-phone">
+                    联系电话{" "}
+                    {editPhone ? (
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(editPhone, "drawer-phone")}
+                        style={{
+                          marginLeft: "6px",
+                          padding: "0 6px",
+                          borderRadius: "4px",
+                          border: "1px solid var(--line)",
+                          background: "var(--bg)",
+                          color: copiedKey === "drawer-phone" ? "var(--green)" : "var(--muted)",
+                          fontSize: "11px",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {copiedKey === "drawer-phone" ? "已复制" : "复制"}
+                      </button>
+                    ) : null}
+                  </label>
+                  <input
+                    id="edit-sup-phone"
+                    value={editPhone}
+                    onChange={(e) => setEditPhone(e.target.value)}
+                    placeholder="138-xxxx-xxxx"
+                  />
+                </div>
+
+                <div className="field">
+                  <label htmlFor="edit-sup-moq">最小起订量 MOQ (件)</label>
+                  <input
+                    id="edit-sup-moq"
+                    type="number"
+                    min="1"
+                    value={editMoq}
+                    onChange={(e) => setEditMoq(e.target.value)}
+                    placeholder="如：100"
+                  />
+                </div>
+
+                <div className="field">
+                  <label htmlFor="edit-sup-lead">大货交期 (天)</label>
+                  <input
+                    id="edit-sup-lead"
+                    type="number"
+                    min="1"
+                    value={editLeadTime}
+                    onChange={(e) => setEditLeadTime(e.target.value)}
+                    placeholder="如：7"
+                  />
+                </div>
+
+                <div className="field full">
+                  <label htmlFor="edit-sup-pay">付款条件 / 账期</label>
+                  <input
+                    id="edit-sup-pay"
+                    value={editPaymentTerms}
+                    onChange={(e) => setEditPaymentTerms(e.target.value)}
+                    placeholder="如：现货款到发货 / 定制 30% 定金 + 70% 出货前"
+                  />
+                </div>
+
+                <div className="field full" style={{ display: "flex", flexDirection: "row", gap: "18px", flexWrap: "wrap", alignItems: "center" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", margin: 0 }}>
+                    <input
+                      type="checkbox"
+                      checked={editOem}
+                      onChange={(e) => setEditOem(e.target.checked)}
+                      style={{ width: "auto" }}
+                    />
+                    <span>支持小批量贴牌 OEM / 印 Logo</span>
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", margin: 0 }}>
+                    <input
+                      type="checkbox"
+                      checked={editCustomBox}
+                      onChange={(e) => setEditCustomBox(e.target.checked)}
+                      style={{ width: "auto" }}
+                    />
+                    <span>支持定制彩盒 / FNSKU 贴标</span>
+                  </label>
+                </div>
+
+                <div className="field full">
+                  <label htmlFor="edit-sup-url">1688 店铺 / 商品链接</label>
+                  <input
+                    id="edit-sup-url"
+                    type="url"
+                    value={editUrl}
+                    onChange={(e) => setEditUrl(e.target.value)}
+                    placeholder="https://detail.1688.com/offer/..."
+                  />
+                </div>
+
+                <div className="field full">
+                  <label htmlFor="edit-sup-notes">验厂笔记 / 拿样评价 / 避雷记录</label>
+                  <textarea
+                    id="edit-sup-notes"
+                    rows={3}
+                    value={editNotes}
+                    onChange={(e) => setEditNotes(e.target.value)}
+                    placeholder="记录主营款、实测做工、沟通配合度、是否乱加价或延误交期..."
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+                <button type="button" className="button ghost" onClick={closeDrawer}>
+                  取消
+                </button>
+                <button type="submit" className="button primary" disabled={savingProfile}>
+                  {savingProfile ? "保存中…" : "保存工厂档案"}
+                </button>
+              </div>
+            </form>
+
+            {/* 区块 2：一键生成并复制 1688 / 微信询价话术 */}
+            <section
+              style={{
+                borderTop: "1px solid var(--line)",
+                paddingTop: "16px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "10px",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--ink)" }}>
+                  2. 一键复制 1688 / 微信询价话术
+                </div>
+                <select
+                  value={rfqCaseId}
+                  onChange={(e) => setRfqCaseId(e.target.value)}
+                  aria-label="选择要询价的商品"
+                  style={{
+                    maxWidth: "280px",
+                    height: "32px",
+                    padding: "0 8px",
+                    borderRadius: "6px",
+                    border: "1px solid var(--line)",
+                    background: "var(--bg)",
+                    color: "var(--ink)",
+                    fontSize: "12px",
+                  }}
+                >
+                  <option value="">通用询盘（不限定具体商品）</option>
+                  {cases.map((c) => (
+                    <option key={c.productCase.id} value={c.productCase.id}>
+                      [{c.productCase.marketplace}] {c.productCase.title.slice(0, 26)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {(() => {
+                const selectedCase = cases.find((c) => c.productCase.id === rfqCaseId);
+                const script = buildRfqScript(drawerSupplier, selectedCase);
+                return (
+                  <>
+                    <pre
+                      style={{
+                        margin: 0,
+                        padding: "12px",
+                        borderRadius: "8px",
+                        border: "1px solid var(--line)",
+                        background: "var(--bg)",
+                        color: "var(--ink)",
+                        fontSize: "12px",
+                        lineHeight: 1.6,
+                        whiteSpace: "pre-wrap",
+                        fontFamily: "inherit",
+                      }}
+                    >
+                      {script}
+                    </pre>
+                    <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                      <button
+                        type="button"
+                        className="button secondary"
+                        onClick={() => handleCopy(script, "drawer-rfq")}
+                        style={{ fontSize: "12px", height: "34px" }}
+                      >
+                        {copiedKey === "drawer-rfq" ? "✓ 已复制询价话术，去 1688 旺旺/微信粘贴" : "一键复制询价话术"}
+                      </button>
+                    </div>
+                  </>
+                );
+              })()}
+            </section>
+
+            {/* 区块 3：自动聚合历史报价与拿样验货记录 */}
+            <section
+              style={{
+                borderTop: "1px solid var(--line)",
+                paddingTop: "16px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "12px",
+              }}
+            >
+              <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--ink)" }}>
+                3. 历史合作记录（自动聚合）
+              </div>
+
+              {drawerLoading ? (
+                <p style={{ margin: 0, fontSize: "12px", color: "var(--muted)" }}>正在加载历史报价与拿样记录…</p>
+              ) : (
+                <>
+                  {/* 历史报价 */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                    <div style={{ fontSize: "12.5px", fontWeight: 600, color: "var(--muted)" }}>
+                      历史关联商品与报价 ({drawerDetail?.quoteHistory.length ?? 0})
+                    </div>
+                    {!drawerDetail || drawerDetail.quoteHistory.length === 0 ? (
+                      <div
+                        style={{
+                          padding: "10px 12px",
+                          borderRadius: "8px",
+                          background: "var(--bg)",
+                          fontSize: "12px",
+                          color: "var(--muted)",
+                        }}
+                      >
+                        暂无历史报价记录，可在卡片上点「+ 关联商品」将其加入比价表。
+                      </div>
+                    ) : (
+                      drawerDetail.quoteHistory.map((q) => (
+                        <div
+                          key={q.quoteId}
+                          style={{
+                            padding: "10px 12px",
+                            borderRadius: "8px",
+                            border: "1px solid var(--line)",
+                            background: "var(--bg)",
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            gap: "10px",
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          <div style={{ minWidth: 0 }}>
+                            <Link
+                              href={`/cases/${q.caseId}/sourcing`}
+                              style={{ fontSize: "13px", fontWeight: 600, color: "var(--green)", textDecoration: "none" }}
+                            >
+                              [{q.marketplace}] {q.caseTitle}
+                            </Link>
+                            <div style={{ fontSize: "11.5px", color: "var(--muted)", marginTop: "2px" }}>
+                              MOQ {q.moq} 件
+                              {q.leadTimeDays ? ` · 交期 ${q.leadTimeDays} 天` : ""}
+                              {" · "}
+                              {shortDate(q.createdAt)}
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            <strong style={{ fontSize: "13px", color: "var(--ink)" }}>
+                              {q.priceCny !== null ? `¥${q.priceCny}` : money(q.unitPriceCents)}
+                            </strong>
+                            {q.isSelected && <span className="badge badge-success">🏆 已中标</span>}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* 拿样验货记录 */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                    <div style={{ fontSize: "12.5px", fontWeight: 600, color: "var(--muted)" }}>
+                      关联拿样与验货日记 ({drawerDetail?.sampleHistory.length ?? 0})
+                    </div>
+                    {!drawerDetail || drawerDetail.sampleHistory.length === 0 ? (
+                      <div
+                        style={{
+                          padding: "10px 12px",
+                          borderRadius: "8px",
+                          background: "var(--bg)",
+                          fontSize: "12px",
+                          color: "var(--muted)",
+                        }}
+                      >
+                        暂无同名工厂的拿样记录（在具体商品的比价页录入拿样日记后会自动归档到此）。
+                      </div>
+                    ) : (
+                      drawerDetail.sampleHistory.map((s) => (
+                        <div
+                          key={s.id}
+                          style={{
+                            padding: "10px 12px",
+                            borderRadius: "8px",
+                            border: "1px solid var(--line)",
+                            background: "var(--bg)",
+                            fontSize: "12px",
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: "4px",
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px" }}>
+                            <span className="badge badge-neutral">
+                              {SAMPLE_STATUS_LABEL[s.status] ?? s.status}
+                            </span>
+                            <span style={{ color: "var(--muted)" }}>
+                              样品+运费 ¥{s.totalCostCny.toFixed(0)}
+                              {s.qualityRating ? ` · 品质 ${s.qualityRating}/5★` : ""}
+                            </span>
+                          </div>
+                          {s.pros ? <div style={{ color: "var(--green)" }}>优点：{s.pros}</div> : null}
+                          {s.defects ? <div style={{ color: "var(--red)" }}>缺陷：{s.defects}</div> : null}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </>
+              )}
+            </section>
+          </aside>
         </div>
       )}
     </div>

@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { platformEconomicDefaults } from "@/lib/ai-sourcing";
 import { convertRmbToForeignCents } from "@/lib/currency";
+import { getEffectiveFxRate } from "@/lib/fx-rates";
 import { getDb } from "@/lib/db";
 import { calculateEconomics, type EconomicsAssumptions } from "@/lib/economics";
 import { markComparisonReportPromoted } from "@/lib/competitor-compare/storage";
@@ -52,6 +53,7 @@ export async function quickCreateCaseFromWizardAction(
     const actor = input.actor?.trim() || "选品向导";
 
     const defaults = platformEconomicDefaults(platformCode, targetPriceCents);
+    await getEffectiveFxRate(currency);
     const purchaseForeignCents = convertRmbToForeignCents(factoryCostRmb, currency);
     const freightCents =
       typeof input.freightPerUnitCents === "number" && input.freightPerUnitCents >= 0

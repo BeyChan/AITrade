@@ -3,11 +3,13 @@ import path from "node:path";
 import { getDb } from "../db.ts";
 import {
   COMPETITOR_NUMERIC_FIELDS,
+  isVerifiedCompetitorField,
   MAX_COMPARISON_REPORTS,
   type CompetitorComparisonReport,
   type CompetitorProfile,
   type CompetitorProvenance,
   type CompetitorReviewStatus,
+  type SnapshotDiff,
 } from "./types.ts";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
@@ -176,22 +178,131 @@ export async function getComparisonReportById(id: string, options?: { mode?: "sa
   return report;
 }
 
+function computeSnapshotDiff(
+  prev: CompetitorComparisonReport,
+  next: CompetitorComparisonReport,
+): SnapshotDiff | null {
+  const prevByAsin = new Map(prev.competitors.map((c) => [c.asin.toUpperCase(), c]));
+  const nextByAsin = new Map(next.competitors.map((c) => [c.asin.toUpperCase(), c]));
+
+  const newAsins: string[] = [];
+  const droppedAsins: string[] = [];
+  const reviewSurges: SnapshotDiff["reviewSurges"] = [];
+
+  for (const [asin, curr] of nextByAsin) {
+    const old = prevByAsin.get(asin);
+    if (!old) {
+      newAsins.push(asin);
+      continue;
+    }
+    if (
+      isVerifiedCompetitorField(old, "reviewCount")
+      && isVerifiedCompetitorField(curr, "reviewCount")
+      && curr.reviewCount > old.reviewCount
+    ) {
+      const delta = curr.reviewCount - old.reviewCount;
+      if (delta >= 20) {
+        reviewSurges.push({ asin, title: curr.title.slice(0, 48), deltaReviews: delta });
+      }
+    }
+  }
+  for (const asin of prevByAsin.keys()) {
+    if (!nextByAsin.has(asin)) droppedAsins.push(asin);
+  }
+  reviewSurges.sort((a, b) => b.deltaReviews - a.deltaReviews);
+
+  const avgVerifiedPrice = (r: CompetitorComparisonReport): number | null => {
+    const vals = r.competitors
+      .filter((c) => isVerifiedCompetitorField(c, "priceCents"))
+      .map((c) => (c.effectivePriceCents && c.effectivePriceCents > 0 ? c.effectivePriceCents : c.priceCents))
+      .filter((n) => n > 0);
+    if (vals.length === 0) return null;
+    return vals.reduce((a, b) => a + b, 0) / vals.length;
+  };
+
+  const prevAvg = avgVerifiedPrice(prev);
+  const nextAvg = avgVerifiedPrice(next);
+  const avgPriceDeltaPercent = prevAvg && nextAvg
+    ? Number((((nextAvg - prevAvg) / prevAvg) * 100).toFixed(1))
+    : null;
+  const p50PriceDeltaCents = prev.priceStats?.p50 > 0 && next.priceStats?.p50 > 0
+    ? next.priceStats.p50 - prev.priceStats.p50
+    : null;
+
+  const alerts: string[] = [];
+  if (avgPriceDeltaPercent !== null && avgPriceDeltaPercent <= -8) {
+    alerts.push(`均价较上次快照下跌 ${Math.abs(avgPriceDeltaPercent)}%，警惕进入价格战！`);
+  } else if (avgPriceDeltaPercent !== null && avgPriceDeltaPercent >= 8) {
+    alerts.push(`均价较上次快照上涨 +${avgPriceDeltaPercent}%，品类存在提价空间。`);
+  }
+  if (newAsins.length > 0) {
+    alerts.push(`首页新进场 ${newAsins.length} 款竞品（${newAsins.slice(0, 3).join(", ")}）`);
+  }
+  if (reviewSurges.length > 0) {
+    const top = reviewSurges[0]!;
+    alerts.push(`评论增速最快：${top.asin} (+${top.deltaReviews} 评)`);
+  }
+
+  // 如果没有任何可观测变化，返回 null 避免噪音
+  if (
+    alerts.length === 0
+    && newAsins.length === 0
+    && droppedAsins.length === 0
+    && reviewSurges.length === 0
+    && (avgPriceDeltaPercent === null || avgPriceDeltaPercent === 0)
+  ) {
+    return null;
+  }
+
+  return {
+    previousReportId: prev.id,
+    previousCapturedAt: prev.createdAt,
+    avgPriceDeltaPercent,
+    p50PriceDeltaCents,
+    newAsins,
+    droppedAsins,
+    reviewSurges: reviewSurges.slice(0, 5),
+    alerts,
+  };
+}
+
+function asinOverlapRatio(a: CompetitorComparisonReport, b: CompetitorComparisonReport): number {
+  const setA = new Set(a.competitors.map((c) => c.asin.toUpperCase()).filter(Boolean));
+  const setB = new Set(b.competitors.map((c) => c.asin.toUpperCase()).filter(Boolean));
+  if (setA.size === 0 || setB.size === 0) return 0;
+  let shared = 0;
+  for (const x of setA) {
+    if (setB.has(x)) shared += 1;
+  }
+  return shared / Math.min(setA.size, setB.size);
+}
+
 export async function saveComparisonReport(report: CompetitorComparisonReport): Promise<void> {
   await migrateLegacyJsonIfNeeded();
   const db = await getDb();
-  // 自动清理同站点 + 相同 ASIN 集合的历史重复研报（仅保留最新一次采集结果）
+  // 自动清理同站点 + 相同 ASIN 集合的历史重复研报，并在覆盖前计算 Snapshot Diff 预警
   const targetFp = reportFingerprint(report);
   const existing = await db.query<{ id: string; payload: unknown }>(
-    `SELECT id, payload FROM competitor_comparison_reports WHERE market_code = $1 AND platform_code = $2`,
+    `SELECT id, payload FROM competitor_comparison_reports WHERE market_code = $1 AND platform_code = $2 ORDER BY created_at DESC`,
     [(report.marketCode || "US").toUpperCase(), (report.platformCode || "amazon").toLowerCase()],
   );
+  let matchedPrevForDiff: CompetitorComparisonReport | null = null;
   for (const row of existing.rows) {
     if (row.id === report.id) continue;
     const prev = normalizeReport(row.payload);
-    if (prev && !prev.promotedCaseId && reportFingerprint(prev) === targetFp) {
+    if (!prev) continue;
+    const sameFp = reportFingerprint(prev) === targetFp;
+    if (!matchedPrevForDiff && (sameFp || asinOverlapRatio(prev, report) >= 0.4)) {
+      matchedPrevForDiff = prev;
+    }
+    if (!prev.promotedCaseId && sameFp) {
       await db.query(`DELETE FROM competitor_comparison_reports WHERE id = $1`, [row.id]);
     }
   }
+  const reportToSave: CompetitorComparisonReport = !report.snapshotDiff && matchedPrevForDiff
+    ? { ...report, snapshotDiff: computeSnapshotDiff(matchedPrevForDiff, report) }
+    : report;
+
   await db.query(
     `INSERT INTO competitor_comparison_reports (id, market_code, platform_code, provenance, review_status, payload, created_at, updated_at)
      VALUES ($1, $2, $3, $4, $5, $6::jsonb, COALESCE($7::timestamptz, NOW()), NOW())
@@ -203,13 +314,13 @@ export async function saveComparisonReport(report: CompetitorComparisonReport): 
        payload = EXCLUDED.payload,
        updated_at = NOW()`,
     [
-      report.id,
-      (report.marketCode || "US").toUpperCase(),
-      (report.platformCode || "amazon").toLowerCase(),
-      report.provenance || "unknown",
-      report.reviewStatus || "pending",
-      JSON.stringify(report),
-      report.createdAt || null,
+      reportToSave.id,
+      (reportToSave.marketCode || "US").toUpperCase(),
+      (reportToSave.platformCode || "amazon").toLowerCase(),
+      reportToSave.provenance || "unknown",
+      reportToSave.reviewStatus || "pending",
+      JSON.stringify(reportToSave),
+      reportToSave.createdAt || null,
     ],
   );
 }

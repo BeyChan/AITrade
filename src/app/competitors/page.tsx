@@ -29,10 +29,10 @@ export default async function CompetitorsPage({ searchParams }: PageProps) {
       <PageHeader
         breadcrumbs={[
           { label: "工作台", href: "/" },
-          { label: "竞品对比" },
+          { label: "竞品研报" },
         ]}
         eyebrow="竞品情报与多维对标"
-        title="竞品对比"
+        title="竞品研报"
         description="输入竞品链接或用浏览器扩展采集前台数据。AI 只辅助整理特点与差评线索；价格、评分等数值需采集或人工核实，商品指数仅供参考、不参与 GO 判定。"
       />
 

@@ -117,7 +117,7 @@ export function DashboardPipelineKanban({
         href: `/competitors?reportId=${r.id}`,
         actionText: "竞品 PK 研报",
       })),
-      emptyText: "暂无初筛研报，可在侧边栏「竞品对比」录入链接",
+      emptyText: "暂无初筛研报，可在侧边栏「竞品研报」录入链接",
     },
     {
       id: "stage2",

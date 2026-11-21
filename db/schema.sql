@@ -1304,3 +1304,5 @@ CREATE TABLE IF NOT EXISTS sourcing_sample_logs (
 
 CREATE INDEX IF NOT EXISTS idx_sourcing_sample_logs_case
   ON sourcing_sample_logs(case_id, created_at DESC);
+
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS profile JSONB NOT NULL DEFAULT '{}'::jsonb;

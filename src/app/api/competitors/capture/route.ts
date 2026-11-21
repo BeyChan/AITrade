@@ -2,7 +2,12 @@ import { analyzeCompetitors } from "@/lib/competitor-compare/engine.ts";
 import { saveComparisonReport } from "@/lib/competitor-compare/storage.ts";
 import { readJsonObject, stringField } from "@/app/api/ai-inbox/http.ts";
 import { recordAuditLog } from "@/lib/audit-logs.ts";
-import type { CompetitorInputItem, CompetitorNumericField } from "@/lib/competitor-compare/types.ts";
+import type {
+  CompetitorFulfillmentType,
+  CompetitorInputItem,
+  CompetitorNumericField,
+  RatingDistribution,
+} from "@/lib/competitor-compare/types.ts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,6 +63,84 @@ function stringArray(value: unknown): string[] {
   return [];
 }
 
+function parseFulfillmentType(value: unknown): CompetitorFulfillmentType | undefined {
+  if (value === "amazon_1p" || value === "fba" || value === "fbm" || value === "unknown") {
+    return value;
+  }
+  return undefined;
+}
+
+function parseRatingDistribution(value: unknown): RatingDistribution | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const obj = value as Record<string, unknown>;
+  const dist: RatingDistribution = {};
+  let count = 0;
+  for (const k of ["star5", "star4", "star3", "star2", "star1"] as const) {
+    const n = Number(obj[k]);
+    if (Number.isFinite(n) && n >= 0 && n <= 100) {
+      dist[k] = Math.round(n);
+      count += 1;
+    }
+  }
+  return count >= 3 ? dist : undefined;
+}
+
+function safeImageUrl(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (/^https?:\/\/.{6,800}$/i.test(trimmed)) return trimmed;
+  return undefined;
+}
+
+function parseExtras(source: Record<string, unknown>, currency: string): NonNullable<CompetitorInputItem["captured"]> {
+  const bullets = stringArray(source.bullets);
+  const criticalReviews = stringArray(source.criticalReviews);
+  const boughtPastMonth = numericField(source, "boughtPastMonth");
+  const listPriceCents = numericField(source, "listPriceCents");
+  const effectivePriceCents = numericField(source, "effectivePriceCents");
+  const shippingCents = numericField(source, "shippingCents");
+  const couponText = typeof source.couponText === "string" && source.couponText.trim()
+    ? source.couponText.trim().slice(0, 80)
+    : undefined;
+  const imageUrl = safeImageUrl(source.imageUrl);
+  const fulfillmentType = parseFulfillmentType(source.fulfillmentType);
+  const dateFirstAvailable = typeof source.dateFirstAvailable === "string" && source.dateFirstAvailable.trim()
+    ? source.dateFirstAvailable.trim().slice(0, 60)
+    : undefined;
+  const dimensionsText = typeof source.dimensionsText === "string" && source.dimensionsText.trim()
+    ? source.dimensionsText.trim().slice(0, 120)
+    : undefined;
+  const ratingDistribution = parseRatingDistribution(source.ratingDistribution);
+
+  const captured: NonNullable<CompetitorInputItem["captured"]> = {
+    currency,
+    ...(bullets.length > 0 ? { bullets } : {}),
+    ...(criticalReviews.length > 0 ? { criticalReviews } : {}),
+    ...(boughtPastMonth ? { boughtPastMonth: Math.round(boughtPastMonth) } : {}),
+    ...(typeof source.isSponsored === "boolean" ? { isSponsored: source.isSponsored } : {}),
+    ...(couponText ? { couponText } : {}),
+    ...(listPriceCents ? { listPriceCents: Math.round(listPriceCents) } : {}),
+    ...(effectivePriceCents ? { effectivePriceCents: Math.round(effectivePriceCents) } : {}),
+    ...(shippingCents ? { shippingCents: Math.round(shippingCents) } : {}),
+    ...(imageUrl ? { imageUrl } : {}),
+    ...(fulfillmentType ? { fulfillmentType } : {}),
+    ...(dateFirstAvailable ? { dateFirstAvailable } : {}),
+    ...(dimensionsText ? { dimensionsText } : {}),
+    ...(ratingDistribution ? { ratingDistribution } : {}),
+  };
+
+  const numeric: Array<[CompetitorNumericField, number | undefined]> = [
+    ["priceCents", priceToCents(source)],
+    ["rating", numericField(source, "rating")],
+    ["reviewCount", numericField(source, "reviewCount")],
+    ["bsr", numericField(source, "bsr")],
+  ];
+  for (const [field, value] of numeric) {
+    if (value !== undefined) captured[field] = value;
+  }
+  return captured;
+}
+
 export async function OPTIONS(request: Request) {
   if (!isLocalRequest(request)) return new Response(null, { status: 403 });
   return new Response(null, { status: 204, headers: corsHeaders(request) });
@@ -93,23 +176,9 @@ export async function POST(request: Request) {
         const itemBrand = rawBrand.length > 0 && rawBrand.length <= 40 && !/sponsored/i.test(rawBrand)
           ? rawBrand
           : "";
-        const itemBullets = stringArray(item.bullets);
-        const itemReviews = stringArray(item.criticalReviews);
         if (!itemUrl && !itemAsin) continue;
 
-        const captured: NonNullable<CompetitorInputItem["captured"]> = {
-          currency,
-          ...(itemBullets.length > 0 ? { bullets: itemBullets } : {}),
-          ...(itemReviews.length > 0 ? { criticalReviews: itemReviews } : {}),
-        };
-        const numeric: Array<[CompetitorNumericField, number | undefined]> = [
-          ["priceCents", priceToCents(item)],
-          ["rating", numericField(item, "rating")],
-          ["reviewCount", numericField(item, "reviewCount")],
-        ];
-        for (const [field, value] of numeric) {
-          if (value !== undefined) captured[field] = value;
-        }
+        const captured = parseExtras(item, currency);
         const effectiveUrl = itemUrl || `https://www.amazon.com/dp/${itemAsin}`;
         urls.push(effectiveUrl);
         capturedInputs.push({
@@ -131,6 +200,7 @@ export async function POST(request: Request) {
         marketCode,
         platformCode,
         currency,
+        skipModel: true,
         capturedInputs,
         evidenceText: keyword ? `Search Keyword: ${keyword}` : "",
       });
@@ -171,19 +241,7 @@ export async function POST(request: Request) {
     const category = stringField(body, "category", { maxLength: 500 }) || "";
     const rawText = stringField(body, "rawText", { maxLength: 50000 }) || "";
 
-    const captured: NonNullable<CompetitorInputItem["captured"]> = {
-      currency,
-      bullets: stringArray(body.bullets),
-      criticalReviews: stringArray(body.criticalReviews),
-    };
-    const numeric: Array<[CompetitorNumericField, number | undefined]> = [
-      ["priceCents", priceToCents(body)],
-      ["rating", numericField(body, "rating")],
-      ["reviewCount", numericField(body, "reviewCount")],
-    ];
-    for (const [field, value] of numeric) {
-      if (value !== undefined) captured[field] = value;
-    }
+    const captured = parseExtras(body, currency);
 
     // rawInputs 只放商品 URL：解析器按换行拆分，混入差评原文会把一个商品拆成多个「竞品」
     const evidenceText = [
@@ -200,6 +258,7 @@ export async function POST(request: Request) {
       marketCode,
       platformCode,
       currency,
+      skipModel: true,
       capturedInputs,
       evidenceText,
     });

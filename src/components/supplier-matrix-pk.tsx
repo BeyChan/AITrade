@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { money, percent } from "@/lib/format";
-import { OFFICIAL_FX_CONFIG } from "@/lib/currency";
+import { getFxRate, OFFICIAL_FX_CONFIG } from "@/lib/currency";
+import { FX_UPDATED_EVENT } from "./topbar-fx-widget";
 
 type ScoredQuote = {
   id: string;
@@ -64,7 +65,16 @@ export function SupplierMatrixPk({
   const [freightRmb, setFreightRmb] = useState<number>(5);
 
   const fxDef = OFFICIAL_FX_CONFIG[currency] || OFFICIAL_FX_CONFIG.USD;
-  const fx = fxDef.rateToRmb;
+  const [fx, setFx] = useState<number>(() => getFxRate(currency));
+
+  useEffect(() => {
+    setFx(getFxRate(currency));
+    function onFxUpdated() {
+      setFx(getFxRate(currency));
+    }
+    window.addEventListener(FX_UPDATED_EVENT, onFxUpdated);
+    return () => window.removeEventListener(FX_UPDATED_EVENT, onFxUpdated);
+  }, [currency]);
 
   const convUnitPrice = (priceRmb / fx).toFixed(2);
   const convFreight = (freightRmb / fx).toFixed(2);

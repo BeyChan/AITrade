@@ -128,16 +128,51 @@ async function extractAmazonPage(tabId) {
 
 async function loadCaseOptions(server, selectedId) {
   try {
-    const resp = await fetch(`${server}/api/cases/options`);
-    const json = await resp.json();
-    const list = Array.isArray(json.cases) ? json.cases : [];
-    caseSelect.innerHTML = `<option value="">仅存入 1688 全局工厂库（不绑定商品）</option>`;
-    for (const c of list) {
-      const opt = document.createElement("option");
-      opt.value = c.id;
-      opt.textContent = `[${c.marketplace}] ${c.asin} · ${(c.title || "").slice(0, 24)}`;
-      if (selectedId && c.id === selectedId) opt.selected = true;
-      caseSelect.appendChild(opt);
+    const [casesResp, targetsResp] = await Promise.all([
+      fetch(`${server}/api/cases/options`).catch(() => null),
+      fetch(`${server}/api/competitors/sourcing-target`).catch(() => null),
+    ]);
+    const casesJson = casesResp ? await casesResp.json().catch(() => ({})) : {};
+    const targetsJson = targetsResp ? await targetsResp.json().catch(() => ({})) : {};
+    const list = Array.isArray(casesJson.cases) ? casesJson.cases : [];
+    const targets = Array.isArray(targetsJson.targets) ? targetsJson.targets : [];
+
+    caseSelect.innerHTML = "";
+    // 1. 优先置顶「待回补进价的竞品研报商品」：永远默认选中最新一条（targets[0]），防止旧的 aitradeSelectedCaseId 覆盖回老研报！
+    const hasRecentTarget = targets.length > 0;
+    if (hasRecentTarget) {
+      const grp = document.createElement("optgroup");
+      grp.label = "回补竞品研报进价（最新优先）";
+      for (let i = 0; i < targets.length; i++) {
+        const t = targets[i];
+        const opt = document.createElement("option");
+        const val = `report:${t.reportId}:${t.asin}`;
+        opt.value = val;
+        const kindTag = (t.competitorCount || 1) <= 1 ? "单品" : `${t.competitorCount}款`;
+        const cap = t.targetMaxCny > 0 ? ` · 上限≤¥${t.targetMaxCny}` : "";
+        opt.textContent = `[回补·${kindTag}] ${t.asin}${cap} · ${(t.title || "").slice(0, 16)}`;
+        if (i === 0) opt.selected = true;
+        grp.appendChild(opt);
+      }
+      caseSelect.appendChild(grp);
+    }
+
+    const defaultOpt = document.createElement("option");
+    defaultOpt.value = "";
+    defaultOpt.textContent = "仅存入 1688 全局工厂库（不绑定商品）";
+    caseSelect.appendChild(defaultOpt);
+
+    if (list.length > 0) {
+      const caseGrp = document.createElement("optgroup");
+      caseGrp.label = "绑定到已立项商品案卷";
+      for (const c of list) {
+        const opt = document.createElement("option");
+        opt.value = c.id;
+        opt.textContent = `[${c.marketplace}] ${c.asin} · ${(c.title || "").slice(0, 24)}`;
+        if (!hasRecentTarget && selectedId && c.id === selectedId) opt.selected = true;
+        caseGrp.appendChild(opt);
+      }
+      caseSelect.appendChild(caseGrp);
     }
   } catch {
     // 服务未响应时保留默认“仅存工厂库”选项
@@ -186,10 +221,13 @@ async function init() {
       const rCnt = firstNumber(preExtractedAmazon.reviewCount);
       siteBadge.textContent = `Amazon 单品 · ${preExtractedAmazon.asin}`;
       previewBox.style.display = "block";
+      const salesTag = preExtractedAmazon.boughtPastMonth ? ` · 月销 ${preExtractedAmazon.boughtPastMonth}+` : "";
+      const couponTag = preExtractedAmazon.couponText ? ` · 券 ${preExtractedAmazon.couponText}` : "";
+      const shipTag = preExtractedAmazon.shippingCents ? ` + 运费 ${formatCents(preExtractedAmazon.shippingCents, preExtractedAmazon.currency)}` : "";
       previewBox.innerHTML = `
         <div><strong>${(preExtractedAmazon.title || preExtractedAmazon.asin).slice(0, 62)}</strong></div>
         <div style="margin-top:4px;color:#52635a;">
-          售价：<strong>${formatCents(pCents, preExtractedAmazon.currency)}</strong> · 评分：${rVal || "—"} · 评论：${rCnt || "—"} · 差评：${(preExtractedAmazon.criticalReviews || []).length} 条
+          售价：<strong>${formatCents(pCents, preExtractedAmazon.currency)}</strong>${shipTag}${couponTag} · 评分：${rVal || "—"} · 评论：${rCnt || "—"}${salesTag} · 差评：${(preExtractedAmazon.criticalReviews || []).length} 条
         </div>
       `;
       addBasketBtn.style.display = "block";
@@ -230,6 +268,15 @@ addBasketBtn.addEventListener("click", async () => {
     marketCode: preExtractedAmazon.marketCode || "US",
     currency: preExtractedAmazon.currency || "USD",
     priceCents: parsePriceToCents(preExtractedAmazon.price),
+    shippingCents: preExtractedAmazon.shippingCents || null,
+    listPriceCents: parsePriceToCents(preExtractedAmazon.listPrice),
+    couponText: preExtractedAmazon.couponText || "",
+    boughtPastMonth: preExtractedAmazon.boughtPastMonth || null,
+    imageUrl: preExtractedAmazon.imageUrl || "",
+    fulfillmentType: preExtractedAmazon.fulfillmentType || "unknown",
+    dateFirstAvailable: preExtractedAmazon.dateFirstAvailable || "",
+    dimensionsText: preExtractedAmazon.dimensionsText || "",
+    ratingDistribution: preExtractedAmazon.ratingDistribution || null,
     rating: firstNumber(preExtractedAmazon.rating),
     reviewCount: firstNumber(preExtractedAmazon.reviewCount),
     bullets: preExtractedAmazon.bullets || [],
@@ -303,6 +350,12 @@ captureBtn.addEventListener("click", async () => {
           brand: it.brand || "",
           title: it.title,
           priceCents: parsePriceToCents(it.price),
+          shippingCents: it.shippingCents || null,
+          listPriceCents: parsePriceToCents(it.listPrice),
+          couponText: it.couponText || "",
+          boughtPastMonth: it.boughtPastMonth || null,
+          isSponsored: Boolean(it.isSponsored),
+          imageUrl: it.imageUrl || "",
           rating: firstNumber(it.rating),
           reviewCount: firstNumber(it.reviewCount),
         }));
@@ -334,6 +387,15 @@ captureBtn.addEventListener("click", async () => {
           currency: extracted.currency || "USD",
           rawText,
           priceCents: parsePriceToCents(extracted.price),
+          shippingCents: extracted.shippingCents || null,
+          listPriceCents: parsePriceToCents(extracted.listPrice),
+          couponText: extracted.couponText || "",
+          boughtPastMonth: extracted.boughtPastMonth || null,
+          imageUrl: extracted.imageUrl || "",
+          fulfillmentType: extracted.fulfillmentType || "unknown",
+          dateFirstAvailable: extracted.dateFirstAvailable || "",
+          dimensionsText: extracted.dimensionsText || "",
+          ratingDistribution: extracted.ratingDistribution || null,
           rating: firstNumber(extracted.rating),
           reviewCount: firstNumber(extracted.reviewCount),
           bullets: extracted.bullets || [],
@@ -389,7 +451,9 @@ captureBtn.addEventListener("click", async () => {
       if (!resp.ok || !json.ok) throw new Error(json.error || `HTTP ${resp.status}`);
 
       setStatus(
-        `采集成功！入库 ${json.importedSuppliers ?? 0} 家新工厂${json.importedQuotes ? `、生成 ${json.importedQuotes} 条比价报价` : ""}，正在打开…`,
+        json.backfilledCompetitor
+          ? `回补成功！已将 1688 实采中位进价 ¥${json.backfilledActualCny} 写回竞品研报（入库 ${json.importedSuppliers ?? 0} 家新厂），正在打开…`
+          : `采集成功！入库 ${json.importedSuppliers ?? 0} 家新工厂${json.importedQuotes ? `、生成 ${json.importedQuotes} 条比价报价` : ""}，正在打开…`,
         "ok",
       );
       if (json.redirectUrl) {

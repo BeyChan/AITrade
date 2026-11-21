@@ -12,6 +12,9 @@ type Props = {
   currency: string;
   p50PriceCents: number;
   targetPriceCents?: number;
+  darkHorseAsins?: string[];
+  benchmarkAsin?: string | null;
+  onSelectBenchmark?: (competitor: CompetitorProfile | null) => void;
 };
 
 const WIDTH = 760;
@@ -24,6 +27,22 @@ function logReview(count: number) {
   return Math.log10(Math.max(10, count + 10));
 }
 
+function effectivePriceOf(item: CompetitorProfile): number {
+  return item.effectivePriceCents && item.effectivePriceCents > 0
+    ? item.effectivePriceCents
+    : item.priceCents;
+}
+
+function realSalesOf(item: CompetitorProfile): number | null {
+  if (typeof item.boughtPastMonth === "number" && item.boughtPastMonth > 0) {
+    return item.boughtPastMonth;
+  }
+  if (isVerifiedCompetitorField(item, "monthlySalesEst") && item.monthlySalesEst > 0) {
+    return item.monthlySalesEst;
+  }
+  return null;
+}
+
 function ratingColor(rating: number) {
   if (rating > 0 && rating < 4.2) return "#b8322a";
   if (rating > 0 && rating < 4.5) return "#8a5309";
@@ -31,8 +50,9 @@ function ratingColor(rating: number) {
 }
 
 function ratingLabel(rating: number) {
-  if (rating > 0 && rating < 4.2) return "痛点集中 · 易切入";
-  if (rating > 0 && rating < 4.5) return "存在改良空间";
+  if (!rating || rating <= 0) return "未采集评分";
+  if (rating < 4.2) return "痛点集中 · 易切入";
+  if (rating < 4.5) return "存在改良空间";
   return "口碑壁垒较强";
 }
 
@@ -41,14 +61,22 @@ export function CompetitorQuadrantChart({
   currency,
   p50PriceCents,
   targetPriceCents,
+  darkHorseAsins = [],
+  benchmarkAsin,
+  onSelectBenchmark,
 }: Props) {
   const [activeIndex, setActiveIndex] = useState<number>(0);
 
+  const darkHorseSet = useMemo(
+    () => new Set(darkHorseAsins.map((a) => a.toUpperCase())),
+    [darkHorseAsins],
+  );
+
   const chart = useMemo(() => {
-    const valid = competitors.filter((c) => c.priceCents > 0 && isVerifiedCompetitorField(c, "priceCents"));
+    const valid = competitors.filter((c) => effectivePriceOf(c) > 0 && isVerifiedCompetitorField(c, "priceCents"));
     if (valid.length < 2) return null;
 
-    const prices = valid.map((c) => c.priceCents);
+    const prices = valid.map(effectivePriceOf);
     if (targetPriceCents && targetPriceCents > 0) prices.push(targetPriceCents);
     const minPrice = Math.min(...prices);
     const maxPrice = Math.max(...prices);
@@ -63,7 +91,9 @@ export function CompetitorQuadrantChart({
     const yMin = Math.max(0.8, Math.min(...yLogs) - 0.55);
     const yMax = Math.max(yMin + 1.2, Math.max(...yLogs) + 0.55);
 
-    const maxSales = Math.max(500, ...valid.map((c) => c.monthlySalesEst || 300));
+    const realSalesList = valid.map(realSalesOf).filter((n): n is number => n !== null);
+    const hasAnyRealSales = realSalesList.length > 0;
+    const maxSales = hasAnyRealSales ? Math.max(200, ...realSalesList) : 1;
 
     const round1 = (n: number) => Math.round(n * 10) / 10;
     const toX = (priceCents: number) =>
@@ -79,19 +109,42 @@ export function CompetitorQuadrantChart({
         : null;
 
     const points = valid.map((item, idx) => {
-      const sales = Math.max(100, item.monthlySalesEst || 300);
-      const radius = 10 + Math.sqrt(sales / maxSales) * 16;
+      const sales = realSalesOf(item);
+      const radius = sales !== null
+        ? 11 + Math.sqrt(sales / maxSales) * 15
+        : 12;
       const verified = isVerifiedCompetitorField(item, "priceCents");
+      const effPrice = effectivePriceOf(item);
+      const isDarkHorse = darkHorseSet.has((item.asin || "").toUpperCase());
+      const isBenchmark = Boolean(benchmarkAsin && item.asin.toUpperCase() === benchmarkAsin.toUpperCase());
       return {
         idx,
         item,
-        cx: toX(item.priceCents),
+        effPrice,
+        realSales: sales,
+        cx: toX(effPrice),
         cy: toY(item.reviewCount),
         r: Math.round(radius),
         color: ratingColor(item.rating),
         verified,
+        isDarkHorse,
+        isBenchmark,
       };
     });
+
+    // 价格带分布直方图（4 档）
+    const actualPrices = valid.map(effectivePriceOf);
+    const actualMin = Math.min(...actualPrices);
+    const actualMax = Math.max(...actualPrices);
+    const bucketCount = 4;
+    const step = Math.max(100, Math.ceil((actualMax - actualMin + 1) / bucketCount));
+    const buckets = Array.from({ length: bucketCount }, (_, i) => {
+      const lo = actualMin + i * step;
+      const hi = i === bucketCount - 1 ? Math.max(actualMax, lo + step) : lo + step - 1;
+      const count = actualPrices.filter((p) => (i === bucketCount - 1 ? p >= lo : p >= lo && p <= hi)).length;
+      return { lo, hi, count };
+    });
+    const maxBucketCount = Math.max(1, ...buckets.map((b) => b.count));
 
     const xTicks = [xMin, Math.round((xMin + xMax) / 2), xMax];
     const yTickValues = [50, 300, 1500, 8000].filter(
@@ -106,10 +159,13 @@ export function CompetitorQuadrantChart({
       targetX,
       xTicks,
       yTickValues,
+      hasAnyRealSales,
+      buckets,
+      maxBucketCount,
       toX,
       toY,
     };
-  }, [competitors, p50PriceCents, targetPriceCents]);
+  }, [competitors, p50PriceCents, targetPriceCents, darkHorseSet, benchmarkAsin]);
 
   if (!chart) {
     return (
@@ -127,22 +183,27 @@ export function CompetitorQuadrantChart({
 
   const activePoint = chart.points[activeIndex] ?? chart.points[0]!;
   const activeItem = activePoint.item;
+  const hasCouponDiscount = Boolean(
+    activeItem.effectivePriceCents
+    && activeItem.priceCents > 0
+    && activeItem.effectivePriceCents < activeItem.priceCents,
+  );
 
   return (
     <section className="panel quadrant-panel">
       <div className="quadrant-head">
         <div>
           <div className="eyebrow" style={{ color: "var(--green)" }}>市场格局四象限</div>
-          <h4>售价 × 评论壁垒 × 痛点气泡图</h4>
+          <h4>券后实付价 × 评论壁垒 × 真实动销气泡图</h4>
           <p className="muted">
-            横轴为售价，纵轴为评论门槛（对数刻度），气泡面积代表预估月销，颜色代表评分口碑；右下阴影区为「高客单 × 低评论壁垒」黄金切入带。
+            横轴为券后实付价，纵轴为评论门槛（对数刻度），{chart.hasAnyRealSales ? "气泡面积代表 Amazon 官方抓到的真实月销下限" : "当前未抓到官方月销标签，气泡采用等大中性展示"}；双圈高亮代表「黑马新品 / 选定标杆」。
           </p>
         </div>
         <div className="quadrant-legend">
           <span><i className="legend-dot" style={{ background: "#b8322a" }} /> &lt;4.2星（痛点重）</span>
           <span><i className="legend-dot" style={{ background: "#8a5309" }} /> 4.2–4.5星</span>
           <span><i className="legend-dot" style={{ background: "#1f7a55" }} /> ≥4.5星（强壁垒）</span>
-          <span><i className="legend-ring" /> 虚线=AI 推断价</span>
+          <span><i className="legend-ring" /> 双圈=黑马/标杆</span>
         </div>
       </div>
 
@@ -169,7 +230,7 @@ export function CompetitorQuadrantChart({
               fontSize="12"
               fontWeight="600"
             >
-              黄金切入区（高客单 · 低评论壁垒）
+              高客单 · 低评论区（优先看有真实月销的黑马）
             </text>
 
             {/* 坐标轴边框 */}
@@ -302,7 +363,7 @@ export function CompetitorQuadrantChart({
               fill="#4d6055"
               fontSize="12"
             >
-              竞品售价 ({currency})
+              竞品券后实付价 ({currency})
             </text>
             <text
               x={16}
@@ -325,6 +386,17 @@ export function CompetitorQuadrantChart({
                   onMouseEnter={() => setActiveIndex(pt.idx)}
                   onClick={() => setActiveIndex(pt.idx)}
                 >
+                  {(pt.isDarkHorse || pt.isBenchmark) && (
+                    <circle
+                      cx={pt.cx}
+                      cy={pt.cy}
+                      r={pt.r + 5}
+                      fill="none"
+                      stroke={pt.isBenchmark ? "#10251c" : "#1f7a55"}
+                      strokeWidth={1.6}
+                      strokeDasharray={pt.isBenchmark ? undefined : "3 2"}
+                    />
+                  )}
                   <circle
                     cx={pt.cx}
                     cy={pt.cy}
@@ -350,6 +422,41 @@ export function CompetitorQuadrantChart({
               );
             })}
           </svg>
+
+          {/* 价格带密度分布直方图 */}
+          <div style={{ marginTop: "10px", padding: "10px 12px", borderRadius: "10px", background: "var(--surface)", border: "1px solid var(--line)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", fontSize: "12px", color: "var(--muted)" }}>
+              <span>价格带密度分布（识别密集红海区 vs 价格真空带）</span>
+              <span className="mono">{chart.points.length} 款实价样本</span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "8px" }}>
+              {chart.buckets.map((b, i) => {
+                const pct = Math.round((b.count / chart.maxBucketCount) * 100);
+                const isGap = b.count === 0;
+                return (
+                  <div key={i} style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                    <div style={{ height: "28px", display: "flex", alignItems: "flex-end", background: "var(--panel)", borderRadius: "6px", padding: "3px", border: "1px solid var(--line)" }}>
+                      <div
+                        style={{
+                          width: "100%",
+                          height: `${Math.max(isGap ? 0 : 18, pct)}%`,
+                          borderRadius: "4px",
+                          background: isGap ? "transparent" : "var(--green)",
+                          opacity: isGap ? 0.2 : 0.72,
+                        }}
+                      />
+                    </div>
+                    <div className="mono" style={{ fontSize: "11px", color: "var(--ink)", textAlign: "center" }}>
+                      {moneyIn(currency, b.lo)}–{moneyIn(currency, b.hi)}
+                    </div>
+                    <div style={{ fontSize: "11px", textAlign: "center", color: isGap ? "var(--green)" : "var(--muted)", fontWeight: isGap ? 600 : 400 }}>
+                      {isGap ? "真空档 (0款)" : `${b.count} 款`}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
         {/* 右侧选中竞品详情卡 */}
@@ -365,17 +472,49 @@ export function CompetitorQuadrantChart({
             >
               {ratingLabel(activeItem.rating)}
             </span>
-            <span className="badge badge-neutral">
-              {activePoint.verified ? "已采集实价" : "待核实估算"}
-            </span>
+            {activePoint.isDarkHorse ? (
+              <span className="badge" style={{ background: "rgba(31,122,85,0.14)", color: "var(--green)" }}>黑马新品</span>
+            ) : null}
+            {activeItem.isSponsored ? (
+              <span className="badge" style={{ background: "rgba(180,83,9,0.12)", color: "var(--amber)" }}>广告位</span>
+            ) : null}
+            {activeItem.fulfillmentType === "amazon_1p" ? (
+              <span className="badge" style={{ background: "rgba(184,50,42,0.12)", color: "var(--red)" }}>Amazon 自营</span>
+            ) : null}
           </div>
-          <h5>{activeItem.brand ? `${activeItem.brand} · ` : ""}{activeItem.title}</h5>
-          {activeItem.asin ? <div className="muted mono" style={{ fontSize: 12 }}>ASIN: {activeItem.asin}</div> : null}
+
+          <div style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
+            {activeItem.imageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={activeItem.imageUrl}
+                alt={activeItem.title}
+                style={{ width: "54px", height: "54px", objectFit: "contain", borderRadius: "8px", background: "var(--panel)", border: "1px solid var(--line)", flexShrink: 0 }}
+              />
+            ) : null}
+            <div style={{ minWidth: 0 }}>
+              <h5 style={{ margin: 0 }}>{activeItem.brand ? `${activeItem.brand} · ` : ""}{activeItem.title}</h5>
+              {activeItem.asin ? <div className="muted mono" style={{ fontSize: 12, marginTop: "2px" }}>ASIN: {activeItem.asin}</div> : null}
+            </div>
+          </div>
 
           <div className="quadrant-detail-metrics">
             <div>
               <span>售价</span>
               <strong className="mono">{moneyIn(currency, activeItem.priceCents)}</strong>
+              {activeItem.listPriceCents && activeItem.listPriceCents > activeItem.priceCents ? (
+                <div style={{ fontSize: "11px", color: "var(--muted)" }}>
+                  <span style={{ textDecoration: "line-through" }}>{moneyIn(currency, activeItem.listPriceCents)}</span>
+                  <span style={{ color: "var(--red)", marginLeft: "4px" }}>
+                    -{Math.round(((activeItem.listPriceCents - activeItem.priceCents) / activeItem.listPriceCents) * 100)}%
+                  </span>
+                </div>
+              ) : null}
+              {hasCouponDiscount ? (
+                <div style={{ fontSize: "11px", color: "var(--amber)" }}>
+                  券后 {moneyIn(currency, activePoint.effPrice)} (-{Math.round(((activeItem.priceCents - activePoint.effPrice) / activeItem.priceCents) * 100)}%)
+                </div>
+              ) : null}
             </div>
             <div>
               <span>评分</span>
@@ -383,13 +522,26 @@ export function CompetitorQuadrantChart({
             </div>
             <div>
               <span>评论数</span>
-              <strong className="mono">{activeItem.reviewCount.toLocaleString()}</strong>
+              <strong className="mono">{isVerifiedCompetitorField(activeItem, "reviewCount") ? activeItem.reviewCount.toLocaleString() : "—"}</strong>
             </div>
             <div>
-              <span>预估月销</span>
-              <strong className="mono">{activeItem.monthlySalesEst ? activeItem.monthlySalesEst.toLocaleString() : "—"}</strong>
+              <span>官方月销</span>
+              <strong className="mono">{activePoint.realSales !== null ? `${activePoint.realSales.toLocaleString()}+` : "未显示"}</strong>
             </div>
           </div>
+
+          {onSelectBenchmark ? (
+            <button
+              type="button"
+              className={activePoint.isBenchmark ? "button primary" : "button secondary"}
+              style={{ width: "100%", marginTop: "8px", fontSize: "12px", padding: "8px 12px" }}
+              onClick={() => onSelectBenchmark(activePoint.isBenchmark ? null : activeItem)}
+            >
+              {activePoint.isBenchmark
+                ? "✓ 已设为立项主攻标杆（点击取消）"
+                : "设为立项主攻标杆（带入拟定价与测算）"}
+            </button>
+          ) : null}
 
           {activeItem.drawbacks?.length ? (
             <div className="quadrant-detail-weaknesses">

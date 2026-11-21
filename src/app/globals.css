@@ -14549,3 +14549,573 @@ html[data-theme="dark"] .ai-capture-format {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* ==========================================================================
+   实时汇率顶栏组件 & 设置页多币种汇率管理
+   ========================================================================== */
+.topbar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.topbar-right .topbar-site-switcher {
+  margin-left: 0;
+}
+
+.topbar-fx-widget {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.topbar-fx-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(24, 44, 32, 0.04);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.topbar-fx-trigger:hover,
+.topbar-fx-trigger.is-open {
+  border-color: var(--green);
+  box-shadow: 0 4px 14px rgba(31, 122, 85, 0.12);
+}
+
+.topbar-fx-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  flex: none;
+  background: var(--muted);
+}
+
+.topbar-fx-dot.is-live {
+  background: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.18);
+}
+
+.topbar-fx-dot.is-manual {
+  background: #d97706;
+  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.18);
+}
+
+.topbar-fx-pair {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.topbar-fx-rate {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.topbar-fx-tag {
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.5;
+  background: var(--surface-subtle);
+  color: var(--muted);
+}
+
+.topbar-fx-tag.is-live {
+  background: rgba(22, 163, 74, 0.12);
+  color: #15803d;
+}
+
+.topbar-fx-tag.is-manual {
+  background: rgba(217, 119, 6, 0.14);
+  color: #b45309;
+}
+
+html[data-theme="dark"] .topbar-fx-tag.is-live {
+  background: rgba(34, 197, 94, 0.18);
+  color: #4ade80;
+}
+
+html[data-theme="dark"] .topbar-fx-tag.is-manual {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+.topbar-fx-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  width: 340px;
+  max-width: calc(100vw - 24px);
+  padding: 14px 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.16);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.topbar-fx-pop-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.topbar-fx-pop-head strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.topbar-fx-pop-meta {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.topbar-fx-summary {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.topbar-fx-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.topbar-fx-summary-row strong {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.topbar-fx-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.topbar-fx-form-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.topbar-fx-form label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.topbar-fx-swap-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.topbar-fx-swap-btn:hover {
+  border-color: var(--green);
+  color: var(--ink);
+  background: var(--surface-subtle);
+}
+
+.topbar-fx-swap-btn.is-active {
+  border-color: rgba(22, 163, 74, 0.45);
+  background: rgba(22, 163, 74, 0.14);
+  color: #15803d;
+}
+
+html[data-theme="dark"] .topbar-fx-swap-btn.is-active {
+  border-color: rgba(74, 222, 128, 0.4);
+  background: rgba(34, 197, 94, 0.16);
+  color: #4ade80;
+}
+
+.topbar-fx-input-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.topbar-fx-prefix {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.topbar-fx-input-row input {
+  flex: 1;
+  min-width: 0;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.topbar-fx-feedback {
+  padding: 7px 10px;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.topbar-fx-feedback.is-ok {
+  background: rgba(22, 163, 74, 0.12);
+  color: #15803d;
+}
+
+.topbar-fx-feedback.is-error {
+  background: rgba(220, 38, 38, 0.12);
+  color: #b91c1c;
+}
+
+html[data-theme="dark"] .topbar-fx-feedback.is-ok {
+  color: #4ade80;
+}
+
+html[data-theme="dark"] .topbar-fx-feedback.is-error {
+  color: #f87171;
+}
+
+.topbar-fx-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.topbar-fx-all-link {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--green);
+  text-decoration: none;
+}
+
+.topbar-fx-all-link:hover {
+  text-decoration: underline;
+}
+
+/* 独立汇率页与多币种汇率管理 */
+.fx-rates-page {
+  padding-bottom: 84px;
+}
+
+.fx-manager-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 22px 24px;
+}
+
+.fx-manager-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.fx-manager-head h2 {
+  margin: 0 0 6px;
+}
+
+.fx-manager-head p {
+  margin: 0;
+}
+
+.fx-manager-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.fx-dir-toggle {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-subtle);
+  gap: 3px;
+}
+
+.fx-dir-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.fx-dir-btn:hover {
+  color: var(--ink);
+}
+
+.fx-dir-btn.is-active {
+  background: var(--paper);
+  color: var(--ink);
+  border-color: var(--line);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+html[data-theme="dark"] .fx-dir-btn.is-active {
+  background: #f8fafc;
+  color: #0b0d11;
+  border-color: #f8fafc;
+  box-shadow: none;
+}
+
+.fx-manager-sync-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.fx-manager-sync-meta strong {
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.fx-manager-banner {
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.fx-manager-banner.is-ok {
+  background: rgba(22, 163, 74, 0.12);
+  color: #15803d;
+}
+
+.fx-manager-banner.is-error {
+  background: rgba(220, 38, 38, 0.12);
+  color: #b91c1c;
+}
+
+html[data-theme="dark"] .fx-manager-banner.is-ok {
+  color: #4ade80;
+}
+
+html[data-theme="dark"] .fx-manager-banner.is-error {
+  color: #f87171;
+}
+
+.fx-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.fx-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.fx-table th {
+  text-align: left;
+  padding: 12px 16px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  background: var(--surface-subtle);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.fx-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.fx-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.fx-currency-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fx-currency-symbol {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--line-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-weight: 800;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--ink);
+  flex: none;
+}
+
+.fx-currency-cell > div > strong {
+  display: block;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.fx-currency-cell > div > span {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.fx-mono-val {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.fx-mono-sub {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.fx-status-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+
+.fx-status-cell small {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.fx-table th:last-child,
+.fx-table td:last-child {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+  padding-right: 16px;
+}
+
+.fx-edit-row {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.fx-btn-sm {
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+.fx-edit-row input {
+  width: 96px;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+@media (max-width: 900px) {
+  .topbar-right {
+    margin-left: 0;
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .topbar-fx-popover {
+    right: auto;
+    left: 0;
+  }
+
+  .fx-manager-sync-meta {
+    align-items: flex-start;
+  }
+}

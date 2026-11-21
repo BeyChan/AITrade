@@ -380,7 +380,7 @@ export function SelectionWizardClient({
                 </div>
                 <div className="wizard-actions-row">
                   <button type="submit" className="button secondary" disabled={isAnalyzing}>
-                    {isAnalyzing ? "正在分析竞品格局…" : "运行竞品对比"}
+                    {isAnalyzing ? "正在生成竞品研报…" : "生成竞品研报"}
                   </button>
                   <button
                     type="button"
@@ -637,7 +637,7 @@ export function SelectionWizardClient({
             <Link href={`/import?market=${encodeURIComponent(marketCode)}&platform=${encodeURIComponent(platformCode)}`} className="button secondary">
               批量导入 CSV
             </Link>
-            <Link href="/competitors" className="button ghost">高级竞品对比</Link>
+            <Link href="/competitors" className="button ghost">进入竞品研报</Link>
           </div>
         </div>
 

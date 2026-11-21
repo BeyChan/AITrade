@@ -87,6 +87,19 @@ export type CaseDetail = {
   auditLogs: AuditRow[];
 };
 
+export type SupplierStatus = "new" | "contacted" | "sampled" | "preferred" | "blacklisted";
+
+export type SupplierProfileMeta = {
+  status?: SupplierStatus;
+  wechat?: string;
+  phone?: string;
+  moq?: number | null;
+  leadTimeDays?: number | null;
+  paymentTerms?: string;
+  supportsOem?: boolean;
+  supportsCustomBox?: boolean;
+};
+
 export type SupplierRow = {
   id: string;
   name: string;
@@ -96,6 +109,7 @@ export type SupplierRow = {
   country: string | null;
   rating: string | number | null;
   notes: string;
+  profile?: SupplierProfileMeta | null;
   created_at: string;
 };
 

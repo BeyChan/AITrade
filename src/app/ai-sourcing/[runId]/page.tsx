@@ -655,7 +655,7 @@ function HypothesisCard({
             </div>
             <div className="ai-smart-intake-actions">
               <Link href="/competitors" className="button primary">
-                竞品对比研报
+                竞品研报
               </Link>
               <Link href="/import" className="button secondary">
                 批量导入 CSV

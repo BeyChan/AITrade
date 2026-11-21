@@ -61,12 +61,16 @@ export async function generateSupplierRfqFromCompetitors(
   "formattedText": "可发给工厂的完整问询话术，开头注明本单为待确认草案"
 }`;
 
+      const actionablePains = (report.painPointMatrix || []).filter(
+        (p) => p.category === "structural_design" || p.category === "packaging_accessories",
+      );
       const aiResponse = await generateStructuredJSON({
         systemPrompt,
         userPrompt: JSON.stringify({
           category,
           conceptName,
           weaknessesToAddress: weaknesses,
+          actionableEngineeringPains: actionablePains.length > 0 ? actionablePains : undefined,
           attackVector,
           targetPriceRmb: targetCostRmb,
           priceCaveat,

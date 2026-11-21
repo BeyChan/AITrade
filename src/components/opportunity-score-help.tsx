@@ -104,7 +104,7 @@ export function OpportunityScoreHelp() {
               </div>
 
               <div style={{ background: "var(--green-soft)", padding: "12px 14px", borderRadius: "10px", border: "1px solid rgba(31, 122, 85, 0.2)", fontSize: "12px" }}>
-                <strong style={{ color: "var(--green)" }}>商品指数（竞品对比工作台，0～100）</strong>
+                <strong style={{ color: "var(--green)" }}>商品指数（竞品研报，0～100）</strong>
                 <div style={{ marginTop: "4px" }}>
                   用 HHI 集中度、评论对数阻力、价格变异系数与贝叶斯评分描述「这个赛道卷不卷」，<strong>仅供选品参考，不参与 GO 判定</strong>。两个分数回答的是不同问题，不能互相替代。
                 </div>

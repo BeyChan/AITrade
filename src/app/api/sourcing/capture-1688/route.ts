@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getEffectiveFxRate } from "@/lib/fx-rates";
+import { getComparisonReportById, saveComparisonReport } from "@/lib/competitor-compare/storage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -61,11 +63,26 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as {
       caseId?: string;
+      reportId?: string;
+      competitorAsin?: string;
       fxRate?: number;
       candidates?: Captured1688Item[];
     };
-    const caseId = (body.caseId || "").trim() || null;
-    const fxRate = Number(body.fxRate) > 0 ? Number(body.fxRate) : 7.25;
+    const rawTarget = (body.caseId || "").trim();
+    let caseId: string | null = rawTarget || null;
+    let reportId: string | null = (body.reportId || "").trim() || null;
+    let competitorAsin: string | null = (body.competitorAsin || "").trim().toUpperCase() || null;
+    // 兼容扩展下拉框统一 value 格式："report:<reportId>:<asin>"
+    if (rawTarget.startsWith("report:")) {
+      const parts = rawTarget.split(":");
+      if (parts.length >= 3) {
+        reportId = parts[1] || null;
+        competitorAsin = (parts[2] || "").toUpperCase() || null;
+        caseId = null;
+      }
+    }
+    const defaultUsdFx = await getEffectiveFxRate("USD");
+    const fxRate = Number(body.fxRate) > 0 ? Number(body.fxRate) : defaultUsdFx;
     const rawList = Array.isArray(body.candidates) ? body.candidates.slice(0, 30) : [];
 
     if (rawList.length === 0) {
@@ -75,6 +92,7 @@ export async function POST(request: Request) {
     const db = await getDb();
     let importedSuppliers = 0;
     let importedQuotes = 0;
+    const collectedOffers: Array<{ cny: number; supplierName: string; offerUrl: string }> = [];
 
     for (const item of rawList) {
       const supplierName = (item.supplierName || item.title || "").trim().slice(0, 80);
@@ -90,20 +108,46 @@ export async function POST(request: Request) {
         [supplierName],
       );
       let supplierId = existing.rows[0]?.id;
+      const noteText = item.title
+        ? `1688 采集商品：${item.title.slice(0, 120)}${cny > 0 ? `（参考价 ¥${cny} / MOQ ${moq}）` : ""}`
+        : cny > 0
+          ? `Chrome 扩展采集（参考价 ¥${cny} / MOQ ${moq}）`
+          : "Chrome 扩展采集";
+      const profileJson = JSON.stringify({
+        ...(cny > 0 ? { priceCny: cny } : {}),
+        ...(moq > 0 ? { moq } : {}),
+        ...(item.title ? { offerTitle: item.title.slice(0, 120) } : {}),
+      });
       if (!supplierId) {
         supplierId = `sup-${randomUUID().slice(0, 12)}`;
+        await db.exec(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS profile JSONB NOT NULL DEFAULT '{}'::jsonb;`).catch(() => {});
         await db.query(
-          `INSERT INTO suppliers (id, name, platform, url, country, rating, notes)
-           VALUES ($1, $2, '1688', $3, $4, 4.6, $5)`,
+          `INSERT INTO suppliers (id, name, platform, url, country, rating, notes, profile)
+           VALUES ($1, $2, '1688', $3, $4, 4.6, $5, $6::jsonb)`,
           [
             supplierId,
             supplierName,
             supplierUrl || null,
             location || "CN",
-            item.title ? `1688 采集商品：${item.title.slice(0, 120)}` : "Chrome 扩展采集",
+            noteText,
+            profileJson,
           ],
         );
         importedSuppliers += 1;
+      } else if (cny > 0) {
+        await db.exec(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS profile JSONB NOT NULL DEFAULT '{}'::jsonb;`).catch(() => {});
+        await db.query(
+          `UPDATE suppliers SET profile = COALESCE(profile, '{}'::jsonb) || $2::jsonb WHERE id = $1`,
+          [supplierId, profileJson],
+        ).catch(() => {});
+      }
+
+      if (cny > 0) {
+        collectedOffers.push({
+          cny,
+          supplierName,
+          offerUrl: (item.offerUrl || supplierUrl || "").trim(),
+        });
       }
 
       // 2. 若指定了商品案卷且采到了价格，同步写入该案卷的 RFQ 与报价比价表
@@ -136,12 +180,60 @@ export async function POST(request: Request) {
       }
     }
 
-    const redirectUrl = caseId ? `/cases/${encodeURIComponent(caseId)}/sourcing` : "/sourcing";
+    // 3. 若选择了「回补竞品研报进价」，把本次采到的真实人民币中位价/最低价直接写回对应竞品 ASIN
+    let backfilledCompetitor = false;
+    let backfilledActualCny: number | null = null;
+    let backfilledMarket = "";
+    let backfilledPlatform = "";
+    if (reportId && competitorAsin && collectedOffers.length > 0) {
+      const report = await getComparisonReportById(reportId, { mode: "sandbox" });
+      if (report) {
+        const sorted = [...collectedOffers].sort((a, b) => a.cny - b.cny);
+        const median = sorted[Math.floor(sorted.length / 2)]!;
+        const best = sorted[0]!;
+        const maxOffer = sorted[sorted.length - 1]!;
+        const updatedCompetitors = report.competitors.map((c) => {
+          if ((c.asin || "").toUpperCase() !== competitorAsin) return c;
+          backfilledCompetitor = true;
+          backfilledActualCny = Number(median.cny.toFixed(2));
+          backfilledMarket = report.marketCode || "US";
+          backfilledPlatform = report.platformCode || "amazon";
+          return {
+            ...c,
+            sourcingCost: {
+              actualCny: Number(median.cny.toFixed(2)),
+              minCny: Number(best.cny.toFixed(2)),
+              maxCny: Number(maxOffer.cny.toFixed(2)),
+              sampleCount: sorted.length,
+              bestSupplierName: best.supplierName,
+              bestOfferUrl: best.offerUrl || undefined,
+              updatedAt: new Date().toISOString(),
+            },
+          };
+        });
+        if (backfilledCompetitor) {
+          await saveComparisonReport({ ...report, competitors: updatedCompetitors });
+          // 回补完成后自动移出待回补列表，不再重复出现在 Chrome 扩展下拉框
+          await db.query(
+            `DELETE FROM competitor_sourcing_targets WHERE id = $1`,
+            [`${reportId}:${competitorAsin}`],
+          ).catch(() => {});
+        }
+      }
+    }
+
+    const redirectUrl = backfilledCompetitor && reportId
+      ? `/competitors?id=${encodeURIComponent(reportId)}&market=${encodeURIComponent(backfilledMarket || "US")}&platform=${encodeURIComponent(backfilledPlatform || "amazon")}`
+      : caseId
+        ? `/cases/${encodeURIComponent(caseId)}/sourcing`
+        : "/sourcing";
     return NextResponse.json(
       {
         ok: true,
         importedSuppliers,
         importedQuotes,
+        backfilledCompetitor,
+        backfilledActualCny,
         totalReceived: rawList.length,
         redirectUrl,
       },

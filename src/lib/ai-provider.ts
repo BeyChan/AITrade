@@ -307,7 +307,7 @@ export async function generateStructuredJSON(
     body: JSON.stringify({
       model: config.model,
       temperature: 0,
-      max_tokens: input.maxTokens ?? 2_500,
+      max_tokens: Math.max(input.maxTokens ?? 4_096, 4_096),
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: input.systemPrompt },
@@ -317,13 +317,26 @@ export async function generateStructuredJSON(
     signal: AbortSignal.timeout(input.timeoutMs ?? 60_000),
   });
   if (!response.ok) throw await httpFailure("AI 接口请求失败", response);
-  const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-  const content = payload.choices?.[0]?.message?.content;
-  if (!content) throw new Error("AI 接口未返回结构化内容");
+  const payload = await response.json() as {
+    choices?: Array<{
+      finish_reason?: string | null;
+      message?: { content?: string | null; reasoning_content?: string | null };
+    }>;
+  };
+  const choice = payload.choices?.[0];
+  const rawContent = choice?.message?.content ?? "";
+  if (!rawContent.trim()) {
+    throw new Error(
+      choice?.finish_reason === "length"
+        ? "AI 推理耗尽了输出长度上限，未产出最终 JSON，请重试或换用非推理模型。"
+        : "AI 接口未返回结构化内容",
+    );
+  }
+  const extracted = extractJsonPayload(rawContent);
   return {
     provider: "openai-compatible",
     model: config.model,
-    content,
+    content: extracted,
     latencyMs: Date.now() - startedAt,
   };
 }
@@ -703,35 +716,119 @@ export function extractAnthropicText(payload: unknown): string {
 }
 
 export function extractJsonPayload(raw: string): string {
-  const trimmed = raw.trim();
-  if (!trimmed) return "";
-  if ((trimmed.startsWith("{") || trimmed.startsWith("[")) && tryParseJson(trimmed)) {
-    return trimmed;
+  // 去掉推理模型可能夹带的 <think>...</think> 思考块
+  const cleaned = raw.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+  if (!cleaned) return "";
+  if ((cleaned.startsWith("{") || cleaned.startsWith("[")) && tryParseJson(cleaned)) {
+    return cleaned;
   }
 
-  for (const match of trimmed.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)) {
+  for (const match of cleaned.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)) {
     const candidate = match[1]?.trim() ?? "";
     if (candidate && tryParseJson(candidate)) return candidate;
+    const sanitized = sanitizeJsonControlChars(candidate);
+    if (sanitized && tryParseJson(sanitized)) return sanitized;
   }
 
-  for (let start = 0; start < trimmed.length; start += 1) {
-    const ch = trimmed[start];
+  for (let start = 0; start < cleaned.length; start += 1) {
+    const ch = cleaned[start];
     if (ch !== "{" && ch !== "[") continue;
-    const end = findBalancedJsonEnd(trimmed, start);
+    const end = findBalancedJsonEnd(cleaned, start);
     if (end !== -1) {
-      const candidate = trimmed.slice(start, end + 1);
+      const candidate = cleaned.slice(start, end + 1);
       if (tryParseJson(candidate)) return candidate;
+      const sanitized = sanitizeJsonControlChars(candidate);
+      if (tryParseJson(sanitized)) return sanitized;
     }
   }
 
-  const objStart = trimmed.indexOf("{");
-  const objEnd = trimmed.lastIndexOf("}");
+  const objStart = cleaned.indexOf("{");
+  const objEnd = cleaned.lastIndexOf("}");
   if (objStart >= 0 && objEnd > objStart) {
-    const candidate = trimmed.slice(objStart, objEnd + 1);
+    const candidate = cleaned.slice(objStart, objEnd + 1);
     if (tryParseJson(candidate)) return candidate;
+    const sanitized = sanitizeJsonControlChars(candidate);
+    if (tryParseJson(sanitized)) return sanitized;
   }
 
-  return trimmed;
+  // 兜底：若模型输出因 max_tokens 被截断导致字符串/括号未闭合，尝试安全闭合
+  if (objStart >= 0) {
+    const repaired = repairTruncatedJson(sanitizeJsonControlChars(cleaned.slice(objStart)));
+    if (repaired && tryParseJson(repaired)) return repaired;
+  }
+
+  return cleaned;
+}
+
+/** 把 JSON 字符串字面量内未转义的换行/制表符转为合法转义，避免 Unterminated string 报错 */
+function sanitizeJsonControlChars(source: string): string {
+  let out = "";
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < source.length; i += 1) {
+    const ch = source[i]!;
+    if (inString) {
+      if (escaped) {
+        out += ch;
+        escaped = false;
+      } else if (ch === "\\") {
+        out += ch;
+        escaped = true;
+      } else if (ch === '"') {
+        out += ch;
+        inString = false;
+      } else if (ch === "\n") {
+        out += "\\n";
+      } else if (ch === "\r") {
+        out += "\\r";
+      } else if (ch === "\t") {
+        out += "\\t";
+      } else {
+        out += ch;
+      }
+      continue;
+    }
+    if (ch === '"') inString = true;
+    out += ch;
+  }
+  return out;
+}
+
+/** 轻量修复被截断的 JSON（闭合未结束的字符串、数组和对象） */
+function repairTruncatedJson(source: string): string {
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < source.length; i += 1) {
+    const ch = source[i]!;
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === "{") {
+      stack.push("}");
+    } else if (ch === "[") {
+      stack.push("]");
+    } else if ((ch === "}" || ch === "]") && stack.length > 0 && stack[stack.length - 1] === ch) {
+      stack.pop();
+    }
+  }
+  let fixed = source;
+  if (escaped) fixed = fixed.slice(0, -1);
+  if (inString) fixed += '"';
+  fixed = fixed.replace(/,\s*$/, "");
+  while (stack.length > 0) {
+    fixed += stack.pop();
+  }
+  return fixed;
 }
 
 function tryParseJson(value: string): boolean {

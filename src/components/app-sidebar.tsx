@@ -16,14 +16,14 @@ type SubItem = {
 type NavItem = {
   href: string;
   label: string;
-  icon: "ai" | "verify" | "competitor" | "case" | "sourcing" | "content" | "inbox" | "data" | "settings" | "connection" | "audit";
+  icon: "ai" | "verify" | "competitor" | "case" | "sourcing" | "content" | "inbox" | "data" | "fx" | "settings" | "connection" | "audit";
   subItems?: SubItem[];
 };
 
 const MAIN_NAV_ITEMS: NavItem[] = [
   {
     href: "/",
-    label: "工作台大盘",
+    label: "工作台",
     icon: "ai",
   },
   {
@@ -32,7 +32,7 @@ const MAIN_NAV_ITEMS: NavItem[] = [
     icon: "competitor",
     subItems: [
       { href: "/discover", label: "3 步快速选品" },
-      { href: "/competitors", label: "竞品对比研报" },
+      { href: "/competitors", label: "竞品研报" },
       { href: "/import", label: "批量导入 CSV" },
     ],
   },
@@ -53,7 +53,7 @@ const MAIN_NAV_ITEMS: NavItem[] = [
   },
   {
     href: "/sourcing",
-    label: "1688 工厂库",
+    label: "供应商管理",
     icon: "sourcing",
   },
   {
@@ -64,6 +64,7 @@ const MAIN_NAV_ITEMS: NavItem[] = [
 ];
 
 const SETTINGS_NAV_ITEMS: NavItem[] = [
+  { href: "/fx-rates", label: "实时汇率", icon: "fx" },
   { href: "/settings", label: "模型与系统设置", icon: "settings" },
   { href: "/audit-logs", label: "操作记录", icon: "audit" },
 ];
@@ -154,6 +155,16 @@ function NavIcon({ name }: { name: NavItem["icon"] }) {
         <ellipse cx="12" cy="5" rx="7" ry="3" />
         <path d="M5 5v7c0 1.7 3.1 3 7 3s7-1.3 7-3V5" />
         <path d="M5 12v7c0 1.7 3.1 3 7 3s7-1.3 7-3v-7" />
+      </svg>
+    );
+  }
+
+  if (name === "fx") {
+    return (
+      <svg {...common}>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M9.5 9.5c0-1.1 1.1-2 2.5-2s2.5.9 2.5 2-1.1 2-2.5 2-2.5.9-2.5 2 1.1 2 2.5 2 2.5-.9 2.5-2" />
+        <path d="M12 6v1.5M12 16.5V18" />
       </svg>
     );
   }

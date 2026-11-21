@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { SampleLogRecord, SampleLogStatus } from "@/app/api/cases/[id]/samples/route";
+import { getFxRate } from "@/lib/currency";
 import { shortDate } from "@/lib/format";
+import { FX_UPDATED_EVENT } from "./topbar-fx-widget";
 
 const STATUS_META: Record<SampleLogStatus, { label: string; cls: string }> = {
   ordered: { label: "已下单发样", cls: "badge-neutral" },
@@ -27,7 +29,21 @@ export function SourcingPracticalTools({
 }) {
   // 1. 人民币与箱规头程快捷换算器
   const [unitPriceCny, setUnitPriceCny] = useState("28");
-  const [fxRate, setFxRate] = useState("7.25");
+  const [fxRate, setFxRate] = useState(() => String(getFxRate("USD")));
+  const [fxTouched, setFxTouched] = useState(false);
+
+  useEffect(() => {
+    function onFxUpdated() {
+      if (!fxTouched) {
+        setFxRate(String(getFxRate("USD")));
+      }
+    }
+    if (!fxTouched) {
+      setFxRate(String(getFxRate("USD")));
+    }
+    window.addEventListener(FX_UPDATED_EVENT, onFxUpdated);
+    return () => window.removeEventListener(FX_UPDATED_EVENT, onFxUpdated);
+  }, [fxTouched]);
   const [weightKg, setWeightKg] = useState("0.45");
   const [lengthCm, setLengthCm] = useState("22");
   const [widthCm, setWidthCm] = useState("16");
@@ -157,7 +173,15 @@ export function SourcingPracticalTools({
           </label>
           <label className="field">
             <span>汇率 (USD/CNY)</span>
-            <input type="number" step="0.01" value={fxRate} onChange={(e) => setFxRate(e.target.value)} />
+            <input
+              type="number"
+              step="0.01"
+              value={fxRate}
+              onChange={(e) => {
+                setFxTouched(true);
+                setFxRate(e.target.value);
+              }}
+            />
           </label>
           <label className="field">
             <span>单件实重 (kg)</span>

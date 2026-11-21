@@ -22,18 +22,18 @@ export default async function SourcingPage({
       <PageHeader
         breadcrumbs={[
           { label: "工作台", href: "/" },
-          { label: "工厂与供应链" },
+          { label: "供应商管理" },
         ]}
         eyebrow="供应链资产库"
-        title="1688 工厂与供应链资产库"
-        description="统一沉淀企业合作的 1688 实力商家、超级工厂与源头供应链档案。沉淀验厂资质、主营优势与历史定标记录，支持各商品案卷跨品类调取复用，杜绝人走资源丢。"
+        title="供应商管理"
+        description="统一沉淀合作工厂与源头供应链档案（兼容 1688、线下工厂、微信直采等多渠道）。沉淀验厂资质、主营优势与历史定标记录，支持各商品案卷跨品类调取复用，杜绝人走资源丢。"
         actions={
           <>
             <Link href="/#opportunities" className="button secondary">
               查看商品机会
             </Link>
             <Link href="/competitors" className="button ghost">
-              竞品对比
+              竞品研报
             </Link>
           </>
         }

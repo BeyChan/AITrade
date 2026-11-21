@@ -153,11 +153,19 @@ export async function generateAntiListingContent(
   ]
 }`;
 
+      const actionablePains = (report.painPointMatrix || []).filter(
+        (p) => p.category !== "physical_limit",
+      );
+      const physicalLimits = (report.painPointMatrix || []).filter(
+        (p) => p.category === "physical_limit",
+      );
       const aiResponse = await generateStructuredJSON({
         systemPrompt,
         userPrompt: JSON.stringify({
           category,
           weaknessesToExploit: weaknesses,
+          actionablePainMatrix: actionablePains.length > 0 ? actionablePains : undefined,
+          physicalLimitsToAvoidOverpromising: physicalLimits.length > 0 ? physicalLimits : undefined,
           attackVector,
           benchmarkStrengthsToRetain: commonStrengths,
           competitorTitles: report.competitors.map((c) => c.title),

@@ -2287,6 +2287,7 @@ export async function listSupplierDirectory(): Promise<{
   };
 }> {
   const db = await getDb();
+  await db.exec(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS profile JSONB NOT NULL DEFAULT '{}'::jsonb;`);
 
   // 1. 如果供应商库为空，自动初始化 4 家 1688 核心产业带示范工厂
   const countRes = await db.query<{ count: string }>("SELECT COUNT(*) FROM suppliers");

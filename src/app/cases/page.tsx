@@ -161,10 +161,10 @@ export default async function ProductCasesPage({ searchParams }: PageProps) {
           </div>
           <h3 style={{ margin: "0 0 6px 0", fontSize: "16px", color: "var(--ink)" }}>暂无匹配的商品案卷</h3>
           <p style={{ margin: "0 0 16px 0", fontSize: "13px", color: "var(--muted)" }}>
-            可在「竞品对比」工作台对标 1~4 个竞品后一键立项。
+            可在「竞品研报」工作台对标 1~4 个竞品后一键立项。
           </p>
           <Link href="/competitors" className="button primary">
-            进入竞品对比工作台
+            进入竞品研报工作台
           </Link>
         </div>
       ) : (

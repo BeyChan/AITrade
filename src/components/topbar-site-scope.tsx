@@ -3,6 +3,8 @@
 import type { ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { SiteScopeSwitcher } from "@/components/site-scope-switcher";
+import { TopbarFxWidget } from "@/components/topbar-fx-widget";
+import type { FxRatesSnapshot } from "@/lib/fx-rates";
 
 type MarketOption = {
   code: string;
@@ -21,6 +23,7 @@ type TopbarSiteScopeProps = {
   defaultMarket?: string;
   defaultPlatform?: string;
   leftSlot?: ReactNode;
+  fxSnapshot?: FxRatesSnapshot;
 };
 
 export function TopbarSiteScope({
@@ -29,17 +32,20 @@ export function TopbarSiteScope({
   defaultMarket = "US",
   defaultPlatform = "amazon",
   leftSlot,
+  fxSnapshot,
 }: TopbarSiteScopeProps) {
   const searchParams = useSearchParams();
 
   const requestedMarket = searchParams.get("market")?.trim().toUpperCase();
   const requestedPlatform = searchParams.get("platform")?.trim().toLowerCase();
 
-  const selectedMarket =
-    markets.find((market) => market.code === requestedMarket)?.code ??
-    markets.find((market) => market.code === defaultMarket)?.code ??
-    markets.find((market) => market.code === "US")?.code ??
-    markets[0]?.code;
+  const selectedMarketOption =
+    markets.find((market) => market.code === requestedMarket) ??
+    markets.find((market) => market.code === defaultMarket) ??
+    markets.find((market) => market.code === "US") ??
+    markets[0];
+  const selectedMarket = selectedMarketOption?.code;
+  const selectedCurrency = selectedMarketOption?.currency ?? "USD";
   const selectedPlatform =
     platforms.find((platform) => platform.code === requestedPlatform)?.code ??
     platforms.find((platform) => platform.code === defaultPlatform)?.code ??
@@ -49,15 +55,20 @@ export function TopbarSiteScope({
   return (
     <div className="topbar-inner">
       <div className="topbar-left">{leftSlot}</div>
-      {selectedMarket && selectedPlatform ? (
-        <SiteScopeSwitcher
-          markets={markets}
-          platforms={platforms}
-          selectedMarket={selectedMarket}
-          selectedPlatform={selectedPlatform}
-          variant="topbar"
-        />
-      ) : null}
+      <div className="topbar-right">
+        {fxSnapshot ? (
+          <TopbarFxWidget currency={selectedCurrency} initialSnapshot={fxSnapshot} />
+        ) : null}
+        {selectedMarket && selectedPlatform ? (
+          <SiteScopeSwitcher
+            markets={markets}
+            platforms={platforms}
+            selectedMarket={selectedMarket}
+            selectedPlatform={selectedPlatform}
+            variant="topbar"
+          />
+        ) : null}
+      </div>
     </div>
   );
 }
