@@ -6,11 +6,30 @@ import {
   extractAnthropicText,
 } from "./ai-provider.ts";
 import { loadAIProviderConfig, validateBaseUrl } from "./app-settings.ts";
+import { loadCopilotContext, type CopilotContext } from "./copilot-context.ts";
+import { moneyIn, percent } from "./format.ts";
 
 export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
 };
+
+export type CopilotContextPreview = {
+  scope: CopilotContext["scope"];
+  label: string;
+  badge: string;
+  quickPrompts: CopilotContext["quickPrompts"];
+};
+
+export async function getCopilotContextPreview(pathname: string): Promise<CopilotContextPreview> {
+  const ctx = await loadCopilotContext(pathname);
+  return {
+    scope: ctx.scope,
+    label: ctx.label,
+    badge: ctx.badge,
+    quickPrompts: ctx.quickPrompts,
+  };
+}
 
 const SYSTEM_PROMPT = `你是 AITrade 跨境电商超级智能业务助手（AI Copilot）。
 你的职责是协助跨境卖家和操盘手进行高确定性的选品决策、成本测算、1688 源头寻源与多平台 Listing 打造。
@@ -27,13 +46,24 @@ const SYSTEM_PROMPT = `你是 AITrade 跨境电商超级智能业务助手（AI 
 - 拒绝空洞套话，直接给出可执行的业务建议与核对清单；
 - 回答限制在 300 字以内，快速响应操盘手。`;
 
-export async function chatWithAiAssistant(history: ChatMessage[]): Promise<string> {
+export async function chatWithAiAssistant(
+  history: ChatMessage[],
+  options?: { pathname?: string },
+): Promise<string> {
   const lastUserMessage = history.filter((m) => m.role === "user").pop()?.content ?? "";
   if (!lastUserMessage.trim()) {
     return "请问有什么选品、1688 寻源或成本门禁相关的问题我可以帮您解答？";
   }
 
-  const config = await loadAIProviderConfig();
+  const [config, context] = await Promise.all([
+    loadAIProviderConfig(),
+    loadCopilotContext(options?.pathname ?? "/"),
+  ]);
+
+  const contextualSystemPrompt = `${SYSTEM_PROMPT}
+
+【当前在场业务上下文（仅可引用以下已核实数据，严禁编造额外数字或 ASIN）】
+${context.summaryText}`;
 
   // 如果配置了真实的大模型（OpenAI-compatible、Anthropic-compatible 或 Ollama）
   if (config.provider === "anthropic-compatible" && config.apiKey && config.baseUrl && config.model) {
@@ -49,7 +79,7 @@ export async function chatWithAiAssistant(history: ChatMessage[]): Promise<strin
         },
         body: JSON.stringify({
           model: config.model,
-          system: SYSTEM_PROMPT,
+          system: contextualSystemPrompt,
           messages,
           temperature: 0.7,
           max_tokens: 600,
@@ -82,7 +112,7 @@ export async function chatWithAiAssistant(history: ChatMessage[]): Promise<strin
         body: JSON.stringify({
           model: config.model,
           messages: [
-            { role: "system", content: SYSTEM_PROMPT },
+            { role: "system", content: contextualSystemPrompt },
             ...history.slice(-6),
           ],
           temperature: 0.7,
@@ -111,7 +141,7 @@ export async function chatWithAiAssistant(history: ChatMessage[]): Promise<strin
           model: config.model,
           stream: false,
           messages: [
-            { role: "system", content: SYSTEM_PROMPT },
+            { role: "system", content: contextualSystemPrompt },
             ...history.slice(-6),
           ],
         }),
@@ -128,8 +158,8 @@ export async function chatWithAiAssistant(history: ChatMessage[]): Promise<strin
     }
   }
 
-  // 内置跨境操盘手智能应答引擎（免配置开箱即用）
-  return generateDeterministicKnowledgeResponse(lastUserMessage);
+  // 内置跨境操盘手智能应答引擎（结合在场上下文，免配置开箱即用）
+  return generateDeterministicKnowledgeResponse(lastUserMessage, context);
 }
 
 function normalizeAnthropicMessages(history: ChatMessage[], fallbackUserMessage: string): ChatMessage[] {
@@ -151,8 +181,42 @@ function normalizeAnthropicMessages(history: ChatMessage[], fallbackUserMessage:
   return merged;
 }
 
-function generateDeterministicKnowledgeResponse(question: string): string {
+function generateDeterministicKnowledgeResponse(question: string, context?: CopilotContext): string {
   const q = question.toLowerCase();
+  const snap = context?.caseSnapshot;
+
+  // 若用户在具体案卷页，优先输出基于当前案卷真实数据的确定性诊断
+  if (snap && (q.includes("门禁") || q.includes("利润") || q.includes("成本") || q.includes("18%") || q.includes("破局") || q.includes("诊断"))) {
+    const gapText = snap.landedGapCents > 0
+      ? `超出 18% 门禁上限 **${moneyIn(snap.currency, snap.landedGapCents)}（约 ¥${snap.landedGapRmb}）**`
+      : `低于上限，尚有 **${moneyIn(snap.currency, Math.abs(snap.landedGapCents))}** 安全缓冲`;
+    return `### 当前案卷 18% 门禁诊断（${snap.asin}）
+
+当前判定 **${snap.recommendation}（${snap.score} 分）**：售价 ${moneyIn(snap.currency, snap.salePriceCents)}，单件净利 ${moneyIn(snap.currency, snap.netProfitCents)}（净利率 **${percent(snap.marginRate)}**），压力情景净利 **${moneyIn(snap.currency, snap.stressProfitCents)}**。
+
+1. **到岸成本底线**：要满足 18% 净利率，最高允许到岸成本为 **${moneyIn(snap.currency, snap.maxLandedFor18Cents)}**；当前录入 ${moneyIn(snap.currency, snap.landedCostCents)}，${gapText}。
+2. **广告安全线**：当前 ACoS 设为 ${percent(snap.adRate)}，广告盈亏平衡点为 **${percent(snap.breakEvenAdRate)}**（超过此线即单件亏损）。
+3. **立即可试的破局动作**：直接拖动本页「交互式财务沙盘」滑杆，验证：① 1688 压价 ¥${snap.landedGapRmb > 0 ? snap.landedGapRmb : 3} 降本；② 压缩彩盒体积降头程/FBA 费；③ 借竞品差评做配件组合提价测试。`;
+  }
+
+  if (snap && (q.includes("1688") || q.includes("压价") || q.includes("话术") || q.includes("工厂") || q.includes("询价"))) {
+    return `### 针对「${snap.category} · ${snap.asin}」的 1688 压价底牌与话术
+
+本品按售价 ${moneyIn(snap.currency, snap.salePriceCents)} 倒推，含头程与关税的**最高允许到岸价为 ${moneyIn(snap.currency, snap.maxLandedFor18Cents)}**${snap.landedGapCents > 0 ? `（当前需再压降约 ¥${snap.landedGapRmb}/件）` : "（当前已达标，仍可谈阶梯让利）"}。
+
+1. **可直接复制的询价/压价话术**：
+   「你好，我们在做 ${snap.marketplace} 站 ${snap.category} 精品线，首单预计 300–500 套，稳定后月返单 1500+。目前对比了 3 家源头厂，贵司品质很匹配，但核算亚马逊 FBA 与头程后，含税出厂价需要再降 ¥${snap.landedGapRmb > 0 ? Math.ceil(snap.landedGapRmb) : 3} 左右才能立项。如果首单 500 套且简化非核心配件/改中性牛皮纸内盒，能否给到这个底价？」
+2. **必问三项防坑**：核对单箱尺寸与毛重（防抛货体积重）、打样费是否大货可退、交期与质检不良率承诺。`;
+  }
+
+  if (snap && (q.includes("广告") || q.includes("退货") || q.includes("风险") || q.includes("止损"))) {
+    const headroom = snap.breakEvenAdRate - snap.adRate;
+    return `### 案卷风险与止损线评估（${snap.asin}）
+
+- **广告容错空间**：当前设定 ACoS ${percent(snap.adRate)}，盈亏平衡点 **${percent(snap.breakEvenAdRate)}**（余量 **${percent(headroom)}**）。冷启动期建议将单品广告止损线设为 ${percent(Math.max(0.15, snap.breakEvenAdRate))}。
+- **退货与压测**：当前假设退货率 ${percent(snap.returnRate)}；压力情景（售价 −10%、成本 +20%、广告 +20%、退货 +2%）下净利为 **${moneyIn(snap.currency, snap.stressProfitCents)}**${snap.stressProfitCents <= 0 ? "（已亏损，务必先压低采购价或提高客单价）" : "（仍保持盈利，抗风险合格）"}。
+- **当前卡点**：${snap.riskReasons.length ? snap.riskReasons.join("；") : "基础财务与门禁均已通过，可推进下一步。"}`;
+  }
 
   if (q.includes("门禁") || q.includes("利润") || q.includes("成本") || q.includes("18%")) {
     return `### 📊 18% 净利润硬门禁倒推指引

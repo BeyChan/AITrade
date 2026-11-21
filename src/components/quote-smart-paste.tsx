@@ -201,6 +201,67 @@ export function QuoteSmartPaste({ disabled }: { disabled?: boolean }) {
     setStatusMsg(`✓ 成功就地识别并填入 ${count} 个字段（含单价、MOQ、交期、供应商等）。请在下方表单核对后点击保存！`);
   };
 
+  const [isExtractingImage, setIsExtractingImage] = useState(false);
+
+  const handleImageUpload = async (file: File | null) => {
+    if (!file || disabled) return;
+    setIsExtractingImage(true);
+    setStatusMsg("正在调用多模态模型识别报价单截图…");
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/sourcing/extract-quote-image", {
+        method: "POST",
+        body: formData,
+      });
+      const json = (await res.json()) as {
+        success?: boolean;
+        fields?: ExtractedFields;
+        count?: number;
+        error?: string;
+      };
+      if (!res.ok || !json.success || !json.fields) {
+        setStatusMsg(json.error || "报价单截图识别失败，请改用文本粘贴");
+        return;
+      }
+
+      const fieldMap: Record<keyof ExtractedFields, string> = {
+        supplierName: "supplierName",
+        supplierPlatform: "supplierPlatform",
+        supplierUrl: "supplierUrl",
+        contact: "contact",
+        country: "country",
+        unitPrice: "unitPrice",
+        freightPerUnit: "freightPerUnit",
+        dutyRate: "dutyRate",
+        moq: "moq",
+        leadTimeDays: "leadTimeDays",
+        sampleFee: "sampleFee",
+        incoterm: "incoterm",
+        paymentTerms: "paymentTerms",
+        certifications: "certifications",
+        supplierNotes: "supplierNotes",
+      };
+
+      for (const [key, elementId] of Object.entries(fieldMap) as Array<[keyof ExtractedFields, string]>) {
+        const val = json.fields[key];
+        if (val !== undefined) {
+          const el = document.getElementById(elementId) as HTMLInputElement | HTMLTextAreaElement | null;
+          if (el) {
+            el.value = val;
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+            el.dispatchEvent(new Event("change", { bubbles: true }));
+          }
+        }
+      }
+      setStatusMsg(`✓ 多模态视觉识别成功，已提取并填入 ${json.count ?? 0} 个字段（待人工核对后保存）。`);
+    } catch {
+      setStatusMsg("网络或视觉服务异常，请改用文本粘贴。");
+    } finally {
+      setIsExtractingImage(false);
+    }
+  };
+
   const handlePresetExample = () => {
     setPasteText("供应商：义乌市星火塑胶实业有限公司\n业务员：张经理 13800138000\n采购单价：3.20 USD\n单件海运运费：0.45 USD\n起订量 MOQ：1000 件\n交货周期：20 天\n样品费：30 USD\n贸易条款：FOB Ningbo\n付款条件：30% 定金，70% 验货后见提单付清\n通过认证：CE, RoHS, BPA Free");
     setStatusMsg(null);
@@ -290,8 +351,25 @@ export function QuoteSmartPaste({ disabled }: { disabled?: boolean }) {
                 disabled={disabled || !pasteText.trim()}
                 style={{ fontSize: "12px", padding: "6px 14px", height: "auto" }}
               >
-                ⚡ 一键解析并填入下方表单
+                一键解析并填入下方表单
               </button>
+              <label
+                className="button secondary"
+                style={{ fontSize: "12px", padding: "6px 12px", height: "auto", cursor: disabled || isExtractingImage ? "not-allowed" : "pointer" }}
+              >
+                {isExtractingImage ? "识别截图中…" : "上传报价单截图 (多模态识别)"}
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  disabled={disabled || isExtractingImage}
+                  style={{ display: "none" }}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] ?? null;
+                    e.target.value = "";
+                    void handleImageUpload(file);
+                  }}
+                />
+              </label>
               <button
                 type="button"
                 className="button secondary"

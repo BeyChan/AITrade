@@ -18,6 +18,8 @@ export const OFFICIAL_FX_CONFIG: Record<string, FxRateDefinition> = {
   GBP: { currency: "GBP", rateToRmb: 9.35, symbol: "£", source: "BOE 官方基准价", effectiveDate: "2026-11-01" },
   JPY: { currency: "JPY", rateToRmb: 0.0475, symbol: "¥", source: "BOJ 官方基准价", effectiveDate: "2026-11-01" },
   CAD: { currency: "CAD", rateToRmb: 5.28, symbol: "C$", source: "BOC 官方基准价", effectiveDate: "2026-11-01" },
+  SGD: { currency: "SGD", rateToRmb: 5.38, symbol: "S$", source: "MAS 官方基准价", effectiveDate: "2026-11-01" },
+  MYR: { currency: "MYR", rateToRmb: 1.62, symbol: "RM", source: "BNM 官方基准价", effectiveDate: "2026-11-01" },
 };
 
 /**

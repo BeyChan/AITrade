@@ -3,7 +3,10 @@ import { notFound } from "next/navigation";
 import { updateCostModelAction } from "@/app/actions";
 import { RecommendationBadge, StatusBadge } from "@/components/badges";
 import { CaseStepper } from "@/components/case-stepper";
+import { EconomicsSandbox } from "@/components/economics-sandbox";
+import { LogisticsCashflowPanel } from "@/components/logistics-cashflow-panel";
 import { OpportunityScoreHelp } from "@/components/opportunity-score-help";
+import { PrelaunchCompliancePanel } from "@/components/prelaunch-compliance-panel";
 import { money, percent, shortDate } from "@/lib/format";
 import { opportunityScore, recommendationFor } from "@/lib/economics";
 import { getCaseDetail } from "@/lib/repository";
@@ -27,7 +30,7 @@ export default async function CaseDetailPage({ params }: PageProps) {
   const riskMessages: string[] = [];
   if (result && !result.isProfitable) riskMessages.push("基准情景不盈利");
   if (result && result.stressProfitCents <= 0) riskMessages.push("压力情景亏损");
-  if (result && result.marginRate < 0.15) riskMessages.push("净利率低于 15%");
+  if (result && result.marginRate < 0.18) riskMessages.push("净利率低于 18% 硬门禁");
   if (productCase.evidence_score < 50) riskMessages.push("证据完整度不足");
   if (productCase.is_demo) riskMessages.push("当前为演示数据");
 
@@ -119,6 +122,33 @@ export default async function CaseDetailPage({ params }: PageProps) {
               <p className="muted">请先补充成本参数。</p>
             )}
           </section>
+
+          {assumptions ? (
+            <EconomicsSandbox
+              assumptions={assumptions}
+              monthlySalesEstimate={productCase.monthly_sales_estimate}
+              reviewCount={productCase.review_count}
+              evidenceScore={productCase.evidence_score}
+              currency={productCase.currency || assumptions.currency || "USD"}
+            />
+          ) : null}
+
+          {assumptions && result ? (
+            <LogisticsCashflowPanel
+              marketCode={productCase.marketplace || "US"}
+              currency={productCase.currency || assumptions.currency || "USD"}
+              salePriceCents={assumptions.salePriceCents}
+              landedCostCents={assumptions.landedCostCents}
+              steadyNetProfitCents={result.netProfitCents}
+              monthlySalesEstimate={productCase.monthly_sales_estimate}
+            />
+          ) : null}
+
+          <PrelaunchCompliancePanel
+            marketCode={productCase.marketplace || "US"}
+            productTitle={productCase.title}
+            category={productCase.category}
+          />
 
           <section className="section">
             <div className="section-header">

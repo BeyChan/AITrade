@@ -30,6 +30,7 @@ import { emptyListingContent, normalizeListingContent, preflightListing } from "
 import { getContentDetail } from "@/lib/repository";
 import { ComplianceRadarCard } from "@/components/compliance-radar-card";
 import { ImageStudioPanel } from "@/components/image-studio-panel";
+import { SerpShelfTest } from "@/components/serp-shelf-test";
 import { scanListingCompliance } from "@/lib/compliance-radar";
 import { getImageProviderStatus } from "@/lib/image-provider";
 import { listAvailableImageSkills } from "@/lib/image-skills";
@@ -265,6 +266,13 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
                 topPainPoints={benchmark ? benchmark.themes.slice(0, 3).map((theme) => theme.theme) : []}
                 uploadAction={uploadMainImageAction}
                 reviewAction={reviewMainImageAction}
+              />
+
+              <SerpShelfTest
+                myTitle={content.title || productCase.title}
+                myPriceCents={costModel?.assumptions.salePriceCents ?? productCase.competitor_price_cents}
+                currency={productCase.currency || costModel?.assumptions.currency || "USD"}
+                myImageUrl={latestMainImage ? latestMainImage.file_url : null}
               />
 
               <section className="section">

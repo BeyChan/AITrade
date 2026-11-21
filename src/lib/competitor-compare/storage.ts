@@ -68,28 +68,32 @@ async function writeReports(reports: CompetitorComparisonReport[]): Promise<void
   await fs.rename(tmp, STORAGE_FILE);
 }
 
-export async function getComparisonReports(options?: { mode?: "sandbox" | "live" }): Promise<CompetitorComparisonReport[]> {
+async function readAllReports(): Promise<CompetitorComparisonReport[]> {
   try {
     const raw = await fs.readFile(STORAGE_FILE, "utf-8");
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    const all = parsed.map(normalizeReport).filter((r): r is CompetitorComparisonReport => r !== null);
-    let mode = options?.mode;
-    if (!mode) {
-      try {
-        const { getAppMode } = await import("@/lib/app-mode");
-        mode = await getAppMode();
-      } catch {
-        mode = "sandbox";
-      }
-    }
-    if (mode === "live") {
-      return all.filter((r) => r.provenance !== "demo");
-    }
-    return all;
+    return parsed.map(normalizeReport).filter((r): r is CompetitorComparisonReport => r !== null);
   } catch {
     return [];
   }
+}
+
+export async function getComparisonReports(options?: { mode?: "sandbox" | "live" }): Promise<CompetitorComparisonReport[]> {
+  const all = await readAllReports();
+  let mode = options?.mode;
+  if (!mode) {
+    try {
+      const { getAppMode } = await import("@/lib/app-mode");
+      mode = await getAppMode();
+    } catch {
+      mode = "sandbox";
+    }
+  }
+  if (mode === "live") {
+    return all.filter((r) => r.provenance !== "demo");
+  }
+  return all;
 }
 
 export async function getComparisonReportById(id: string, options?: { mode?: "sandbox" | "live" }): Promise<CompetitorComparisonReport | null> {
@@ -99,7 +103,7 @@ export async function getComparisonReportById(id: string, options?: { mode?: "sa
 
 export async function saveComparisonReport(report: CompetitorComparisonReport): Promise<void> {
   return serialized(async () => {
-    const reports = await getComparisonReports();
+    const reports = await readAllReports();
     const filtered = reports.filter((r) => r.id !== report.id);
     await writeReports([report, ...filtered].slice(0, MAX_COMPARISON_REPORTS));
   });
@@ -107,7 +111,7 @@ export async function saveComparisonReport(report: CompetitorComparisonReport): 
 
 export async function deleteComparisonReport(id: string): Promise<void> {
   return serialized(async () => {
-    const reports = await getComparisonReports();
+    const reports = await readAllReports();
     await writeReports(reports.filter((r) => r.id !== id));
   });
 }
@@ -115,7 +119,7 @@ export async function deleteComparisonReport(id: string): Promise<void> {
 /** 人工确认后才允许把研报内容写入商品草稿或转入选品池 */
 export async function confirmComparisonReport(id: string): Promise<CompetitorComparisonReport | null> {
   return serialized(async () => {
-    const reports = await getComparisonReports();
+    const reports = await readAllReports();
     const target = reports.find((r) => r.id === id);
     if (!target) return null;
 
@@ -137,7 +141,7 @@ export async function confirmComparisonReport(id: string): Promise<CompetitorCom
 /** 标记竞品研报已正式立项，防止重复创建案卷并实现业务流转闭环 */
 export async function markComparisonReportPromoted(id: string, caseId: string): Promise<void> {
   return serialized(async () => {
-    const reports = await getComparisonReports();
+    const reports = await readAllReports();
     const updated = reports.map((r) => {
       if (r.id === id) {
         return {

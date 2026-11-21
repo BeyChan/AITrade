@@ -12,6 +12,7 @@ import {
 import type { AntiListingResult } from "@/lib/competitor-compare/anti-listing";
 import type { SupplierRfqDraft } from "@/lib/competitor-compare/supplier-rfq";
 import { calculateProductIndex } from "@/lib/competitor-compare/competitiveness";
+import { CompetitorQuadrantChart } from "@/components/competitor-quadrant-chart";
 import { calculateEconomics, type EconomicsAssumptions } from "@/lib/economics";
 import { platformEconomicDefaults } from "@/lib/ai-sourcing";
 import { convertRmbToForeignCents, OFFICIAL_FX_CONFIG } from "@/lib/currency";
@@ -1443,6 +1444,14 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
               </div>
             </div>
           </section>
+
+          {/* 1.5 市场格局四象限气泡图 */}
+          <CompetitorQuadrantChart
+            competitors={currentReport.competitors}
+            currency={currentReport.currency}
+            p50PriceCents={currentReport.priceStats.p50}
+            targetPriceCents={Math.round(targetPriceVal * 100)}
+          />
 
           {/* 2. 竞品多维横向 PK 矩阵 */}
           <section className="panel" style={{ padding: "24px" }}>

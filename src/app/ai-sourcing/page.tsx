@@ -22,7 +22,7 @@ export default async function AISourcingBatchListPage({ searchParams }: PageProp
           <h2>所有研究批次</h2>
           <p>统一查看所有国家和平台的研究记录，按创建时间倒序完整展示。打开批次可继续补充证据、报价并执行确定性决策。</p>
           <div className="button-row ai-batch-list-actions">
-            <Link href="/" className="button primary">新建选品研究</Link>
+            <Link href="/discover" className="button primary">新建选品（3 步向导）</Link>
             <Link href="/" className="button secondary">返回工作台</Link>
           </div>
         </div>

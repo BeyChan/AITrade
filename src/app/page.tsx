@@ -182,7 +182,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
               : "当前没有必须人工处理的事项，可以查看商品进度或发起新一轮选品研究。"}
           </p>
           <div className="dashboard-hero-actions">
-            <Link href={newResearchHref} className="button primary">新建选品研究</Link>
+            <Link href={`/discover?${siteQuery}`} className="button primary">开始选品（3 步向导）</Link>
             <Link href="#pipeline-kanban" className="button secondary">查看业务推进大盘</Link>
           </div>
         </div>

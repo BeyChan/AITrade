@@ -1,9 +1,14 @@
 "use client";
 
 import { useEffect, useState, useTransition, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { searchGlobal, type SearchResultItem } from "@/lib/search-actions";
-import { chatWithAiAssistant, type ChatMessage } from "@/lib/ai-assistant-action";
+import {
+  chatWithAiAssistant,
+  getCopilotContextPreview,
+  type ChatMessage,
+  type CopilotContextPreview,
+} from "@/lib/ai-assistant-action";
 
 type LauncherMode = "search" | "chat";
 
@@ -16,8 +21,10 @@ const DEFAULT_GREETING: ChatMessage = {
 
 export function GlobalSearch() {
   const router = useRouter();
+  const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
   const [mode, setMode] = useState<LauncherMode>("search");
+  const [copilotCtx, setCopilotCtx] = useState<CopilotContextPreview | null>(null);
 
   // Search state
   const [query, setQuery] = useState("");
@@ -113,6 +120,22 @@ export function GlobalSearch() {
     }
   }
 
+  useEffect(() => {
+    if (isOpen && mode === "chat") {
+      let cancelled = false;
+      getCopilotContextPreview(pathname || "/")
+        .then((ctx) => {
+          if (!cancelled) setCopilotCtx(ctx);
+        })
+        .catch(() => {
+          if (!cancelled) setCopilotCtx(null);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+  }, [isOpen, mode, pathname]);
+
   async function sendChatMessage(promptText?: string) {
     const textToSend = (promptText ?? chatInput).trim();
     if (!textToSend || isAnswering) return;
@@ -123,12 +146,12 @@ export function GlobalSearch() {
     setIsAnswering(true);
 
     try {
-      const answer = await chatWithAiAssistant(newHistory);
+      const answer = await chatWithAiAssistant(newHistory, { pathname: pathname || "/" });
       setChatHistory([...newHistory, { role: "assistant", content: answer }]);
     } catch {
       setChatHistory([
         ...newHistory,
-        { role: "assistant", content: "⚠️ AI 响应异常，请检查网络或设置中的 API Key 配置。" },
+        { role: "assistant", content: "AI 响应异常，请检查网络或设置中的 API Key 配置。" },
       ]);
     } finally {
       setIsAnswering(false);
@@ -283,6 +306,13 @@ export function GlobalSearch() {
             {/* 模式 B：AI 业务对话助手 */}
             {mode === "chat" && (
               <div className="chat-mode-container">
+                {copilotCtx ? (
+                  <div className="copilot-context-bar">
+                    <span className="copilot-context-dot" />
+                    <span className="copilot-context-label">在场上下文：{copilotCtx.label}</span>
+                    <span className="copilot-context-badge mono">{copilotCtx.badge}</span>
+                  </div>
+                ) : null}
                 <div className="chat-messages-scroll">
                   {chatHistory.map((msg, i) => (
                     <div key={i} className={`chat-bubble-row ${msg.role}`}>
@@ -315,20 +345,22 @@ export function GlobalSearch() {
                   <div ref={chatBottomRef} />
                 </div>
 
-                {/* 快捷业务提问推荐芯片 */}
+                {/* 快捷业务提问推荐芯片（随当前页面上下文动态切换） */}
                 <div className="chat-quick-chips">
-                  <button type="button" onClick={() => sendChatMessage("帮我分析商品 18% 净利门禁如何倒推采购成本？")}>
-                    📊 18% 门禁倒推
-                  </button>
-                  <button type="button" onClick={() => sendChatMessage("1688 首次询价如何与源头工厂谈 MOQ 和打样？")}>
-                    🏭 1688 询价压价
-                  </button>
-                  <button type="button" onClick={() => sendChatMessage("亚马逊美国站 vs 日本站选品注意哪些差异？")}>
-                    ⚖️ 美日站点差异
-                  </button>
-                  <button type="button" onClick={() => sendChatMessage("Listing 标题与外观如何规避专利与品牌侵权？")}>
-                    🛡️ 防侵权排查
-                  </button>
+                  {(copilotCtx?.quickPrompts ?? [
+                    { label: "18% 门禁倒推", prompt: "帮我分析商品 18% 净利门禁如何倒推采购成本？" },
+                    { label: "1688 询价压价", prompt: "1688 首次询价如何与源头工厂谈 MOQ 和打样？" },
+                    { label: "美日站点差异", prompt: "亚马逊美国站 vs 日本站选品注意哪些差异？" },
+                    { label: "防侵权排查", prompt: "Listing 标题与外观如何规避专利与品牌侵权？" },
+                  ]).map((chip) => (
+                    <button
+                      key={chip.label}
+                      type="button"
+                      onClick={() => sendChatMessage(chip.prompt)}
+                    >
+                      {chip.label}
+                    </button>
+                  ))}
                 </div>
 
                 {/* 对话输入栏 */}

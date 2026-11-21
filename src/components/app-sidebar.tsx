@@ -26,13 +26,14 @@ const MAIN_NAV_ITEMS: NavItem[] = [
     icon: "ai",
   },
   {
-    href: "/competitors",
-    label: "选品与研报",
+    href: "/discover",
+    label: "选品中心",
     icon: "competitor",
     subItems: [
-      { href: "/competitors", label: "竞品对比" },
-      { href: "/import", label: "批量录入商品" },
-      { href: "/ai-sourcing", label: "AI 选品推演" },
+      { href: "/discover", label: "3 步快速选品" },
+      { href: "/competitors", label: "竞品对比研报" },
+      { href: "/ai-sourcing", label: "AI 选品批次" },
+      { href: "/import", label: "批量导入 CSV" },
     ],
   },
   {
@@ -53,6 +54,11 @@ const MAIN_NAV_ITEMS: NavItem[] = [
       { href: "/content", label: "内容工作台" },
       { href: "/image-studio", label: "AI 生图工坊" },
     ],
+  },
+  {
+    href: "/operations",
+    label: "实盘复盘",
+    icon: "data",
   },
 ];
 
@@ -183,10 +189,11 @@ function NavIcon({ name }: { name: NavItem["icon"] }) {
 
 function matchParentNav(item: NavItem, pathname: string): boolean {
   if (item.href === "/" && pathname === "/") return true;
-  if (item.href === "/competitors" && (pathname.startsWith("/competitors") || pathname === "/import" || pathname.startsWith("/ai-sourcing"))) return true;
+  if (item.href === "/discover" && (pathname.startsWith("/discover") || pathname.startsWith("/competitors") || pathname === "/import" || pathname.startsWith("/ai-sourcing"))) return true;
   if (item.href === "/cases" && pathname.startsWith("/cases")) return true;
   if (item.href === "/sourcing" && pathname.startsWith("/sourcing")) return true;
   if (item.href === "/content" && (pathname.startsWith("/content") || pathname.startsWith("/approvals") || pathname.startsWith("/image-studio"))) return true;
+  if (item.href === "/operations" && pathname.startsWith("/operations")) return true;
   if (item.href === "/connections" && pathname.startsWith("/connections")) return true;
   if (item.href === "/settings" && pathname.startsWith("/settings")) return true;
   return false;

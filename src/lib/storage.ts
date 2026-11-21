@@ -5,6 +5,37 @@ import { randomUUID } from "node:crypto";
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const assetDirectory = path.resolve(process.cwd(), ".data", "aitrade-assets");
 
+export type StorageProviderKind = "local" | "s3_compatible";
+
+export type StorageProviderInfo = {
+  provider: StorageProviderKind;
+  bucket: string | null;
+  publicBaseUrl: string | null;
+};
+
+export interface StorageProvider {
+  readonly kind: StorageProviderKind;
+  put(key: string, bytes: Buffer, mimeType: string): Promise<{ storageKey: string; publicUrl?: string }>;
+  get(key: string): Promise<Buffer>;
+  remove(key: string): Promise<void>;
+}
+
+export function getStorageProviderInfo(): StorageProviderInfo {
+  const configured = (process.env.STORAGE_PROVIDER || "local").toLowerCase();
+  if (configured === "s3" || configured === "r2" || configured === "oss" || configured === "s3_compatible") {
+    return {
+      provider: "s3_compatible",
+      bucket: process.env.STORAGE_BUCKET?.trim() || null,
+      publicBaseUrl: process.env.STORAGE_PUBLIC_BASE_URL?.trim() || null,
+    };
+  }
+  return {
+    provider: "local",
+    bucket: null,
+    publicBaseUrl: null,
+  };
+}
+
 export type SavedImage = {
   storageKey: string;
   originalName: string;
@@ -12,6 +43,7 @@ export type SavedImage = {
   size: number;
   width?: number;
   height?: number;
+  publicUrl?: string;
 };
 
 export async function saveImageUpload(file: File): Promise<SavedImage> {

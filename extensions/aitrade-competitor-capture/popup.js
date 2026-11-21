@@ -53,7 +53,7 @@ async function init() {
     }
 
     if (!tab.url.includes("amazon.")) {
-      previewBox.innerHTML = "<div style='color: #a96610;'>请先在浏览器打开任意亚马逊商品详情页（如 amazon.com 或 amazon.com.au 的 /dp/ 页面）</div>";
+      previewBox.innerHTML = "<div style='color: #a96610;'>请先在浏览器打开任意亚马逊商品详情页（/dp/）或搜索结果页（/s?k=...）</div>";
       return;
     }
 
@@ -69,8 +69,36 @@ async function init() {
 
     currentData = results[0].result;
 
+    // 模式 A：搜索结果页（SERP）批量采集 Top 20
+    if (currentData.mode === "serp") {
+      var list = currentData.items || [];
+      if (list.length === 0) {
+        previewBox.innerHTML = "<div style='color: #a96610;'>当前搜索结果页未检测到有效商品卡片</div>";
+        return;
+      }
+      var serpHtml = [];
+      serpHtml.push("<div><span class='badge'>" + currentData.marketCode + " · SERP 批量采集 (" + list.length + " 款)</span></div>");
+      if (currentData.keyword) {
+        serpHtml.push("<div><strong style='color: #1f7a55;'>搜索词:</strong> " + currentData.keyword + "</div>");
+      }
+      list.slice(0, 4).forEach(function (it, idx) {
+        serpHtml.push(
+          "<div style='font-size: 12px; margin-top: 3px;'><strong>#" + (idx + 1) + "</strong> " +
+          it.asin + " · " + (it.price || "无价") + " · " + it.title.slice(0, 34) + "…</div>"
+        );
+      });
+      if (list.length > 4) {
+        serpHtml.push("<div style='color: #647169; font-size: 11px; margin-top: 4px;'>…以及其余 " + (list.length - 4) + " 款可见竞品（仅采当前页，不自动翻页）</div>");
+      }
+      previewBox.innerHTML = serpHtml.join("");
+      captureBtn.textContent = "一键导入 " + list.length + " 款竞品生成格局图";
+      captureBtn.disabled = false;
+      copyBtn.style.display = "block";
+      return;
+    }
+
     if (!currentData.asin && !currentData.title) {
-      previewBox.innerHTML = "<div style='color: #a96610;'>当前页面可能不是商品详情页，未检测到 ASIN 或商品标题</div>";
+      previewBox.innerHTML = "<div style='color: #a96610;'>当前页面不是商品详情页或搜索结果页，未检测到 ASIN 或商品列表</div>";
       return;
     }
 
@@ -108,15 +136,34 @@ captureBtn.addEventListener("click", async function () {
   setStatus("正在推送至 AITrade 并执行智能分析…", "success");
 
   try {
-    var rawText = [
-      currentData.bullets && currentData.bullets.length > 0 ? "五点描述:\n" + currentData.bullets.join("\n") : "",
-      currentData.criticalReviews && currentData.criticalReviews.length > 0 ? "买家差评:\n" + currentData.criticalReviews.join("\n") : "",
-    ].filter(Boolean).join("\n\n");
+    var payload;
+    if (currentData.mode === "serp") {
+      payload = {
+        mode: "serp",
+        url: currentData.url,
+        keyword: currentData.keyword || "",
+        marketCode: currentData.marketCode,
+        platformCode: "amazon",
+        currency: currentData.currency,
+        items: (currentData.items || []).map(function (it) {
+          return {
+            url: it.url,
+            asin: it.asin,
+            title: it.title,
+            priceCents: parsePriceToCents(it.price),
+            rating: firstNumber(it.rating),
+            reviewCount: firstNumber(it.reviewCount),
+          };
+        }),
+      };
+    } else {
+      var rawText = [
+        currentData.bullets && currentData.bullets.length > 0 ? "五点描述:\n" + currentData.bullets.join("\n") : "",
+        currentData.criticalReviews && currentData.criticalReviews.length > 0 ? "买家差评:\n" + currentData.criticalReviews.join("\n") : "",
+      ].filter(Boolean).join("\n\n");
 
-    var response = await fetch(API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+      payload = {
+        mode: "detail",
         url: currentData.url,
         asin: currentData.asin,
         title: currentData.title,
@@ -131,7 +178,13 @@ captureBtn.addEventListener("click", async function () {
         reviewCount: firstNumber(currentData.reviewCount),
         bullets: currentData.bullets || [],
         criticalReviews: currentData.criticalReviews || [],
-      }),
+      };
+    }
+
+    var response = await fetch(API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     });
 
     var resJson = await response.json();

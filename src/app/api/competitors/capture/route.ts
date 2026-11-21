@@ -70,15 +70,80 @@ export async function POST(request: Request) {
 
   try {
     const body = await readJsonObject(request) as Record<string, unknown>;
+    const marketCode = stringField(body, "marketCode", { maxLength: 10 }) || "US";
+    const platformCode = stringField(body, "platformCode", { maxLength: 50 }) || "amazon";
+    const currency = (stringField(body, "currency", { maxLength: 10 }) || "USD").toUpperCase();
+
+    // 批量 SERP 采集模式：一次接收当前搜索结果页最多 20 款可见竞品
+    if (Array.isArray(body.items) && body.items.length > 0) {
+      const keyword = stringField(body, "keyword", { maxLength: 200 }) || "";
+      const rawItems = body.items.slice(0, 20);
+      const capturedInputs: CompetitorInputItem[] = [];
+      const urls: string[] = [];
+
+      for (const rawItem of rawItems) {
+        if (!rawItem || typeof rawItem !== "object") continue;
+        const item = rawItem as Record<string, unknown>;
+        const itemUrl = stringField(item, "url", { maxLength: 2000 });
+        const itemAsin = stringField(item, "asin", { maxLength: 20 }) || "";
+        const itemTitle = stringField(item, "title", { maxLength: 1000 }) || "";
+        if (!itemUrl && !itemAsin) continue;
+
+        const captured: NonNullable<CompetitorInputItem["captured"]> = { currency };
+        const numeric: Array<[CompetitorNumericField, number | undefined]> = [
+          ["priceCents", priceToCents(item)],
+          ["rating", numericField(item, "rating")],
+          ["reviewCount", numericField(item, "reviewCount")],
+        ];
+        for (const [field, value] of numeric) {
+          if (value !== undefined) captured[field] = value;
+        }
+        const effectiveUrl = itemUrl || `https://www.amazon.com/dp/${itemAsin}`;
+        urls.push(effectiveUrl);
+        capturedInputs.push({
+          raw: effectiveUrl,
+          asin: itemAsin,
+          url: effectiveUrl,
+          title: itemTitle,
+          captured,
+        });
+      }
+
+      if (capturedInputs.length === 0) {
+        return Response.json({ error: "SERP 批量采集未包含有效竞品记录" }, { status: 400, headers });
+      }
+
+      const report = await analyzeCompetitors({
+        rawInputs: urls.join("\n"),
+        marketCode,
+        platformCode,
+        currency,
+        capturedInputs,
+        evidenceText: keyword ? `Search Keyword: ${keyword}` : "",
+      });
+
+      await saveComparisonReport(report);
+
+      return Response.json(
+        {
+          success: true,
+          reportId: report.id,
+          title: report.title,
+          competitorCount: report.competitors.length,
+          provenance: report.provenance,
+          reviewStatus: report.reviewStatus,
+          redirectUrl: `/competitors?id=${encodeURIComponent(report.id)}`,
+        },
+        { headers },
+      );
+    }
+
     const url = stringField(body, "url", { required: true, maxLength: 2000 });
     const asin = stringField(body, "asin", { maxLength: 20 }) || "";
     const title = stringField(body, "title", { maxLength: 1000 }) || "";
     const brand = stringField(body, "brand", { maxLength: 200 }) || "";
     const category = stringField(body, "category", { maxLength: 500 }) || "";
     const rawText = stringField(body, "rawText", { maxLength: 50000 }) || "";
-    const marketCode = stringField(body, "marketCode", { maxLength: 10 }) || "US";
-    const platformCode = stringField(body, "platformCode", { maxLength: 50 }) || "amazon";
-    const currency = (stringField(body, "currency", { maxLength: 10 }) || "USD").toUpperCase();
 
     const captured: NonNullable<CompetitorInputItem["captured"]> = {
       currency,
