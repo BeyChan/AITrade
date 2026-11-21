@@ -215,7 +215,10 @@ async function fetchFromFrankfurter(): Promise<{ provider: string; rates: Record
   }
 }
 
-export async function refreshLiveFxRates(actorInput = "本机管理员"): Promise<{
+export async function refreshLiveFxRates(
+  actorInput = "本机管理员",
+  recordAudit = true,
+): Promise<{
   snapshot: FxRatesSnapshot;
   refreshed: boolean;
   error?: string;
@@ -252,12 +255,29 @@ export async function refreshLiveFxRates(actorInput = "本机管理员"): Promis
   };
 
   const db = await getDb();
-  await db.query(
-    `INSERT INTO app_settings (key, value, updated_by, updated_at)
-     VALUES ($1, $2, $3, NOW())
-     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
-    [LIVE_RATES_KEY, JSON.stringify(payload), actor],
-  );
+  await db.transaction(async (tx) => {
+    await tx.query(
+      `INSERT INTO app_settings (key, value, updated_by, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+      [LIVE_RATES_KEY, JSON.stringify(payload), actor],
+    );
+    if (recordAudit) {
+      await tx.query(
+        `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
+         VALUES ($1, $2, 'fx.live_rates_refreshed', 'fx_rate', 'ALL', $3::jsonb)`,
+        [
+          randomUUID(),
+          actor,
+          JSON.stringify({
+            provider: fetched.provider,
+            count: Object.keys(fetched.rates).length,
+            usdRateToRmb: fetched.rates.USD ?? null,
+          }),
+        ],
+      );
+    }
+  });
 
   const { manual } = await readStoredFxSettings();
   return {
@@ -280,6 +300,8 @@ export async function setManualFxRate(input: {
   const actor = (input.actor || "本机管理员").trim().slice(0, 80) || "本机管理员";
 
   const { live, manual } = await readStoredFxSettings();
+  const previousSnapshot = buildSnapshot(live, manual);
+  const previousRateToRmb = previousSnapshot.byCurrency[code]?.rateToRmb ?? OFFICIAL_FX_CONFIG[code].rateToRmb;
   const nextManual: StoredManualMap = {
     ...manual,
     [code]: {
@@ -299,8 +321,8 @@ export async function setManualFxRate(input: {
     );
     await tx.query(
       `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'fx.manual_rate_set', 'app_settings', $3, $4::jsonb)`,
-      [randomUUID(), actor, code, JSON.stringify({ currency: code, rateToRmb })],
+       VALUES ($1, $2, 'fx.manual_rate_set', 'fx_rate', $3, $4::jsonb)`,
+      [randomUUID(), actor, code, JSON.stringify({ currency: code, previousRateToRmb, rateToRmb })],
     );
   });
 
@@ -315,8 +337,10 @@ export async function clearManualFxRate(input: {
   const actor = (input.actor || "本机管理员").trim().slice(0, 80) || "本机管理员";
 
   const { live, manual } = await readStoredFxSettings();
+  const previousManualRateToRmb = manual[code]?.rateToRmb ?? null;
   const nextManual: StoredManualMap = { ...manual };
   delete nextManual[code];
+  const nextSnapshot = buildSnapshot(live, nextManual);
 
   const db = await getDb();
   await db.transaction(async (tx) => {
@@ -328,10 +352,19 @@ export async function clearManualFxRate(input: {
     );
     await tx.query(
       `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'fx.manual_rate_cleared', 'app_settings', $3, $4::jsonb)`,
-      [randomUUID(), actor, code, JSON.stringify({ currency: code })],
+       VALUES ($1, $2, 'fx.manual_rate_cleared', 'fx_rate', $3, $4::jsonb)`,
+      [
+        randomUUID(),
+        actor,
+        code,
+        JSON.stringify({
+          currency: code,
+          previousRateToRmb: previousManualRateToRmb,
+          rateToRmb: nextSnapshot.byCurrency[code]?.rateToRmb ?? OFFICIAL_FX_CONFIG[code].rateToRmb,
+        }),
+      ],
     );
   });
 
-  return buildSnapshot(live, nextManual);
+  return nextSnapshot;
 }

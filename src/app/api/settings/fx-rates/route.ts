@@ -21,7 +21,7 @@ export async function GET(request: Request) {
 
     const current = await getFxRatesSnapshot();
     if (autoRefresh && current.isLiveStale) {
-      const result = await refreshLiveFxRates("自动同步");
+      const result = await refreshLiveFxRates("自动同步", false);
       return NextResponse.json(result);
     }
 

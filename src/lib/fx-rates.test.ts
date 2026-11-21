@@ -14,6 +14,7 @@ const {
   setManualFxRate,
 } = await import("./fx-rates.ts");
 const { convertRmbToForeignCents, formatFxRate, getFxRate, OFFICIAL_FX_CONFIG } = await import("./currency.ts");
+const { describeAuditAction, queryAuditLogs } = await import("./audit-logs.ts");
 const { getDb } = await import("./db.ts");
 
 after(async () => {
@@ -39,6 +40,17 @@ test("loads default official FX rates and supports manual override and reset", a
   assert.equal(afterReset.byCurrency.USD.mode, "default");
   assert.equal(afterReset.byCurrency.USD.manualRateToRmb, null);
   assert.equal(getFxRate("USD"), OFFICIAL_FX_CONFIG.USD.rateToRmb);
+
+  const logs = await queryAuditLogs({ module: "settings", pageSize: 10 });
+  const setLog = logs.items.find((entry) => entry.action === "fx.manual_rate_set");
+  const clearLog = logs.items.find((entry) => entry.action === "fx.manual_rate_cleared");
+  assert.ok(setLog);
+  assert.ok(clearLog);
+  assert.equal(setLog.actionLabel, "手动锁定汇率");
+  assert.equal(setLog.entityTypeLabel, "实时汇率");
+  assert.equal(setLog.entityHref, "/fx-rates");
+  assert.equal(clearLog.actionLabel, "恢复跟随实时汇率");
+  assert.equal(describeAuditAction("fx.live_rates_refreshed", "fx_rate").label, "同步最新实时汇率");
 });
 
 test("validates currency code and rate range", async () => {

@@ -66,6 +66,11 @@ const ENTITY_TYPE_META: Record<
     module: "settings",
     href: () => "/settings",
   },
+  fx_rate: {
+    label: "实时汇率",
+    module: "settings",
+    href: () => "/fx-rates",
+  },
   model_profile: {
     label: "模型配置档案",
     module: "settings",
@@ -199,6 +204,9 @@ const ACTION_META: Record<string, ActionMeta> = {
   "model_profile.deleted": { label: "删除模型配置档案", level: "danger", module: "settings" },
   "model_profile.imported": { label: "批量导入模型档案", level: "warn", module: "settings" },
   "model_profile.exported": { label: "导出模型配置档案", level: "info", module: "settings" },
+  "fx.manual_rate_set": { label: "手动锁定汇率", level: "warn", module: "settings" },
+  "fx.manual_rate_cleared": { label: "恢复跟随实时汇率", level: "info", module: "settings" },
+  "fx.live_rates_refreshed": { label: "同步最新实时汇率", level: "success", module: "settings" },
   "competitor.serp_captured": { label: "扩展批量采集 SERP 竞品", level: "success", module: "ai" },
   "competitor.dp_captured": { label: "扩展采集单品详情页", level: "success", module: "ai" },
   "competitor.report_created": { label: "生成竞品对比研报", level: "info", module: "ai" },
@@ -333,6 +341,9 @@ function buildDetailSummary(details: Record<string, unknown>): string {
   const preferred = [
     "asin",
     "title",
+    "currency",
+    "previousRateToRmb",
+    "rateToRmb",
     "marketplace",
     "provider",
     "model",
