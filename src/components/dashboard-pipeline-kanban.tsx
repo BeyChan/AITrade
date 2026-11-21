@@ -211,7 +211,7 @@ export function DashboardPipelineKanban({
   const totalActiveCases = stage2Items.length + stage3Items.length + stage4Items.length + stage5Items.length;
 
   return (
-    <section className="panel" style={{ padding: "24px", marginBottom: "24px" }}>
+    <section className="panel" style={{ padding: "24px" }}>
       {/* 头部标题与视图切换 */}
       <div
         style={{

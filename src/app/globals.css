@@ -6318,7 +6318,6 @@ tbody tr:last-child td {
   border-radius: 10px;
   background: var(--paper);
   overflow: hidden;
-  margin-bottom: 20px;
 }
 
 .dashboard-kpi-card {
