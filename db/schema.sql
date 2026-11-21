@@ -175,6 +175,8 @@ CREATE INDEX IF NOT EXISTS idx_cost_models_case_version ON cost_models(case_id, 
 CREATE INDEX IF NOT EXISTS idx_case_evidence_case ON case_evidence(case_id);
 CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(entity_type, entity_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_actor_created ON audit_logs(actor, created_at DESC);
 
 
 -- P0.5 sourcing migration. Additive and safe to run on an existing local database.

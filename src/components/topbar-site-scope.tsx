@@ -77,5 +77,6 @@ function getSectionLabel(pathname: string) {
   if (pathname.startsWith("/content") || pathname.startsWith("/approvals")) return "内容与上架";
   if (pathname.startsWith("/connections")) return "连接中心";
   if (pathname.startsWith("/settings")) return "系统设置";
+  if (pathname.startsWith("/audit-logs")) return "操作日志";
   return "AITrade";
 }

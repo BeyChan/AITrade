@@ -16,7 +16,7 @@ type SubItem = {
 type NavItem = {
   href: string;
   label: string;
-  icon: "ai" | "verify" | "competitor" | "case" | "sourcing" | "content" | "inbox" | "data" | "settings" | "connection";
+  icon: "ai" | "verify" | "competitor" | "case" | "sourcing" | "content" | "inbox" | "data" | "settings" | "connection" | "audit";
   subItems?: SubItem[];
 };
 
@@ -66,6 +66,7 @@ const MAIN_NAV_ITEMS: NavItem[] = [
 const SETTINGS_NAV_ITEMS: NavItem[] = [
   { href: "/connections", label: "店铺连接", icon: "connection" },
   { href: "/settings", label: "大模型设置", icon: "settings" },
+  { href: "/audit-logs", label: "操作日志", icon: "audit" },
 ];
 
 function NavIcon({ name }: { name: NavItem["icon"] }) {
@@ -178,6 +179,17 @@ function NavIcon({ name }: { name: NavItem["icon"] }) {
     );
   }
 
+  if (name === "audit") {
+    return (
+      <svg {...common}>
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <polyline points="14 2 14 8 20 8" />
+        <line x1="8" y1="13" x2="16" y2="13" />
+        <line x1="8" y1="17" x2="13" y2="17" />
+      </svg>
+    );
+  }
+
   return (
     <svg {...common}>
       <path d="M4 19V9" />
@@ -197,6 +209,7 @@ function matchParentNav(item: NavItem, pathname: string): boolean {
   if (item.href === "/operations" && pathname.startsWith("/operations")) return true;
   if (item.href === "/connections" && pathname.startsWith("/connections")) return true;
   if (item.href === "/settings" && pathname.startsWith("/settings")) return true;
+  if (item.href === "/audit-logs" && pathname.startsWith("/audit-logs")) return true;
   return false;
 }
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCaseDetail, getContentDetail } from "@/lib/repository";
 import { emptyListingContent, normalizeListingContent } from "@/lib/listing";
+import { recordAuditLog } from "@/lib/audit-logs";
 
 export async function GET(
   _request: Request,
@@ -69,6 +70,14 @@ export async function GET(
   ];
 
   const tsvContent = [headers.join("\t"), row.join("\t")].join("\n");
+
+  await recordAuditLog({
+    actor: "运营人员",
+    action: "case.flat_file_exported",
+    entityType: "product_case",
+    entityId: id,
+    details: { asin: sku, currency, price, format: "amazon_flatfile_tsv" },
+  }).catch(() => {});
 
   return new NextResponse(tsvContent, {
     headers: {
