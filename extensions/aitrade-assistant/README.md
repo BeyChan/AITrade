@@ -1,6 +1,6 @@
 # AITrade 跨境实战助手（Amazon + 1688 二合一）
 
-一个扩展同时覆盖 **Amazon 竞品采集** 与 **1688 工厂采集**，并支持配置任意 AITrade 服务地址（本机 `http://localhost:3000` 或团队共享服务器地址）。
+一个扩展同时覆盖 **Amazon 竞品采集** 与 **1688 工厂采集**，并支持配置任意 AITrade 服务地址（本机 `http://localhost:1688` 或团队共享服务器地址）。
 
 ## 安装方式
 1. Chrome 地址栏打开 `chrome://extensions`
