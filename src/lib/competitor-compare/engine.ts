@@ -1,6 +1,6 @@
 import { generateStructuredJSON } from "../ai-provider.ts";
 import { loadAIProviderConfig } from "../app-settings.ts";
-import { extractTitleFromUrl, parseCompetitorInputs } from "./parser.ts";
+import { extractTitleFromUrl, inferBrandFromTitle, parseCompetitorInputs } from "./parser.ts";
 import { calculateProductIndex } from "./competitiveness.ts";
 import {
   COMPETITOR_NUMERIC_FIELDS,
@@ -52,15 +52,11 @@ function calculatePriceStats(profiles: PriceSample[], currency: string): Compari
     .filter((p) => isVerifiedCompetitorField(p, "priceCents"))
     .map((p) => p.priceCents)
     .filter((n) => Number.isFinite(n) && n > 0);
-  // 有真实样本时只用真实样本；一条都没有时保留一组「示意」分位供页面排版，
-  // 但 verifiedSampleCount = 0，UI 必须标为待核实且禁止用于定价判断。
-  const prices = verifiedPrices.length > 0
-    ? verifiedPrices
-    : profiles.map((p) => p.priceCents).filter((n) => Number.isFinite(n) && n > 0);
-  if (prices.length === 0) {
+  // 严格只用真实已采集/人工核实的价格样本算分位；没有任何真实价格时返回全 0，绝不编造假 P50 误导定价。
+  if (verifiedPrices.length === 0) {
     return { min: 0, p25: 0, p50: 0, p75: 0, p90: 0, max: 0, currency, verifiedSampleCount: 0 };
   }
-  const sorted = [...prices].sort((a, b) => a - b);
+  const sorted = [...verifiedPrices].sort((a, b) => a - b);
   const getPercentile = (p: number) => {
     if (sorted.length === 1) return sorted[0]!;
     const idx = (sorted.length - 1) * p;
@@ -82,18 +78,58 @@ function calculatePriceStats(profiles: PriceSample[], currency: string): Compari
   };
 }
 
+const FX_TO_CNY: Record<string, number> = {
+  USD: 7.25,
+  EUR: 7.8,
+  GBP: 9.1,
+  JPY: 0.048,
+  AUD: 4.7,
+  CAD: 5.2,
+  SGD: 5.4,
+  MYR: 1.65,
+  CNY: 1,
+};
+
+function resolveCapturedEntry(
+  item: CompetitorInputItem,
+  list: CompetitorInputItem[] | undefined,
+  index: number,
+): CompetitorInputItem | undefined {
+  if (!list || list.length === 0) return undefined;
+  const matched = list.find((entry) =>
+    (item.asin && entry.asin && entry.asin.toUpperCase() === item.asin.toUpperCase())
+    || (item.url && entry.url && entry.url === item.url),
+  );
+  return matched ?? (list.length === 1 && index === 0 ? list[0] : undefined);
+}
+
 /** 按 ASIN / URL 匹配浏览器采集值；只采到一条时默认作用于首个商品 */
 function resolveCaptured(
   item: CompetitorInputItem,
   list: CompetitorInputItem[] | undefined,
   index: number,
 ): CapturedValues | undefined {
-  if (!list || list.length === 0) return undefined;
-  const matched = list.find((entry) =>
-    (item.asin && entry.asin && entry.asin.toUpperCase() === item.asin.toUpperCase())
-    || (item.url && entry.url && entry.url === item.url),
-  );
-  return (matched ?? (list.length === 1 && index === 0 ? list[0] : undefined))?.captured;
+  return resolveCapturedEntry(item, list, index)?.captured;
+}
+
+function build1688Keywords(evidenceText: string, primaryTitle: string): string[] {
+  const kwMatch = evidenceText.match(/Search Keyword:\s*(.+)/i);
+  const searchKw = kwMatch?.[1]?.trim();
+  const isCleanKw = searchKw && !/^https?:\/\//i.test(searchKw) && !searchKw.startsWith("多品深度对比");
+  if (isCleanKw) {
+    return [`${searchKw} 源头工厂`, `${searchKw} 外贸批发`];
+  }
+  const cleanTitle = /^https?:\/\//i.test(primaryTitle) ? "" : primaryTitle;
+  const coreWords = cleanTitle
+    .replace(/[^A-Za-z0-9\u4e00-\u9fa5\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length >= 2)
+    .slice(0, 4)
+    .join(" ");
+  if (coreWords) {
+    return [`${coreWords} 工厂`, "跨境现货批发"];
+  }
+  return ["跨境源头工厂", "外贸现货批发"];
 }
 
 export async function analyzeCompetitors(input: {
@@ -120,25 +156,28 @@ export async function analyzeCompetitors(input: {
   const capturedReviews = (input.capturedInputs ?? []).flatMap((item) => item.captured?.criticalReviews ?? []);
   const evidenceText = (input.evidenceText ?? "").trim();
 
-  // 整理传入的商品基础条目
+  // 整理传入的商品基础条目（优先合并 Chrome 扩展抓回的真实标题与品牌）
   const rawProducts = parsedInputs.map((item, idx) => {
-    let brand = "优质竞品";
-    let title = item.title || item.raw;
-    const asin = item.asin || `B0${Date.now().toString(36).slice(2, 10).toUpperCase()}`;
-    const cleanUrl = item.url || `https://www.amazon.com/dp/${asin}`;
+    const capturedEntry = resolveCapturedEntry(item, input.capturedInputs, idx);
+    let brand = "待确认品牌";
+    let title = (capturedEntry?.title && capturedEntry.title.trim()) || item.title || item.raw;
+    const asin = item.asin || capturedEntry?.asin || `B0${Date.now().toString(36).slice(2, 10).toUpperCase()}`;
+    const cleanUrl = item.url || capturedEntry?.url || `https://www.amazon.com/dp/${asin}`;
 
-    if (item.url) {
-      const meta = extractTitleFromUrl(item.url);
-      if (meta.brand) brand = meta.brand;
-      if (meta.title) title = meta.title;
-    } else if (item.title) {
-      const words = item.title.split(/\s+/);
-      if (words[0] && words[0].length >= 2) brand = words[0];
+    const urlMeta = extractTitleFromUrl(item.raw.startsWith("http") ? item.raw : cleanUrl);
+    if ((!title || /^https?:\/\//i.test(title)) && urlMeta.title) {
+      title = urlMeta.title;
+    }
+    if (urlMeta.brand) {
+      brand = urlMeta.brand;
+    } else {
+      const fromTitle = inferBrandFromTitle(title);
+      if (fromTitle) brand = fromTitle;
     }
 
     return {
       asin,
-      title,
+      title: /^https?:\/\//i.test(title) ? `Amazon 商品 (${asin})` : title,
       brand,
       url: cleanUrl,
       rawInput: item.raw,
@@ -298,12 +337,13 @@ export async function analyzeCompetitors(input: {
     }
   }
 
-  // 2. 免 Key 模式下的直通展示（只用用户真实输入的标题和品牌，不写任何品类 if-else 正则）
+  // 2. 免 Key / 无模型回退模式：只展示真实采集值；未采集到的数值一律置 0（待补录），绝不按序号编造假价格与假销量。
   const primaryTitle = rawProducts[0]?.title || "对标商品";
-  const defaultPrices = [2499, 3299, 3999, 4999];
 
   const generatedCompetitors: CompetitorProfile[] = rawProducts.map((item, idx) => {
-    const priceCents = defaultPrices[idx % defaultPrices.length]!;
+    const realBullets = item.captured?.bullets?.filter(Boolean) ?? [];
+    const realReviews = item.captured?.criticalReviews?.filter(Boolean) ?? [];
+    const hasRealPrice = typeof item.captured?.priceCents === "number" && item.captured.priceCents > 0;
 
     return {
       id: `comp_${Date.now()}_${idx}`,
@@ -311,33 +351,31 @@ export async function analyzeCompetitors(input: {
       title: item.title,
       brand: item.brand,
       sourceUrl: item.url,
-      priceCents: numericValue("priceCents", undefined, priceCents, item.captured),
+      priceCents: numericValue("priceCents", undefined, 0, item.captured),
       currency,
-      rating: numericValue("rating", undefined, 4.2 + (idx * 0.1), item.captured),
-      reviewCount: numericValue("reviewCount", undefined, 800 + (idx * 600), item.captured),
-      bsr: numericValue("bsr", undefined, 1500 - (idx * 300), item.captured),
-      monthlySalesEst: numericValue("monthlySalesEst", undefined, 400 + (idx * 250), item.captured),
+      rating: numericValue("rating", undefined, 0, item.captured),
+      reviewCount: numericValue("reviewCount", undefined, 0, item.captured),
+      bsr: numericValue("bsr", undefined, 0, item.captured),
+      monthlySalesEst: numericValue("monthlySalesEst", undefined, 0, item.captured),
       fieldProvenance: fieldProvenanceFor("template", item.captured),
-      pricePosition: idx === 0 ? "budget" : idx === 1 ? "mid_market" : "premium",
-      features: [
-        `${item.brand} 主打实用性与日常高频需求设计`,
-        `结构经过海外买家长期验证，基础功能完备`,
-        `握持/操控符合人体工学体验`,
-      ],
-      drawbacks: [
-        `部分买家在差评中反映关键受力部件在长期高强度使用后耐用度有限`,
-        `配件装配公差有提升空间，需双手用力拆装`,
-        `包装防护较为简易，长途运输有轻微磨损风险`,
-      ],
+      pricePosition: hasRealPrice
+        ? (item.captured!.priceCents! < 2000 ? "budget" : item.captured!.priceCents! > 4500 ? "premium" : "mid_market")
+        : "mid_market",
+      features: realBullets.length > 0
+        ? realBullets.slice(0, 4).map((b) => b.slice(0, 120))
+        : ["尚未采集该商品五点描述（建议用 Chrome 插件打开详情页一键采集）"],
+      drawbacks: realReviews.length > 0
+        ? realReviews.slice(0, 4).map((r) => r.slice(0, 140))
+        : ["尚未采集该商品买家差评（未拿到真实评论前不编造痛点）"],
       specifications: {
+        "ASIN": item.asin,
         "对标品牌": item.brand,
-        "商品全称": item.title,
-        "适用场景": "家庭与个人日常使用",
+        "采集状态": hasRealPrice ? "已采集前台售价" : "待采集售价",
       },
-      targetAudience: "注重实用性价比与日常便利的消费者",
-      verdict: idx === 0
-        ? `主打性价比与入门门槛，在主流市场表现稳定，但细节材质耐用度有改良空间。`
-        : `主打进阶性能与更强用料，覆盖更广场景，但便携与细节收纳仍可进一步优化。`,
+      targetAudience: "待结合真实评论与类目特征确认",
+      verdict: hasRealPrice
+        ? "已采集前台真实价格，可结合下方毛利模型与评论痛点做横向对比。"
+        : "当前仅导入链接/ASIN，缺少真实售价与评论数，请用 Chrome 插件采集或手工补录。",
     };
   });
 
@@ -355,24 +393,32 @@ export async function analyzeCompetitors(input: {
     priceStats,
     summary: {
       marketMaturity: "mature" as const,
-      commonStrengths: ["主打实用性与满足海外主流日常需求", "轻量化设计降低买家使用疲劳"],
-      // 有前台采集的真实差评就直接用原文，避免模板凭空编造痛点
+      commonStrengths: capturedBullets.length > 0
+        ? capturedBullets.slice(0, 3).map((b) => b.slice(0, 120))
+        : ["暂未采集到真实五点卖点，请通过 Chrome 插件打开商品详情页采集"],
       commonWeaknesses: capturedReviews.length > 0
         ? capturedReviews.slice(0, 3).map((text) => text.slice(0, 140))
-        : ["（模板示意）长期使用后受力件或消耗件存在买家抱怨", "（模板示意）包装保护普遍偏简易，待采集真实差评替换"],
-      marketVacuum: "在中端价位段提供做工用料更扎实、关键受力结构加固的升级款。",
-      attackVector: `针对 ${primaryTitle.slice(0, 20)} 的核心买家差评痛点进行结构加强，定价锚定中位线直击热销榜。`,
+        : ["暂未采集到真实买家差评，请通过 Chrome 插件采集或粘贴差评原文"],
+      marketVacuum: priceStats.verifiedSampleCount >= 2
+        ? "已收集多款真实价格样本，可结合四象限图识别高客单低评论切入带。"
+        : "真实价格样本不足（需至少 2~3 款真实竞品售价），暂不输出定价空白结论。",
+      attackVector: capturedReviews.length > 0
+        ? `优先围绕已采集的真实差评痛点做结构改良，定价锚定真实中位价带。`
+        : `请先用 Chrome 扩展采集 Amazon 搜索页 Top 20 或详情页差评，再生成反制策略。`,
     },
     sourcingAction: {
-      recommendedKeywords1688: [`${rawProducts[0]?.brand || "优质"} 外贸工厂`, "源头批发直供"],
-      suggestedCostCents: 2600,
-      targetMarginPercent: 40,
+      recommendedKeywords1688: build1688Keywords(evidenceText, primaryTitle),
+      // 按中位售价约 25% 折算为人民币分（前端以 ¥ 展示建议到岸采购上限）
+      suggestedCostCents: priceStats.p50 > 0
+        ? Math.round(priceStats.p50 * 0.25 * (FX_TO_CNY[currency] ?? 7.25))
+        : 0,
+      targetMarginPercent: 35,
     },
     hypothesisBridge: {
-      category: "日常家居 / 生活消费品",
+      category: "待确认类目",
       concept: `改良升级款 ${primaryTitle.slice(0, 20)}`,
-      painPoint: "受力件耐久度有限与细节做工粗糙",
-      differentiator: "加固结构与更优选材",
+      painPoint: capturedReviews[0]?.slice(0, 80) || "待采集真实买家差评确认",
+      differentiator: "待结合真实差评明确差异化卖点",
       recommendedPriceCents: priceStats.p50,
     },
     provenance: (hasCapturedData ? "captured" : "template") as CompetitorProvenance,

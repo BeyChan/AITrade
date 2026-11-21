@@ -2,7 +2,6 @@ function extractVisible1688Candidates() {
   var offerPattern = /\/offer\/(\d+)\.html/i;
   var seen = Object.create(null);
   var candidates = [];
-  var anchors = document.querySelectorAll('a[href*="/offer/"]');
 
   function clean(value) {
     return String(value || "").replace(/\s+/g, " ").trim();
@@ -12,6 +11,53 @@ function extractVisible1688Candidates() {
     if (!value) return "";
     try { return new URL(value, location.href).toString(); } catch (_) { return ""; }
   }
+
+  // 0. 单品详情页直采模式（detail.1688.com/offer/xxxx.html）
+  var detailMatch = location.href.match(offerPattern);
+  if (detailMatch) {
+    var bodyText = clean(document.body ? document.body.innerText : "").slice(0, 6000);
+    var h1 = document.querySelector("h1, .title-text, [class*='title-content'], [class*='offer-title']");
+    var detailTitle = clean((h1 && h1.textContent) || document.title.replace(/[-_—].*1688.*$/i, "")).slice(0, 300);
+
+    var shopNode = document.querySelector(
+      "[class*='company-name'], [class*='shop-name'], [class*='shopName'], a[href*='winport'], a[href*='.1688.com/page/']"
+    );
+    var detailSupplier = clean(shopNode && shopNode.textContent);
+    var detailSupplierUrl = shopNode && shopNode.getAttribute("href") ? absoluteUrl(shopNode.getAttribute("href")) : "";
+    if (!detailSupplier) {
+      var textLines = (document.body ? document.body.innerText : "").split(/\n+/).map(clean).filter(Boolean);
+      detailSupplier = textLines.find(function (line) {
+        return /(有限公司|工厂|商行|经营部|制造厂|工艺厂|贸易行)/.test(line) && line.length <= 50;
+      }) || "1688 源头工厂";
+    }
+
+    var priceNode = document.querySelector("[class*='price-text'], [class*='price-num'], [class*='priceContent'], .price-info");
+    var priceSource = clean(priceNode && priceNode.textContent) + " " + bodyText.slice(0, 1500);
+    var dPriceMatch = priceSource.match(/[¥￥]\s*[0-9]+(?:\.[0-9]+)?/) || priceSource.match(/\b([0-9]+\.[0-9]{1,2})\b/);
+    var dMoqMatch = bodyText.match(/[0-9]+\s*(?:件|个|套|箱|只|双|台)\s*起(?:批|订)?/);
+    var dLocMatch = bodyText.match(/(?:广东|浙江|江苏|福建|山东|河南|河北|湖北|湖南|安徽|江西|四川|重庆|上海|北京|天津|广西|辽宁|吉林|黑龙江|陕西|山西|云南|贵州|海南)(?:\s*[·\s]\s*[\u4e00-\u9fa5]{2,8})?/);
+
+    return {
+      source: "1688_detail_page",
+      pageUrl: location.href,
+      capturedAt: new Date().toISOString(),
+      candidates: [
+        {
+          title: detailTitle || ("1688 商品 " + detailMatch[1]),
+          supplierName: detailSupplier.slice(0, 120),
+          offerUrl: location.href,
+          supplierUrl: detailSupplierUrl,
+          price: dPriceMatch ? dPriceMatch[0] : "",
+          moq: dMoqMatch ? dMoqMatch[0] : "",
+          location: dLocMatch ? clean(dLocMatch[0]) : "CN",
+          badges: [],
+          sourceText: bodyText.slice(0, 1000),
+        },
+      ],
+    };
+  }
+
+  var anchors = document.querySelectorAll('a[href*="/offer/"]');
 
   function findCard(anchor) {
     var current = anchor;

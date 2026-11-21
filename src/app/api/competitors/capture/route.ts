@@ -89,9 +89,15 @@ export async function POST(request: Request) {
         const itemUrl = stringField(item, "url", { maxLength: 2000 });
         const itemAsin = stringField(item, "asin", { maxLength: 20 }) || "";
         const itemTitle = stringField(item, "title", { maxLength: 1000 }) || "";
+        const itemBullets = stringArray(item.bullets);
+        const itemReviews = stringArray(item.criticalReviews);
         if (!itemUrl && !itemAsin) continue;
 
-        const captured: NonNullable<CompetitorInputItem["captured"]> = { currency };
+        const captured: NonNullable<CompetitorInputItem["captured"]> = {
+          currency,
+          ...(itemBullets.length > 0 ? { bullets: itemBullets } : {}),
+          ...(itemReviews.length > 0 ? { criticalReviews: itemReviews } : {}),
+        };
         const numeric: Array<[CompetitorNumericField, number | undefined]> = [
           ["priceCents", priceToCents(item)],
           ["rating", numericField(item, "rating")],
@@ -147,7 +153,7 @@ export async function POST(request: Request) {
           competitorCount: report.competitors.length,
           provenance: report.provenance,
           reviewStatus: report.reviewStatus,
-          redirectUrl: `/competitors?id=${encodeURIComponent(report.id)}`,
+          redirectUrl: `/competitors?id=${encodeURIComponent(report.id)}&market=${encodeURIComponent(marketCode)}&platform=${encodeURIComponent(platformCode)}`,
         },
         { headers },
       );
@@ -215,7 +221,7 @@ export async function POST(request: Request) {
         competitorCount: report.competitors.length,
         provenance: report.provenance,
         reviewStatus: report.reviewStatus,
-        redirectUrl: `/competitors?id=${encodeURIComponent(report.id)}`,
+        redirectUrl: `/competitors?id=${encodeURIComponent(report.id)}&market=${encodeURIComponent(marketCode)}&platform=${encodeURIComponent(platformCode)}`,
       },
       { headers },
     );

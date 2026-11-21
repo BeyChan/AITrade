@@ -15,12 +15,14 @@ type PageProps = {
 
 export default async function CompetitorsPage({ searchParams }: PageProps) {
   const query = await searchParams;
-  const siteScope = await resolvePersistedSiteScope(query.market, query.platform);
+  const reports = await getComparisonReports();
+  const targetById = query.id ? reports.find((r) => r.id === query.id) : undefined;
+  const siteScope = await resolvePersistedSiteScope(
+    query.market || targetById?.marketCode,
+    query.platform || targetById?.platformCode,
+  );
   const currentMarket = siteScope.marketCode;
   const currentPlatform = siteScope.platformCode;
-
-  // 不再自动生成示例研报：没有真实输入时不落盘任何数据
-  const reports = await getComparisonReports();
 
   return (
     <div className="page">

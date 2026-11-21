@@ -104,6 +104,19 @@ async function migrateLegacyJsonIfNeeded(): Promise<void> {
   await competitorTableReadyPromise;
 }
 
+function reportFingerprint(report: CompetitorComparisonReport): string {
+  const asins = (report.competitors || [])
+    .map((c) => (c.asin || "").trim().toUpperCase())
+    .filter(Boolean)
+    .sort();
+  const market = (report.marketCode || "US").toUpperCase();
+  const platform = (report.platformCode || "amazon").toLowerCase();
+  if (asins.length > 0) {
+    return `${market}:${platform}:${asins.join(",")}`;
+  }
+  return `${market}:${platform}:title:${(report.title || "").trim().toLowerCase()}`;
+}
+
 async function readAllReports(): Promise<CompetitorComparisonReport[]> {
   await migrateLegacyJsonIfNeeded();
   const db = await getDb();
@@ -111,9 +124,17 @@ async function readAllReports(): Promise<CompetitorComparisonReport[]> {
     `SELECT payload FROM competitor_comparison_reports ORDER BY created_at DESC LIMIT $1`,
     [MAX_COMPARISON_REPORTS],
   );
-  return res.rows
-    .map((row) => normalizeReport(row.payload))
-    .filter((r): r is CompetitorComparisonReport => r !== null);
+  const seenFingerprints = new Set<string>();
+  const deduped: CompetitorComparisonReport[] = [];
+  for (const row of res.rows) {
+    const normalized = normalizeReport(row.payload);
+    if (!normalized) continue;
+    const fp = reportFingerprint(normalized);
+    if (seenFingerprints.has(fp)) continue;
+    seenFingerprints.add(fp);
+    deduped.push(normalized);
+  }
+  return deduped;
 }
 
 export async function getComparisonReports(options?: { mode?: "sandbox" | "live" }): Promise<CompetitorComparisonReport[]> {
@@ -158,6 +179,19 @@ export async function getComparisonReportById(id: string, options?: { mode?: "sa
 export async function saveComparisonReport(report: CompetitorComparisonReport): Promise<void> {
   await migrateLegacyJsonIfNeeded();
   const db = await getDb();
+  // 自动清理同站点 + 相同 ASIN 集合的历史重复研报（仅保留最新一次采集结果）
+  const targetFp = reportFingerprint(report);
+  const existing = await db.query<{ id: string; payload: unknown }>(
+    `SELECT id, payload FROM competitor_comparison_reports WHERE market_code = $1 AND platform_code = $2`,
+    [(report.marketCode || "US").toUpperCase(), (report.platformCode || "amazon").toLowerCase()],
+  );
+  for (const row of existing.rows) {
+    if (row.id === report.id) continue;
+    const prev = normalizeReport(row.payload);
+    if (prev && !prev.promotedCaseId && reportFingerprint(prev) === targetFp) {
+      await db.query(`DELETE FROM competitor_comparison_reports WHERE id = $1`, [row.id]);
+    }
+  }
   await db.query(
     `INSERT INTO competitor_comparison_reports (id, market_code, platform_code, provenance, review_status, payload, created_at, updated_at)
      VALUES ($1, $2, $3, $4, $5, $6::jsonb, COALESCE($7::timestamptz, NOW()), NOW())

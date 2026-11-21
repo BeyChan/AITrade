@@ -15,8 +15,8 @@ type Props = {
 };
 
 const WIDTH = 760;
-const HEIGHT = 340;
-const PAD = { top: 28, right: 32, bottom: 48, left: 68 };
+const HEIGHT = 360;
+const PAD = { top: 48, right: 42, bottom: 50, left: 68 };
 const PLOT_W = WIDTH - PAD.left - PAD.right;
 const PLOT_H = HEIGHT - PAD.top - PAD.bottom;
 
@@ -45,14 +45,14 @@ export function CompetitorQuadrantChart({
   const [activeIndex, setActiveIndex] = useState<number>(0);
 
   const chart = useMemo(() => {
-    const valid = competitors.filter((c) => c.priceCents > 0);
-    if (valid.length === 0) return null;
+    const valid = competitors.filter((c) => c.priceCents > 0 && isVerifiedCompetitorField(c, "priceCents"));
+    if (valid.length < 2) return null;
 
     const prices = valid.map((c) => c.priceCents);
     if (targetPriceCents && targetPriceCents > 0) prices.push(targetPriceCents);
     const minPrice = Math.min(...prices);
     const maxPrice = Math.max(...prices);
-    const pricePad = Math.max(200, Math.round((maxPrice - minPrice) * 0.18));
+    const pricePad = Math.max(300, Math.round((maxPrice - minPrice) * 0.22));
     const xMin = Math.max(0, minPrice - pricePad);
     const xMax = Math.max(xMin + 500, maxPrice + pricePad);
 
@@ -60,8 +60,8 @@ export function CompetitorQuadrantChart({
     const sortedReviews = [...reviews].sort((a, b) => a - b);
     const medianReviews = sortedReviews[Math.floor(sortedReviews.length / 2)] ?? 500;
     const yLogs = reviews.map(logReview);
-    const yMin = Math.max(1, Math.min(...yLogs) - 0.35);
-    const yMax = Math.max(yMin + 1, Math.max(...yLogs) + 0.35);
+    const yMin = Math.max(0.8, Math.min(...yLogs) - 0.55);
+    const yMax = Math.max(yMin + 1.2, Math.max(...yLogs) + 0.55);
 
     const maxSales = Math.max(500, ...valid.map((c) => c.monthlySalesEst || 300));
 
@@ -111,7 +111,19 @@ export function CompetitorQuadrantChart({
     };
   }, [competitors, p50PriceCents, targetPriceCents]);
 
-  if (!chart) return null;
+  if (!chart) {
+    return (
+      <section className="panel" style={{ padding: "20px 24px" }}>
+        <div className="eyebrow" style={{ color: "var(--muted)" }}>市场格局四象限</div>
+        <h4 style={{ margin: "4px 0 6px 0", fontSize: "15px", color: "var(--ink)" }}>
+          等待真实售价与评论样本（至少需要 2 款已采集真实价格）
+        </h4>
+        <p style={{ margin: 0, fontSize: "13px", color: "var(--muted)", lineHeight: 1.6 }}>
+          为避免假数字误导定价，系统不会用估算值绘制四象限气泡图。请在 Amazon 搜索页或详情页点击 <strong>AITrade 二合一 Chrome 扩展</strong> 一键采集真实售价与评论数。
+        </p>
+      </section>
+    );
+  }
 
   const activePoint = chart.points[activeIndex] ?? chart.points[0]!;
   const activeItem = activePoint.item;

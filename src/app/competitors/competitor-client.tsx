@@ -114,7 +114,11 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
     });
   }, [currentMarket, currentPlatform]);
 
-  const currentReport = siteReports.find((r) => r.id === selectedReportId) || siteReports[0] || null;
+  const currentReport =
+    siteReports.find((r) => r.id === selectedReportId)
+    || reports.find((r) => r.id === selectedReportId)
+    || siteReports[0]
+    || null;
   const isConfirmed = currentReport?.reviewStatus === "confirmed";
   const isEstimated = (currentReport?.priceStats.verifiedSampleCount ?? 0) === 0;
 
@@ -1340,17 +1344,18 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
               </span>
             </div>
 
-            {isEstimated && (
+            {isEstimated ? (
               <div
                 className="notice warn"
-                style={{ marginBottom: "14px", fontSize: "12px", lineHeight: "1.5" }}
+                style={{ marginBottom: 0, fontSize: "13px", lineHeight: "1.6", display: "block" }}
                 role="status"
               >
-                <strong>待核实 · 不可用于定价判断：</strong>
-                当前没有任何浏览器采集或人工录入的真实售价，下列分位来自 AI / 本地模板的示意值，也不会计入选品门禁。请用扩展采集真实价格或在此研报基础上人工补录。
+                <span>
+                  <strong>暂无真实售价样本，已隐藏价格分位：</strong>
+                  直接粘贴纯 URL 时系统不会后台抓取亚马逊，也不编造假 P50 中位价。请在 Amazon 搜索页（Top 20）或详情页点击 <strong>Chrome 二合一扩展</strong> 一键采集真实价格与差评。
+                </span>
               </div>
-            )}
-
+            ) : (
             <div
               style={{
                 display: "grid",
@@ -1444,6 +1449,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                 </div>
               </div>
             </div>
+            )}
           </section>
 
           {/* 1.5 市场格局四象限气泡图 */}
@@ -1538,21 +1544,31 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                           paddingBottom: "12px",
                           marginBottom: "14px",
                           borderBottom: "1px solid var(--line)",
+                          flexWrap: "wrap",
                         }}
                       >
-                        <span style={{ fontSize: "20px", fontWeight: 800, color: "var(--ink)" }}>
-                          {formatPrice(item.priceCents, item.currency)}
+                        <span style={{ fontSize: "20px", fontWeight: 800, color: item.priceCents > 0 ? "var(--ink)" : "var(--muted)" }}>
+                          {item.priceCents > 0 ? formatPrice(item.priceCents, item.currency) : "待采集售价"}
                         </span>
-                        <span style={{ fontSize: "12px", color: "var(--amber)", fontWeight: 700 }}>
-                          ★ {item.rating}
-                        </span>
-                        <span style={{ fontSize: "12px", color: "var(--muted)" }}>
-                          ({item.reviewCount.toLocaleString()} 评 · 约 {item.monthlySalesEst} 件/月)
-                        </span>
+                        {item.rating > 0 ? (
+                          <span style={{ fontSize: "12px", color: "var(--amber)", fontWeight: 700 }}>
+                            ★ {item.rating}
+                          </span>
+                        ) : null}
+                        {item.reviewCount > 0 || item.monthlySalesEst > 0 ? (
+                          <span style={{ fontSize: "12px", color: "var(--muted)" }}>
+                            ({item.reviewCount > 0 ? `${item.reviewCount.toLocaleString()} 评` : "评论待采集"}
+                            {item.monthlySalesEst > 0 ? ` · 约 ${item.monthlySalesEst} 件/月` : ""})
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: "12px", color: "var(--muted)" }}>
+                            评分与评论数待采集
+                          </span>
+                        )}
                       </div>
                       {!isVerifiedCompetitorField(item, "priceCents") && (
                         <div style={{ fontSize: "12px", color: "var(--amber)", marginTop: "-8px", marginBottom: "12px" }}>
-                          售价、评分、评论数、销量为推断值（待核实），不计入价格分位与选品门禁
+                          尚未采集到前台真实售价，请使用 Chrome 二合一扩展在 Amazon 页面一键采集
                         </div>
                       )}
 
@@ -1618,9 +1634,9 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                         >
                           <div style={{ color: "var(--muted)", marginBottom: "4px", fontWeight: 600 }}>参数对标：</div>
                           {Object.entries(item.specifications).map(([k, v]) => (
-                            <div key={k} style={{ display: "flex", justifyContent: "space-between", color: "var(--ink)", padding: "1px 0" }}>
-                              <span style={{ color: "var(--muted)" }}>{k}:</span>
-                              <span style={{ fontWeight: 600 }}>{v}</span>
+                            <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: "12px", color: "var(--ink)", padding: "2px 0" }}>
+                              <span style={{ color: "var(--muted)", whiteSpace: "nowrap", flexShrink: 0 }}>{k}:</span>
+                              <span style={{ fontWeight: 600, textAlign: "right", wordBreak: "break-word" }}>{v}</span>
                             </div>
                           ))}
                         </div>

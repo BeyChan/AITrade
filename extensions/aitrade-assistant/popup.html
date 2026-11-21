@@ -5,7 +5,7 @@
   <title>AITrade 跨境实战助手</title>
   <style>
     body {
-      width: 340px;
+      width: 360px;
       margin: 0;
       padding: 14px;
       font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
@@ -17,7 +17,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
     .title { font-weight: 800; font-size: 15px; color: #10251c; }
     .badge {
@@ -45,18 +45,83 @@
       font-size: 12px;
       margin-bottom: 8px;
     }
+    .btn-row { display: flex; gap: 8px; margin-top: 6px; }
     button {
       width: 100%;
-      padding: 9px 12px;
+      padding: 8px 10px;
       border-radius: 8px;
       border: none;
       background: #10251c;
       color: #ffffff;
       font-weight: 700;
-      font-size: 13px;
+      font-size: 12px;
       cursor: pointer;
     }
+    button.secondary {
+      background: #eef3ef;
+      color: #10251c;
+      border: 1px solid #cfd8d1;
+    }
+    button.primary-green {
+      background: #1f7a55;
+      color: #ffffff;
+    }
+    button.mini-btn {
+      width: auto;
+      padding: 2px 6px;
+      font-size: 11px;
+      background: transparent;
+      color: #b8322a;
+      border: 1px solid #e4c2bf;
+    }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .preview {
+      font-size: 12px;
+      color: #2f3e36;
+      background: #f8faf8;
+      border: 1px solid #e3ebe5;
+      border-radius: 8px;
+      padding: 8px 10px;
+      margin-bottom: 8px;
+      line-height: 1.5;
+    }
+    .basket-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #10251c;
+    }
+    .basket-list {
+      max-height: 150px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    .basket-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 8px;
+      border-radius: 7px;
+      background: #f8faf8;
+      border: 1px solid #e3ebe5;
+      font-size: 11px;
+    }
+    .basket-item-info { min-width: 0; flex: 1; }
+    .basket-item-title {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-weight: 600;
+      color: #18221d;
+    }
+    .basket-item-meta { color: #52635a; margin-top: 2px; }
     .status {
       margin-top: 8px;
       font-size: 12px;
@@ -78,11 +143,29 @@
     <label for="serverUrl">AITrade 服务地址（本机或共享服务器）</label>
     <input id="serverUrl" type="url" placeholder="http://localhost:1688" />
     <div id="extraFieldWrap" style="display:none;">
-      <label for="hypothesisId">目标研究假设 ID（1688 采集必填）</label>
-      <input id="hypothesisId" type="text" placeholder="在 AITrade 页面复制假设 ID" />
+      <label for="caseSelect">归属到我的商品（可选，选了自动写入该商品的比价表）</label>
+      <select
+        id="caseSelect"
+        style="width:100%;padding:7px 9px;border-radius:7px;border:1px solid #ccd6ce;font-size:12px;margin-bottom:8px;background:#fff;color:#18221d;"
+      >
+        <option value="">仅存入 1688 全局工厂库</option>
+      </select>
     </div>
-    <button id="captureBtn" disabled>等待页面识别…</button>
-    <div id="status" class="status">请在 Amazon 商品/搜索页或 1688 搜索页打开本助手。</div>
+    <div id="previewBox" class="preview" style="display:none;"></div>
+    <div class="btn-row">
+      <button id="addBasketBtn" class="primary-green" style="display:none;">+ 加入对比篮子</button>
+      <button id="captureBtn" disabled>等待页面识别…</button>
+    </div>
+    <div id="status" class="status">在 Amazon 搜索页可一键采 Top 20；在详情页可逐个加入对比篮子后批量对比。</div>
+  </div>
+
+  <div id="basketCard" class="card" style="display:none;">
+    <div class="basket-header">
+      <span id="basketTitle">竞品对比篮子（0 款）</span>
+      <button id="clearBasketBtn" type="button" class="mini-btn">清空</button>
+    </div>
+    <div id="basketList" class="basket-list"></div>
+    <button id="sendBasketBtn" class="primary-green" disabled>一键推送篮子内商品生成对比研报</button>
   </div>
 
   <script src="popup.js"></script>

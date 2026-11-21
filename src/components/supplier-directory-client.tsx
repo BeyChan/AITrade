@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { money, shortDate } from "@/lib/format";
 import { StatusBadge } from "@/components/badges";
 import { IconClipboard, IconFactory } from "@/components/icons";
@@ -29,12 +30,83 @@ export function SupplierDirectoryClient({
   notice,
   error,
 }: Props) {
+  const router = useRouter();
+  const [supplierList, setSupplierList] = useState<SupplierDirectoryItem[]>(suppliers);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [linkingId, setLinkingId] = useState<string | null>(null);
+  const [linkCaseId, setLinkCaseId] = useState<string>(cases[0]?.productCase.id ?? "");
+  const [linkPriceCny, setLinkPriceCny] = useState<string>("25");
+  const [linkMoq, setLinkMoq] = useState<string>("100");
+  const [savingLink, setSavingLink] = useState(false);
+  const [actionMsg, setActionMsg] = useState<{ type: "ok" | "err"; text: string; href?: string } | null>(null);
   const [activeTab, setActiveTab] = useState<"directory" | "cases">("directory");
   const [searchQuery, setSearchQuery] = useState("");
   const [platformFilter, setPlatformFilter] = useState("all");
   const [showAddForm, setShowAddForm] = useState(false);
 
-  const filteredSuppliers = suppliers.filter((s) => {
+  async function handleLinkToCase(supplier: SupplierDirectoryItem) {
+    if (!linkCaseId) {
+      setActionMsg({ type: "err", text: "暂无可关联的商品，请先在选品雷达立项一个商品。" });
+      return;
+    }
+    setActionMsg(null);
+    setSavingLink(true);
+    try {
+      const res = await fetch(`/api/suppliers/${encodeURIComponent(supplier.id)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          caseId: linkCaseId,
+          priceCny: Number(linkPriceCny) || 25,
+          moq: Number(linkMoq) || 100,
+        }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; redirectUrl?: string; error?: string };
+      if (!res.ok || !json.ok) {
+        setActionMsg({ type: "err", text: json.error || "关联商品失败" });
+        return;
+      }
+      setSupplierList((prev) =>
+        prev.map((item) => (item.id === supplier.id ? { ...item, quoteCount: item.quoteCount + 1 } : item)),
+      );
+      setLinkingId(null);
+      setActionMsg({
+        type: "ok",
+        text: `已将「${supplier.name}」加入商品比价表（¥${Number(linkPriceCny) || 25} / 起订 ${Number(linkMoq) || 100}）。`,
+        href: json.redirectUrl,
+      });
+      router.refresh();
+    } catch {
+      setActionMsg({ type: "err", text: "网络异常，请重试" });
+    } finally {
+      setSavingLink(false);
+    }
+  }
+
+  async function handleRemoveSupplier(supplier: SupplierDirectoryItem) {
+    if (!window.confirm(`确认从工厂库移除「${supplier.name}」吗？`)) return;
+    setActionMsg(null);
+    setDeletingId(supplier.id);
+    try {
+      const res = await fetch(`/api/suppliers/${encodeURIComponent(supplier.id)}`, {
+        method: "DELETE",
+      });
+      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (!res.ok || !json.ok) {
+        setActionMsg({ type: "err", text: json.error || "移除工厂失败" });
+        return;
+      }
+      setSupplierList((prev) => prev.filter((item) => item.id !== supplier.id));
+      setActionMsg({ type: "ok", text: `已移除工厂「${supplier.name}」。` });
+      router.refresh();
+    } catch {
+      setActionMsg({ type: "err", text: "请求异常，请重试" });
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  const filteredSuppliers = supplierList.filter((s) => {
     const matchQuery =
       !searchQuery ||
       s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -59,6 +131,21 @@ export function SupplierDirectoryClient({
         <div className="notice warn">
           <span className="badge badge-danger">未完成</span>
           <span>{error}</span>
+        </div>
+      )}
+      {actionMsg && (
+        <div className={`notice ${actionMsg.type === "err" ? "warn" : ""}`}>
+          <span className={`badge ${actionMsg.type === "err" ? "badge-danger" : "badge-success"}`}>
+            {actionMsg.type === "err" ? "提示" : "已完成"}
+          </span>
+          <span>
+            {actionMsg.text}{" "}
+            {actionMsg.href ? (
+              <Link href={actionMsg.href} style={{ textDecoration: "underline", fontWeight: 700 }}>
+                前往商品比价表
+              </Link>
+            ) : null}
+          </span>
         </div>
       )}
 
@@ -399,10 +486,127 @@ export function SupplierDirectoryClient({
                         <span style={{ fontSize: "12px", color: "var(--muted)" }}>暂无外链</span>
                       )}
 
-                      <span style={{ fontSize: "12px", color: "var(--muted)" }}>
-                        参与案卷: {supplier.quoteCount} 个
-                      </span>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                        <span style={{ fontSize: "12px", color: "var(--muted)" }}>
+                          参与商品: {supplier.quoteCount} 个
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setLinkingId(linkingId === supplier.id ? null : supplier.id)}
+                          style={{
+                            padding: "2px 8px",
+                            borderRadius: "6px",
+                            border: "1px solid var(--green)",
+                            background: "transparent",
+                            color: "var(--green)",
+                            fontSize: "12px",
+                            cursor: "pointer",
+                            fontWeight: 600,
+                          }}
+                        >
+                          {linkingId === supplier.id ? "取消" : "+ 参与商品"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={deletingId === supplier.id}
+                          onClick={() => handleRemoveSupplier(supplier)}
+                          style={{
+                            padding: "2px 8px",
+                            borderRadius: "6px",
+                            border: "1px solid var(--line)",
+                            background: "transparent",
+                            color: "var(--red)",
+                            fontSize: "12px",
+                            cursor: deletingId === supplier.id ? "wait" : "pointer",
+                          }}
+                        >
+                          {deletingId === supplier.id ? "移除中…" : "移除"}
+                        </button>
+                      </div>
                     </div>
+
+                    {linkingId === supplier.id ? (
+                      <div
+                        style={{
+                          marginTop: "10px",
+                          paddingTop: "10px",
+                          borderTop: "1px dashed var(--line)",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "8px",
+                        }}
+                      >
+                        <select
+                          value={linkCaseId}
+                          onChange={(e) => setLinkCaseId(e.target.value)}
+                          aria-label="选择要参与的商品"
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            borderRadius: "6px",
+                            border: "1px solid var(--line)",
+                            background: "var(--paper)",
+                            color: "var(--ink)",
+                            fontSize: "12px",
+                          }}
+                        >
+                          {cases.length === 0 ? (
+                            <option value="">暂无在办商品（请先在选品雷达立项）</option>
+                          ) : (
+                            cases.map((c) => (
+                              <option key={c.productCase.id} value={c.productCase.id}>
+                                [{c.productCase.marketplace}] {c.productCase.asin} · {c.productCase.title.slice(0, 24)}
+                              </option>
+                            ))
+                          )}
+                        </select>
+                        <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                          <input
+                            type="number"
+                            step="0.5"
+                            value={linkPriceCny}
+                            onChange={(e) => setLinkPriceCny(e.target.value)}
+                            placeholder="拿货价 ¥"
+                            aria-label="拿货价人民币"
+                            style={{
+                              width: "90px",
+                              padding: "5px 7px",
+                              borderRadius: "6px",
+                              border: "1px solid var(--line)",
+                              background: "var(--paper)",
+                              color: "var(--ink)",
+                              fontSize: "12px",
+                            }}
+                          />
+                          <input
+                            type="number"
+                            step="10"
+                            value={linkMoq}
+                            onChange={(e) => setLinkMoq(e.target.value)}
+                            placeholder="起订量"
+                            aria-label="起订量"
+                            style={{
+                              width: "80px",
+                              padding: "5px 7px",
+                              borderRadius: "6px",
+                              border: "1px solid var(--line)",
+                              background: "var(--paper)",
+                              color: "var(--ink)",
+                              fontSize: "12px",
+                            }}
+                          />
+                          <button
+                            type="button"
+                            disabled={savingLink || cases.length === 0}
+                            onClick={() => handleLinkToCase(supplier)}
+                            className="button primary"
+                            style={{ flex: 1, padding: "5px 8px", fontSize: "12px" }}
+                          >
+                            {savingLink ? "关联中…" : "确认加入比价"}
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
                   </article>
                 );
               })}

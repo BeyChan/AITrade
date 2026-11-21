@@ -41,19 +41,50 @@ B0875X3V95`;
   assert.equal(items[2]?.asin, "B0875X3V95");
 });
 
-test("analyzeCompetitors produces valid report with percentiles", async () => {
+test("parseCompetitorInputs deduplicates same ASIN with different query params and ignores generic adjective brand", () => {
+  const input = `https://www.amazon.com/Automatic-Windproof-Compact-Rain-Umbrella/dp/B01LZ75ROQ/ref=sr_1_3?th=1
+https://www.amazon.com/Automatic-Windproof-Compact-Rain-Umbrella/dp/B01LZ75ROQ/ref=sr_1_3`;
+  const items = parseCompetitorInputs(input);
+  assert.equal(items.length, 1);
+  assert.equal(items[0]?.asin, "B01LZ75ROQ");
+  assert.equal(items[0]?.url, "https://www.amazon.com/dp/B01LZ75ROQ");
+});
+
+test("analyzeCompetitors never fabricates prices when no captured data is provided", async () => {
   const result = await analyzeCompetitors({
     rawInputs: `https://www.amazon.com/dp/B08CZ8K652
 https://www.amazon.com/dp/B09M87J11L`,
     marketCode: "US",
     platformCode: "amazon",
     currency: "USD",
+    skipModel: true,
   });
 
   assert.ok(result.id);
-  assert.equal(result.competitors.length >= 2, true);
-  assert.ok(result.priceStats.min > 0);
-  assert.ok(result.priceStats.p50 >= result.priceStats.min);
+  assert.equal(result.competitors.length, 2);
+  assert.equal(result.priceStats.verifiedSampleCount, 0);
+  assert.equal(result.priceStats.p50, 0);
+  assert.equal(result.competitors[0]?.priceCents, 0);
+});
+
+test("analyzeCompetitors produces valid percentiles from verified captured prices", async () => {
+  const result = await analyzeCompetitors({
+    rawInputs: `https://www.amazon.com/dp/B08CZ8K652
+https://www.amazon.com/dp/B09M87J11L`,
+    marketCode: "US",
+    platformCode: "amazon",
+    currency: "USD",
+    skipModel: true,
+    capturedInputs: [
+      { raw: "https://www.amazon.com/dp/B08CZ8K652", asin: "B08CZ8K652", captured: { priceCents: 1999, rating: 4.3, reviewCount: 1200, currency: "USD" } },
+      { raw: "https://www.amazon.com/dp/B09M87J11L", asin: "B09M87J11L", captured: { priceCents: 2999, rating: 4.5, reviewCount: 8500, currency: "USD" } },
+    ],
+  });
+
+  assert.equal(result.priceStats.verifiedSampleCount, 2);
+  assert.equal(result.priceStats.min, 1999);
+  assert.equal(result.priceStats.max, 2999);
+  assert.equal(result.priceStats.p50, 2499);
   assert.ok(result.summary.commonStrengths.length > 0);
   assert.ok(result.summary.commonWeaknesses.length > 0);
   assert.ok(result.summary.attackVector.length > 0);
