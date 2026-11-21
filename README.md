@@ -74,23 +74,6 @@ flowchart TD
 - **在场式 AI 副驾驶 & 全域检索（`⌘K` / `Ctrl+K`）**：自动感知当前案卷/研报上下文，实时输出 18% 门禁诊断与 1688 压价底牌话术（无 API Key 时自动回退确定性专家引擎）。
 - **Chrome 采集扩展（用户触发，零后台爬虫）**：在亚马逊详情页（`/dp/`）或搜索页（`/s?k=...`）一键采集最多 20 款可见竞品；在 1688 搜索页一键采集可见工厂卡片。
 
-<details>
-<summary><b>查看全部界面截图（案卷总库 / 竞品对比 / 立项战报 PDF / 寻源 / 内容 / 生图工坊）</b></summary>
-
-| 案卷台账 | 竞品对比工作台 |
-|---|---|
-| ![案卷台账](docs/assets/aitrade-cases.png) | ![竞品对比工作台](docs/assets/aitrade-competitors.png) |
-
-| 立项决策战报（A4 PDF） | 供应商询价与比价 |
-|---|---|
-| ![立项决策评审报告](docs/assets/aitrade-report-pdf.png) | ![供应商询价](docs/assets/aitrade-sourcing.png) |
-
-| 内容工作台 | AI 生图工坊 |
-|---|---|
-| ![内容工作台](docs/assets/aitrade-content-studio.png) | ![AI 生图工坊](docs/assets/aitrade-image-studio.png) |
-
-</details>
-
 ---
 
 ## 快速开始
