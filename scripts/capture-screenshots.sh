@@ -7,7 +7,7 @@ set -euo pipefail
 
 export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:${PATH:-}"
 
-BASE_URL="${BASE_URL:-http://127.0.0.1:3000}"
+BASE_URL="${BASE_URL:-http://127.0.0.1:1688}"
 OUT_DIR="${OUT_DIR:-docs/assets}"
 CHROME="${CHROME:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
 WIDTH="${WIDTH:-1440}"
