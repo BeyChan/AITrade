@@ -68,7 +68,7 @@ export default async function ProductCasesPage({ searchParams }: PageProps) {
       <header style={{ marginBottom: "18px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "16px" }}>
           <div>
-            <h1>商品工作台</h1>
+            <h1>商品案卷</h1>
             <p className="muted" style={{ fontSize: "14px", margin: 0 }}>
               集中管理所有已立项商品案卷。追踪从竞品研报、工厂询价、财务核准、内容打磨到批量发布模板 (Flat File) 的完整进度。
             </p>

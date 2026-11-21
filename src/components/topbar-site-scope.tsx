@@ -70,7 +70,7 @@ function getSectionLabel(pathname: string) {
     if (/\/sourcing(\/|$)/.test(pathname)) return "供应商 · 商品详情";
     if (/\/content(\/|$)|\/channels(\/|$)/.test(pathname)) return "内容与上架 · 商品详情";
     if (/\/report(\/|$)/.test(pathname)) return "立项决策战报 (Memo)";
-    return "商品工作台";
+    return "商品案卷";
   }
   if (pathname === "/import" || pathname.startsWith("/data-sources")) return "数据导入";
   if (pathname.startsWith("/sourcing")) return "供应商资产库";

@@ -272,7 +272,7 @@ export function DataSourceImport() {
           <h3>推荐免费流程</h3>
           <div className="source-steps">
             <span><b>01</b> 从平台后台、ERP 或选品工具导出候选品 CSV</span>
-            <span><b>02</b> 导入后直接进入商品工作台，继续补齐真实验证证据</span>
+            <span><b>02</b> 导入后直接进入商品案卷，继续补齐真实验证证据</span>
             <span><b>03</b> 导入供应商档案和至少 3 份真实报价</span>
             <span><b>04</b> 人工对比、定标，再进入主图和上架预检</span>
           </div>

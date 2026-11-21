@@ -169,6 +169,12 @@ export function CasesAuditLedger({ rows }: { rows: AuditLedgerRow[] }) {
                       <span className="ledger-asin-chip">{row.asin}</span>
                       <span>{row.category}</span>
                       <StatusBadge status={row.status} />
+                      <span
+                        className={`ledger-evidence-chip ${row.isVerified ? "is-verified" : "is-pending"}`}
+                        title={`证据完整度 ${row.evidenceScore}%`}
+                      >
+                        {row.isVerified ? "已核实" : row.isDemo ? "演示样板" : "待核实"}
+                      </span>
                     </div>
                   </td>
 
@@ -280,12 +286,12 @@ export function CasesAuditLedger({ rows }: { rows: AuditLedgerRow[] }) {
 
         <div className="audit-ledger-legend">
           <span className="ledger-legend-item">
-            <span className="ledger-legend-line is-verified" aria-hidden="true" />
-            <span>左缘实线：已核实证据（完整度 ≥ 50%）</span>
+            <span className="ledger-evidence-chip is-verified">已核实</span>
+            <span>证据完整度 ≥ 50%</span>
           </span>
           <span className="ledger-legend-item">
-            <span className="ledger-legend-line is-pending" aria-hidden="true" />
-            <span>左缘虚线：演示样板或证据待核实</span>
+            <span className="ledger-evidence-chip is-pending">演示样板 / 待核实</span>
+            <span>仅作参考，立项前需补齐真实证据</span>
           </span>
           <span className="ledger-legend-item">
             <span className="ledger-legend-gate" aria-hidden="true" />

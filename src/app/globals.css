@@ -11839,9 +11839,10 @@ table.audit-ledger {
 
 .audit-ledger thead th.ledger-check-col,
 .audit-ledger tbody td.ledger-check-col {
-  width: 34px;
+  width: 44px;
+  min-width: 44px;
   text-align: center;
-  padding: 10px 4px 10px 10px;
+  padding: 10px 12px;
 }
 
 .audit-ledger tbody td.ledger-check-col input[type="checkbox"],
@@ -11879,14 +11880,24 @@ table.audit-ledger {
   background: #f2f8f4;
 }
 
-.audit-ledger tbody tr.ledger-row.is-verified > td:first-child {
-  border-left: 3px solid var(--green);
-  padding-left: 7px;
+.ledger-evidence-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
 }
 
-.audit-ledger tbody tr.ledger-row.is-pending > td:first-child {
-  border-left: 3px dashed var(--amber);
-  padding-left: 7px;
+.ledger-evidence-chip.is-verified {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.ledger-evidence-chip.is-pending {
+  background: var(--amber-soft);
+  color: var(--amber);
 }
 
 .ledger-case-cell {

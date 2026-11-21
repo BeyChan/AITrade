@@ -49,7 +49,7 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
     <div className="page">
       {/* 1. 标准面包屑导航 (与其他所有页面完全对齐) */}
       <div className="breadcrumb no-print">
-        <Link href="/">AI 选品</Link> / <Link href="/cases">商品工作台</Link> /{" "}
+        <Link href="/">AI 选品</Link> / <Link href="/cases">商品案卷</Link> /{" "}
         <Link href={`/cases/${productCase.id}`}>{productCase.asin}</Link> / 决策战报
       </div>
 

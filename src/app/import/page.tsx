@@ -123,7 +123,7 @@ export default function ImportPage() {
           </section>
           <section className="card">
             <h3>导入护栏</h3>
-            <p>当前成本模型不盈利的候选品会被拒绝导入，避免把明显亏损的项目带入商品工作台。</p>
+            <p>当前成本模型不盈利的候选品会被拒绝导入，避免把明显亏损的项目带入商品案卷。</p>
           </section>
         </aside>
       </div>

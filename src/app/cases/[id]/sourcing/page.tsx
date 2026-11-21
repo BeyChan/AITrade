@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { createSupplierQuoteAction, selectSupplierQuoteAction } from "@/app/actions";
 import { StatusBadge } from "@/components/badges";
 import { CaseStepper } from "@/components/case-stepper";
-import { money, percent, shortDate } from "@/lib/format";
+import { money, shortDate } from "@/lib/format";
 import { getSourcingDetail, listSupplierDirectory } from "@/lib/repository";
 import { SupplierMatrixPk } from "@/components/supplier-matrix-pk";
 import { QuoteSmartPaste } from "@/components/quote-smart-paste";
@@ -135,99 +135,16 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
         onCreate1688Action={createSupplierQuoteAction}
       />
 
-      <section className="section">
-        <div className="section-header">
-          <div>
-            <h2>报价对比</h2>
-            <p>成本 45% · 质量 25% · 交期 15% · MOQ 10% · 商业条件 5%。系统推荐不等于最终定标。</p>
-          </div>
-          <span className="badge badge-neutral">{quotes.length} 家供应商</span>
-        </div>
-
-        {quotes.length === 0 ? (
-          <div className="empty-state" style={{ padding: "42px 18px" }}>
-            <h3>还没有供应商报价</h3>
-            <p>在下方录入至少 1 家报价；建议用真实询价结果完成 3 家对比后再定标。</p>
-          </div>
-        ) : (
-          <div className="quote-grid">
-            {scoredQuotes.map((score, index) => {
-              const quote = quotes.find((item) => item.id === score.id);
-              if (!quote) return null;
-              const isSelected = selection?.quote_id === quote.id;
-              return (
-                <article className={`quote-card ${score.isPreferred ? "preferred" : ""} ${isSelected ? "selected" : ""}`} key={quote.id}>
-                  <div className="quote-card-top">
-                    <div>
-                      <div className="quote-rank">#{index + 1}</div>
-                      <h3>{quote.supplier.name}</h3>
-                      <div className="product-meta">
-                        <span>{quote.supplier.platform}</span>
-                        {quote.supplier.country ? <span>{quote.supplier.country}</span> : null}
-                        {quote.supplier.contact ? <span>{quote.supplier.contact}</span> : null}
-                      </div>
-                    </div>
-                    <div className="quote-score">
-                      <strong>{score.score}</strong>
-                      <span>综合分</span>
-                    </div>
-                  </div>
-
-                  <div className="pill-list" style={{ marginBottom: 14 }}>
-                    {isSelected ? <span className="badge badge-success">已选定</span> : null}
-                    {score.isPreferred ? <span className="badge recommendation-go">系统推荐</span> : null}
-                    <span className={`badge ${score.isEligible ? "badge-success" : "badge-danger"}`}>
-                      {score.isEligible ? "可定标" : "未通过门槛"}
-                    </span>
-                  </div>
-
-                  <div className="quote-cost-band">
-                    <div><small>到岸成本</small><strong>{money(score.landedCostCents)}</strong></div>
-                    <div><small>单件净利</small><strong>{money(score.economics.netProfitCents)}</strong></div>
-                    <div><small>压力净利</small><strong className={score.economics.stressProfitCents <= 0 ? "negative" : ""}>{money(score.economics.stressProfitCents)}</strong></div>
-                  </div>
-
-                  <div className="quote-facts">
-                    <div><span>采购价</span><strong>{money(quote.unit_price_cents)}</strong></div>
-                    <div><span>单件运费</span><strong>{money(quote.freight_per_unit_cents)}</strong></div>
-                    <div><span>关税</span><strong>{percent(Number(quote.duty_rate), 1)}</strong></div>
-                    <div><span>MOQ</span><strong>{quote.moq.toLocaleString("zh-CN")}</strong></div>
-                    <div><span>交期</span><strong>{quote.lead_time_days ?? "—"} 天</strong></div>
-                    <div><span>样品费</span><strong>{money(quote.sample_fee_cents ?? 0)}</strong></div>
-                    <div><span>贸易条款</span><strong>{quote.incoterm || "未填写"}</strong></div>
-                    <div><span>付款条件</span><strong>{quote.payment_terms || "未填写"}</strong></div>
-                  </div>
-
-                  <div className="score-breakdown">
-                    <ScoreBar label="成本" value={score.scoreBreakdown.cost} />
-                    <ScoreBar label="质量" value={score.scoreBreakdown.quality} />
-                    <ScoreBar label="交期" value={score.scoreBreakdown.leadTime} />
-                    <ScoreBar label="MOQ" value={score.scoreBreakdown.moq} />
-                    <ScoreBar label="商业条件" value={score.scoreBreakdown.commercial} />
-                  </div>
-
-                  <div className="risk-list">
-                    <strong>风险与核验项</strong>
-                    {score.risks.length ? score.risks.map((risk) => <span className="risk-chip" key={risk}>{risk}</span>) : <span className="risk-chip safe">未触发硬性风险提示</span>}
-                    {!quote.certifications ? <span className="risk-chip">认证信息缺失</span> : <span className="risk-chip safe">{quote.certifications}</span>}
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
       <div className="sourcing-bottom-grid">
         <div className="stack">
           {!selection ? (
-            <details className="section entry-panel" open={quotes.length === 0 || Boolean(query.error)}>
+            <details className="section entry-panel" open={Boolean(query.error)}>
               <summary>
                 <span>
-                  <strong>＋ 新增供应商报价</strong>
-                  <small>录入真实询价结果；系统只计算和比较，不自动联系供应商。</small>
+                  <strong>高级录入：报价单截图识别 / 完整外币条款（FOB · 关税 · 认证）</strong>
+                  <small>如需用微信/1688 报价截图自动识别，或补充关税、贸易条款、认证与付款条件，可展开此处录入；快捷 RMB 报价直接用上方矩阵即可。</small>
                 </span>
-                <span className="badge badge-neutral">人工录入</span>
+                <span className="badge badge-neutral">截图识别 & 完整条款</span>
               </summary>
               <form action={createSupplierQuoteAction} className="stack entry-form">
                 <input type="hidden" name="caseId" value={productCase.id} />
@@ -383,16 +300,6 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
           </section>
         </aside>
       </div>
-    </div>
-  );
-}
-
-function ScoreBar({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="mini-score">
-      <span>{label}</span>
-      <span className="mini-score-track"><span style={{ width: `${Math.min(100, Math.max(0, value))}%` }} /></span>
-      <strong>{value}</strong>
     </div>
   );
 }

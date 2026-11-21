@@ -38,7 +38,7 @@ const MAIN_NAV_ITEMS: NavItem[] = [
   },
   {
     href: "/cases",
-    label: "商品工作台",
+    label: "商品案卷",
     icon: "case",
   },
   {

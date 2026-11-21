@@ -1,137 +1,112 @@
 # AITrade
 
-跨境电商运营工作台：选品假设 → 证据核验 → 供应商与成本 → 商品内容 → 发布前检查。AI 只生成待验证假设，结论由证据和确定性规则决定。
+> **跨境电商“反亏钱”立项审计与选品决策工作台**  
+> **AI 只生成待验证假设，结论由真实证据与确定性规则决定。**
 
-![选品工作台 5 阶看板](docs/assets/aitrade-workspace-sidebar.png)
+无需 Docker、无需付费 API Key，本机 30 秒启动。覆盖 **选品研判 → 财务/物流/合规门禁 → 1688 寻源比价 → 内容与视觉工坊 → 实盘经营复盘** 全链路。
 
-![商品工作台案卷总库](docs/assets/aitrade-cases.png)
+![AITrade 选品工作台 5 阶看板](docs/assets/aitrade-workspace-sidebar.png)
 
-![竞品对比工作台](docs/assets/aitrade-competitors.png)
+---
 
-![立项决策评审报告与 PDF 导出](docs/assets/aitrade-report-pdf.png)
+## 核心工作流一览
 
-![供应商询价](docs/assets/aitrade-sourcing.png)
-
-![内容工作台](docs/assets/aitrade-content-studio.png)
-
-![AI 生图工坊](docs/assets/aitrade-image-studio.png)
-
-## 功能
-
-- 侧边栏「真实数据 / 演示模式」双选切换：全局支持「真实数据 (Live)」与「演示模式 (Sandbox)」环境平滑切换。演示模式下展示预置经典选品样板与模拟测试店铺，顶部呈现沙盒操作警告，支持一键重置回初始样板；切换至「真实数据」后彻底过滤 demo 数据，仅展示真实店铺与核准数据，未录入真实商品时提供清晰的业务启航指引。
-- 首页「全生命周期 5 阶流水线看板 (Pipeline Kanban)」与「今日待办」：按「国家 × 平台」隔离数据，将全盘项目规整为 5 阶严密业务漏斗（`1. 竞品初筛` ➔ `2. 寻源询价` ➔ `3. 财务核准` ➔ `4. 内容打磨` ➔ `5. 渠道就绪`）。每列严格保持视觉整齐（单列上限 4 张卡片：有置顶待办时展示 3 个常规项，无待办展示 4 个项），超额项目在列底部提供「查看全部 N 个项目 →」直达对应阶段全量工作台列表；支持看板/紧凑列表双重视图切换，每张卡片附带一键直达的“下一步待办”快捷动作。
-- 统一「选品中心 · 3 步极简选品向导」（`/discover`）：按卖家手头线索提供「01 还没定品 · AI 找方向 / 02 已有竞品 · 测市场格局 / 03 已有货源 · 极速测 18% 毛利」3 选 1 起点，将选品收口为「1. 看市场 → 2. 核成本（自动倒推 18% 门禁最高 1688 拿货上限）→ 3. 合规红线与一键立项」3 步线性闯关流程，同时在底部汇总当前站点的竞品研报与 AI 选品批次。
-- 全局常驻「在场式全知 AI 副驾驶」与「全域穿梭检索 (Global Spotlight)」：右下角常驻悬浮胶囊，支持全局快捷键 `⌘K`（或 `Ctrl+K`）随时呼出。内置双模式：
-  - **全域穿梭检索**：实时模糊匹配候选品案卷、竞品对标研报、1688 询价单、财务测算、Flat File 导出与系统设置，键盘方向键配合回车瞬时直达；
-  - **在场式跨境操盘手 AI 副驾驶**：自动感知当前所在路由（如具体商品案卷 `/cases/[id]` 或竞品研报 `/competitors`），将已核实的案卷售价、净利率、18% 门禁缺口与压测结果注入上下文并动态切换快捷诊断指令；即使离线/未配置模型 Key，也能基于当前案卷真实数据输出精确的门禁诊断与 1688 压价底牌话术。
-- 竞品对比工作台（`/competitors`）与市场格局四象限气泡图：按「国家 × 平台」隔离研报，支持 1~20 款竞品横向对标；新增零依赖交互式 SVG **「售价 × 评论壁垒 × 月销气泡 × 评分痛点」四象限格局图**（自动高亮右下角高客单低评论壁垒黄金切入区），结合 HHI 垄断指数、评论对数阻力、价格变异系数 CV 与贝叶斯评分构建 5 大量化支柱，并支持真实 1688 报价核算与一键立项。
-- 亚马逊竞品采集 Chrome 扩展（`extensions/aitrade-competitor-capture/`）：同时支持**单品详情页（`/dp/`）**与**搜索结果页（SERP `/s?k=...`）**——在搜索结果页点击一次即可采集当前可见页最多 20 款竞品的 ASIN、标题、实价、评分与评论数，直出四象限格局图与价格分位；仅处理用户点击时的可见 DOM，不后台爬取、不自动翻页，上传后逐字段标为「已采集」，AI 不得覆盖。
-- 案卷交互式财务沙盘、物流现金流与立项前置合规门禁（`/cases/[id]`）：
-  - **交互式 What-If 财务沙盘**：提供售价、采购落地成本、广告 ACoS%、退货率 4 根实时滑杆，联动展示单件成本结构瀑布图、5×5「售价 × ACoS」盈利热力矩阵、18% 门禁最高允许到岸价与 `GO / HOLD / NO-GO` 实时判定，支持一键回填成本表单人工确认落库；
-  - **包装尺寸 → FBA 降档提醒 / 抛货头程 / VAT / 90 天现金流回本**：按彩盒长宽高与毛重自动判定 FBA 尺寸分段并在临界降档时给出压缩厘米数与省钱测算，按 `max(实重, 长×宽×高/6000)` 识别抛货头程，自动拆解 DE/GB/JP/AU/SG 站点 VAT，并推演首单资金峰值与 6 个月回本曲线；
-  - **立项前置合规与专利红线**：按站点 × 商品属性（锂电池、蓝牙射频、食品接触、儿童、交流插头、液体、激光理疗）输出强制认证清单、预估费用与 Google Patents / USPTO / EUIPO 一键检索深链。
-- 工厂报价单截图多模态识别（`/cases/[id]/sourcing`）：在智能报价粘贴区支持直接上传微信/1688 报价单截图（PNG/JPG/WebP），调用已配置的视觉大模型提取单价、MOQ、交期、付款条件等字段并回填表单，经人工核对后入库。
-- 实盘经营复盘（`/operations`）：将 P3.0 确定性结算与库存纯函数管线产品化为零写入预览工作台，粘贴 Amazon Settlement V2 与 FBA 库存快照（内置一键示例），自动匹配已立项案卷成本模型，输出 SKU 级实盘 vs 预测毛利偏差、可售库存天数（DOI）断货预警与未映射行隔离区。
-- 真实世界交付与决策报表：
-  - **亚马逊官方标准 Inventory Flat File (TSV/CSV 批量上传模板)**：一键导出包含 `item_sku`、`brand`、`item_name`、`standard_price`、`bullet_point1~5`、`description` 和 `generic_keywords` 的官方制表符文本，下载后可直接进入卖家后台批量上传。
-  - **高审美「立项决策评审战报 (Investment Memo)」与 A4 PDF 打印导出**（`/cases/[id]/report`）：整合商品指数、单位经济压力测试表、1688 材质工艺标准、反制五点文案与选品/采购/运营三方签批栏，专用 `@media print` 样式，一秒保存为专业 PDF 汇报书。
-- AI 推荐类目与商品机会，附验证任务和找货线索。
-- 选品竞品画像与假设证伪：按 ASIN / 来源 URL 自动去重竞品快照，计算价格分位（`Min / P25 / P50 / P75 / P90 / Max`）、评分/评论数/BSR 中位数、样本覆盖可信度与 3 行假设证伪矩阵（痛点差异化、定价合理性、中位价毛利可行性）；确认售价超 `P90` 时给出高溢价风险提示。
-- 选品竞品与差评批量导入：支持基于当前批次的国家站点（US/DE/JP/GB 等）、平台与币种，由 AI 或本地模板生成 10~25 款对标素材，快速铺开价格带与差评主题框架；另提供多行文本 / CSV / JSON 批量粘贴解析（自动提取 ASIN、URL、价格、星级与评论数）。**两者来源不同**：AI / 模板生成物一律标记 `ai_model_site_import` / `ai_site_auto_import`，属待核实素材，**不计入 GO 门禁、差评样本与价格分位，也不能充当定价依据**；人工粘贴的表格（`bulk_text_import`）与人工单条录入（`marketplace`）才作为已核实证据参与门禁。入库自动排重并触发画像重算。
-- 商品终止与恢复：首页商品进度可对不再推进的商品执行「终止」（必填原因 + 二次确认 + 审计留痕），终止只改变状态，成本模型、报价、定标、证据与 Listing 草稿全部保留；首页「已终止」区可查看原因并一键恢复。系统不提供逐条硬删除。
-- 供应商半自动发现：从选品方向生成中文搜索词，在 1688 当前页由用户触发采集，按确定性规则去重、评分并生成 TOP 10 候选。
-- 候选支持 2–4 个横向对比、人工核验、排除和短名单；短名单可生成可复制的内部 RFQ 草稿。
-- 证据收件箱（文本 / CSV / JSON / Markdown）与供应商 RFQ 草稿，均需人工审核，不对外发送。
-- 确定性门禁给出 GO / HOLD / NO-GO；到岸成本、净利率、压力利润由代码计算，不交给模型。
-- 候选品、供应商、报价支持 CSV 或人工录入，保留来源与原始快照。
-- 内容工作台竞品对标与差评缺口传承：自动带入关联选品假设的价格带分位、TOP 差评缺口清单与差异化主张，支持一键预填商品定义、生成带原文与证据引用的五点草稿提案，并在本地发布预检中输出非阻断对标提示（差评缺口未覆盖、违规主观对比词、声明红线冲突）。
-- AI 生图工坊（`/image-studio` 独立工坊与 `/cases/[id]/content` 案卷生图）与 **主图 SERP 货架对比测试（Shelf Test）**：内置电商主图/场景图/卖点信息图/包装尺寸/自由创意视觉 Skill，支持自动发现 `~/.agents/skills/` 本地视觉 Skill 并在工坊内创建或删除自定义视觉 Skill；支持上传参考图进行图生图、先预览后确认生图门禁、画幅与槽位匹配、产品物理一致性 AI 审查，以及将主图放进手机端/PC 端亚马逊搜索货架与竞品同框测试视觉突围度。
-- 工程化可观测与 CI 基线：内置 `/api/health` 健康探针（DB 连通性与延迟、运行模式、存储 Provider 信息）、`StorageProvider` 抽象（本地开发 / S3 兼容预留）与 `.github/workflows/ci.yml` 自动类型检查/单测/构建门禁。
-
-### 证据分级与边界
-
-AI 只生成待验证假设，系统不替用户「凑够证据」。竞品与差评记录的来源写在 `opportunity_evidence.source_type`：
-
-| 来源 | 含义 | 计入 GO 门禁 / 价格分位 |
+| 阶段 | 入口 | 核心能力 |
 |---|---|---|
-| `marketplace`、`bulk_text_import`、`manual_verified` | 人工录入、人工粘贴表格 | 是 |
-| `captured` | 浏览器扩展采集的前台真实数值 | 是（研报需人工确认） |
-| `ai_model_site_import`、`ai_site_auto_import`、`template`、`demo` | AI / 本地模板推演的素材 | **否** |
-| 无标记的历史数据 | 按人工证据兼容处理 | 是 |
+| **1. 选品中心** | `/discover` | **3 选 1 起点**（AI 找方向 / 竞品测格局 / 货源测毛利）+ **3 步极简向导**（看市场 → 核 18% 门禁 → 合规立项） |
+| **2. 竞品研判** | `/competitors` | **市场格局四象限气泡图**（售价 × 评论壁垒 × 月销 × 评分痛点）、价格分位（P25–P90）、HHI 垄断指数与差评反制五点 |
+| **3. 财务与合规门禁** | `/cases/[id]` | **交互式 What-If 财务沙盘**（瀑布图 + 售价×ACoS 热力矩阵）、**FBA 尺寸降档提醒 + 抛货头程 + 站点 VAT + 90 天现金流回本**、立项前置专利/认证红线清单 |
+| **4. 1688 寻源比价** | `/cases/[id]/sourcing` | 多工厂横向 PK 矩阵与人工定标、**微信/1688 报价单截图多模态识别**、浏览器扩展半自动 1688 采集与 RFQ 内部草稿 |
+| **5. 内容与视觉工坊** | `/content` `/image-studio` | 差评缺口自动传承到五点文案、侵权/FDA/广告法合规雷达、自定义视觉 Skill 图生图、**主图 Amazon 手机/PC 货架对比测试（Shelf Test）** |
+| **6. 交付与实盘复盘** | `/operations` `/cases/[id]/report` | 一键导出 **Amazon 官方 Flat File (TSV)**、A4 **立项决策评审战报 PDF**、**Settlement V2 + FBA 库存实盘 vs 预测偏差与断货预警** |
 
-门禁的竞品数与差评样本、竞品画像的价格分位与覆盖度、内容页的对标提示，都会排除合成来源；详情页对合成记录显示「AI / 模板素材 · 待核实」徽标并给出数量提示。`/competitors` 首次打开不再自动落盘示例研报，研报带 `provenance` 与 `reviewStatus`，本地存于 `.data/competitor-comparisons.json`（`npm run db:reset` 会一并清除）。
+### 全局效率体验
+- **真实数据 / 演示模式双切换**：演示模式内置经典选品样板并支持一键重置；切至真实模式后彻底隔离 Demo 数据。
+- **在场式 AI 副驾驶 & 全域检索（`⌘K` / `Ctrl+K`）**：自动感知当前案卷/研报上下文，实时输出 18% 门禁诊断与 1688 压价底牌话术（无 API Key 时自动回退确定性专家引擎）。
+- **Chrome 采集扩展（用户触发，零后台爬虫）**：在亚马逊详情页（`/dp/`）或搜索页（`/s?k=...`）一键采集最多 20 款可见竞品；在 1688 搜索页一键采集可见工厂卡片。
 
-不做：自动爬取平台决定竞品是谁、AI 生成或补全 ASIN / 售价 / 评论数并当作事实、未经人审直接入基准、把商品指数当作 GO 阈值、把带占位的草稿直接发布。发布链路仍由数据库 `CHECK (published = FALSE)` 锁死。
+<details>
+<summary><b>查看全部界面截图（案卷总库 / 竞品对比 / 立项战报 PDF / 寻源 / 内容 / 生图工坊）</b></summary>
 
-AI 与确定性对标模块实现见 `src/lib/competitor-insights.ts`、`src/lib/competitor-auto-import.ts`、`src/lib/competitor-compare/`（含商品指数、反制五点生成与 Chrome 采集端点）、`src/app/competitors/`、`src/lib/ai-proposals/`、`src/lib/ai-inbox/`、`src/lib/ai-supplier-assistant/`。
+| 案卷台账 | 竞品对比工作台 |
+|---|---|
+| ![案卷台账](docs/assets/aitrade-cases.png) | ![竞品对比工作台](docs/assets/aitrade-competitors.png) |
+
+| 立项决策战报（A4 PDF） | 供应商询价与比价 |
+|---|---|
+| ![立项决策评审报告](docs/assets/aitrade-report-pdf.png) | ![供应商询价](docs/assets/aitrade-sourcing.png) |
+
+| 内容工作台 | AI 生图工坊 |
+|---|---|
+| ![内容工作台](docs/assets/aitrade-content-studio.png) | ![AI 生图工坊](docs/assets/aitrade-image-studio.png) |
+
+</details>
+
+---
 
 ## 快速开始
 
-Node.js 20.9+，本机直接运行，无需 Docker。
+需要 **Node.js 20.9+**，内置嵌入式 PGlite，无需安装数据库或 Docker：
 
 ```bash
 npm install
 npm run dev
 ```
 
-打开 <http://localhost:3000>。数据默认写入当前目录 `.data/`，首次启动生成演示数据。生产构建：`npm run build && npm start`。
+浏览器打开 <http://localhost:3000> 即可使用（数据默认存储在 `.data/`，首次启动自动生成演示样板）。
 
-## 半自动供应商发现
+- **生产启动**：`npm run build && npm start`
+- **健康检查**：`GET /api/health`（返回 DB 连通性延迟、运行模式与存储配置）
 
-完整路径：选品方向 → 打开 1688 → 用户触发采集 → TOP 10 → 候选对比 → 人工核验 / 排除 → 短名单 → RFQ 内部草稿。
+---
 
-1. 在「选品验证 → 找供应商」步骤选择搜索方向，点击“开始找供应商”。
-2. 点击“打开 1688”进入对应中文搜索页。1688 链接使用 GBK 编码，避免中文关键词乱码。
-3. 使用以下任一方式导入当前页可见商品：
-   - Chrome 扩展：在扩展目录 `extensions/aitrade-supplier-capture/` 加载已解压扩展；从页面复制扩展配置并保存，再在 1688 搜索结果页点击“采集当前页并导入 AITrade”。
-   - 采集书签：把页面提供的书签拖到浏览器书签栏，在 1688 当前搜索结果页点击运行。
-   - 手动导入：把书签复制的 JSON 或包含商品标题和 1688 链接的文本粘贴到采集结果，再点击“导入并生成 TOP 10”。
-4. 对比候选后打开来源，核对供应商主体、产品一致性、MOQ、交期和公开信息。只有勾选人工核验的候选才会进入短名单；不匹配的候选可记录原因后排除。
-5. 短名单候选可生成 RFQ 内部草稿。草稿只提供复制，系统没有发送入口。
+## 证据分级与安全边界
 
-采集只处理用户点击时已经出现在当前 1688 页面上的商品卡，不后台爬取、不自动翻页、不登录、不绕过验证码，也不依赖需要企业主体或企业支付宝的 1688 API。搜索命中不等于供应商已核验，候选信息仍需人工复核。
+系统用确定性代码计算到岸成本、18% 净利率门禁与压力测试，**绝不让 AI 编造销量/售价或替用户凑齐证据**：
 
-## 数据接入
+| 来源类型（`source_type`） | 说明 | 计入 GO 门禁 / 价格分位 |
+|---|---|---|
+| `marketplace` / `bulk_text_import` / `manual_verified` | 人工录入或粘贴真实表格 | 是 |
+| `captured` | Chrome 扩展采集的前台真实数值 | 是（研报需人工确认） |
+| `ai_model_site_import` / `template` / `demo` | AI 或模板推演素材 | **否** |
 
-在 `/data-sources` 导入 CSV，不需要 API Key：
+**明确边界**：
+- **不自动外发**：不后台爬取平台、不绕过验证码、不自动联系供应商、不自动下单付款；发布链路由数据库 `CHECK (published = FALSE)` 锁死。
+- **零门槛 CSV 导入**：`/data-sources` 与 `/import` 支持直接导入候选品、供应商、报价 CSV（模板位于 `public/*-template*.csv`），无需平台 API Key。
+- **实盘复盘口径**：`/operations` 与 P3.0 计算层当前为零写入试算预览，不修改业务表。
+- **本地单机原型**：当前无登录、多租户与角色权限体系；已预留 `StorageProvider` 抽象（本地 / S3 兼容）与 `.github/workflows/ci.yml` CI 门禁。
 
-| 数据 | 模板 |
-|---|---|
-| 候选品 | `public/candidates-template-v2.csv` |
-| 供应商 | `public/suppliers-template.csv` |
-| 报价 | `public/quotes-template.csv` |
+---
 
-系统不自动抓取平台数据、不联系供应商、不发布；缺失数据只显示为待补证据。
+## 扩展与模型配置
 
-## AI 模型
+### 1. Chrome 浏览器采集扩展
+在 Chrome `chrome://extensions` 开启开发者模式并加载已解压扩展：
+- **亚马逊竞品采集**：`extensions/aitrade-competitor-capture/`（支持 `/dp/` 单品详情页与 `/s?k=...` 搜索结果页 Top 20 一键采集）
+- **1688 供应商采集**：`extensions/aitrade-supplier-capture/`（在 1688 当前搜索页点击采集并生成 TOP 10 候选）
 
-默认本地模板，无需 Key。`/settings` 可分别配置文本大模型（Ollama、OpenAI 兼容接口或 Anthropic 兼容协议）与独立生图模型（本地模板、`gemini`、阿里云百炼 `dashscope`、`openai-compatible` 或 `anthropic-compatible`），文本请求失败自动回退模板；API Key 加密落盘且不回显到页面。环境变量示例见 [.env.example](.env.example)。
+### 2. AI 文本与生图模型
+默认本地模板即可完整体验，无需 Key。可在 `/settings` 分别配置：
+- **文本大模型**：`template`（免 Key）、`ollama`、`openai-compatible`、`anthropic-compatible`（请求失败自动回退模板）
+- **生图模型**：`template`、`gemini`、`dashscope`（阿里云百炼）、`openai-compatible`、`anthropic-compatible`
+- API Key 加密落盘且不回显到页面，环境变量示例见 [.env.example](.env.example)。
 
-## 边界
+---
 
-- 平台连接只读，不支持真实写入或发布。
-- 1688 供应商采集是浏览器侧、用户触发的半自动流程；不自动联系供应商、不发送 RFQ、不下单、不付款。
-- 本地原型，无登录、角色权限与多租户；演示商品不代表真实市场结论。
-- 实盘经营复盘（`/operations`）与 P3.0 计算层当前为零写入试算预览，尚未持久化结算单批次或自动对接平台财务 API。
-
-## 常用命令
+## 常用命令与目录
 
 ```bash
-npm run typecheck   # 类型检查
-npm test            # 单元测试
-npm run build       # 生产构建
-npm run db:reset    # 清空本地数据库
-npm run report:dry-run -- --help   # 报表试算（只读、不写库）
-npm run screenshots # 改 UI 后重拍截图，图片随提交一起更新
+npm run typecheck                  # TypeScript 类型检查
+npm test                           # 单元测试（225 项）
+npm run build                      # 生产构建
+npm run db:reset                   # 清空本地数据库与缓存
+npm run report:dry-run -- --help   # P3.0 报表 CLI 只读试算
 ```
 
-报表试算的口径参数由 `--config` 显式给出，不内置阈值；列名依据平台公开规范，仍需用真实导出核对。代码图谱重建用 `graphify extract . --code-only` 与 `graphify cluster-only . --no-label`，不要用 `graphify update .`。
-
-## 项目结构
-
 ```text
-src/app/        页面、Server Actions 与 API
-src/lib/        确定性计算、导入、AI 提取与报表管线
-scripts/        报表试算 CLI 与截图脚本
-db/schema.sql   表结构
+src/app/         页面路由、Server Actions 与 API（含 /discover、/operations、/api/health）
+src/components/  交互组件（选品向导、财务沙盘、四象限图、物流现金流、货架测试、生图工坊）
+src/lib/         确定性经济/物流/合规/结算纯函数、AI 提案契约与仓储层
+extensions/      Amazon 竞品采集 & 1688 供应商采集 Chrome 扩展
+db/schema.sql    PostgreSQL / PGlite 表结构
 ```
