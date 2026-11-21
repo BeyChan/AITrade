@@ -29,6 +29,7 @@ export type CompetitorInputItem = {
   asin?: string;
   url?: string;
   title?: string;
+  brand?: string;
   /** 浏览器扩展采集到的真实数值，服务端不得用 AI 结果覆盖 */
   captured?: Partial<Record<CompetitorNumericField, number>> & {
     currency?: string;

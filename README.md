@@ -114,7 +114,7 @@ npm run dev
 ### 1. Chrome 二合一跨境实战助手（推荐）
 在 Chrome `chrome://extensions` 开启开发者模式并加载已解压扩展 `extensions/aitrade-assistant/`（支持自定义本机 `http://localhost:1688` 或共享服务器地址）：
 - **Amazon 搜索页（`/s?k=...`）**：一键采集当前页 Top 20 真实售价、品牌、评分与精确评论数（兼容美/澳/英/德/日等多站点 DOM，采集后自动跳转对应国家站点研报；注意将 Amazon 左上角 Deliver to 邮编设为对应站点本地邮编以显示完整售价）。
-- **Amazon 单品详情页 & 评论页（`/dp/...` · `/product-reviews/...`）**：支持 **「竞品对比篮子」**，逛多个单品时逐个点击 `+ 加入对比篮子`（自动提取售价、五点卖点、Amazon Customers say 买家共识与 1–3 星差评），一键打包推送多品深度对比并自动清空篮子。
+- **Amazon 单品详情页 & 评论页（`/dp/...` · `/product-reviews/...`）**：支持 **「竞品对比篮子」**，逛多个单品时逐个点击 `+ 加入对比篮子`（自动提取真实品牌、售价、五点卖点、Amazon Customers say 买家共识与新版 `cardui`/经典 DOM 1–3 星差评），一键打包推送多品深度对比并自动清空篮子。
 - **1688 搜索页 & 单品详情页（`detail.1688.com/offer/...`）**：自动拉取 AITrade 在办商品下拉框，支持搜索页批量采集（单次最多 30 家）或单品页单家直采，一键存入 1688 工厂库并自动将人民币报价换算美金写入对应商品比价表。
 - 历史独立扩展（`extensions/aitrade-competitor-capture/`、`extensions/aitrade-supplier-capture/`）仍保留兼容。
 

@@ -8,6 +8,8 @@ const NON_BRAND_PREFIXES = new Set([
   "luxury", "best", "original", "universal", "adjustable", "magnetic", "cordless",
   "outdoor", "indoor", "ergonomic", "multifunctional", "professional", "small", "large",
   "extra", "super", "double", "triple", "single", "pack", "set", "pcs", "piece", "the",
+  "sponge", "mop", "umbrella", "brush", "cleaner", "holder", "stand", "bottle", "cover",
+  "bag", "rack", "mat", "pad", "tool", "kit", "box", "case", "spray", "flat", "spin",
 ]);
 
 export function extractAsinFromUrl(raw: string): string | null {

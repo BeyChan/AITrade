@@ -89,6 +89,10 @@ export async function POST(request: Request) {
         const itemUrl = stringField(item, "url", { maxLength: 2000 });
         const itemAsin = stringField(item, "asin", { maxLength: 20 }) || "";
         const itemTitle = stringField(item, "title", { maxLength: 1000 }) || "";
+        const rawBrand = typeof item.brand === "string" ? item.brand.trim() : "";
+        const itemBrand = rawBrand.length > 0 && rawBrand.length <= 40 && !/sponsored/i.test(rawBrand)
+          ? rawBrand
+          : "";
         const itemBullets = stringArray(item.bullets);
         const itemReviews = stringArray(item.criticalReviews);
         if (!itemUrl && !itemAsin) continue;
@@ -113,6 +117,7 @@ export async function POST(request: Request) {
           asin: itemAsin,
           url: effectiveUrl,
           title: itemTitle,
+          ...(itemBrand ? { brand: itemBrand } : {}),
           captured,
         });
       }
@@ -189,7 +194,7 @@ export async function POST(request: Request) {
       rawText,
     ].filter(Boolean).join("\n");
 
-    const capturedInputs: CompetitorInputItem[] = [{ raw: url, asin, url, title, captured }];
+    const capturedInputs: CompetitorInputItem[] = [{ raw: url, asin, url, title, ...(brand ? { brand } : {}), captured }];
     const report = await analyzeCompetitors({
       rawInputs: url,
       marketCode,

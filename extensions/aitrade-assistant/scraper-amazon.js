@@ -54,8 +54,9 @@
       var cardAsin = (card.getAttribute("data-asin") || "").trim().toUpperCase();
       if (!cardAsin || !/^[A-Z0-9]{10}$/.test(cardAsin) || seen[cardAsin]) return;
 
-      var brandEl = card.querySelector("[data-cy='title-recipe'] .a-color-secondary h2 span, [data-cy='title-recipe'] .a-color-secondary span");
-      var cardBrand = getCleanText(brandEl);
+      var brandEl = card.querySelector("[data-cy='title-recipe'] .a-color-secondary h2 span, [data-cy='title-recipe'] .a-color-secondary h2");
+      var rawCardBrand = getCleanText(brandEl);
+      var cardBrand = rawCardBrand && rawCardBrand.length <= 36 && !/sponsored/i.test(rawCardBrand) ? rawCardBrand : "";
 
       var titleEl = card.querySelector(
         "[data-cy='title-recipe'] a h2 span, [data-cy='title-recipe'] a h2, a h2 span, h2 a span, .a-size-medium.a-color-base.a-text-normal, .a-size-base-plus.a-color-base.a-text-normal, h2 span, h2"
@@ -202,17 +203,24 @@
   var lowStarReviews = [];
   var otherReviews = [];
   reviewCards.forEach(function (card) {
-    var starEl = card.querySelector("[data-hook='review-star-rating'] .a-icon-alt, [data-hook='cmps-review-star-rating'] .a-icon-alt, i.review-rating .a-icon-alt");
-    var starText = getCleanText(starEl);
+    var starEl = card.querySelector(
+      "[data-hook='review-star-rating'] .a-icon-alt, [data-hook='cmps-review-star-rating'] .a-icon-alt, i.review-rating .a-icon-alt, [aria-label*='out of 5'], .a-icon-alt"
+    );
+    var starText = (starEl && (starEl.getAttribute("aria-label") || getCleanText(starEl))) || "";
     var starMatch = starText.match(/(\d+(?:\.\d+)?)/);
     var starNum = starMatch ? Number(starMatch[1]) : null;
 
-    var titleNode = card.querySelector("[data-hook='review-title'] span:last-child, [data-hook='review-title']");
-    var bodyNode = card.querySelector("[data-hook='review-body'] span, [data-hook='review-body'], [data-hook='review-collapsed'] span, [data-hook='review-collapsed'], .review-text-content span, .review-text-content");
+    // 兼容 Amazon 2026 新版驼峰 cardui DOM（reviewTitle / reviewRichContentContainer）与经典横线 DOM（review-title / review-body）
+    var titleNode = card.querySelector(
+      "[data-hook='reviewTitle'], [data-hook='review-title'] span:last-child, [data-hook='review-title']"
+    );
+    var bodyNode = card.querySelector(
+      "[data-hook='reviewRichContentContainer'], [data-hook='reviewTextContainer'], [data-hook='reviewText'], [data-hook='review-body'] span, [data-hook='review-body'], [data-hook='review-collapsed'] span, [data-hook='review-collapsed'], .review-text-content span, .review-text-content"
+    );
     var rTitle = getCleanText(titleNode).replace(/^\d+(?:\.\d+)?\s*out of\s*5\s*stars\s*/i, "").trim();
     var rBody = getCleanText(bodyNode).replace(/^Read more$/i, "").trim();
     var combined = [starNum ? "[" + starNum + "★]" : "", rTitle, rBody].filter(Boolean).join(" ");
-    if (!combined || combined.length < 18) return;
+    if (!combined || combined.length < 10) return;
     if (starNum !== null && starNum <= 3.5) {
       lowStarReviews.push(combined);
     } else {
@@ -222,9 +230,11 @@
   lowStarReviews.forEach(pushReview);
   otherReviews.forEach(pushReview);
 
-  // C. 兜底选择器：兼容旧版或精简评论页 DOM
+  // C. 兜底选择器：兼容新版 cardui 与旧版精简评论页 DOM
   if (criticalReviews.length === 0) {
-    var fallbackEls = document.querySelectorAll("[data-hook='review-collapsed'], [data-hook='review-body'], .review-text-content");
+    var fallbackEls = document.querySelectorAll(
+      "[data-hook='reviewRichContentContainer'], [data-hook='reviewTextContainer'], [data-hook='review-collapsed'], [data-hook='review-body'], .review-text-content"
+    );
     fallbackEls.forEach(function (r) {
       pushReview(getCleanText(r));
     });

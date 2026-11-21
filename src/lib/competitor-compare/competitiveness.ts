@@ -173,27 +173,45 @@ export function calculateProductIndex(
   else if (bayesianRating <= 4.45) gapScore += 6;
   else gapScore += 2;
 
-  const weaknessCount = (report.summary.commonWeaknesses || []).filter((w) => Boolean(w && w.trim())).length;
-  const hasDistinctStrategy = Boolean(report.summary.attackVector?.trim() && report.summary.marketVacuum?.trim());
-  if (weaknessCount >= 2 && hasDistinctStrategy) {
+  const isPlaceholderText = (t: string) =>
+    /^(暂未采集|尚未采集|待采集|请先用|（模板示意）)/.test(t.trim());
+
+  const realWeaknesses = (report.summary.commonWeaknesses || []).filter(
+    (w) => Boolean(w && w.trim() && !isPlaceholderText(w)),
+  );
+  const weaknessCount = realWeaknesses.length;
+  const hasRealStrategy = Boolean(
+    report.summary.attackVector?.trim() &&
+    !isPlaceholderText(report.summary.attackVector) &&
+    report.summary.marketVacuum?.trim() &&
+    !isPlaceholderText(report.summary.marketVacuum),
+  );
+  if (weaknessCount >= 2 && hasRealStrategy) {
     gapScore += 12; // 具备明确共性差评通病与对应真空破局策略
-  } else if (weaknessCount >= 1 && hasDistinctStrategy) {
+  } else if (weaknessCount >= 1 && hasRealStrategy) {
     gapScore += 8;
   } else if (weaknessCount >= 1) {
     gapScore += 5;
-  } else {
-    gapScore += 2;
   }
 
   let gapVerdict: QuantitativePillar["verdict"] = "good";
-  if (gapScore >= 20) gapVerdict = "excellent";
-  else if (gapScore >= 15) gapVerdict = "good";
-  else if (gapScore >= 10) gapVerdict = "fair";
-  else gapVerdict = "poor";
+  if (weaknessCount === 0) {
+    gapVerdict = "fair";
+  } else if (gapScore >= 20) {
+    gapVerdict = "excellent";
+  } else if (gapScore >= 15) {
+    gapVerdict = "good";
+  } else if (gapScore >= 10) {
+    gapVerdict = "fair";
+  } else {
+    gapVerdict = "poor";
+  }
 
-  const gapExp = `竞品贝叶斯加权均分 ${bayesianRating}★，${
-    bayesianRating <= 4.25 ? "买家对现有竞品有明显质量诟病与退换痛点" : "现有竞品表现较为均衡"
-  }；系统已锁定 ${weaknessCount} 个可攻破的结构性致命差评通病，改良突围胜率极高。`;
+  const gapExp = weaknessCount === 0
+    ? `竞品贝叶斯加权均分 ${bayesianRating}★；当前尚未采集到真实买家差评，暂无法锁定可攻破的结构性痛点，请先采集详情页评论后再评估改良胜率。`
+    : `竞品贝叶斯加权均分 ${bayesianRating}★，${
+        bayesianRating <= 4.25 ? "买家对现有竞品有明显质量诟病与退换痛点" : "现有竞品表现较为均衡"
+      }；系统已锁定 ${weaknessCount} 个可攻破的结构性致命差评通病。`;
 
   // ==========================================
   // 5. 数学支柱 5: 存量需求与动销规模 (满分 20 分)

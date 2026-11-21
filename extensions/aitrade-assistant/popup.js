@@ -39,8 +39,12 @@ function firstNumber(text) {
 
 function parsePriceToCents(text) {
   if (!text) return null;
-  const cleaned = String(text).replace(/[^\d.,]/g, "");
-  if (!cleaned) return null;
+  // 1. 兼容 Amazon 某些页面把 "$19.99" 渲染为 "$19 99"（空格分隔元与分）的情况
+  const spaced = String(text).trim().replace(/(\d)\s+(\d{2})(?!\d)/g, "$1.$2");
+  // 2. 只提取第一个独立价格数字，避免 "$19.99 $29.99" 被拼成异常大数
+  const tokenMatch = spaced.match(/\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?/);
+  if (!tokenMatch) return null;
+  const cleaned = tokenMatch[0];
   const lastComma = cleaned.lastIndexOf(",");
   const lastDot = cleaned.lastIndexOf(".");
   let normalized;

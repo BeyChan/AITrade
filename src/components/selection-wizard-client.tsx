@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { runCompetitorAnalysisAction } from "@/app/competitors/actions";
 import { createAISourcingBatchAction } from "@/app/actions";
 import { quickCreateCaseFromWizardAction } from "@/app/discover/actions";
+import { CategoryRecommender } from "@/components/category-recommender";
 import { CompetitorQuadrantChart } from "@/components/competitor-quadrant-chart";
 import { platformEconomicDefaults } from "@/lib/ai-sourcing";
 import type { CompetitorComparisonReport } from "@/lib/competitor-compare/types";
@@ -292,23 +293,30 @@ export function SelectionWizardClient({
             <input type="hidden" name="platformCode" value={platformCode} />
             <input type="hidden" name="requestKey" value={requestKey} />
             <div className="form-grid">
-              <label className="field">
-                <span>目标类目</span>
-                <input name="category" required placeholder="例如：宠物清洁 / 车载收纳 / 厨房小工具" />
-              </label>
-              <label className="field">
-                <span>发起人</span>
-                <input name="actor" defaultValue="选品负责人" required />
-              </label>
-              <label className="field full">
-                <span>选品条件与避坑要求</span>
+              <div className="ai-research-basics">
+                <CategoryRecommender
+                  marketCode={marketCode}
+                  marketName={marketName}
+                  platformCode={platformCode}
+                  platformName={platformName}
+                />
+                <div className="field ai-research-actor">
+                  <label htmlFor="wizard-actor">发起人</label>
+                  <input id="wizard-actor" name="actor" defaultValue="选品负责人" required maxLength={80} />
+                </div>
+              </div>
+              <div className="field full">
+                <label htmlFor="brief">选品条件与避坑要求</label>
                 <textarea
+                  id="brief"
                   name="brief"
-                  rows={3}
+                  rows={4}
                   required
+                  minLength={3}
+                  maxLength={1200}
                   placeholder="例如：客单价 $25–$45，重量不超过 1kg，避开强电与儿童类目，优先找差评集中在异响/难清洗的微改良机会。"
                 />
-              </label>
+              </div>
             </div>
             <div className="form-actions">
               <span className="help">AI 只产出待验证假设，绝不编造销量和价格；生成后可直接进入验证。</span>

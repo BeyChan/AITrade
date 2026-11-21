@@ -112,6 +112,15 @@ function resolveCaptured(
   return resolveCapturedEntry(item, list, index)?.captured;
 }
 
+function truncateCleanly(text: string, maxLen = 160): string {
+  const clean = text.replace(/\s+/g, " ").trim();
+  if (clean.length <= maxLen) return clean;
+  const cut = clean.slice(0, maxLen);
+  const lastSpace = cut.lastIndexOf(" ");
+  const safe = lastSpace > maxLen * 0.6 ? cut.slice(0, lastSpace) : cut;
+  return `${safe.replace(/[,;:.\-\s]+$/, "")}…`;
+}
+
 function build1688Keywords(evidenceText: string, primaryTitle: string): string[] {
   const kwMatch = evidenceText.match(/Search Keyword:\s*(.+)/i);
   const searchKw = kwMatch?.[1]?.trim();
@@ -168,7 +177,9 @@ export async function analyzeCompetitors(input: {
     if ((!title || /^https?:\/\//i.test(title)) && urlMeta.title) {
       title = urlMeta.title;
     }
-    if (urlMeta.brand) {
+    if (capturedEntry?.brand && capturedEntry.brand.trim()) {
+      brand = capturedEntry.brand.trim();
+    } else if (urlMeta.brand) {
       brand = urlMeta.brand;
     } else {
       const fromTitle = inferBrandFromTitle(title);
@@ -362,10 +373,10 @@ export async function analyzeCompetitors(input: {
         ? (item.captured!.priceCents! < 2000 ? "budget" : item.captured!.priceCents! > 4500 ? "premium" : "mid_market")
         : "mid_market",
       features: realBullets.length > 0
-        ? realBullets.slice(0, 4).map((b) => b.slice(0, 120))
+        ? realBullets.slice(0, 4).map((b) => truncateCleanly(b, 160))
         : ["尚未采集该商品五点描述（建议用 Chrome 插件打开详情页一键采集）"],
       drawbacks: realReviews.length > 0
-        ? realReviews.slice(0, 4).map((r) => r.slice(0, 140))
+        ? realReviews.slice(0, 4).map((r) => truncateCleanly(r, 180))
         : ["尚未采集该商品买家差评（未拿到真实评论前不编造痛点）"],
       specifications: {
         "ASIN": item.asin,
