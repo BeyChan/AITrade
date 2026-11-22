@@ -9,12 +9,16 @@ test("computes market local time and shopping window across timezones", () => {
   const us = getMarketClockSnapshot("US", sample);
   assert.equal(us.cityLabel, "美西");
   assert.equal(us.timeText, "16:30");
+  assert.equal(us.time12Text, "4:30 PM");
+  assert.equal(us.dayPeriod, "PM");
   assert.equal(us.windowLabel, "午后平稳");
   assert.equal(us.offsetDiffText, "比北京时间慢 16 小时");
 
   const au = getMarketClockSnapshot("AU", sample);
   assert.equal(au.cityLabel, "悉尼");
   assert.equal(au.timeText, "11:30");
+  assert.equal(au.time12Text, "11:30 AM");
+  assert.equal(au.dayPeriod, "AM");
   assert.equal(au.windowLabel, "上午起量");
   assert.equal(au.offsetDiffText, "比北京时间快 3 小时");
 });

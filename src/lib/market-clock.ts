@@ -31,7 +31,9 @@ export type MarketClockSnapshot = {
   cityLabel: string;
   timeZone: string;
   note: string;
-  timeText: string; // HH:mm
+  timeText: string; // HH:mm (24h)
+  time12Text: string; // h:mm AM/PM (12h)
+  dayPeriod: "AM" | "PM";
   dateText: string; // MM-DD 周X
   tzAbbr: string;
   hour: number;
@@ -92,6 +94,9 @@ export function getMarketClockSnapshot(marketCode: string, now: Date = new Date(
   const hourNum = map.hour === "24" ? 0 : Number(map.hour ?? 0);
   const hh = String(hourNum).padStart(2, "0");
   const mm = map.minute ?? "00";
+  const dayPeriod: "AM" | "PM" = hourNum >= 12 ? "PM" : "AM";
+  const hour12 = hourNum % 12 === 0 ? 12 : hourNum % 12;
+  const time12Text = `${hour12}:${mm} ${dayPeriod}`;
 
   const tzParts = new Intl.DateTimeFormat("en-US", {
     timeZone: config.timeZone,
@@ -141,6 +146,8 @@ export function getMarketClockSnapshot(marketCode: string, now: Date = new Date(
     timeZone: config.timeZone,
     note: config.note,
     timeText: `${hh}:${mm}`,
+    time12Text,
+    dayPeriod,
     dateText: `${map.month ?? "01"}-${map.day ?? "01"} ${map.weekday ?? ""}`.trim(),
     tzAbbr,
     hour: hourNum,
