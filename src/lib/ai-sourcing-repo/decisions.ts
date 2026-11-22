@@ -128,7 +128,11 @@ export async function refreshAISelectionDecision(hypothesisId: string): Promise<
         decision.bestQuoteId,
         JSON.stringify(decision.gates),
         JSON.stringify(decision.blockers),
-        JSON.stringify(decision.metrics),
+        JSON.stringify({
+          ...decision.metrics,
+          decisionLabel: decision.decisionLabel,
+          calibrationStatus: decision.calibrationStatus,
+        }),
       ],
     );
     await tx.query(

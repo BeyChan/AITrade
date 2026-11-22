@@ -424,10 +424,28 @@ export function mapDecisionQuote(row: QuoteRow): QuoteForDecision {
 }
 
 export function mapDecision(row: DecisionRow): AISelectionDecision {
+  const rawCalibrationStatus = row.metrics?.calibrationStatus;
+  const calibrationStatus: "uncalibrated" | "partial" | "calibrated" =
+    rawCalibrationStatus === "calibrated" || rawCalibrationStatus === "partial"
+      ? rawCalibrationStatus
+      : "uncalibrated";
+  const calibrationSuffix =
+    calibrationStatus === "calibrated"
+      ? "已校准"
+      : calibrationStatus === "partial"
+        ? "部分校准"
+        : "待校准";
+  const decisionLabel =
+    typeof row.metrics?.decisionLabel === "string" && row.metrics.decisionLabel.trim()
+      ? row.metrics.decisionLabel
+      : `${row.decision}（${calibrationSuffix}）`;
+
   return {
     id: row.id,
     hypothesisId: row.hypothesis_id,
     decision: row.decision,
+    decisionLabel,
+    calibrationStatus,
     decisionScore: Number(row.decision_score),
     opportunityScore: Number(row.opportunity_score),
     evidenceCompleteness: Number(row.evidence_completeness),
