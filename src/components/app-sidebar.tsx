@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { ModeSwitcher } from "./mode-switcher";
 import { ThemeSwitcher, type AppTheme } from "./theme-switcher";
 import type { AppMode } from "@/lib/app-mode";
 
@@ -20,7 +19,7 @@ type NavItem = {
   subItems?: SubItem[];
 };
 
-const MAIN_NAV_ITEMS: NavItem[] = [
+const SELECTION_NAV_ITEMS: NavItem[] = [
   {
     href: "/",
     label: "工作台",
@@ -41,6 +40,9 @@ const MAIN_NAV_ITEMS: NavItem[] = [
     label: "我的商品",
     icon: "case",
   },
+];
+
+const STUDIO_NAV_ITEMS: NavItem[] = [
   {
     href: "/studio",
     label: "视觉工坊",
@@ -51,6 +53,9 @@ const MAIN_NAV_ITEMS: NavItem[] = [
       { href: "/studio?tab=library", label: "统一素材库" },
     ],
   },
+];
+
+const OPERATIONS_NAV_ITEMS: NavItem[] = [
   {
     href: "/sourcing",
     label: "供应商管理",
@@ -64,9 +69,18 @@ const MAIN_NAV_ITEMS: NavItem[] = [
 ];
 
 const SETTINGS_NAV_ITEMS: NavItem[] = [
-  { href: "/fx-rates", label: "实时汇率", icon: "fx" },
-  { href: "/settings", label: "模型与系统设置", icon: "settings" },
-  { href: "/audit-logs", label: "操作记录", icon: "audit" },
+  {
+    href: "/settings",
+    label: "设置",
+    icon: "settings",
+    subItems: [
+      { href: "/settings?tab=general", label: "常规设置" },
+      { href: "/settings?tab=models", label: "大模型设置" },
+      { href: "/settings?tab=backup", label: "数据与备份" },
+      { href: "/fx-rates", label: "实时汇率" },
+      { href: "/audit-logs", label: "日志" },
+    ],
+  },
 ];
 
 function NavIcon({ name }: { name: NavItem["icon"] }) {
@@ -223,8 +237,10 @@ function matchParentNav(item: NavItem, pathname: string): boolean {
       pathname.startsWith("/media-library"))
   ) return true;
   if (item.href === "/operations" && pathname.startsWith("/operations")) return true;
-  if (item.href === "/settings" && pathname.startsWith("/settings")) return true;
-  if (item.href === "/audit-logs" && pathname.startsWith("/audit-logs")) return true;
+  if (
+    item.href === "/settings" &&
+    (pathname.startsWith("/settings") || pathname.startsWith("/fx-rates") || pathname.startsWith("/audit-logs"))
+  ) return true;
   return false;
 }
 
@@ -292,8 +308,9 @@ function SidebarItem({
           {item.subItems!.map((sub) => {
             const [subPath, subQuery] = sub.href.split("?");
             const subTab = subQuery ? new URLSearchParams(subQuery).get("tab") : null;
+            const defaultTab = subPath === "/settings" ? "general" : "image";
             const isSubActive = subTab
-              ? pathname === subPath && (currentTab || "image") === subTab
+              ? pathname === subPath && (currentTab || defaultTab) === subTab
               : pathname === sub.href || (sub.href !== "/" && pathname.startsWith(subPath));
 
             return (
@@ -343,7 +360,7 @@ export function AppSidebar({
   const currentTab = searchParams.get("tab");
 
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" data-mode={mode}>
       <Link href="/" className="brand sidebar-brand">
         <span className="brand-mark">A</span>
         <span>
@@ -355,9 +372,27 @@ export function AppSidebar({
       <nav className="sidebar-nav" aria-label="主导航">
         <div style={{ marginBottom: "14px" }}>
           <div className="sidebar-group-label">
-            业务主线
+            选品与立项
           </div>
-          {MAIN_NAV_ITEMS.map((item) => (
+          {SELECTION_NAV_ITEMS.map((item) => (
+            <SidebarItem key={item.href} item={item} pathname={pathname} currentTab={currentTab} />
+          ))}
+        </div>
+
+        <div style={{ marginBottom: "14px" }}>
+          <div className="sidebar-group-label">
+            视觉与素材
+          </div>
+          {STUDIO_NAV_ITEMS.map((item) => (
+            <SidebarItem key={item.href} item={item} pathname={pathname} currentTab={currentTab} />
+          ))}
+        </div>
+
+        <div style={{ marginBottom: "14px" }}>
+          <div className="sidebar-group-label">
+            供应链与实盘
+          </div>
+          {OPERATIONS_NAV_ITEMS.map((item) => (
             <SidebarItem key={item.href} item={item} pathname={pathname} currentTab={currentTab} />
           ))}
         </div>
@@ -374,7 +409,6 @@ export function AppSidebar({
 
       <div className="sidebar-footer">
         <ThemeSwitcher initialTheme={initialTheme} />
-        <ModeSwitcher currentMode={mode} />
       </div>
     </aside>
   );

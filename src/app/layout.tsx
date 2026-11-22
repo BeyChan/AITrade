@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { cookies } from "next/headers";
 import { connection } from "next/server";
-import { Noto_Sans_SC, JetBrains_Mono } from "next/font/google";
 import { AppSidebar } from "@/components/app-sidebar";
 import type { AppTheme } from "@/components/theme-switcher";
 import { SandboxBanner } from "@/components/sandbox-banner";
@@ -20,24 +19,6 @@ export const metadata: Metadata = {
   title: "AITrade · 跨境电商 AI 工作台",
   description: "从选品、成本模型、供应商定标到内容发布预检的可审计工作流。",
 };
-
-// 自托管字体：消除外链请求与布局抖动，并保证 Windows 上不再退回字形更差的微软雅黑。
-// 中文用 Noto Sans SC，数字与拉丁用 JetBrains Mono（对账类产品需要等宽数字）。
-const notoSansSC = Noto_Sans_SC({
-  subsets: ["latin"],
-  weight: ["400", "500", "700", "800"],
-  display: "swap",
-  variable: "--font-sans",
-  preload: false,
-});
-
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ["latin"],
-  weight: ["400", "700"],
-  display: "swap",
-  variable: "--font-mono",
-  preload: false,
-});
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   // PGlite is process-local and must not be opened by parallel build workers.
@@ -61,7 +42,6 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       lang="zh-CN"
       data-theme={initialTheme}
       suppressHydrationWarning
-      className={`${notoSansSC.variable} ${jetbrainsMono.variable}`}
     >
       <body>
         <div className="app-shell" data-mode={mode}>

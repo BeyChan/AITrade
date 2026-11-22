@@ -41,25 +41,25 @@ export function ThemeSwitcher({ initialTheme = "light" }: { initialTheme?: AppTh
         data-theme-opt="light"
         className={`theme-seg-btn${theme === "light" ? " is-active" : ""}`}
         onClick={() => applyTheme("light")}
-        title="切换至白天模式"
+        title="切换至浅色模式"
       >
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="4" />
           <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
         </svg>
-        <span>白天</span>
+        <span>浅色</span>
       </button>
       <button
         type="button"
         data-theme-opt="dark"
         className={`theme-seg-btn${theme === "dark" ? " is-active" : ""}`}
         onClick={() => applyTheme("dark")}
-        title="切换至黑夜模式"
+        title="切换至深色模式"
       >
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
         </svg>
-        <span>黑夜</span>
+        <span>深色</span>
       </button>
     </div>
   );

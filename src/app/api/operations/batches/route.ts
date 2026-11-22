@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { recordAuditLog } from "@/lib/audit-logs";
 import type { PipelineResult } from "@/lib/operations-pipeline";
 import {
   deleteOperationsBatch,
@@ -39,6 +40,18 @@ export async function POST(request: Request) {
       createdBy: "本机用户",
       result: body.result,
     });
+    await recordAuditLog({
+      actor: "本机用户",
+      action: "operations.batch_saved",
+      entityType: "operations_batch",
+      entityId: saved.id,
+      details: {
+        label: saved.label,
+        marketplace: saved.marketplace,
+        currency: saved.currency,
+        periodCount: body.result.periods.length,
+      },
+    }).catch(() => {});
     return NextResponse.json({ ok: true, batch: saved });
   } catch (err) {
     return NextResponse.json(
@@ -56,6 +69,12 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "缺少批次 ID" }, { status: 400 });
     }
     await deleteOperationsBatch(id);
+    await recordAuditLog({
+      actor: "本机用户",
+      action: "operations.batch_deleted",
+      entityType: "operations_batch",
+      entityId: id,
+    }).catch(() => {});
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json(

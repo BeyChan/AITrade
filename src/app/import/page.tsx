@@ -76,7 +76,9 @@ export default function ImportPage() {
           <form onSubmit={handleSubmit} className="stack">
             <div className="dropzone">
               <h3>选择 CSV 文件</h3>
-              <p className="muted">支持 UTF-8、中文或英文字段名，单次最多 200 行。</p>
+              <p className="muted">
+                原生兼容 <strong>卖家精灵（SellerSprite）</strong>、<strong>Helium 10（Xray / Black Box）</strong> 导出表及自定义 UTF-8 中英文 CSV，单次最多 200 行。
+              </p>
               <input type="file" accept=".csv,text/csv" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
             </div>
 

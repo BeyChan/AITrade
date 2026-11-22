@@ -11,6 +11,10 @@ export type EconomicsAssumptions = {
   couponCents: number;
   storageCents: number;
   otherCostCents: number;
+  /** 一次性固定投入（如 CPC/FCC/CE 认证、专利检索、开模费），按首批件数分摊到单件成本 */
+  oneTimeFixedCostCents?: number;
+  /** 首批备货件数（与 oneTimeFixedCostCents 配合计算单件摊销） */
+  initialOrderUnits?: number;
 };
 
 export type EconomicsResults = {
@@ -24,6 +28,7 @@ export type EconomicsResults = {
   couponCents: number;
   storageCents: number;
   otherCostCents: number;
+  amortizedFixedCostCents: number;
   totalCostCents: number;
   netProfitCents: number;
   marginRate: number;
@@ -60,6 +65,11 @@ export function calculateEconomics(input: EconomicsAssumptions): EconomicsResult
         Math.max(0, input.landedCostCents) * (1 - clamp(input.returnRecoveryRate, 0, 1))),
   );
 
+  const amortizedFixedCostCents =
+    input.oneTimeFixedCostCents && input.oneTimeFixedCostCents > 0 && input.initialOrderUnits && input.initialOrderUnits > 0
+      ? round(input.oneTimeFixedCostCents / input.initialOrderUnits)
+      : 0;
+
   const totalCost =
     Math.max(0, input.landedCostCents) +
     Math.max(0, input.fbaFeeCents) +
@@ -67,7 +77,8 @@ export function calculateEconomics(input: EconomicsAssumptions): EconomicsResult
     adCost +
     returnLoss +
     Math.max(0, input.storageCents) +
-    Math.max(0, input.otherCostCents);
+    Math.max(0, input.otherCostCents) +
+    amortizedFixedCostCents;
   const netProfit = keptRevenue - totalCost;
   const fixedCostsBeforeAd =
     Math.max(0, input.landedCostCents) +
@@ -75,7 +86,8 @@ export function calculateEconomics(input: EconomicsAssumptions): EconomicsResult
     referralFee +
     returnLoss +
     Math.max(0, input.storageCents) +
-    Math.max(0, input.otherCostCents);
+    Math.max(0, input.otherCostCents) +
+    amortizedFixedCostCents;
   const breakEvenAdRate = grossRevenue > 0 ? (keptRevenue - fixedCostsBeforeAd) / grossRevenue : 0;
 
   const stress = calculateBase({
@@ -97,6 +109,7 @@ export function calculateEconomics(input: EconomicsAssumptions): EconomicsResult
     couponCents: coupon,
     storageCents: Math.max(0, input.storageCents),
     otherCostCents: Math.max(0, input.otherCostCents),
+    amortizedFixedCostCents,
     totalCostCents: totalCost,
     netProfitCents: netProfit,
     marginRate: netProfit / salePrice,
@@ -174,6 +187,10 @@ function calculateBase(input: EconomicsAssumptions) {
       (Math.max(0, input.returnProcessingCents) +
         Math.max(0, input.landedCostCents) * (1 - clamp(input.returnRecoveryRate, 0, 1))),
   );
+  const amortizedFixedCostCents =
+    input.oneTimeFixedCostCents && input.oneTimeFixedCostCents > 0 && input.initialOrderUnits && input.initialOrderUnits > 0
+      ? round(input.oneTimeFixedCostCents / input.initialOrderUnits)
+      : 0;
   const totalCost =
     Math.max(0, input.landedCostCents) +
     Math.max(0, input.fbaFeeCents) +
@@ -181,7 +198,8 @@ function calculateBase(input: EconomicsAssumptions) {
     adCost +
     returnLoss +
     Math.max(0, input.storageCents) +
-    Math.max(0, input.otherCostCents);
+    Math.max(0, input.otherCostCents) +
+    amortizedFixedCostCents;
   const netProfit = keptRevenue - totalCost;
   return { netProfitCents: netProfit, marginRate: netProfit / salePrice };
 }
@@ -209,4 +227,74 @@ export function recommendationFor(results: EconomicsResults, score: number) {
   if (!results.isProfitable || results.stressProfitCents <= 0) return "NO-GO" as const;
   if (score >= 65 && results.marginRate >= 0.18) return "GO" as const;
   return "HOLD" as const;
+}
+
+export type DecisionStage = "provisional" | "verified";
+
+export type DecisionGateEvaluation = {
+  stage: DecisionStage;
+  stageLabel: string;
+  recommendation: "GO" | "HOLD" | "NO-GO";
+  rawRecommendation: "GO" | "HOLD" | "NO-GO";
+  blockedReasons: string[];
+  maxLandedCostCents: number;
+  maxLandedAchievable: boolean;
+};
+
+/**
+ * 两段式门禁判定：
+ * - 估算快筛态（Provisional）：允许无真实工厂报价时先算盈亏与 18% 砍价天花板，但严禁签发正式 GO；
+ * - 实证终审态（Verified）：具备真实竞品证据与真实供应商定标后，才放行正式 GO 结论。
+ */
+export function evaluateDecisionStage(input: {
+  assumptions: EconomicsAssumptions;
+  results: EconomicsResults;
+  score: number;
+  hasVerifiedSupplierQuote: boolean;
+  hasRealCompetitorEvidence: boolean;
+  targetMarginRate?: number;
+}): DecisionGateEvaluation {
+  const rawRecommendation = recommendationFor(input.results, input.score);
+  const target = calculateTargetLandedCost({
+    currency: input.assumptions.currency,
+    salePriceCents: input.assumptions.salePriceCents,
+    fbaFeeCents: input.assumptions.fbaFeeCents,
+    referralRate: input.assumptions.referralRate,
+    adRate: input.assumptions.adRate,
+    returnRate: input.assumptions.returnRate,
+    returnProcessingCents: input.assumptions.returnProcessingCents,
+    returnRecoveryRate: input.assumptions.returnRecoveryRate,
+    couponCents: input.assumptions.couponCents,
+    storageCents: input.assumptions.storageCents,
+    otherCostCents: input.assumptions.otherCostCents,
+    oneTimeFixedCostCents: input.assumptions.oneTimeFixedCostCents,
+    initialOrderUnits: input.assumptions.initialOrderUnits,
+    targetMarginRate: input.targetMarginRate ?? 0.18,
+  });
+
+  const blockedReasons: string[] = [];
+  if (!input.hasRealCompetitorEvidence) {
+    blockedReasons.push("缺少真实竞品价格证据（仅靠估算或 AI 假设，不能签发正式 GO）");
+  }
+  if (!input.hasVerifiedSupplierQuote) {
+    blockedReasons.push("尚未定标真实 1688/工厂报价（当前为估算到岸成本，请先拿样比价并定标）");
+  }
+
+  const stage: DecisionStage = blockedReasons.length === 0 ? "verified" : "provisional";
+  const recommendation: "GO" | "HOLD" | "NO-GO" =
+    rawRecommendation === "NO-GO"
+      ? "NO-GO"
+      : stage === "provisional" && rawRecommendation === "GO"
+        ? "HOLD"
+        : rawRecommendation;
+
+  return {
+    stage,
+    stageLabel: stage === "verified" ? "实证终审态 · 可签发正式立项" : "估算快筛态 · 仅作打样参考（未解锁正式 GO）",
+    recommendation,
+    rawRecommendation,
+    blockedReasons,
+    maxLandedCostCents: target.maxLandedCostCents,
+    maxLandedAchievable: target.achievable,
+  };
 }

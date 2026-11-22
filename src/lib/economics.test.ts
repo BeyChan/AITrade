@@ -4,6 +4,7 @@ import {
   calculateEconomics,
   calculateMaxPurchasePriceCents,
   calculateTargetLandedCost,
+  evaluateDecisionStage,
   opportunityScore,
   recommendationFor,
 } from "./economics.ts";
@@ -83,4 +84,47 @@ test("opportunity score and recommendation are deterministic", () => {
   assert.equal(score, 49);
   assert.equal(recommendationFor({ ...result, stressProfitCents: -100 }, score), "NO-GO");
   assert.equal(recommendationFor({ ...result, marginRate: 0.2, stressProfitCents: 100 }, 70), "GO");
+});
+
+test("one-time compliance/tooling cost amortizes across initial order units", () => {
+  const withoutFixed = calculateEconomics(baseline);
+  const withFixed = calculateEconomics({
+    ...baseline,
+    oneTimeFixedCostCents: 80000, // $800 CPC/FCC cert
+    initialOrderUnits: 400, // $2.00 per unit
+  });
+
+  assert.equal(withFixed.amortizedFixedCostCents, 200);
+  assert.equal(withFixed.netProfitCents, withoutFixed.netProfitCents - 200);
+  assert.ok(withFixed.breakEvenAdRate < withoutFixed.breakEvenAdRate);
+});
+
+test("two-stage decision gate caps GO to HOLD when real supplier quote or competitor evidence is missing", () => {
+  const strongAssumptions = { ...baseline, landedCostCents: 900 };
+  const results = calculateEconomics(strongAssumptions);
+  const score = 80;
+
+  const provisional = evaluateDecisionStage({
+    assumptions: strongAssumptions,
+    results,
+    score,
+    hasVerifiedSupplierQuote: false,
+    hasRealCompetitorEvidence: true,
+  });
+  assert.equal(provisional.stage, "provisional");
+  assert.equal(provisional.rawRecommendation, "GO");
+  assert.equal(provisional.recommendation, "HOLD");
+  assert.equal(provisional.blockedReasons.length, 1);
+  assert.ok(provisional.maxLandedCostCents > 0);
+
+  const verified = evaluateDecisionStage({
+    assumptions: strongAssumptions,
+    results,
+    score,
+    hasVerifiedSupplierQuote: true,
+    hasRealCompetitorEvidence: true,
+  });
+  assert.equal(verified.stage, "verified");
+  assert.equal(verified.recommendation, "GO");
+  assert.equal(verified.blockedReasons.length, 0);
 });

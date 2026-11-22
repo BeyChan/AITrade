@@ -166,6 +166,26 @@ const ENTITY_TYPE_META: Record<
     module: "system",
     href: () => "/audit-logs",
   },
+  workspace_backup: {
+    label: "整库备份",
+    module: "settings",
+    href: () => "/settings?tab=backup",
+  },
+  auth_access: {
+    label: "共享口令访问",
+    module: "system",
+    href: () => "/settings?tab=backup",
+  },
+  sourcing_sample: {
+    label: "拿样验货日记",
+    module: "sourcing",
+    href: () => "/sourcing",
+  },
+  operations_batch: {
+    label: "实盘结算账本",
+    module: "ingestion",
+    href: () => "/operations",
+  },
 };
 
 type ActionMeta = {
@@ -261,6 +281,19 @@ const ACTION_META: Record<string, ActionMeta> = {
   "app.mode_switched": { label: "切换演示 / 真实模式", level: "warn", module: "system" },
   "app.demo_reset": { label: "一键重置演示数据", level: "warn", module: "system" },
   "audit_logs.exported": { label: "导出操作日志 CSV", level: "info", module: "system" },
+  "backup.exported": { label: "导出整库脱敏备份 (JSON)", level: "info", module: "settings" },
+  "backup.restored": { label: "合并恢复整库业务数据", level: "warn", module: "settings" },
+  "auth.pin_unlocked": { label: "共享口令解锁成功", level: "success", module: "system" },
+  "auth.pin_failed": { label: "共享口令校验失败", level: "danger", module: "system" },
+  "sourcing.1688_captured": { label: "扩展采集 1688 工厂与报价", level: "success", module: "sourcing" },
+  "supplier.linked_to_case": { label: "工厂关联商品并录入报价", level: "info", module: "sourcing" },
+  "supplier.deleted": { label: "移除未定标供应商", level: "danger", module: "sourcing" },
+  "sourcing.sample_created": { label: "新增拿样验货记录", level: "info", module: "sourcing" },
+  "sourcing.sample_updated": { label: "更新拿样验货状态", level: "info", module: "sourcing" },
+  "sourcing.sample_deleted": { label: "删除拿样验货记录", level: "danger", module: "sourcing" },
+  "case.media_pack_exported": { label: "打包导出上架素材 ZIP", level: "info", module: "case" },
+  "operations.batch_saved": { label: "保存实盘结算账本批次", level: "success", module: "ingestion" },
+  "operations.batch_deleted": { label: "删除实盘结算账本批次", level: "danger", module: "ingestion" },
 };
 
 export function sanitizeAuditValue(value: unknown, depth = 0): unknown {

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { recordAuditLog } from "@/lib/audit-logs";
 import { getContentDetail } from "@/lib/repository";
 import { emptyListingContent, normalizeListingContent } from "@/lib/listing";
 import { listStandaloneStudioAssets } from "@/lib/standalone-image-studio";
@@ -186,6 +187,19 @@ export async function GET(
 
     const zipBuffer = buildZipBuffer(entries);
     const filename = `AITrade-${productCase.asin}-${safeSlug(productCase.category)}-pack.zip`;
+
+    await recordAuditLog({
+      actor: "本机用户",
+      action: "case.media_pack_exported",
+      entityType: "product_case",
+      entityId: productCase.id,
+      details: {
+        asin: productCase.asin,
+        filename,
+        imageCount: imgIdx - 1,
+        videoCount: vidIdx - 1,
+      },
+    }).catch(() => {});
 
     return new NextResponse(new Uint8Array(zipBuffer), {
       status: 200,

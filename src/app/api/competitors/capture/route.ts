@@ -220,12 +220,27 @@ export async function POST(request: Request) {
         },
       }).catch(() => {});
 
+      const missingPriceCount = report.competitors.filter((c) => !c.priceCents || c.priceCents <= 0).length;
+      const missingReviewCount = report.competitors.filter((c) => c.reviewCount === null || c.reviewCount === undefined).length;
+      const captureWarnings: string[] = [];
+      if (missingPriceCount > 0) {
+        captureWarnings.push(
+          `${missingPriceCount} 款竞品抓取缺失售价（请检查 Amazon 左上角 Deliver to 邮编或页面结构变更），未计入价格分位，请在研报页核对补充`,
+        );
+      }
+      if (missingReviewCount > 0) {
+        captureWarnings.push(`${missingReviewCount} 款竞品抓取缺失评论数，已显性留空不编造`);
+      }
+
       return Response.json(
         {
           success: true,
           reportId: report.id,
           title: report.title,
           competitorCount: report.competitors.length,
+          missingPriceCount,
+          missingReviewCount,
+          captureWarnings,
           provenance: report.provenance,
           reviewStatus: report.reviewStatus,
           redirectUrl: `/competitors?id=${encodeURIComponent(report.id)}&market=${encodeURIComponent(marketCode)}&platform=${encodeURIComponent(platformCode)}`,
@@ -277,12 +292,25 @@ export async function POST(request: Request) {
       },
     }).catch(() => {});
 
+    const missingPriceCount = report.competitors.filter((c) => !c.priceCents || c.priceCents <= 0).length;
+    const missingReviewCount = report.competitors.filter((c) => c.reviewCount === null || c.reviewCount === undefined).length;
+    const captureWarnings: string[] = [];
+    if (missingPriceCount > 0) {
+      captureWarnings.push("当前单品抓取缺失售价（可能因邮编未设或页面结构变更），请在研报页核对补充");
+    }
+    if (missingReviewCount > 0) {
+      captureWarnings.push("当前单品抓取缺失评论数，已显性留空不编造");
+    }
+
     return Response.json(
       {
         success: true,
         reportId: report.id,
         title: report.title,
         competitorCount: report.competitors.length,
+        missingPriceCount,
+        missingReviewCount,
+        captureWarnings,
         provenance: report.provenance,
         reviewStatus: report.reviewStatus,
         redirectUrl: `/competitors?id=${encodeURIComponent(report.id)}&market=${encodeURIComponent(marketCode)}&platform=${encodeURIComponent(platformCode)}`,

@@ -73,3 +73,46 @@ test("supplier URL normalization removes tracking and identity prefers external 
   assert.equal(byId, "1688:id:sup-1");
   assert.equal(byId, bySameId);
 });
+
+test("candidate CSV natively parses SellerSprite (卖家精灵) export headers", () => {
+  const [row] = parseCandidateCsv(
+    [
+      "ASIN,商品标题,大类目,价格($),月销量(子体),评分数,星级,大类BSR,FBA费用($),卖家数,变体数",
+      "B0SS123456,Stainless Steel Cat Fountain,Pet Supplies,$34.99,1450,620,4.5,880,$6.15,3,2",
+    ].join("\n"),
+    { marketplace: "US" },
+  );
+
+  assert.equal(row.asin, "B0SS123456");
+  assert.equal(row.title, "Stainless Steel Cat Fountain");
+  assert.equal(row.category, "Pet Supplies");
+  assert.equal(row.competitorPriceCents, 3499);
+  assert.equal(row.monthlySalesEstimate, 1450);
+  assert.equal(row.reviewCount, 620);
+  assert.equal(row.rating, 4.5);
+  assert.equal(row.bsr, 880);
+  assert.equal(row.assumptions.fbaFeeCents, 615);
+  assert.equal(row.sellerCount, 3);
+  assert.equal(row.variationCount, 2);
+});
+
+test("candidate CSV natively parses Helium 10 Xray/Black Box export headers", () => {
+  const [row] = parseCandidateCsv(
+    [
+      "ASIN,Product Details,Category,Price,Sales,Review Count,Ratings,BSR,FBA Fees,Active Sellers",
+      "B0H1012345,Silicone Travel Soap Case,Home & Kitchen,$16.95,2100,410,4.4,1520,$4.30,5",
+    ].join("\n"),
+    { marketplace: "US" },
+  );
+
+  assert.equal(row.asin, "B0H1012345");
+  assert.equal(row.title, "Silicone Travel Soap Case");
+  assert.equal(row.category, "Home & Kitchen");
+  assert.equal(row.competitorPriceCents, 1695);
+  assert.equal(row.monthlySalesEstimate, 2100);
+  assert.equal(row.reviewCount, 410);
+  assert.equal(row.rating, 4.4);
+  assert.equal(row.bsr, 1520);
+  assert.equal(row.assumptions.fbaFeeCents, 430);
+  assert.equal(row.sellerCount, 5);
+});

@@ -5,7 +5,7 @@ import { CaseStepper } from "@/components/case-stepper";
 import { StatusBadge } from "@/components/badges";
 import { PageHeader } from "@/components/ui";
 import { emptyListingContent, normalizeListingContent } from "@/lib/listing";
-import { opportunityScore, recommendationFor } from "@/lib/economics";
+import { evaluateDecisionStage, opportunityScore, recommendationFor } from "@/lib/economics";
 import { money, percent } from "@/lib/format";
 import { PrintButton } from "./print-button";
 
@@ -34,7 +34,24 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
         productCase.evidence_score,
       )
     : 0;
-  const recommendation = result ? recommendationFor(result, score) : "HOLD";
+  const hasRealCompetitorEvidence =
+    productCase.competitor_price_cents > 0 &&
+    evidence.some((e) =>
+      ["marketplace", "bulk_text_import", "manual_verified", "captured", "competitor_capture", "csv_import"].includes(
+        String((e as { source_type?: string }).source_type ?? e.evidence_type ?? ""),
+      ) || Boolean(e.evidence_type),
+    );
+  const gate =
+    result && assumptions
+      ? evaluateDecisionStage({
+          assumptions,
+          results: result,
+          score,
+          hasVerifiedSupplierQuote: detail.hasSupplierSelection,
+          hasRealCompetitorEvidence,
+        })
+      : null;
+  const recommendation = gate ? gate.recommendation : result ? recommendationFor(result, score) : "HOLD";
 
   // 提取 1688 RFQ 证据
   const rfqEvidence = evidence.find((e) => e.evidence_type === "supplier_rfq");
@@ -166,6 +183,79 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
             </div>
           </div>
         </div>
+
+        {/* 老板一页决策摘要卡（两段式门禁 + 操盘手核心红线） */}
+        {result && assumptions && gate ? (
+          <section
+            style={{
+              marginBottom: "28px",
+              padding: "16px 20px",
+              borderRadius: "10px",
+              border: "1px solid var(--line)",
+              background: "var(--canvas)",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap", marginBottom: "12px" }}>
+              <strong style={{ fontSize: "14px", color: "var(--ink)" }}>核心决策摘要（两段式立项门禁）</strong>
+              <span
+                className={`badge ${gate.stage === "verified" ? "badge-success" : "badge-warn"}`}
+                style={{ fontSize: "12px" }}
+              >
+                {gate.stageLabel}
+              </span>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                gap: "12px",
+              }}
+            >
+              <div style={{ padding: "10px 12px", background: "var(--paper)", borderRadius: "8px", border: "1px solid var(--line)" }}>
+                <div style={{ fontSize: "11px", color: "var(--muted)" }}>稳态净利率（18% 门禁）</div>
+                <strong style={{ fontSize: "18px", fontFamily: "var(--font-mono)", color: result.marginRate >= 0.18 ? "var(--green)" : "var(--red)" }}>
+                  {percent(result.marginRate)}
+                </strong>
+              </div>
+              <div style={{ padding: "10px 12px", background: "var(--paper)", borderRadius: "8px", border: "1px solid var(--line)" }}>
+                <div style={{ fontSize: "11px", color: "var(--muted)" }}>盈亏平衡 ACoS（广告红线）</div>
+                <strong style={{ fontSize: "18px", fontFamily: "var(--font-mono)", color: "var(--ink)" }}>
+                  {percent(result.breakEvenAdRate)}
+                </strong>
+              </div>
+              <div style={{ padding: "10px 12px", background: "var(--paper)", borderRadius: "8px", border: "1px solid var(--line)" }}>
+                <div style={{ fontSize: "11px", color: "var(--muted)" }}>压测净利率（价-10%/本+20%）</div>
+                <strong style={{ fontSize: "18px", fontFamily: "var(--font-mono)", color: result.stressMarginRate > 0 ? "var(--green)" : "var(--red)" }}>
+                  {percent(result.stressMarginRate)}
+                </strong>
+              </div>
+              <div style={{ padding: "10px 12px", background: "var(--paper)", borderRadius: "8px", border: "1px solid var(--line)" }}>
+                <div style={{ fontSize: "11px", color: "var(--muted)" }}>18% 门禁最高允许到岸成本</div>
+                <strong style={{ fontSize: "18px", fontFamily: "var(--font-mono)", color: "var(--accent)" }}>
+                  {gate.maxLandedAchievable ? money(gate.maxLandedCostCents) : "当前售价无解"}
+                </strong>
+              </div>
+            </div>
+
+            {gate.blockedReasons.length > 0 ? (
+              <div
+                style={{
+                  marginTop: "12px",
+                  padding: "10px 12px",
+                  borderRadius: "8px",
+                  background: "var(--amber-soft)",
+                  border: "1px solid var(--amber)",
+                  fontSize: "12px",
+                  color: "var(--ink)",
+                }}
+              >
+                <strong>正式 GO 门禁阻断原因：</strong>
+                {gate.blockedReasons.join("；")}
+              </div>
+            ) : null}
+          </section>
+        ) : null}
 
         {/* 一、财务经济与压力测试模型 */}
         <section style={{ marginBottom: "32px" }}>

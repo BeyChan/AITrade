@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
+import { recordAuditLog } from "@/lib/audit-logs";
 import { getDb } from "@/lib/db";
 import { getEffectiveFxRate } from "@/lib/fx-rates";
 import type { SupplierProfileMeta, SupplierStatus } from "@/lib/types";
@@ -202,6 +203,14 @@ export async function PATCH(
       [nextName, nextUrl, nextContact, nextCountry, nextRating, nextNotes, JSON.stringify(nextProfile), supplierId],
     );
 
+    await recordAuditLog({
+      actor: "本机用户",
+      action: "supplier.updated",
+      entityType: "supplier",
+      entityId: supplierId,
+      details: { name: nextName, status: nextProfile.status, rating: nextRating },
+    }).catch(() => {});
+
     return NextResponse.json({ ok: true, supplier: updated.rows[0] });
   } catch (err) {
     return NextResponse.json(
@@ -247,6 +256,14 @@ export async function POST(
        VALUES ($1, $2, $3, $4, 15, 'USD', 75, $5::jsonb)`,
       [quoteId, rfqId, unitUsdCents, moq, JSON.stringify({ priceCny, fxRate })],
     );
+
+    await recordAuditLog({
+      actor: "本机用户",
+      action: "supplier.linked_to_case",
+      entityType: "product_case",
+      entityId: caseId,
+      details: { supplierId, quoteId, priceCny, moq, fxRate },
+    }).catch(() => {});
 
     return NextResponse.json({
       ok: true,
@@ -294,6 +311,13 @@ export async function DELETE(
     if (deleted.rows.length === 0) {
       return NextResponse.json({ error: "未找到该工厂记录" }, { status: 404 });
     }
+
+    await recordAuditLog({
+      actor: "本机用户",
+      action: "supplier.deleted",
+      entityType: "supplier",
+      entityId: supplierId,
+    }).catch(() => {});
 
     return NextResponse.json({ ok: true, id: supplierId });
   } catch (err) {

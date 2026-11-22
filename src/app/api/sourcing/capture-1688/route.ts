@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
+import { recordAuditLog } from "@/lib/audit-logs";
 import { getDb } from "@/lib/db";
 import { getEffectiveFxRate } from "@/lib/fx-rates";
 import { getComparisonReportById, saveComparisonReport } from "@/lib/competitor-compare/storage";
@@ -221,6 +222,21 @@ export async function POST(request: Request) {
         }
       }
     }
+
+    await recordAuditLog({
+      actor: "Chrome 采集扩展",
+      action: "sourcing.1688_captured",
+      entityType: caseId ? "product_case" : "supplier",
+      entityId: caseId || reportId || "1688-batch",
+      details: {
+        importedSuppliers,
+        importedQuotes,
+        totalReceived: rawList.length,
+        backfilledCompetitor,
+        backfilledActualCny: backfilledActualCny ?? undefined,
+        competitorAsin: competitorAsin ?? undefined,
+      },
+    }).catch(() => {});
 
     const redirectUrl = backfilledCompetitor && reportId
       ? `/competitors?id=${encodeURIComponent(reportId)}&market=${encodeURIComponent(backfilledMarket || "US")}&platform=${encodeURIComponent(backfilledPlatform || "amazon")}`

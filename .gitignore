@@ -16,3 +16,7 @@ graphify-out/
 
 # 个人规划文档（仅本地，不入库）
 docs/current-plan.md
+
+# Playwright E2E 产物
+test-results/
+playwright-report/

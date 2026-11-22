@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
+import { recordAuditLog } from "@/lib/audit-logs";
 import { getDb } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -139,6 +140,13 @@ export async function POST(
        RETURNING *`,
       [sampleId, caseId, supplierName, sampleCostCny, shippingCostCny, trackingNo, status, qualityRating, pros, defects, notes, operator],
     );
+    await recordAuditLog({
+      actor: operator,
+      action: "sourcing.sample_created",
+      entityType: "sourcing_sample",
+      entityId: sampleId,
+      details: { caseId, supplierName, status, sampleCostCny, shippingCostCny },
+    }).catch(() => {});
     return NextResponse.json({ ok: true, sample: mapRow(inserted.rows[0]!) });
   } catch (err) {
     return NextResponse.json(
@@ -176,6 +184,13 @@ export async function PATCH(
     if (!updated.rows[0]) {
       return NextResponse.json({ error: "未找到对应拿样记录" }, { status: 404 });
     }
+    await recordAuditLog({
+      actor: "本机用户",
+      action: "sourcing.sample_updated",
+      entityType: "sourcing_sample",
+      entityId: sampleId,
+      details: { caseId, status, qualityRating: qualityRating ?? undefined },
+    }).catch(() => {});
     return NextResponse.json({ ok: true, sample: mapRow(updated.rows[0]) });
   } catch (err) {
     return NextResponse.json(
@@ -198,6 +213,13 @@ export async function DELETE(
     }
     const db = await getDb();
     await db.query(`DELETE FROM sourcing_sample_logs WHERE id = $1 AND case_id = $2`, [sampleId, caseId]);
+    await recordAuditLog({
+      actor: "本机用户",
+      action: "sourcing.sample_deleted",
+      entityType: "sourcing_sample",
+      entityId: sampleId,
+      details: { caseId },
+    }).catch(() => {});
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json(

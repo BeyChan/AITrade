@@ -296,14 +296,40 @@ export default async function DashboardPage({ searchParams }: PageProps) {
 
             <div className="hero-v2-actions">
               <Link href={`/discover?${siteQuery}`} className="button primary">
-                开始选品（3 步向导）
+                新建选品立项
+              </Link>
+              <Link
+                href={`/import?${siteQuery}`}
+                className="button secondary"
+                title="支持卖家精灵 / Helium 10 / 自定义 CSV"
+              >
+                导入竞品表
               </Link>
               {attentionTasks[0] ? (
                 <Link href={attentionTasks[0].href} className="button secondary">
-                  优先处理：{attentionTasks[0].action}
+                  去{attentionTasks[0].action}
                 </Link>
               ) : null}
             </div>
+
+            {casesWithMargin.length > 0 ? (
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginTop: "12px", fontSize: "12px", color: "var(--muted)" }}>
+                {casesWithMargin.slice(0, 3).map((item) => {
+                  const rate = item.costModel?.results?.marginRate ?? 0;
+                  const tag = rate >= 0.18 ? "GO 候选" : rate > 0 ? "HOLD" : "NO-GO";
+                  return (
+                    <Link
+                      key={item.id}
+                      href={`/cases/${item.id}/report`}
+                      className="badge badge-neutral"
+                      style={{ textDecoration: "none" }}
+                    >
+                      {tag} · {item.asin} ({percent(rate)})
+                    </Link>
+                  );
+                })}
+              </div>
+            ) : null}
           </div>
 
           <aside className="hero-focus-card" aria-label="当前研究">
