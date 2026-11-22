@@ -1,134 +1,106 @@
 # AITrade
 
-> **跨境电商“反亏钱”立项审计与实战工作台**  
-> **AI 只生成待验证假设与素材草稿，结论由真实证据与确定性规则决定。**
+本地运行的跨境电商选品算账、1688 寻源与立项评审工具。
 
-无需 Docker、无需付费 API Key，本机 30 秒启动。覆盖 **选品雷达 → 财务/物流/合规门禁 → 1688 寻源与打样日记 → 统一视觉工坊与素材打包 → 持久化实盘账本** 全链路。
+利润、压力测试和 18% 净利率门禁全部由确定性代码计算；AI 仅用于辅助发散选题、提取报价单和生成图文/视频草稿，不参与最终财务判定。
 
-| 白天模式（Light） | 黑夜模式（Dark） |
+| 浅色模式 | 深色模式 |
 |---|---|
-| ![AITrade 白天模式](docs/assets/aitrade-workspace-light.png) | ![AITrade 黑夜模式](docs/assets/aitrade-workspace-dark.png) |
-
----
-
-## 全链路业务流程
-
-```mermaid
-flowchart TD
-    subgraph S1["① 选品雷达（/discover · /competitors · /selection-records）"]
-        A1["还没定品：AI 类目机会发散"]
-        A2["已有竞品：Chrome 二合一扩展抓 Amazon Top 20"]
-        A3["已有货源：填 1688 拿货价或导入 CSV"]
-        A4["3 步初筛：看格局四象限 · 核 18% 硬门禁 · 查合规红线"]
-        A1 --> A4
-        A2 --> A4
-        A3 --> A4
-    end
-
-    subgraph S2["② 商品案卷 5 阶流水线（/cases/[id] · 全阶段自由切换）"]
-        P1["1. 利润与合规 · What-If 沙盘 · FBA 降档 · 90天现金流"]
-        P2["2. 寻源与打样 · 1688 人民币/抛货头程直算 · 报价截图识别 · 拿样日记"]
-        P3["3. 财务定标 · 多厂 PK 矩阵 · 人工定标回写成本"]
-        P4["4. 文案与视觉 · 差评反制五点 · 合规雷达 · /studio 生图/视频 · 货架测试"]
-        P5["5. 上架就绪 · 内容终审通过 · 准备交付上架"]
-        P1 --> P2 --> P3 --> P4 --> P5
-    end
-
-    subgraph S3["③ 独立交付物（案卷随时导出，不占用业务阶段）"]
-        O1["一键打包上架素材 ZIP（文案 + TSV + 全套图/视频）"]
-        O2["Amazon 官方 Flat File (TSV)"]
-        O3["A4 立项评审战报 PDF"]
-    end
-
-    subgraph S4["④ 持久化实盘账本（/operations）"]
-        E1["导入 Settlement V2 与 FBA 库存快照并永久存档"]
-        E2["实盘 vs 立项预测偏差归因 · FBA 可售天数断货预警"]
-        E1 --> E2
-    end
-
-    A4 -->|"立项生成案卷"| P1
-    P5 --> O1
-    P5 --> O2
-    P3 -.-> O3
-    P5 --> E1
-    E2 -.->|"真实数据反哺下一轮选品假设"| S1
-```
-
----
-
-## 核心工作流一览
-
-| 入口 | 路由 | 核心能力 |
-|---|---|---|
-| **1. 工作台** | `/` | 一体化操盘手首页：**顶栏站点当地时间 + 实时汇率 + 双向换算胶囊**、最近竞品研报摘要、内嵌单行「**跨境情报简报**」（一键展开外部行业快讯与站内利润/断货/竞品异动 + 旺季海运备货倒计时）、紧凑 4 格 KPI 与 5 阶业务推进看板 |
-| **2. 选品雷达** | `/discover` `/competitors` `/selection-records` | **3 步快速选品向导**（统一收口 AI 类目机会发散、竞品格局测算与 18% 毛利快算，非 USD 站点自动读取全局实时汇率）+ **竞品四象限气泡图**（仅用真实采集售价绘制，严禁编造假 P50 与假销量）、按 ASIN 自动去重与重复研报合并、跨站采集自动定位对应站点 + **全站点选品记录**（集中展示全部站点的竞品研报与 AI 选品批次，支持类型/状态/站点筛选与一键载入向导核成本，内置 CSV 批量导入入口） |
-| **3. 我的商品** | `/cases` `/cases/[id]` | 案卷台账视图与统一 5 阶状态机（`利润与合规 → 寻源与打样 → 财务定标 → 文案与视觉 → 上架就绪`），**全阶段自由切换**：交互式 What-If 财务沙盘、**两段式立项门禁**（缺真实报价/竞品价时仅作估算快筛并给出 18% 最高允许到岸成本，实证定标后解锁正式 GO）、一次性认证/开模费首批分摊、FBA 尺寸降档提醒、90 天现金流回本、前置合规红线清单；独立导出 **上架素材 ZIP**、Flat File (TSV) 与带「核心决策摘要卡」的 **A4 立项战报 PDF** |
-| **4. 统一视觉工坊** | `/studio` | 将 **AI 生图**（自定义 Skill + 货架测试）、**AI 视频**（I2V 图生视频 + 异步队列 + `ffmpeg` 多镜头拼接）与 **统一素材库** 合三为一，顶部常驻「当前创作商品」联动归档 |
-| **5. 供应商管理与打样** | `/sourcing` `/cases/[id]/sourcing` | 供应商资产库（支持卡片内一键 **`+ 关联商品`** 快速填价入比价表、安全移除未定标工厂）、多厂横向 PK 与定标回写、**微信/1688 报价单截图多模态识别**、**人民币 & 抛货体积重头程直算器**（含 FBA 尺寸降档省钱提示）与 **拿样验货日记** |
-| **6. 实盘账本** | `/operations` | 导入 **Amazon Settlement V2 + FBA 库存快照** 并永久落库，沉淀多期实盘经营账本，自动匹配商品案卷输出**实盘 vs 立项毛利偏差**与 **FBA 断货倒计时预警** |
-| **7. 统一设置中心** | `/settings` `/fx-rates` `/audit-logs` | 侧边栏收口为「**设置**」一级菜单，下挂 **常规设置**（真实数据/演示模式切换与本机运行位置）、**大模型设置**（文本/图片/视频统一配置）、**数据与备份**（脱敏导出、恢复前 Dry-run 预检、自动快照与应急恢复指引）、**实时汇率**（8 大币种双向换算与锁定）与 **日志**（全链路操作审计与 CSV 导出） |
-
-### 全局效率、协作与数据安全
-- **全局实时汇率 & 跨境情报引擎**：顶栏一体展示目标站点当地时间与实时汇率（支持双向金额换算、单币种手动锁定与离线基准兜底）；首页内嵌可展开的「跨境情报简报」，聚合公开平台政策/物流/关税快讯、旺季海运备货倒计时与站内真实经营红灯，所有手动刷新与修改均写入操作日志。
-- **统一数据库持久化**：所有选品案卷、竞品研报、视觉素材清单、打样日记与实盘账本统一存入内置嵌入式 PGlite（PostgreSQL 兼容表结构），彻底消除分散的本地 JSON 孤岛（自动无损迁移历史本地 JSON）。
-- **共享访问口令（可选）**：本机单人使用零门槛免登；如需部署到内网或轻量服务器供多人共享，只需在环境变量配置 `APP_ACCESS_PIN=你的口令`，系统自动通过 Next.js 16 `proxy.ts` 启用口令验证（Cookie 30 天免输）。不做伪前端角色/多租户系统，多人独立使用时直接部署独立实例即可。
-- **一键整库备份与恢复**：`/settings` 提供整库业务数据一键脱敏导出（JSON，不含 API Key）、**恢复前 Dry-run 预检**、**恢复前自动快照**（`.data/backups/pre-restore-*.json`）与事务安全幂等合并恢复，换机或 `.data/` 异常时按页内 4 步恢复指引零风险还原。
-- **离线可用 & 无外链字体**：移除构建期 Google Fonts 依赖，使用纯本地系统无衬线/等宽字体栈，断网即可 `npm run build && npm start`。
-- **卖家精灵 / Helium 10 原生 CSV 导入**：`/import` 原生识别卖家精灵（SellerSprite）与 Helium 10（Xray / Black Box）导出表头，一键补齐月销量、BSR 与 FBA 费用。
-- **全链路操作审计日志**：覆盖案卷立项、成本/报价/定标、1688 与 Amazon 采集、供应商增删改、拿样日记、视觉工坊生图/视频、ZIP/Flat File 导出、实盘账本、汇率/模型变更、整库备份恢复与共享口令解锁，所有关键写操作均可在 `/audit-logs` 按模块筛选追溯。
-- **浅色 / 深色双模主题 & 真实 / 演示双模式**：侧栏底部常驻「浅色 / 深色」一键切换，「设置 → 常规设置」切换真实/演示数据环境，配套 `npm run theme:check` 主题颜色变量审计门禁。
-- **在场式 AI 副驾驶 & 全域检索（`⌘K` / `Ctrl+K`）**：自动感知当前案卷上下文，输出 18% 门禁诊断与 1688 压价底牌话术。
+| ![AITrade 浅色模式](docs/assets/aitrade-workspace-light.png) | ![AITrade 深色模式](docs/assets/aitrade-workspace-dark.png) |
 
 ---
 
 ## 快速开始
 
-需要 **Node.js 22.6+**，内置嵌入式 PGlite，无需安装数据库或 Docker：
+环境要求：**Node.js 22.6+**。内置嵌入式 PGlite，无需安装外部数据库或 Docker：
 
 ```bash
 npm install
 npm run dev
 ```
 
-浏览器打开 <http://localhost:1688> 即可使用（数据默认存储在 `.data/`，首次启动自动生成演示样板）。
+启动后访问 <http://localhost:1688>（本地数据存放在 `.data/`，首次启动会自动写入演示数据，可在「设置 → 常规设置」切换到真实数据模式）。
 
-- **生产启动**：`npm run build && npm start`
-- **共享口令保护（可选）**：`APP_ACCESS_PIN=your-pin npm start`
-- **健康检查**：`GET /api/health`（返回 DB 连通性延迟、运行模式与存储配置）
+- **生产构建与运行**：`npm run build && npm start`（不依赖 Google Fonts，断网可构建）
+- **开启访问口令（可选）**：`APP_ACCESS_PIN=your-pin npm start`（通过 Next.js `proxy.ts` 拦截，Cookie 有效期 30 天）
+- **健康检查**：`GET /api/health`
 
 ---
 
-## 证据分级与安全边界
+## 工作流程
 
-系统用确定性代码计算到岸成本、18% 净利率门禁与压力测试，**绝不让 AI 编造销量/售价或替用户凑齐证据**：
+```mermaid
+flowchart LR
+    subgraph S1["1. 采集竞品"]
+        A1["Chrome 扩展 / 卖家精灵·H10 CSV"] --> A2["真实售价与评论整理"]
+    end
 
-| 来源类型（`source_type`） | 说明 | 计入 GO 门禁 / 价格分位 |
+    subgraph S2["2. 算账与立项"]
+        B1["初筛 · 反推 18% 采购上限"] --> B2["1688 询价 · 拿样定标"]
+        B2 --> B3{"财务与证据校验"}
+        B3 -->|"通过"| B4["GO · 立项"]
+        B3 -->|"缺数据 / 承压"| B5["HOLD / NO-GO"]
+    end
+
+    subgraph S3["3. 素材与导出"]
+        C1["视觉工坊 · 生图 / 视频"] --> C2["导出 ZIP / TSV / PDF"]
+    end
+
+    subgraph S4["4. 实盘对账"]
+        D1["Settlement V2 + FBA 库存"] --> D2["实盘与预测利润对比"]
+    end
+
+    A2 --> B1
+    B4 --> C1
+    C2 --> D1
+    D2 -.->|"校准后续测算"| A1
+
+    classDef primary fill:#eff6ff,stroke:#1d4ed8,color:#0f172a,stroke-width:1.5px;
+    classDef success fill:#ecfdf3,stroke:#15803d,color:#0f172a,stroke-width:1.5px;
+    classDef warn fill:#fffbeb,stroke:#b45309,color:#0f172a,stroke-width:1.5px;
+
+    class A1,A2,C1,C2 primary;
+    class B4,D1 success;
+    class B1,B2,B3,B5,D2 warn;
+```
+
+---
+
+## 主要功能
+
+| 模块 | 路径 | 说明 |
 |---|---|---|
-| `marketplace` / `bulk_text_import` / `manual_verified` | 人工录入或粘贴真实表格 | 是 |
-| `captured` | Chrome 扩展采集的前台真实数值 | 是（研报需人工确认） |
-| `ai_model_site_import` / `template` / `demo` | AI 或模板推演素材 | **否** |
+| **工作台** | `/` | 站点时间与汇率换算、待办提醒、行业快讯和商品进度看板 |
+| **选品与导入** | `/discover` `/competitors` `/import` | 竞品价格分布图（仅使用真实售价），支持直接导入**卖家精灵 / Helium 10** 导出的 CSV |
+| **商品案卷** | `/cases` `/cases/[id]` | 成本与利润沙盘、18% 净利率与盈亏平衡 ACoS 核算、一次性认证/开模费分摊、FBA 尺寸提醒；可导出上架 ZIP、Flat File (TSV) 和 A4 立项评审 PDF |
+| **视觉工坊** | `/studio` | AI 生图、图生视频（I2V）、`ffmpeg` 多镜头拼接及素材库管理 |
+| **供应商与打样** | `/sourcing` | 1688 工厂记录、多厂报价对比与定标、报价单截图识别、抛货头程计算和拿样记录 |
+| **实盘账本** | `/operations` | 导入 Amazon Settlement V2 与 FBA 库存表，核对实盘利润与可售天数 |
+| **设置** | `/settings` `/fx-rates` `/audit-logs` | 常规设置（真实/演示模式）、大模型配置、整库备份与恢复、8 种常用汇率管理、操作日志 |
 
-**明确边界**：
-- **不自动外发**：不后台爬取平台、不绕过验证码、不自动联系供应商、不自动下单付款、不自动发布 Listing。
-- **API Key 安全**：所有大模型密钥采用本机 AES-256-GCM 加密存储且永不回显；导出模型配置与整库备份均默认脱敏不含 Key。
+---
+
+## 数据规则与边界
+
+- **缺数据不放行 `GO`**：缺少真实竞品售价或尚未定标工厂报价时，系统仅输出估算结果与 18% 门禁下的最高允许到岸成本，不会给出正式 `GO`。
+- **不做外部自动操作**：不包含后台爬虫、验证码绕过、自动联系供应商、自动下单付款或自动上架 Listing。
+- **备份与密钥隔离**：API Key 用 AES-256-GCM 加密保存在本地 `.data/` 且不回显；`/settings?tab=backup` 导出不含密钥的业务 JSON，恢复前会先做预检并自动保存快照至 `.data/backups/`。
+- **操作可追溯**：案卷修改、报价定标、数据采集、素材导出、实盘导入、备份恢复与口令解锁均记录在 `/audit-logs`，支持筛选和 CSV 导出。
 
 ---
 
 ## 扩展与模型配置
 
-### 1. Chrome 二合一跨境实战助手（推荐）
-在 Chrome `chrome://extensions` 开启开发者模式并加载已解压扩展 `extensions/aitrade-assistant/`（支持自定义本机 `http://localhost:1688` 或共享服务器地址）：
-- **Amazon 搜索页（`/s?k=...`）**：一键采集当前页 Top 20 真实售价、品牌、评分与精确评论数（兼容美/澳/英/德/日等多站点 DOM，采集后自动跳转对应国家站点研报；注意将 Amazon 左上角 Deliver to 邮编设为对应站点本地邮编以显示完整售价）。
-- **Amazon 单品详情页 & 评论页（`/dp/...` · `/product-reviews/...`）**：支持 **「竞品对比篮子」**，逛多个单品时逐个点击 `+ 加入对比篮子`（自动提取真实品牌、售价、五点卖点、Amazon Customers say 买家共识与新版 `cardui`/经典 DOM 1–3 星差评），一键打包推送多品深度对比并自动清空篮子。
-- **1688 搜索页 & 单品详情页（`detail.1688.com/offer/...`）**：自动拉取 AITrade 在办商品下拉框，支持搜索页批量采集（单次最多 30 家）或单品页单家直采，一键存入 1688 工厂库并自动将人民币报价换算美金写入对应商品比价表。
-- 历史独立扩展（`extensions/aitrade-competitor-capture/`、`extensions/aitrade-supplier-capture/`）仍保留兼容。
+### Chrome 采集扩展
+在 `chrome://extensions` 开启开发者模式，加载 `extensions/aitrade-assistant/`：
+- **Amazon 搜索页 / 单品页 / 评论页**：提取当前页真实售价、评分、评论数和 1–3 星差评；字段解析缺失时会显性提示，不补默认值。
+- **1688 搜索页 / 详情页**：提取工厂信息与人民币报价，按当前汇率换算后写入对应商品比价表。
 
-### 2. 统一大模型配置中心（文本 / 图片 / 视频）
-默认免 Key 本地模板即可完整体验。可在 `/settings` 通过「**列表 + 弹窗 + 导出/导入 JSON**」统一管理多套配置并一键切换默认模型：
-- **文本大模型**：OpenAI、DeepSeek、Anthropic Claude、火山引擎豆包方舟、阿里云百炼、硅基流动、本地 Ollama 及自定义网关（请求失败自动回退模板）
-- **生图模型**：阿里云百炼（Wan / Qwen-Image）、火山引擎即梦 Seedream、Google Gemini（Nano Banana）、硅基流动（FLUX / Kolors）、智谱 CogView-4、fal.ai、Ideogram、OpenAI / Anthropic 兼容网关
-- **视频模型（I2V 图生视频）**：快手可灵 Kling（支持 `AK:SK` 自动签发 JWT）、阿里云百炼通义万相（兼容 `wan3.0-video` / `wan2.7-i2v` / `wan2.6-i2v` 及 Token Plan 专属域名）、火山引擎豆包 Seedance、Google Veo、Runway Gen-4、OpenAI Sora / 兼容视频网关
-- 环境变量示例见 [.env.example](.env.example)。
+### 模型配置（可选）
+不填任何 API Key 也可以用本地模板模式走完流程。如需接入模型，在 `/settings?tab=models` 添加即可（支持脱敏导出/导入，环境变量参考 [.env.example](.env.example)）：
+- **文本**：OpenAI、DeepSeek、Claude、豆包方舟、阿里云百炼、硅基流动、Ollama 及兼容网关
+- **图片**：阿里云百炼、即梦 Seedream、Gemini、FLUX / Kolors、CogView-4、fal.ai、Ideogram
+- **视频**：可灵 Kling、通义万相、豆包 Seedance、Veo、Runway Gen-4、Sora
 
 ---
 
@@ -136,19 +108,19 @@ npm run dev
 
 ```bash
 npm run typecheck                  # TypeScript 类型检查
-npm run theme:check                # 深浅双模颜色变量审计
-npm test                           # 单元测试全量覆盖
-npm run test:e2e                   # Playwright 6 条 MVP 核心链路冒烟测试
-npm run build                      # 生产构建（纯离线无外链字体依赖）
-npm run db:reset                   # 清空本地数据库与缓存
-npm run report:dry-run -- --help   # 报表 CLI 只读试算
+npm run theme:check                # 浅色/深色主题变量检查
+npm test                           # 单元测试（258 项）
+npm run test:e2e                   # Playwright 核心流程冒烟测试
+npm run build                      # 本地生产构建
+npm run db:reset                   # 清空本地 PGlite 数据库与缓存
 ```
 
 ```text
-src/app/         页面路由、Server Actions 与 API（/discover、/competitors、/selection-records、/cases、/studio、/sourcing、/operations、/fx-rates、/settings、/unlock）
-src/components/  交互组件（选品向导、财务沙盘、四象限图、1688 换算与打样日记、统一视觉工坊、实盘账本、实时汇率管理、整库备份）
-src/lib/         确定性经济/物流/合规/结算/实时汇率引擎、ZIP 打包器、AI/生图/视频供应商适配与数据库仓储层
-src/proxy.ts     Next.js 16 请求代理（可选 APP_ACCESS_PIN 共享口令保护）
-extensions/      Chrome 二合一跨境实战助手（Amazon + 1688）
+src/app/         页面路由、Server Actions 与 API
+src/components/  前端组件
+src/lib/         利润/物流/合规/结算/汇率计算、AI 适配与数据库层
+src/proxy.ts     Next.js 16 请求代理（可选 APP_ACCESS_PIN）
+extensions/      Chrome 采集扩展（Amazon + 1688）
+e2e/             Playwright 冒烟测试
 db/schema.sql    PGlite 表结构（PostgreSQL 语法兼容）
 ```
