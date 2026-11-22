@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { useState } from "react";
 import type { PipelineResult } from "@/lib/operations-pipeline";
-import type { SavedOperationsBatch } from "@/lib/operations-repository";
+import type { ChannelSkuMapping, SavedOperationsBatch } from "@/lib/operations-repository";
 import { moneyIn, percent, shortDate } from "@/lib/format";
 
 const SAMPLE_SETTLEMENT_TSV = [
   "settlement-id\tsettlement-start-date\tsettlement-end-date\tdeposit-date\tcurrency\ttransaction-type\torder-id\tamount-type\tamount-description\tamount\tposted-date\tposted-date-time\tsku\tquantity-purchased",
   "SET-2026-10B\t2026-10-16T00:00:00-07:00\t2026-10-31T00:00:00-07:00\t2026-11-02T00:00:00-08:00\tUSD\tOrder\tORD-1001\tItemPrice\tPrincipal\t399.90\t2026-10-25\t2026-10-25T14:20:00-07:00\tB0DEMO0001\t10",
-  "SET-2026-10B\t2026-10-16T00:00:00-07:00\t2026-10-31T00:00:00-07:00\t2026-11-02T00:00:00-08:00\tUSD\tOrder\tORD-1001\tItemFees\tCommission\t-59.99\t2026-10-25\t2026-10-25T14:20:00-07:00\tB0DEMO0001\t",
+  "SET-2026-10B\t2026-10-16T00:00:00-07:00\t2026-10-31T00:00:00-07:00\t2026-11-02T00:00:00-08:00\tUSD\tRefund\tORD-1001\tItemPrice\tPrincipal\t-39.99\t2026-10-28\t2026-10-28T09:10:00-07:00\tB0DEMO0001\t1",
+  "SET-2026-10B\t2026-10-16T00:00:00-07:00\t2026-10-31T00:00:00-07:00\t2026-11-02T00:00:00-08:00\tUSD\tOrder\tORD-1001\tItemFees\tCommission\t-53.99\t2026-10-25\t2026-10-25T14:20:00-07:00\tB0DEMO0001\t",
   "SET-2026-10B\t2026-10-16T00:00:00-07:00\t2026-10-31T00:00:00-07:00\t2026-11-02T00:00:00-08:00\tUSD\tOrder\tORD-1001\tItemFees\tFBAPerUnitFulfillmentFee\t-57.20\t2026-10-25\t2026-10-25T14:20:00-07:00\tB0DEMO0001\t",
   "SET-2026-10B\t2026-10-16T00:00:00-07:00\t2026-10-31T00:00:00-07:00\t2026-11-02T00:00:00-08:00\tUSD\tOrder\tORD-1001\tPromotion\tShipping discount\t-12.00\t2026-10-25\t2026-10-25T14:20:00-07:00\tB0DEMO0001\t",
   "SET-2026-10B\t2026-10-16T00:00:00-07:00\t2026-10-31T00:00:00-07:00\t2026-11-02T00:00:00-08:00\tUSD\tOrder\tORD-1002\tItemPrice\tPrincipal\t249.90\t2026-10-26\t2026-10-26T10:15:00-07:00\tB0DEMO0002\t10",
@@ -23,14 +24,39 @@ const SAMPLE_INVENTORY_TSV = [
   "B0DEMO0002\tX001DEMO02\tB0DEMO0002\t42\t5\t1\t0\t0\t0",
 ].join("\n");
 
+const SAMPLE_ADS_CSV = [
+  "Advertised SKU,Spend",
+  "B0DEMO0001,56.00",
+  "B0DEMO0002,38.50",
+].join("\n");
+
+export type CaseOption = {
+  id: string;
+  asin: string;
+  title: string;
+  category: string;
+  landedCostCents: number | null;
+};
+
+function adAttributionLabel(source: string) {
+  if (source === "ads_report") return "Ads报表";
+  if (source === "settlement") return "结算扣款";
+  if (source === "manual") return "手工录入";
+  return "未归因";
+}
+
 export function OperationsReviewClient({
   defaultMarket,
   defaultCurrency,
   initialBatches = [],
+  initialMappings = [],
+  caseOptions = [],
 }: {
   defaultMarket: string;
   defaultCurrency: string;
   initialBatches?: SavedOperationsBatch[];
+  initialMappings?: ChannelSkuMapping[];
+  caseOptions?: CaseOption[];
 }) {
   const [marketplaceCode, setMarketplaceCode] = useState(defaultMarket || "US");
   const [reportingCurrency, setReportingCurrency] = useState(defaultCurrency || "USD");
@@ -40,6 +66,7 @@ export function OperationsReviewClient({
   const [batchLabel, setBatchLabel] = useState("");
   const [settlementText, setSettlementText] = useState("");
   const [inventoryText, setInventoryText] = useState("");
+  const [adSpendText, setAdSpendText] = useState("");
   const [isSampleLoaded, setIsSampleLoaded] = useState(false);
 
   const [isRunning, setIsRunning] = useState(false);
@@ -49,6 +76,88 @@ export function OperationsReviewClient({
   const [result, setResult] = useState<PipelineResult | null>(null);
   const [savedBatches, setSavedBatches] = useState<SavedOperationsBatch[]>(initialBatches);
   const [expandedBatchId, setExpandedBatchId] = useState<string | null>(initialBatches[0]?.id ?? null);
+
+  // SKU ↔ 案卷 / 单位到岸成本映射状态
+  const [mappings, setMappings] = useState<ChannelSkuMapping[]>(initialMappings);
+  const [mapSku, setMapSku] = useState("");
+  const [mapCaseId, setMapCaseId] = useState("");
+  const [mapLandedInput, setMapLandedInput] = useState("");
+  const [isSavingMap, setIsSavingMap] = useState(false);
+
+  async function refreshBatches() {
+    const res = await fetch("/api/operations/batches");
+    if (res.ok) {
+      const json = (await res.json()) as { batches?: SavedOperationsBatch[] };
+      if (Array.isArray(json.batches)) setSavedBatches(json.batches);
+    }
+  }
+
+  async function handleSaveMapping(e: React.FormEvent) {
+    e.preventDefault();
+    if (!mapSku.trim()) return;
+    setError(null);
+    setNotice(null);
+    setIsSavingMap(true);
+    try {
+      const parsedLanded = mapLandedInput.trim() ? Number(mapLandedInput.trim()) : null;
+      const unitLandedCostCentsOverride =
+        parsedLanded !== null && Number.isFinite(parsedLanded) && parsedLanded >= 0
+          ? Math.round(parsedLanded * 100)
+          : null;
+
+      const res = await fetch("/api/operations/sku-mappings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          marketplace: marketplaceCode,
+          channelSku: mapSku.trim(),
+          caseId: mapCaseId || null,
+          unitLandedCostCentsOverride,
+        }),
+      });
+      const json = (await res.json()) as {
+        ok?: boolean;
+        mapping?: ChannelSkuMapping;
+        updatedSnapshotCount?: number;
+        error?: string;
+      };
+      if (!res.ok || !json.ok || !json.mapping) {
+        setError(json.error || "保存 SKU 映射失败");
+        return;
+      }
+      setMappings((prev) => {
+        const rest = prev.filter(
+          (m) =>
+            !(
+              m.marketplace.toUpperCase() === json.mapping!.marketplace.toUpperCase() &&
+              m.channelSku.toUpperCase() === json.mapping!.channelSku.toUpperCase()
+            ),
+        );
+        return [json.mapping!, ...rest];
+      });
+      await refreshBatches();
+      setNotice(
+        `已绑定 SKU「${json.mapping.channelSku}」并重算 ${json.updatedSnapshotCount ?? 0} 条历史账本记录的真实净利。`,
+      );
+      setMapSku("");
+      setMapCaseId("");
+      setMapLandedInput("");
+    } catch {
+      setError("保存 SKU 映射失败，请检查网络");
+    } finally {
+      setIsSavingMap(false);
+    }
+  }
+
+  async function handleDeleteMapping(id: string) {
+    const res = await fetch(`/api/operations/sku-mappings?id=${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+    if (res.ok) {
+      setMappings((prev) => prev.filter((m) => m.id !== id));
+      setNotice("已解除该 SKU 映射。");
+    }
+  }
 
   async function handleSaveToLedger() {
     if (!result) return;
@@ -73,7 +182,9 @@ export function OperationsReviewClient({
       }
       setSavedBatches((prev) => [json.batch!, ...prev]);
       setExpandedBatchId(json.batch.id);
-      setNotice(`已存入实盘账本：「${json.batch.label}」（${json.batch.skuCount} 条 SKU 核算记录）。`);
+      setNotice(
+        `已存入实盘账本：「${json.batch.label}」（${json.batch.skuCount} 条 SKU，已含分项费用归因与 ${json.batch.landedCostCoveredCount} 条采购成本核算）。`,
+      );
       setBatchLabel("");
     } catch {
       setError("保存失败，请检查网络连接");
@@ -101,6 +212,7 @@ export function OperationsReviewClient({
     setSnapshotDate("2026-10-31");
     setSettlementText(SAMPLE_SETTLEMENT_TSV);
     setInventoryText(SAMPLE_INVENTORY_TSV);
+    setAdSpendText(SAMPLE_ADS_CSV);
     setIsSampleLoaded(true);
     setError(null);
   }
@@ -113,6 +225,7 @@ export function OperationsReviewClient({
       const payload: Record<string, unknown> = {
         settlementText,
         inventoryText,
+        adSpendText,
         marketplaceCode,
         reportingCurrency,
         reportTimezone,
@@ -147,6 +260,11 @@ export function OperationsReviewClient({
   const totalContributionCents = result
     ? result.periods.reduce((sum, p) => sum + p.contribution.contributionProfitCents, 0)
     : 0;
+  const coveredPeriods = result ? result.periods.filter((p) => p.trueNetProfitCents !== null) : [];
+  const totalTrueNetCents =
+    coveredPeriods.length > 0
+      ? coveredPeriods.reduce((sum, p) => sum + (p.trueNetProfitCents ?? 0), 0)
+      : null;
   const lowStockCount = result
     ? result.periods.filter((p) => p.inventoryDays && p.inventoryDays.days !== null && p.inventoryDays.days < 30).length
     : 0;
@@ -157,13 +275,13 @@ export function OperationsReviewClient({
         <div className="section-header">
           <div>
             <h2>已存档实盘经营账本（{savedBatches.length} 期）</h2>
-            <p>历史导入的真实结算单与 FBA 库存快照已持久化保存，自动对比立项净利率并预警断货风险。</p>
+            <p>完整保留退款、佣金、履约、广告、仓储等分项费用；绑定采购到岸成本后自动按同口径核算真实净利并反哺立项校准。</p>
           </div>
         </div>
 
         {notice ? (
           <div className="notice" style={{ marginBottom: 14 }}>
-            <span className="badge badge-success">已保存</span>
+            <span className="badge badge-success">已更新</span>
             <span>{notice}</span>
           </div>
         ) : null}
@@ -200,6 +318,9 @@ export function OperationsReviewClient({
                         <strong>{batch.label}</strong>
                         <span className="badge badge-neutral">{batch.marketplace} · {batch.currency}</span>
                         <span className="badge badge-neutral">{batch.skuCount} SKU</span>
+                        <span className={`badge ${batch.landedCostCoveredCount === batch.skuCount && batch.skuCount > 0 ? "badge-success" : "status-review_pending"}`}>
+                          采购成本覆盖 {batch.landedCostCoveredCount}/{batch.skuCount}
+                        </span>
                         {batch.stockoutRiskCount > 0 ? (
                           <span className="badge badge-danger">断货预警 {batch.stockoutRiskCount}</span>
                         ) : (
@@ -217,21 +338,25 @@ export function OperationsReviewClient({
                         <strong className="mono">{moneyIn(batch.currency, batch.totalRevenueCents)}</strong>
                       </div>
                       <div style={{ textAlign: "right" }}>
-                        <div style={{ fontSize: "12px", color: "var(--muted)" }}>贡献毛利</div>
+                        <div style={{ fontSize: "12px", color: "var(--muted)" }}>平台贡献</div>
                         <strong className="mono" style={{ color: batch.totalContributionCents >= 0 ? "var(--green)" : "var(--red)" }}>
                           {moneyIn(batch.currency, batch.totalContributionCents)}
                         </strong>
                       </div>
                       <div style={{ textAlign: "right" }}>
-                        <div style={{ fontSize: "12px", color: "var(--muted)" }}>平均毛利率</div>
-                        <strong className="mono">{percent(batch.avgMarginRate, 1)}</strong>
+                        <div style={{ fontSize: "12px", color: "var(--muted)" }}>实盘真实净利</div>
+                        <strong className="mono" style={{ color: batch.totalNetProfitCents !== null ? (batch.totalNetProfitCents >= 0 ? "var(--green)" : "var(--red)") : "var(--muted)" }}>
+                          {batch.totalNetProfitCents !== null
+                            ? moneyIn(batch.currency, batch.totalNetProfitCents)
+                            : "缺采购成本"}
+                        </strong>
                       </div>
                       <button
                         type="button"
                         className="button secondary"
                         onClick={() => setExpandedBatchId(isOpen ? null : batch.id)}
                       >
-                        {isOpen ? "收起明细" : "展开 SKU 明细"}
+                        {isOpen ? "收起明细" : "展开分项归因"}
                       </button>
                       <button
                         type="button"
@@ -248,14 +373,18 @@ export function OperationsReviewClient({
                       <table className="ops-table">
                         <thead>
                           <tr>
-                            <th>SKU / 关联商品</th>
+                            <th>SKU / 案卷</th>
                             <th>期间</th>
-                            <th className="num">销量</th>
+                            <th className="num">净销量</th>
                             <th className="num">净营收</th>
-                            <th className="num">贡献毛利</th>
-                            <th className="num">实盘毛利率</th>
-                            <th className="num">立项偏差</th>
-                            <th className="num">可售库存</th>
+                            <th className="num">退款</th>
+                            <th className="num">佣金</th>
+                            <th className="num">履约费</th>
+                            <th className="num">广告费</th>
+                            <th className="num">采购到岸</th>
+                            <th className="num">平台贡献</th>
+                            <th className="num">真实净利</th>
+                            <th className="num">同口径偏差</th>
                             <th className="num">可售天数</th>
                           </tr>
                         </thead>
@@ -277,20 +406,66 @@ export function OperationsReviewClient({
                                       {sku.sku}
                                     </Link>
                                   ) : (
-                                    <strong>{sku.sku}</strong>
+                                    <button
+                                      type="button"
+                                      className="button ghost"
+                                      style={{ padding: "2px 6px", fontSize: 12 }}
+                                      onClick={() => setMapSku(sku.sku)}
+                                      title="点击下方绑定该 SKU 到商品案卷或录入采购成本"
+                                    >
+                                      {sku.sku} (绑定)
+                                    </button>
                                   )}
                                 </td>
                                 <td className="mono">{sku.periodKey}</td>
                                 <td className="num mono">{sku.unitsSold}</td>
                                 <td className="num mono">{moneyIn(batch.currency, sku.revenueCents)}</td>
-                                <td className="num mono">{moneyIn(batch.currency, sku.contributionCents)}</td>
-                                <td className="num mono">{percent(sku.marginRate, 1)}</td>
-                                <td className={`num mono ${sku.marginDelta !== null ? (sku.marginDelta >= 0 ? "is-go" : "is-danger") : ""}`}>
-                                  {sku.marginDelta !== null
-                                    ? `${sku.marginDelta >= 0 ? "+" : ""}${percent(sku.marginDelta, 1)}`
-                                    : "未匹配案卷"}
+                                <td className="num mono">{sku.refundCents > 0 ? `−${moneyIn(batch.currency, sku.refundCents)}` : "—"}</td>
+                                <td className="num mono">{moneyIn(batch.currency, sku.platformFeeCents)}</td>
+                                <td className="num mono">{moneyIn(batch.currency, sku.fulfillmentFeeCents)}</td>
+                                <td className="num mono">
+                                  {sku.adAttribution === "missing" ? (
+                                    <span className="muted">未归因</span>
+                                  ) : (
+                                    <span title={adAttributionLabel(sku.adAttribution)}>
+                                      {moneyIn(batch.currency, sku.adSpendCents)}
+                                    </span>
+                                  )}
                                 </td>
-                                <td className="num mono">{sku.availableUnits ?? "—"}</td>
+                                <td className="num mono">
+                                  {sku.landedCostCents !== null ? (
+                                    moneyIn(batch.currency, sku.landedCostCents)
+                                  ) : (
+                                    <span className="muted">未绑定</span>
+                                  )}
+                                </td>
+                                <td className="num mono">
+                                  {moneyIn(batch.currency, sku.contributionCents)}
+                                  <div className="muted" style={{ fontSize: 11 }}>{percent(sku.marginRate, 1)}</div>
+                                </td>
+                                <td className="num mono">
+                                  {sku.netProfitCents !== null && sku.netMarginRate !== null ? (
+                                    <>
+                                      <strong>{moneyIn(batch.currency, sku.netProfitCents)}</strong>
+                                      <div className="muted" style={{ fontSize: 11 }}>{percent(sku.netMarginRate, 1)}</div>
+                                    </>
+                                  ) : (
+                                    <span className="muted">仅平台贡献</span>
+                                  )}
+                                </td>
+                                <td className={`num mono ${sku.marginDelta !== null ? (sku.marginDelta >= 0 ? "is-go" : "is-danger") : ""}`}>
+                                  {sku.marginDelta !== null ? (
+                                    <>
+                                      {sku.marginDelta >= 0 ? "+" : ""}
+                                      {percent(sku.marginDelta, 1)}
+                                      <div className="muted" style={{ fontSize: 10 }}>
+                                        {sku.costBasis === "true_net_profit" ? "净利口径" : "平台贡献口径"}
+                                      </div>
+                                    </>
+                                  ) : (
+                                    "未匹配案卷"
+                                  )}
+                                </td>
                                 <td className="num">
                                   {sku.daysOfSupply !== null ? (
                                     <span className={`verdict-pill ${riskClass} mono`}>{sku.daysOfSupply} 天</span>
@@ -315,11 +490,108 @@ export function OperationsReviewClient({
       <section className="section">
         <div className="section-header">
           <div>
-            <h2>导入新账期（结算单与库存快照）</h2>
-            <p>粘贴 Amazon Settlement V2 与 FBA 库存快照报表，先试算核对无误，再一键存入实盘账本。</p>
+            <h2>SKU 成本映射（打通实盘 ↔ 案卷采购到岸成本）</h2>
+            <p>将平台 Seller SKU 绑定到已有商品案卷或录入单件到岸成本，保存后立即重算该 SKU 所有历史账期的真实净利并写入审计日志。</p>
+          </div>
+        </div>
+
+        <form onSubmit={handleSaveMapping} className="stack" style={{ gap: 12 }}>
+          <div className="form-grid">
+            <label className="field">
+              <span>平台 SKU (Seller SKU / MSKU)</span>
+              <input
+                value={mapSku}
+                onChange={(e) => setMapSku(e.target.value)}
+                placeholder="例如 PET-BRUSH-BLK-01 或 B0DEMO0001"
+              />
+            </label>
+            <label className="field">
+              <span>关联商品案卷（自动带入类目与立项成本）</span>
+              <select value={mapCaseId} onChange={(e) => setMapCaseId(e.target.value)}>
+                <option value="">不关联案卷（仅手填到岸成本）</option>
+                {caseOptions.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.asin} · {c.title.slice(0, 32)} ({c.category})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>单件到岸成本覆盖（{reportingCurrency}，留空则取案卷模型）</span>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={mapLandedInput}
+                onChange={(e) => setMapLandedInput(e.target.value)}
+                placeholder="例如 12.40"
+              />
+            </label>
+          </div>
+          <div className="form-actions">
+            <span className="help">显式映射优先于 ASIN 自动猜测，可用于区分同一 ASIN 下不同批次或 Seller SKU 的真实采购成本。</span>
+            <button type="submit" className="button secondary" disabled={isSavingMap || !mapSku.trim()}>
+              {isSavingMap ? "保存并重算中…" : "保存映射并重算历史净利"}
+            </button>
+          </div>
+        </form>
+
+        {mappings.length > 0 ? (
+          <div className="heatmap-scroll" style={{ marginTop: 12 }}>
+            <table className="ops-table">
+              <thead>
+                <tr>
+                  <th>站点</th>
+                  <th>平台 SKU</th>
+                  <th>关联案卷 / 类目</th>
+                  <th className="num">生效单件到岸成本</th>
+                  <th className="num">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {mappings.map((m) => (
+                  <tr key={m.id}>
+                    <td className="mono">{m.marketplace}</td>
+                    <td className="mono"><strong>{m.channelSku}</strong></td>
+                    <td>
+                      {m.caseId ? (
+                        <Link href={`/cases/${encodeURIComponent(m.caseId)}`} style={{ textDecoration: "underline" }}>
+                          {m.caseAsin} · {m.caseCategory || "未分类"}
+                        </Link>
+                      ) : (
+                        <span className="muted">仅手动成本</span>
+                      )}
+                    </td>
+                    <td className="num mono">
+                      {m.effectiveUnitLandedCostCents !== null
+                        ? moneyIn(reportingCurrency, m.effectiveUnitLandedCostCents)
+                        : "—"}
+                    </td>
+                    <td className="num">
+                      <button
+                        type="button"
+                        className="button ghost"
+                        onClick={() => handleDeleteMapping(m.id)}
+                      >
+                        解除
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="section">
+        <div className="section-header">
+          <div>
+            <h2>导入新账期（结算单、可选广告报表与库存快照）</h2>
+            <p>粘贴 Amazon Settlement V2、可选 Amazon Ads 商品广告花费与 FBA 库存快照，先试算核对分项归因与同口径偏差，再存入账本。</p>
           </div>
           <button type="button" className="button secondary" onClick={loadSample}>
-            载入示例结算单与库存快照
+            载入示例结算单、广告与库存
           </button>
         </div>
 
@@ -377,8 +649,21 @@ export function OperationsReviewClient({
             </label>
           </div>
 
+          <label className="field">
+            <span>Amazon Ads 商品广告花费 CSV/TSV（可选，补齐结算单缺失的 SKU 级广告归因）</span>
+            <textarea
+              rows={3}
+              value={adSpendText}
+              onChange={(e) => {
+                setAdSpendText(e.target.value);
+                setIsSampleLoaded(false);
+              }}
+              placeholder="支持 Advertised SKU / ASIN + Spend 列（不填时该批次广告率标记为「未归因」，不会按 0% 污染校准库）"
+            />
+          </label>
+
           <div className="form-actions">
-            <span className="help">纯确定性归集，缺失字段不会静默按 0 估算，未识别行会进入隔离区等待核对。</span>
+            <span className="help">纯确定性归集：保留分项费用，缺失采购成本时只显示平台贡献，缺失广告数据时不按 0% 参与校准。</span>
             <button type="submit" className="button primary" disabled={isRunning || !settlementText.trim()}>
               {isRunning ? "正在归集试算…" : "执行零写入实盘复盘"}
             </button>
@@ -402,19 +687,23 @@ export function OperationsReviewClient({
               <div className="metric-note">原始结算行 {result.settlement.lineCount} 条</div>
             </article>
             <article className="metric-card">
-              <div className="metric-label">实盘总贡献毛利</div>
+              <div className="metric-label">平台侧贡献毛利</div>
               <div className="metric-value mono">{moneyIn(reportingCurrency, totalContributionCents)}</div>
-              <div className="metric-note">口径：{policy === "settlement" ? "结算月" : "订单月"}</div>
+              <div className="metric-note">不含采购到岸成本</div>
             </article>
             <article className="metric-card">
-              <div className="metric-label">断货预警 SKU（&lt;30天）</div>
-              <div className={`metric-value mono ${lowStockCount > 0 ? "is-danger" : ""}`}>{lowStockCount}</div>
-              <div className="metric-note">基于 FBA 可售库存与日均销量</div>
+              <div className="metric-label">实盘真实净利（已绑采购）</div>
+              <div className="metric-value mono">
+                {totalTrueNetCents !== null ? moneyIn(reportingCurrency, totalTrueNetCents) : "缺采购成本"}
+              </div>
+              <div className="metric-note">覆盖 {coveredPeriods.length}/{result.periods.length} 条 SKU</div>
             </article>
             <article className="metric-card">
-              <div className="metric-label">未映射隔离行</div>
-              <div className="metric-value mono">{result.settlement.unmapped.length}</div>
-              <div className="metric-note">不参与归集，需人工核对列名</div>
+              <div className="metric-label">断货预警 / 隔离行</div>
+              <div className={`metric-value mono ${lowStockCount > 0 ? "is-danger" : ""}`}>
+                {lowStockCount} / {result.settlement.unmapped.length}
+              </div>
+              <div className="metric-note">可售 &lt;30 天 SKU / 未识别结算行</div>
             </article>
           </section>
 
@@ -428,8 +717,8 @@ export function OperationsReviewClient({
           <section className="section">
             <div className="section-header">
               <div>
-                <h2>SKU 级实盘 vs 立项预测偏差台账（试算预览）</h2>
-                <p>核对数据无误后，填写账期名称并点击右侧「存入实盘账本」永久保存。</p>
+                <h2>SKU 级分项归因与同口径偏差（试算预览）</h2>
+                <p>核对无误后点击右侧「存入实盘账本」，数据将自动参与后续立项校准。</p>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                 <input
@@ -457,19 +746,22 @@ export function OperationsReviewClient({
                 </button>
               </div>
             </div>
+
             <div className="heatmap-scroll">
               <table className="ops-table">
                 <thead>
                   <tr>
                     <th>SKU / ASIN</th>
                     <th>期间</th>
-                    <th className="num">实盘件数</th>
-                    <th className="num">净销售额</th>
-                    <th className="num">实盘贡献毛利</th>
-                    <th className="num">立项预测总利</th>
-                    <th className="num">实盘 vs 预测偏差</th>
-                    <th className="num">FBA 可售 / 在途</th>
-                    <th className="num">可售天数 (DOI)</th>
+                    <th className="num">净销量</th>
+                    <th className="num">净营收</th>
+                    <th className="num">退款</th>
+                    <th className="num">佣金 / 履约</th>
+                    <th className="num">广告费</th>
+                    <th className="num">平台贡献</th>
+                    <th className="num">实盘真实净利</th>
+                    <th className="num">同口径预测与偏差</th>
+                    <th className="num">可售天数</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -477,25 +769,56 @@ export function OperationsReviewClient({
                     const variance = row.forecast?.variance ?? null;
                     const doi = row.inventoryDays?.days ?? null;
                     const doiClass = doi === null ? "" : doi < 15 ? "is-no-go" : doi < 30 ? "is-hold" : "is-go";
+                    const totalAd = (row.costsByKey.adCost ?? 0) + row.externalAdSpendCents;
                     return (
                       <tr key={`${row.skuKey}-${row.periodKey}`}>
                         <td className="mono"><strong>{row.skuKey}</strong></td>
                         <td className="mono">{row.periodKey}</td>
                         <td className="num mono">{row.units}</td>
                         <td className="num mono">{moneyIn(row.currency, row.contribution.netRevenueCents)}</td>
-                        <td className="num mono"><strong>{moneyIn(row.currency, row.contribution.contributionProfitCents)}</strong></td>
+                        <td className="num mono">{row.refundCents > 0 ? `−${moneyIn(row.currency, row.refundCents)}` : "—"}</td>
                         <td className="num mono">
-                          {row.forecast ? moneyIn(row.currency, row.forecast.folded.foldedProfitCents) : "未匹配案卷"}
+                          {moneyIn(row.currency, row.costsByKey.platformFee ?? 0)} / {moneyIn(row.currency, row.costsByKey.fulfillmentFee ?? 0)}
+                        </td>
+                        <td className="num mono">
+                          {row.adAttribution === "missing" ? (
+                            <span className="muted">未归因</span>
+                          ) : (
+                            <>
+                              {moneyIn(row.currency, totalAd)}
+                              <div className="muted" style={{ fontSize: 10 }}>{adAttributionLabel(row.adAttribution)}</div>
+                            </>
+                          )}
+                        </td>
+                        <td className="num mono">{moneyIn(row.currency, row.contribution.contributionProfitCents)}</td>
+                        <td className="num mono">
+                          {row.trueNetProfitCents !== null ? (
+                            <>
+                              <strong>{moneyIn(row.currency, row.trueNetProfitCents)}</strong>
+                              <div className="muted" style={{ fontSize: 10 }}>
+                                采购 {moneyIn(row.currency, row.landedCostTotalCents ?? 0)}
+                              </div>
+                            </>
+                          ) : (
+                            <span className="muted">缺采购成本</span>
+                          )}
                         </td>
                         <td className={`num mono ${variance ? (variance.differenceCents >= 0 ? "is-go" : "is-danger") : ""}`}>
-                          {variance
-                            ? `${variance.differenceCents >= 0 ? "+" : "−"}${moneyIn(row.currency, Math.abs(variance.differenceCents))}${variance.ratio !== null ? ` (${percent(variance.ratio, 1)})` : ""}`
-                            : "—"}
-                        </td>
-                        <td className="num mono">
-                          {row.inventory
-                            ? `${row.inventory.availableUnits} / ${row.inventory.inTransitUnits ?? 0}`
-                            : "—"}
+                          {row.forecast && variance ? (
+                            <>
+                              {variance.differenceCents >= 0 ? "+" : "−"}
+                              {moneyIn(row.currency, Math.abs(variance.differenceCents))}
+                              {variance.ratio !== null ? ` (${percent(variance.ratio, 1)})` : ""}
+                              <div className="muted" style={{ fontSize: 10 }}>
+                                预测 {moneyIn(row.currency, row.forecast.forecastComparableProfitCents)} ·{" "}
+                                {row.forecast.comparisonBasis === "true_net_profit"
+                                  ? "真实净利口径"
+                                  : "平台贡献口径"}
+                              </div>
+                            </>
+                          ) : (
+                            "未匹配案卷"
+                          )}
                         </td>
                         <td className="num">
                           {doi !== null ? (
@@ -510,6 +833,55 @@ export function OperationsReviewClient({
                 </tbody>
               </table>
             </div>
+
+            {result.periods.some((p) => (p.forecast?.breakdown?.length ?? 0) > 0) ? (
+              <div style={{ marginTop: 16 }}>
+                <h3 style={{ margin: "0 0 8px", fontSize: 14 }}>分项预测误差拆解（实盘 vs 立项假设）</h3>
+                <div className="stack" style={{ gap: 10 }}>
+                  {result.periods
+                    .filter((p) => (p.forecast?.breakdown?.length ?? 0) > 0)
+                    .map((p) => (
+                      <div
+                        key={`bd-${p.skuKey}-${p.periodKey}`}
+                        style={{
+                          border: "1px solid var(--line)",
+                          borderRadius: 8,
+                          padding: "10px 12px",
+                          background: "var(--paper)",
+                        }}
+                      >
+                        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }} className="mono">
+                          {p.skuKey} · {p.periodKey}
+                        </div>
+                        <div className="metric-pairs">
+                          {p.forecast!.breakdown.map((item) => {
+                            const fmt = (v: number) =>
+                              item.unit === "rate" ? percent(v, 1) : moneyIn(p.currency, v);
+                            return (
+                              <div key={item.key} className="metric-pair">
+                                <small>{item.label}</small>
+                                <strong className="mono" style={{ fontSize: 13 }}>
+                                  {item.status === "unattributed" ? (
+                                    <span className="muted">未归因（预测 {fmt(item.planned)}）</span>
+                                  ) : item.actual !== null && item.delta !== null ? (
+                                    <>
+                                      实盘 {fmt(item.actual)} / 预测 {fmt(item.planned)} (
+                                      {item.delta >= 0 ? "+" : ""}
+                                      {fmt(item.delta)})
+                                    </>
+                                  ) : (
+                                    "—"
+                                  )}
+                                </strong>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            ) : null}
           </section>
         </>
       ) : null}

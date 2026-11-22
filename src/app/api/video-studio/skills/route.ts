@@ -1,4 +1,4 @@
-import { ApiInputError, apiError, readJsonObject, stringField } from "@/app/api/ai-inbox/http";
+import { ApiInputError, apiError, readJsonObject, stringField } from "@/lib/api-http";
 import { recordAuditLog } from "@/lib/audit-logs";
 import { normalizeVideoAspectRatio, normalizeVideoDuration } from "@/lib/video-provider";
 import {

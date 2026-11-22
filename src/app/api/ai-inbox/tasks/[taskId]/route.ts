@@ -1,5 +1,5 @@
 import { getAiInboxTask } from "@/lib/ai-inbox/repository";
-import { apiError } from "../../http";
+import { apiError } from "@/lib/api-http";
 
 export async function GET(
   _request: Request,

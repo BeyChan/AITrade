@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
-import { ApiInputError, apiError } from "@/app/api/ai-inbox/http";
+import { ApiInputError, apiError } from "@/lib/api-http";
 import { recordAuditLog } from "@/lib/audit-logs";
 import { createVideoAssetRecord, getAssetRecord, getContentDetail } from "@/lib/repository";
 import { getStandaloneStudioAsset } from "@/lib/standalone-image-studio";

@@ -275,7 +275,6 @@ export function TopbarFxWidget({
           <strong className="topbar-fx-clock-time">{clock.time12Text}</strong>
         </span>
         <span className="topbar-fx-divider" aria-hidden="true" />
-        <span className={`topbar-fx-dot is-${currentItem.mode}`} aria-hidden="true" />
         <span className="topbar-fx-pair">{currentItem.currency}/CNY</span>
         <strong className="topbar-fx-rate">{formatFxRate(currentItem.currency, currentItem.rateToRmb)}</strong>
         <span className={`topbar-fx-tag is-${currentItem.mode}`}>{modeLabel}</span>

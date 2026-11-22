@@ -50,6 +50,10 @@ export async function POST(request: Request) {
         marketplace: saved.marketplace,
         currency: saved.currency,
         periodCount: body.result.periods.length,
+        totalRevenueCents: saved.totalRevenueCents,
+        totalContributionCents: saved.totalContributionCents,
+        totalNetProfitCents: saved.totalNetProfitCents,
+        landedCostCoveredCount: saved.landedCostCoveredCount,
       },
     }).catch(() => {});
     return NextResponse.json({ ok: true, batch: saved });

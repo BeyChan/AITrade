@@ -25,10 +25,65 @@ import {
 import {
   normalizeFbaInventory,
   normalizeSettlementV2,
+  parseDelimited,
   type InventoryAdapterOptions,
   type SettlementAdapterOptions,
   type UnmappedRow,
 } from "./report-adapters.ts";
+
+export type AdAttributionSource = "settlement" | "ads_report" | "manual" | "missing";
+
+export type ParsedAdSpendResult = {
+  bySku: Record<string, number>;
+  rowCount: number;
+  warnings: string[];
+};
+
+/**
+ * 解析可选的 Amazon Ads 商品广告汇总表（CSV 或 TSV），支持常见列名：
+ * sku / Advertised SKU / asin / Advertised ASIN，搭配 spend / Cost / Spend。
+ */
+export function parseAdSpendReport(text: string): ParsedAdSpendResult {
+  const trimmed = text.trim();
+  if (!trimmed) return { bySku: {}, rowCount: 0, warnings: [] };
+  const firstLine = trimmed.split(/\r?\n/, 1)[0] ?? "";
+  const delimiter: "\t" | "," = firstLine.includes("\t") ? "\t" : ",";
+  const rows = parseDelimited(trimmed, delimiter);
+  if (rows.length < 2) {
+    return { bySku: {}, rowCount: 0, warnings: ["广告报表缺少数据行，已忽略"] };
+  }
+
+  const headers = rows[0].map((h) => h.trim().toLowerCase());
+  const skuIdx = headers.findIndex((h) =>
+    ["sku", "advertised sku", "seller sku", "msku", "asin", "advertised asin"].includes(h),
+  );
+  const spendIdx = headers.findIndex((h) =>
+    ["spend", "cost", "ad spend", "ad_spend", "spend(usd)", "total spend", "花费", "广告费"].includes(h),
+  );
+  if (skuIdx < 0 || spendIdx < 0) {
+    return {
+      bySku: {},
+      rowCount: 0,
+      warnings: ["广告报表未识别到 SKU/ASIN 或 Spend/花费 列，已跳过外部广告归因"],
+    };
+  }
+
+  const bySku: Record<string, number> = {};
+  let rowCount = 0;
+  for (const row of rows.slice(1)) {
+    const sku = (row[skuIdx] ?? "").trim();
+    const rawSpend = (row[spendIdx] ?? "").trim().replace(/[$€£¥,\s]/g, "");
+    if (!sku || !rawSpend) continue;
+    const amount = Number(rawSpend);
+    if (!Number.isFinite(amount) || amount < 0) continue;
+    const cents = Math.round(amount * 100);
+    const key = sku.toUpperCase();
+    bySku[key] = (bySku[key] ?? 0) + cents;
+    rowCount += 1;
+  }
+
+  return { bySku, rowCount, warnings: [] };
+}
 
 export type PipelineInventoryDaysOptions = {
   /** 观察窗口天数，由调用方按真实样本校准后传入。 */
@@ -49,6 +104,8 @@ export type PipelineOptions = {
   reportingCurrency: string;
   /** 平台 SKU → 单件预测；未提供的 SKU 不输出预测差异。 */
   forecastsBySku?: Record<string, ForecastComparisonInput>;
+  /** 可选：按 SKU 提供的外部广告花费（分），用于补齐 Settlement V2 未按 SKU 拆分的广告费。 */
+  externalAdSpendBySku?: Record<string, { spendCents: number; source: "ads_report" | "manual" }>;
   inventoryDays?: PipelineInventoryDaysOptions;
 };
 
@@ -58,6 +115,20 @@ export type PipelineSkuPeriod = SettlementPeriodResult & {
   /** 平台 SKU 直接匹配；channel_sku_mappings 落地后应改为多对一映射。 */
   inventory: NormalizedInventorySnapshot | null;
   inventoryDays: InventoryDaysResult | null;
+  /** 外部广告报表或手工录入的 SKU 级广告费（分） */
+  externalAdSpendCents: number;
+  /** 本期该 SKU 的广告归因来源 */
+  adAttribution: AdAttributionSource;
+  /** 利润口径：绑定了采购成本时为 true_net_profit，否则仅为 platform_contribution_only */
+  costBasis: "true_net_profit" | "platform_contribution_only";
+  /** 绑定的单位采购到岸成本（分），未绑定时为 null */
+  unitLandedCostCents: number | null;
+  /** 周期采购到岸总成本（分），未绑定时为 null */
+  landedCostTotalCents: number | null;
+  /** 实盘真实净利（分），未绑定采购成本时显式为 null */
+  trueNetProfitCents: number | null;
+  /** 实盘真实净利率（真实净利 / 净营收），未绑定采购成本时为 null */
+  trueNetMarginRate: number | null;
 };
 
 export type PipelineResult = {
@@ -139,8 +210,50 @@ export function runOperationsPipeline(
   }
 
   const periods: PipelineSkuPeriod[] = basePeriods.map((period) => {
-    const forecastInput = options.forecastsBySku?.[period.skuKey];
+    const skuUpper = period.skuKey.toUpperCase();
+    const externalAdEntry =
+      options.externalAdSpendBySku?.[period.skuKey] ??
+      options.externalAdSpendBySku?.[skuUpper];
+    const externalAdSpendCents = externalAdEntry ? Math.max(0, Math.round(externalAdEntry.spendCents)) : 0;
+    const settlementAdCents = period.costsByKey.adCost ?? 0;
+    const adAttribution: AdAttributionSource = externalAdEntry
+      ? externalAdEntry.source
+      : settlementAdCents > 0
+        ? "settlement"
+        : "missing";
+
+    const rawForecastInput =
+      options.forecastsBySku?.[period.skuKey] ?? options.forecastsBySku?.[skuUpper];
+    const forecastInput = rawForecastInput
+      ? {
+          ...rawForecastInput,
+          externalAdSpendCents: rawForecastInput.externalAdSpendCents ?? externalAdSpendCents,
+          adAttribution: rawForecastInput.adAttribution ?? adAttribution,
+        }
+      : undefined;
     const forecast = forecastInput ? compareWithForecast(period, forecastInput) : null;
+
+    const hasLanded =
+      typeof forecastInput?.unitLandedCostCents === "number" &&
+      Number.isFinite(forecastInput.unitLandedCostCents) &&
+      forecastInput.unitLandedCostCents >= 0;
+    const unitLandedCostCents = hasLanded ? Math.round(forecastInput!.unitLandedCostCents!) : null;
+    const landedCostTotalCents =
+      unitLandedCostCents !== null ? Math.round(unitLandedCostCents * period.units) : null;
+    const amortizedTotal = Math.round((forecastInput?.unitAmortizedFixedCostCents ?? 0) * period.units);
+    const trueNetProfitCents =
+      landedCostTotalCents !== null
+        ? period.contribution.contributionProfitCents -
+          landedCostTotalCents -
+          externalAdSpendCents -
+          amortizedTotal
+        : null;
+    const trueNetMarginRate =
+      trueNetProfitCents !== null && period.contribution.netRevenueCents > 0
+        ? trueNetProfitCents / period.contribution.netRevenueCents
+        : null;
+    const costBasis: "true_net_profit" | "platform_contribution_only" =
+      trueNetProfitCents !== null ? "true_net_profit" : "platform_contribution_only";
 
     const inventory = snapshots.get(period.skuKey) ?? null;
     const dailySales = dailySalesBySku?.[period.skuKey];
@@ -157,7 +270,19 @@ export function runOperationsPipeline(
       });
     }
 
-    return { ...period, forecast, inventory, inventoryDays: days };
+    return {
+      ...period,
+      forecast,
+      inventory,
+      inventoryDays: days,
+      externalAdSpendCents,
+      adAttribution,
+      costBasis,
+      unitLandedCostCents,
+      landedCostTotalCents,
+      trueNetProfitCents,
+      trueNetMarginRate,
+    };
   });
 
   return {

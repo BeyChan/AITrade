@@ -1,5 +1,5 @@
 import { reviewAiInboxField } from "@/lib/ai-inbox/apply";
-import { apiError, readJsonObject, stringField } from "../../../../http";
+import { apiError, readJsonObject, stringField } from "@/lib/api-http";
 
 export async function POST(
   request: Request,

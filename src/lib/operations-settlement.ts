@@ -217,6 +217,18 @@ export type SettlementPeriodResult = {
   fxRate: number;
   fxRateDate: string | null;
   units: number;
+  /** 退货前毛销量 */
+  grossUnits: number;
+  /** 退货件数 */
+  refundUnits: number;
+  /** 退货与促销冲减前的毛营收 */
+  grossRevenueCents: number;
+  /** 退款金额（正数） */
+  refundCents: number;
+  /** 促销/折扣冲减金额（正数） */
+  discountCents: number;
+  /** 按费用项保留的完整分项金额（含冲正负数），不再全塞进单一字段 */
+  costsByKey: Partial<Record<ContributionCostKey, number>>;
   lineCount: number;
   rawHashes: string[];
   ingestionRunIds: string[];
@@ -239,7 +251,12 @@ type Group = {
   fxRate: number;
   fxRateDate: string | null;
   revenueCents: number;
+  grossRevenueCents: number;
+  refundCents: number;
+  discountCents: number;
   units: number;
+  grossUnits: number;
+  refundUnits: number;
   costsCents: Partial<Record<ContributionCostKey, number>>;
   deducted: Set<ContributionCostKey>;
   rawHashes: Set<string>;
@@ -282,7 +299,12 @@ export function aggregateSettlement(
         fxRate,
         fxRateDate: batch.fxRateDate ?? null,
         revenueCents: 0,
+        grossRevenueCents: 0,
+        refundCents: 0,
+        discountCents: 0,
         units: 0,
+        grossUnits: 0,
+        refundUnits: 0,
         costsCents: {},
         deducted: new Set<ContributionCostKey>(),
         rawHashes: new Set<string>(),
@@ -304,9 +326,17 @@ export function aggregateSettlement(
     const amount = line.amountCents;
     if (line.kind === "revenue") {
       group.revenueCents += amount;
+      group.grossRevenueCents += amount;
       group.units += line.units ?? 0;
-    } else if (line.kind === "refund" || line.kind === "discount") {
+      group.grossUnits += line.units ?? 0;
+    } else if (line.kind === "refund") {
       group.revenueCents -= amount;
+      group.refundCents += amount;
+      group.units -= line.units ?? 0;
+      group.refundUnits += line.units ?? 0;
+    } else if (line.kind === "discount") {
+      group.revenueCents -= amount;
+      group.discountCents += amount;
       group.units -= line.units ?? 0;
     } else {
       group.costsCents[line.kind] = (group.costsCents[line.kind] ?? 0) + amount;
@@ -328,6 +358,12 @@ export function aggregateSettlement(
       fxRate: group.fxRate,
       fxRateDate: group.fxRateDate,
       units: Math.max(0, group.units),
+      grossUnits: Math.max(0, group.grossUnits),
+      refundUnits: Math.max(0, group.refundUnits),
+      grossRevenueCents: group.grossRevenueCents,
+      refundCents: group.refundCents,
+      discountCents: group.discountCents,
+      costsByKey: { ...group.costsCents },
       lineCount: group.lineCount,
       rawHashes: [...group.rawHashes].sort(),
       ingestionRunIds: [...group.ingestionRunIds].sort(),
@@ -344,9 +380,47 @@ export function aggregateSettlement(
     );
 }
 
+export type ForecastPlanBreakdown = {
+  salePriceCents: number;
+  landedCostCents: number;
+  fbaFeeCents: number;
+  referralRate: number;
+  adRate: number;
+  returnRate: number;
+  storageCents: number;
+  amortizedFixedCostCents?: number;
+};
+
+export type ForecastComparisonBasis =
+  | "true_net_profit"
+  | "platform_contribution"
+  | "legacy_unadjusted";
+
+export type VarianceBreakdownItem = {
+  key: "salePrice" | "referralRate" | "fulfillmentFee" | "returnRate" | "adRate" | "storageFee";
+  label: string;
+  unit: "cents" | "rate";
+  planned: number;
+  actual: number | null;
+  delta: number | null;
+  status: "compared" | "unattributed" | "insufficient_units";
+};
+
 export type ForecastComparisonInput = {
-  /** 单件预测，必须是站点币种；跨币种换算由调用方按 fxRate 显式完成。 */
+  /** 单件预测净利，必须是站点币种；跨币种换算由调用方按 fxRate 显式完成。 */
   unitNetProfitCents: number;
+  /** 可选：单件预测平台侧贡献（不含采购到岸成本与一次性固定摊销），用于无采购成本时同口径对比。 */
+  unitPlatformContributionCents?: number;
+  /** 可选：单件采购到岸成本（已绑定案卷或手动覆盖），传入后可计算实盘真实净利。 */
+  unitLandedCostCents?: number | null;
+  /** 可选：单件一次性固定成本摊销 */
+  unitAmortizedFixedCostCents?: number;
+  /** 可选：外部导入的 SKU 级广告花费（非结算单内扣款），单位分 */
+  externalAdSpendCents?: number;
+  /** 可选：广告归因状态 */
+  adAttribution?: "settlement" | "ads_report" | "manual" | "missing";
+  /** 可选：立项成本模型原始假设，用于输出分项误差拆解 */
+  planBreakdown?: ForecastPlanBreakdown;
   costModelVersion: string;
   forecastCurrency: string;
   minDenominatorCents: number;
@@ -355,7 +429,112 @@ export type ForecastComparisonInput = {
 export type ForecastComparison = {
   folded: FoldedForecast;
   variance: ForecastVariance;
+  /** 本次对比采用的利润口径 */
+  comparisonBasis: ForecastComparisonBasis;
+  /** 实盘比较值（分）：true_net_profit 为真实净利，platform_contribution 为平台侧贡献 */
+  actualComparableProfitCents: number;
+  /** 预测比较值（分），与 actualComparableProfitCents 严格同口径 */
+  forecastComparableProfitCents: number;
+  /** 是否已显式扣减采购到岸成本 */
+  landedCostApplied: boolean;
+  /** 扣减的周期采购到岸总成本（未绑定时为 null） */
+  landedCostTotalCents: number | null;
+  /** 扣减的外部广告花费（分） */
+  externalAdSpendCents: number;
+  /** 实盘真实净利（未绑定采购成本时为 null） */
+  trueNetProfitCents: number | null;
+  /** 实盘分项 vs 立项预测误差拆解 */
+  breakdown: VarianceBreakdownItem[];
 };
+
+function buildVarianceBreakdown(
+  result: SettlementPeriodResult,
+  input: ForecastComparisonInput,
+): VarianceBreakdownItem[] {
+  const plan = input.planBreakdown;
+  if (!plan) return [];
+
+  const grossUnits = result.grossUnits > 0 ? result.grossUnits : result.units;
+  const netUnits = result.units;
+  const grossRev = result.grossRevenueCents > 0 ? result.grossRevenueCents : result.contribution.netRevenueCents;
+  const netRev = result.contribution.netRevenueCents;
+
+  const actualSalePrice = grossUnits > 0 ? Math.round(grossRev / grossUnits) : null;
+  const platformFee = result.costsByKey.platformFee ?? 0;
+  const fulfillmentFee = result.costsByKey.fulfillmentFee ?? 0;
+  const settlementAd = result.costsByKey.adCost ?? 0;
+  const externalAd = Math.max(0, Math.round(input.externalAdSpendCents ?? 0));
+  const totalAd = settlementAd + externalAd;
+  const storageFee = (result.costsByKey.storage ?? 0) + (result.costsByKey.longTermStorage ?? 0);
+
+  const actualReferralRate = netRev > 0 ? platformFee / netRev : null;
+  const actualFulfillmentPerUnit = grossUnits > 0 ? Math.round(fulfillmentFee / grossUnits) : null;
+  const actualReturnRate = grossRev > 0 ? result.refundCents / grossRev : null;
+  const adAttributed =
+    input.adAttribution === "settlement" ||
+    input.adAttribution === "ads_report" ||
+    input.adAttribution === "manual" ||
+    totalAd > 0;
+  const actualAdRate = adAttributed && grossRev > 0 ? totalAd / grossRev : null;
+  const actualStoragePerUnit = netUnits > 0 ? Math.round(storageFee / netUnits) : null;
+
+  return [
+    {
+      key: "salePrice",
+      label: "实际均价",
+      unit: "cents",
+      planned: plan.salePriceCents,
+      actual: actualSalePrice,
+      delta: actualSalePrice !== null ? actualSalePrice - plan.salePriceCents : null,
+      status: actualSalePrice !== null ? "compared" : "insufficient_units",
+    },
+    {
+      key: "referralRate",
+      label: "平台佣金率",
+      unit: "rate",
+      planned: plan.referralRate,
+      actual: actualReferralRate,
+      delta: actualReferralRate !== null ? actualReferralRate - plan.referralRate : null,
+      status: actualReferralRate !== null ? "compared" : "insufficient_units",
+    },
+    {
+      key: "fulfillmentFee",
+      label: "单件履约费",
+      unit: "cents",
+      planned: plan.fbaFeeCents,
+      actual: actualFulfillmentPerUnit,
+      delta: actualFulfillmentPerUnit !== null ? actualFulfillmentPerUnit - plan.fbaFeeCents : null,
+      status: actualFulfillmentPerUnit !== null ? "compared" : "insufficient_units",
+    },
+    {
+      key: "returnRate",
+      label: "退款/退货率",
+      unit: "rate",
+      planned: plan.returnRate,
+      actual: actualReturnRate,
+      delta: actualReturnRate !== null ? actualReturnRate - plan.returnRate : null,
+      status: actualReturnRate !== null ? "compared" : "insufficient_units",
+    },
+    {
+      key: "adRate",
+      label: "广告费占比",
+      unit: "rate",
+      planned: plan.adRate,
+      actual: actualAdRate,
+      delta: actualAdRate !== null ? actualAdRate - plan.adRate : null,
+      status: adAttributed ? (actualAdRate !== null ? "compared" : "insufficient_units") : "unattributed",
+    },
+    {
+      key: "storageFee",
+      label: "单件仓储费",
+      unit: "cents",
+      planned: plan.storageCents,
+      actual: actualStoragePerUnit,
+      delta: actualStoragePerUnit !== null ? actualStoragePerUnit - plan.storageCents : null,
+      status: actualStoragePerUnit !== null ? "compared" : "insufficient_units",
+    },
+  ];
+}
 
 /** 只有同币种、且预测已按实际销量折算成周期总量之后，才允许比较。 */
 export function compareWithForecast(
@@ -369,17 +548,64 @@ export function compareWithForecast(
       `must match settlement currency ${result.currency}; convert with fxRate ${result.fxRate} first`,
     );
   }
+  const externalAdSpendCents = Math.max(0, Math.round(input.externalAdSpendCents ?? 0));
+  const hasLandedCost =
+    typeof input.unitLandedCostCents === "number" &&
+    Number.isFinite(input.unitLandedCostCents) &&
+    input.unitLandedCostCents >= 0;
+
+  let comparisonBasis: ForecastComparisonBasis;
+  let actualComparableProfitCents: number;
+  let forecastUnitProfitCents: number;
+  let landedCostTotalCents: number | null = null;
+  let trueNetProfitCents: number | null = null;
+
+  if (hasLandedCost) {
+    comparisonBasis = "true_net_profit";
+    landedCostTotalCents = Math.round((input.unitLandedCostCents as number) * result.units);
+    const amortizedTotal = Math.round((input.unitAmortizedFixedCostCents ?? 0) * result.units);
+    trueNetProfitCents =
+      result.contribution.contributionProfitCents -
+      landedCostTotalCents -
+      externalAdSpendCents -
+      amortizedTotal;
+    actualComparableProfitCents = trueNetProfitCents;
+    forecastUnitProfitCents = input.unitNetProfitCents;
+  } else if (
+    typeof input.unitPlatformContributionCents === "number" &&
+    Number.isFinite(input.unitPlatformContributionCents)
+  ) {
+    comparisonBasis = "platform_contribution";
+    actualComparableProfitCents = result.contribution.contributionProfitCents - externalAdSpendCents;
+    forecastUnitProfitCents = input.unitPlatformContributionCents;
+  } else {
+    comparisonBasis = "legacy_unadjusted";
+    actualComparableProfitCents = result.contribution.contributionProfitCents;
+    forecastUnitProfitCents = input.unitNetProfitCents;
+  }
+
   const folded = foldForecastToPeriod({
-    unitNetProfitCents: input.unitNetProfitCents,
+    unitNetProfitCents: forecastUnitProfitCents,
     actualUnits: result.units,
     costModelVersion: input.costModelVersion,
     forecastCurrency,
     reportingCurrency: result.currency,
   });
   const variance = forecastVariance({
-    actualProfitCents: result.contribution.contributionProfitCents,
+    actualProfitCents: actualComparableProfitCents,
     foldedForecastProfitCents: folded.foldedProfitCents,
     minDenominatorCents: input.minDenominatorCents,
   });
-  return { folded, variance };
+  return {
+    folded,
+    variance,
+    comparisonBasis,
+    actualComparableProfitCents,
+    forecastComparableProfitCents: folded.foldedProfitCents,
+    landedCostApplied: hasLandedCost,
+    landedCostTotalCents,
+    externalAdSpendCents,
+    trueNetProfitCents,
+    breakdown: buildVarianceBreakdown(result, input),
+  };
 }

@@ -5,7 +5,7 @@ import {
   type AiInboxTaskStatus,
 } from "@/lib/ai-inbox/repository";
 import { runAiInboxTask } from "@/lib/ai-inbox/worker";
-import { apiError, readJsonObject, stringField } from "../http";
+import { apiError, readJsonObject, stringField } from "@/lib/api-http";
 
 export async function GET(request: Request) {
   try {

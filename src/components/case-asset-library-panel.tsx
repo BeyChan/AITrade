@@ -84,27 +84,29 @@ export function CaseAssetLibraryPanel({ caseId, assets, uploadAction, reviewActi
 
   return (
     <section className="panel" id="asset-library">
-      <div className="panel-header">
-        <div>
+      <div className="panel-header asset-library-header">
+        <div className="asset-library-lead">
           <div className="eyebrow">VISUAL &amp; VIDEO ASSETS · 资产库与审核门禁</div>
           <h2>2. 视觉与视频资产库</h2>
           <p>
             集中管理本商品的实拍图、AI 生图与演示视频；AI 创作请直达独立工坊（自动携带当前商品上下文），生成后一键入库在此完成人工审核放行。
           </p>
         </div>
-        <div className="button-row" style={{ flexWrap: "wrap" }}>
-          <Link href={`/image-studio?caseId=${encodeURIComponent(caseId)}`} className="button primary">
-            ✨ 去 AI 生图工坊 →
-          </Link>
-          <Link href={`/video-studio?caseId=${encodeURIComponent(caseId)}`} className="button secondary">
-            ✨ 去 AI 视频工坊 →
-          </Link>
+        <div className="asset-library-actions">
+          <div className="asset-library-actions-row">
+            <Link href={`/image-studio?caseId=${encodeURIComponent(caseId)}`} className="button primary">
+              去 AI 生图工坊
+            </Link>
+            <Link href={`/video-studio?caseId=${encodeURIComponent(caseId)}`} className="button secondary">
+              去 AI 视频工坊
+            </Link>
+          </div>
           <button
             type="button"
-            className="button ghost"
+            className="button ghost asset-library-upload-btn"
             onClick={() => setShowUpload((v) => !v)}
           >
-            {showUpload ? "收起上传" : "+ 上传实拍图"}
+            {showUpload ? "收起上传表单" : "+ 上传实拍图"}
           </button>
         </div>
       </div>

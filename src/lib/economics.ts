@@ -1,3 +1,15 @@
+export type CalibrationStatus = "uncalibrated" | "partial" | "calibrated";
+
+export type CalibrationAppliedMeta = {
+  status: CalibrationStatus;
+  scope: "sku" | "category" | "store" | "platform_default";
+  sampleSkuCount: number;
+  totalUnits: number;
+  appliedFields: string[];
+  appliedAt?: string;
+  latestPeriodEnd?: string | null;
+};
+
 export type EconomicsAssumptions = {
   currency?: string;
   salePriceCents: number;
@@ -15,6 +27,8 @@ export type EconomicsAssumptions = {
   oneTimeFixedCostCents?: number;
   /** 首批备货件数（与 oneTimeFixedCostCents 配合计算单件摊销） */
   initialOrderUnits?: number;
+  /** 可选：该版本成本模型的实盘校准来源元数据 */
+  calibrationMeta?: CalibrationAppliedMeta;
 };
 
 export type EconomicsResults = {
@@ -31,7 +45,14 @@ export type EconomicsResults = {
   amortizedFixedCostCents: number;
   totalCostCents: number;
   netProfitCents: number;
+  /** 净利润 / 售价（立项传统口径） */
   marginRate: number;
+  /** 净利润 / 扣除退货与折扣后的净营收（与实盘账本统一分母） */
+  netRevenueMarginRate: number;
+  /** 平台侧贡献利润（不含采购到岸成本、采购残损与一次性固定摊销），用于与缺采购成本的结算单同口径对比 */
+  platformContributionCents: number;
+  /** 平台侧贡献利润 / 净营收 */
+  platformContributionMarginRate: number;
   roiRate: number;
   breakEvenAdRate: number;
   stressProfitCents: number;
@@ -98,6 +119,18 @@ export function calculateEconomics(input: EconomicsAssumptions): EconomicsResult
     returnRate: clamp(input.returnRate + 0.02, 0, 0.95),
   });
 
+  const returnProcessingLoss = round(
+    clamp(input.returnRate, 0, 0.95) * Math.max(0, input.returnProcessingCents),
+  );
+  const platformSideCost =
+    Math.max(0, input.fbaFeeCents) +
+    referralFee +
+    adCost +
+    returnProcessingLoss +
+    Math.max(0, input.storageCents) +
+    Math.max(0, input.otherCostCents);
+  const platformContributionCents = keptRevenue - platformSideCost;
+
   return {
     currency: input.currency ?? "USD",
     netRevenueCents: keptRevenue,
@@ -113,6 +146,9 @@ export function calculateEconomics(input: EconomicsAssumptions): EconomicsResult
     totalCostCents: totalCost,
     netProfitCents: netProfit,
     marginRate: netProfit / salePrice,
+    netRevenueMarginRate: keptRevenue > 0 ? netProfit / keptRevenue : 0,
+    platformContributionCents,
+    platformContributionMarginRate: keptRevenue > 0 ? platformContributionCents / keptRevenue : 0,
     roiRate: input.landedCostCents > 0 ? netProfit / input.landedCostCents : 0,
     breakEvenAdRate,
     stressProfitCents: stress.netProfitCents,
@@ -236,6 +272,8 @@ export type DecisionGateEvaluation = {
   stageLabel: string;
   recommendation: "GO" | "HOLD" | "NO-GO";
   rawRecommendation: "GO" | "HOLD" | "NO-GO";
+  calibrationStatus: CalibrationStatus;
+  calibrationBadge: string;
   blockedReasons: string[];
   maxLandedCostCents: number;
   maxLandedAchievable: boolean;
@@ -288,11 +326,21 @@ export function evaluateDecisionStage(input: {
         ? "HOLD"
         : rawRecommendation;
 
+  const calibrationStatus: CalibrationStatus = input.assumptions.calibrationMeta?.status ?? "uncalibrated";
+  const calibrationBadge =
+    calibrationStatus === "calibrated"
+      ? "实盘已校准"
+      : calibrationStatus === "partial"
+        ? "部分校准"
+        : "待校准";
+
   return {
     stage,
     stageLabel: stage === "verified" ? "实证终审态 · 可签发正式立项" : "估算快筛态 · 仅作打样参考（未解锁正式 GO）",
     recommendation,
     rawRecommendation,
+    calibrationStatus,
+    calibrationBadge,
     blockedReasons,
     maxLandedCostCents: target.maxLandedCostCents,
     maxLandedAchievable: target.achievable,

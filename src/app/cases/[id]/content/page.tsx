@@ -31,8 +31,10 @@ import { emptyListingContent, normalizeListingContent, preflightListing } from "
 import { getContentDetail } from "@/lib/repository";
 import { CaseAssetLibraryPanel } from "@/components/case-asset-library-panel";
 import { ComplianceRadarCard } from "@/components/compliance-radar-card";
+import { ContentAutofillButton } from "@/components/content-autofill-button";
 import { SerpShelfTest } from "@/components/serp-shelf-test";
 import { scanListingCompliance } from "@/lib/compliance-radar";
+import { getAppMode } from "@/lib/app-mode";
 
 export const dynamic = "force-dynamic";
 
@@ -44,11 +46,12 @@ type PageProps = {
     hypothesisId?: string;
     proposeBullets?: string;
     applyProposal?: string;
+    preview?: string;
   }>;
 };
 
 export default async function ContentStudioPage({ params, searchParams }: PageProps) {
-  const [{ id }, query] = await Promise.all([params, searchParams]);
+  const [{ id }, query, appMode] = await Promise.all([params, searchParams, getAppMode()]);
   const [detail, benchmarkLookup] = await Promise.all([
     getContentDetail(id),
     loadCaseCompetitorBenchmark(id, query.hypothesisId),
@@ -83,7 +86,9 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
   const latestMainImage = mainImages[0] ?? null;
   const latestHumanReview = listingReviews.find((review) => review.review_type === "human_content_review") ?? null;
   const contentApproved = listing?.status === "content_approved";
-  const canApprove = Boolean(listing && preflight?.passed && approvedImages.length && !contentApproved);
+  const canDemoBypass = appMode === "sandbox" || productCase.is_demo;
+  const isDemoPreview = !selection && canDemoBypass && query.preview === "1";
+  const canApprove = Boolean(selection && listing && preflight?.passed && approvedImages.length && !contentApproved);
 
   const complianceRadar = scanListingCompliance({
     brand: content.brand,
@@ -110,7 +115,7 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
             <span className="badge badge-neutral">{productCase.marketplace}</span>
             <span className="badge badge-neutral">{productCase.category}</span>
             {listing ? <span className="badge status-researching">Listing v{listing.version}</span> : <span className="badge badge-neutral">尚无 Listing 草稿</span>}
-            {!selection ? <span className="badge status-review_pending">尚未定标工厂（可先准备文案与主图）</span> : null}
+            {!selection ? <span className="badge status-review_pending">待完成供应商定标</span> : null}
           </>
         }
         actions={
@@ -132,6 +137,7 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
         hasApprovedContent={Boolean(preflight?.passed)}
         selectedSupplierName={selectedSupplierName ?? null}
         status={productCase.status}
+        allowDemoBypass={canDemoBypass}
       />
 
       <QueryNotices notice={query.notice} error={query.error} />
@@ -142,30 +148,141 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
         </div>
       ) : null}
 
-      {!selection ? (
-        <section className="panel locked-panel">
-          <div className="empty-state">
-            <span className="badge status-review_pending">LOCKED</span>
-            <h3>先完成供应商人工定标</h3>
-            <p>内容制作必须建立在已确认的供应商和成本模型之上。系统不会绕过定标直接生成采购承诺或发布内容。</p>
-            <Link href={`/cases/${productCase.id}/sourcing`} className="button primary">前往供应商定标</Link>
+      {!selection && !isDemoPreview ? (
+        <section className="panel content-gate-panel" aria-labelledby="content-gate-title">
+          <div className="content-gate-hero">
+            <div className="content-gate-lead">
+              <div className="content-gate-pill">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="4" y="11" width="16" height="10" rx="2" />
+                  <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                </svg>
+                <span>流程门禁 · 待定标</span>
+              </div>
+              <h2 id="content-gate-title" className="content-gate-title">先完成供应商人工定标</h2>
+              <p className="content-gate-desc">
+                内容制作必须建立在已确认的供应商与成本模型之上，系统不会绕过定标直接生成采购承诺或对外发布内容。
+              </p>
+            </div>
+            <div className="content-gate-actions">
+              <Link href={`/cases/${productCase.id}/sourcing`} className="button primary">
+                前往供应商定标
+              </Link>
+              {canDemoBypass ? (
+                <Link href={`/cases/${productCase.id}/content?preview=1`} className="button demo-bypass-btn">
+                  演示模式：跳过定标预览
+                </Link>
+              ) : (
+                <Link href={`/cases/${productCase.id}`} className="button secondary">
+                  查看利润与成本模型
+                </Link>
+              )}
+            </div>
+          </div>
+
+          <div className="content-gate-grid">
+            <div className="content-gate-col">
+              <div className="content-gate-col-head">
+                <span className="content-gate-col-title">解锁前置检查</span>
+                <span className="content-gate-col-meta">{costModel ? "已完成 1 / 2" : "已完成 0 / 2"}</span>
+              </div>
+              <ul className="content-gate-checklist">
+                <li className={`content-gate-check ${costModel ? "is-done" : "is-pending"}`}>
+                  <span className="content-gate-check-icon" aria-hidden="true">
+                    {costModel ? (
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    ) : (
+                      <span>1</span>
+                    )}
+                  </span>
+                  <div className="content-gate-check-body">
+                    <strong>利润与合规 · 成本模型</strong>
+                    <span>
+                      {costModel
+                        ? `v${costModel.version} 已就绪 · 售价 ${money(costModel.assumptions.salePriceCents)} / 到岸 ${money(costModel.assumptions.landedCostCents)}`
+                        : "待建立成本模型与利润测算"}
+                    </span>
+                  </div>
+                  <span className={`content-gate-state ${costModel ? "is-done" : "is-pending"}`}>
+                    {costModel ? "已就绪" : "待完成"}
+                  </span>
+                </li>
+
+                <li className="content-gate-check is-blocking">
+                  <span className="content-gate-check-icon" aria-hidden="true">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="4" y="11" width="16" height="10" rx="2" />
+                      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                    </svg>
+                  </span>
+                  <div className="content-gate-check-body">
+                    <strong>寻源与财务定标 · 人工核准</strong>
+                    <span>录入工厂报价与打样记录，并确认最终合作供应商</span>
+                  </div>
+                  <span className="content-gate-state is-blocking">待定标</span>
+                </li>
+              </ul>
+            </div>
+
+            <div className="content-gate-col">
+              <div className="content-gate-col-head">
+                <span className="content-gate-col-title">定标后将解锁</span>
+                <span className="content-gate-col-meta">文案与视觉工作台</span>
+              </div>
+              <div className="content-gate-unlocks">
+                <div className="content-gate-unlock-item">
+                  <strong>商品定义与事实边界</strong>
+                  <span>固定目标用户、核心差异点、规格清单与禁用声明</span>
+                </div>
+                <div className="content-gate-unlock-item">
+                  <strong>五点文案与合规雷达</strong>
+                  <span>结合竞品对标与敏感词扫描生成可发布 Listing</span>
+                </div>
+                <div className="content-gate-unlock-item">
+                  <strong>主图审核与货架测试</strong>
+                  <span>上传审批主图素材并在模拟 Amazon 货架对比点击率</span>
+                </div>
+                <div className="content-gate-unlock-item">
+                  <strong>上架交付包导出</strong>
+                  <span>一键导出 Amazon Flat File (TSV) 与素材压缩包</span>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
       ) : (
         <>
-          <section className="content-context">
-            <div>
-              <span className="eyebrow" style={{ color: "var(--lime)" }}>已选素材</span>
-              <h2>{selectedSupplierName ?? "已定标供应商"}</h2>
-              <p>内容工作台已解锁。商品定义、主图与 Listing 都必须使用经过人工确认的事实，不得把竞品图片或未核验声明当成自有素材。</p>
-            </div>
-            <div className="selection-result-meta">
-              <span>当前成本模型</span><strong>{costModel ? `v${costModel.version}` : "—"}</strong>
-              <span>到岸成本</span><strong>{costModel ? money(costModel.assumptions.landedCostCents) : "—"}</strong>
-              <span>定标人</span><strong>{selection.selected_by}</strong>
-              <span>内容确认</span><strong>{contentApproved ? "已通过" : "未通过"}</strong>
-            </div>
-          </section>
+          {isDemoPreview ? (
+            <section className="panel demo-preview-banner" role="status">
+              <div className="demo-preview-banner-lead">
+                <span className="content-gate-pill">演示跳过预览 · 尚未定标</span>
+                <div>
+                  <strong>当前为演示模式免定标预览</strong>
+                  <p>你可以自由浏览竞品对标、合规雷达、商品定义与货架测试界面；真实模式下或需保存写入数据时，请先完成供应商人工定标。</p>
+                </div>
+              </div>
+              <div className="demo-preview-banner-actions">
+                <Link href={`/cases/${productCase.id}/sourcing`} className="button primary">去完成供应商定标</Link>
+                <Link href={`/cases/${productCase.id}/content`} className="button secondary">返回门禁说明</Link>
+              </div>
+            </section>
+          ) : (
+            <section className="content-context">
+              <div>
+                <span className="eyebrow" style={{ color: "var(--lime)" }}>已选素材</span>
+                <h2>{selectedSupplierName ?? "已定标供应商"}</h2>
+                <p>内容工作台已解锁。商品定义、主图与 Listing 都必须使用经过人工确认的事实，不得把竞品图片或未核验声明当成自有素材。</p>
+              </div>
+              <div className="selection-result-meta">
+                <span>当前成本模型</span><strong>{costModel ? `v${costModel.version}` : "—"}</strong>
+                <span>到岸成本</span><strong>{costModel ? money(costModel.assumptions.landedCostCents) : "—"}</strong>
+                <span>定标人</span><strong>{selection?.selected_by ?? "—"}</strong>
+                <span>内容确认</span><strong>{contentApproved ? "已通过" : "未通过"}</strong>
+              </div>
+            </section>
+          )}
 
           <section className="metrics-grid content-summary-grid">
             <article className="metric-card">
@@ -208,7 +325,8 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
                     <h2>1. 商品定义</h2>
                     <p>先把产品事实、目标用户和禁用声明固定下来，再写标题与卖点。</p>
                   </div>
-                  <div className="button-row">
+                  <div className="button-row" style={{ flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    <ContentAutofillButton caseId={productCase.id} target="definition" />
                     {!profile && benchmark ? (
                       <span className="badge badge-neutral">已从选品假设预填草稿 · 保存后生效</span>
                     ) : null}
@@ -248,8 +366,12 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
                     </div>
                   </div>
                   <div className="form-actions">
-                    <span className="help">商品定义会写入审计日志；后续修改不会覆盖历史记录。</span>
-                    <button className="button primary" type="submit">保存商品定义</button>
+                    <span className="help">
+                      {isDemoPreview ? "演示预览态：完成供应商定标后即可保存商品定义。" : "商品定义会写入审计日志；后续修改不会覆盖历史记录。"}
+                    </span>
+                    <button className="button primary" type="submit" disabled={isDemoPreview}>
+                      {isDemoPreview ? "定标后可保存" : "保存商品定义"}
+                    </button>
                   </div>
                 </form>
               </section>
@@ -261,24 +383,20 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
                 reviewAction={reviewMainImageAction}
               />
 
-              <SerpShelfTest
-                myTitle={content.title || productCase.title}
-                myPriceCents={costModel?.assumptions.salePriceCents ?? productCase.competitor_price_cents}
-                currency={productCase.currency || costModel?.assumptions.currency || "USD"}
-                myImageUrl={latestMainImage ? latestMainImage.file_url : null}
-              />
-
               <section className="section">
                 <div className="section-header">
                   <div>
                     <h2>3. Listing 草稿</h2>
                     <p>每次保存都会创建新版本，并自动运行确定性发布预检。</p>
                   </div>
-                  {listing ? (
-                    <span className={`badge ${contentApproved ? "badge-success" : "status-researching"}`}>
-                      {contentApproved ? `v${listing.version} 已确认` : `v${listing.version} 草稿`}
-                    </span>
-                  ) : null}
+                  <div className="button-row" style={{ flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    <ContentAutofillButton caseId={productCase.id} target="listing" />
+                    {listing ? (
+                      <span className={`badge ${contentApproved ? "badge-success" : "status-researching"}`}>
+                        {contentApproved ? `v${listing.version} 已确认` : `v${listing.version} 草稿`}
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
 
                 {bulletProposalResult && bulletProposalResult.bullets.length > 0 ? (
@@ -321,13 +439,17 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
                     </div>
                   </div>
                   <div className="form-actions">
-                    <span className="help">保存不会发布到 Amazon，也不会调用任何外部平台接口。</span>
-                    <button className="button primary" type="submit">保存草稿并运行预检</button>
+                    <span className="help">
+                      {isDemoPreview ? "演示预览态：完成供应商定标后即可保存草稿并运行预检。" : "保存不会发布到 Amazon，也不会调用任何外部平台接口。"}
+                    </span>
+                    <button className="button primary" type="submit" disabled={isDemoPreview}>
+                      {isDemoPreview ? "定标后可保存" : "保存草稿并运行预检"}
+                    </button>
                   </div>
                 </form>
               </section>
 
-              <section className="section">
+              <section className="section" id="launch-ready">
                 <div className="section-header">
                   <div>
                     <h2>4. 发布预检结果</h2>
@@ -407,19 +529,18 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
               </section>
             </div>
 
-            <aside className="stack">
-              <section className="listing-preview">
-                <div className="eyebrow" style={{ color: "var(--lime)" }}>上架预览</div>
-                {latestMainImage ? <img src={latestMainImage.file_url} alt="Listing 主图预览" className="preview-image" /> : <div className="preview-image-placeholder">MAIN IMAGE</div>}
-                <div className="preview-brand">{content.brand || "BRAND"}</div>
-                <h3>{content.title || "保存草稿后显示标题"}</h3>
-                <div className="preview-rating">★★★★☆ <span>示例预览</span></div>
-                <ul>
-                  {content.bullets.map((bullet, index) => bullet ? <li key={index}>{bullet}</li> : null)}
-                </ul>
-                <p>{content.description || "商品描述将在这里显示。"}</p>
-                {content.searchTerms ? <div className="preview-terms"><strong>后台搜索词</strong><span>{content.searchTerms}</span></div> : null}
-              </section>
+            <aside className="stack content-sticky-aside">
+              <SerpShelfTest
+                compactSidebar
+                myTitle={content.title || productCase.title}
+                myPriceCents={costModel?.assumptions.salePriceCents ?? productCase.competitor_price_cents}
+                currency={productCase.currency || costModel?.assumptions.currency || "USD"}
+                myImageUrl={latestMainImage ? latestMainImage.file_url : null}
+                brand={content.brand}
+                bullets={effectiveBullets}
+                description={content.description}
+                searchTerms={content.searchTerms}
+              />
 
               <section className="action-card">
                 <div className="eyebrow" style={{ color: "var(--lime)" }}>人工内容审核</div>

@@ -92,10 +92,23 @@ export type DecisionEvidenceInput = {
   quotes: QuoteForDecision[];
   latestPatentRisk: "clear" | "review" | "found" | "missing";
   latestLogisticsRisk: "clear" | "review" | "found" | "missing";
+  /** 可选：来自实盘校准引擎的覆盖费率，不传则回退平台默认比例 */
+  calibratedDefaults?: {
+    status: "uncalibrated" | "partial" | "calibrated";
+    referralRate?: number | null;
+    returnRate?: number | null;
+    adRate?: number | null;
+    fbaFeeCents?: number | null;
+    storageCents?: number | null;
+    scopeLabel?: string;
+  };
 };
 
 export type DecisionEvaluation = {
   decision: "GO" | "HOLD" | "NO-GO";
+  /** 带校准状态的语义标签（如「GO（待校准）」「GO（已校准）」） */
+  decisionLabel: string;
+  calibrationStatus: "uncalibrated" | "partial" | "calibrated";
   decisionScore: number;
   opportunityScore: number;
   evidenceCompleteness: number;
@@ -447,12 +460,25 @@ export function evaluateSourcingDecision(input: DecisionEvidenceInput): Decision
   const cashUsdCents = cashCents !== null && fxRate ? Math.round(cashCents / fxRate) : null;
 
   const confirmedPrice = input.confirmedPriceCents && input.confirmedPriceCents > 0 ? input.confirmedPriceCents : null;
-  const economics = bestQuote && confirmedPrice
+  const baseDefaults = confirmedPrice ? platformEconomicDefaults(input.context.platformCode, confirmedPrice) : null;
+  const cal = input.calibratedDefaults;
+  const calibrationStatus: "uncalibrated" | "partial" | "calibrated" = cal?.status ?? "uncalibrated";
+  const mergedDefaults = baseDefaults
+    ? {
+        ...baseDefaults,
+        ...(typeof cal?.referralRate === "number" ? { referralRate: cal.referralRate } : {}),
+        ...(typeof cal?.returnRate === "number" ? { returnRate: cal.returnRate } : {}),
+        ...(typeof cal?.adRate === "number" ? { adRate: cal.adRate } : {}),
+        ...(typeof cal?.fbaFeeCents === "number" ? { fbaFeeCents: cal.fbaFeeCents } : {}),
+        ...(typeof cal?.storageCents === "number" ? { storageCents: cal.storageCents } : {}),
+      }
+    : null;
+  const economics = bestQuote && confirmedPrice && mergedDefaults
     ? calculateEconomics({
         currency: input.context.currency,
         salePriceCents: confirmedPrice,
         landedCostCents: bestQuote.landedCostCents,
-        ...platformEconomicDefaults(input.context.platformCode, confirmedPrice),
+        ...mergedDefaults,
       })
     : null;
   const missingEconomicsReason = !confirmedPrice ? "缺已确认售价" : "缺成本模型";
@@ -618,10 +644,27 @@ export function evaluateSourcingDecision(input: DecisionEvidenceInput): Decision
   if (input.latestPatentRisk === "review") warnings.push("专利检索仍需人工复核，不能转为 GO。");
   if (input.latestLogisticsRisk === "review") warnings.push("物流或包装仍有待验证事项。");
   if (input.quotes.length > 0) warnings.push("最佳报价按最低到岸成本选取；样品评分仍需来自真实打样记录。");
-  if (economics) warnings.push("佣金、履约费、广告和退货率使用平台默认比例，尚未用真实费率表校准。");
+  if (economics) {
+    if (calibrationStatus === "uncalibrated") {
+      warnings.push("佣金、履约费、广告和退货率使用平台默认比例，尚未用真实费率表校准。");
+    } else if (cal?.scopeLabel) {
+      warnings.push(`已采用实盘校准假设（${cal.scopeLabel}）。`);
+    }
+  }
+
+  const decisionLabel =
+    decision === "GO"
+      ? calibrationStatus === "calibrated"
+        ? "GO（已校准）"
+        : calibrationStatus === "partial"
+          ? "GO（部分校准）"
+          : "GO（待校准）"
+      : decision;
 
   return {
     decision,
+    decisionLabel,
+    calibrationStatus,
     decisionScore: clamp(decisionScore, 0, 100),
     opportunityScore: input.opportunityScore,
     evidenceCompleteness,

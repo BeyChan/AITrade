@@ -1,5 +1,5 @@
 import { getAISourcingBatch, recordSupplierCandidates } from "@/lib/ai-sourcing-repository";
-import { apiError, readJsonObject, stringField } from "@/app/api/ai-inbox/http";
+import { apiError, readJsonObject, stringField } from "@/lib/api-http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

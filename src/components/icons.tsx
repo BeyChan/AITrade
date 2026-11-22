@@ -45,24 +45,6 @@ export function IconPrinter(props: IconProps) {
   );
 }
 
-export function IconBolt(props: IconProps) {
-  return (
-    <svg {...base(props)}>
-      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-    </svg>
-  );
-}
-
-export function IconBulb(props: IconProps) {
-  return (
-    <svg {...base(props)}>
-      <path d="M9 18h6" />
-      <path d="M10 22h4" />
-      <path d="M12 2a7 7 0 0 0-4 12.7V18h8v-3.3A7 7 0 0 0 12 2z" />
-    </svg>
-  );
-}
-
 export function IconFactory(props: IconProps) {
   return (
     <svg {...base(props)}>
@@ -90,38 +72,10 @@ export function IconSearch(props: IconProps) {
   );
 }
 
-export function IconSparkles(props: IconProps) {
-  return (
-    <svg {...base(props)}>
-      <path d="M12 3l1.8 4.6L18.4 9.4 13.8 11.2 12 15.8 10.2 11.2 5.6 9.4 10.2 7.6z" />
-      <path d="M18.5 15.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z" />
-    </svg>
-  );
-}
-
-export function IconAlert(props: IconProps) {
-  return (
-    <svg {...base(props)}>
-      <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
-      <line x1="12" y1="9" x2="12" y2="13" />
-      <line x1="12" y1="17" x2="12.01" y2="17" />
-    </svg>
-  );
-}
-
 export function IconCheck(props: IconProps) {
   return (
     <svg {...base(props)}>
       <polyline points="20 6 9 17 4 12" />
-    </svg>
-  );
-}
-
-export function IconArrowRight(props: IconProps) {
-  return (
-    <svg {...base(props)}>
-      <line x1="5" y1="12" x2="19" y2="12" />
-      <polyline points="12 5 19 12 12 19" />
     </svg>
   );
 }

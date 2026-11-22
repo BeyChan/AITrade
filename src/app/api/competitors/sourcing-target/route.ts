@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { recordAuditLog } from "@/lib/audit-logs";
 import { getDb } from "@/lib/db";
 import { getComparisonReportById } from "@/lib/competitor-compare/storage";
 
@@ -123,6 +124,18 @@ export async function POST(request: Request) {
          updated_at = NOW()`,
       [id, reportId, asin, (body.title || "").slice(0, 120), (body.marketCode || "US").toUpperCase(), targetMaxCny, competitorCount],
     );
+    await recordAuditLog({
+      actor: "本机用户",
+      action: "competitor.sourcing_target_saved",
+      entityType: "competitor_report",
+      entityId: reportId,
+      details: {
+        asin,
+        marketCode: (body.marketCode || "US").toUpperCase(),
+        targetMaxCny,
+        competitorCount,
+      },
+    }).catch(() => {});
     return NextResponse.json({ ok: true, id }, { headers });
   } catch (err) {
     return NextResponse.json(

@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { FBA_INVENTORY_COLUMNS, SETTLEMENT_V2_COLUMNS, computeRawHash } from "./report-adapters.ts";
-import { runOperationsPipeline, type PipelineOptions } from "./operations-pipeline.ts";
+import { parseAdSpendReport, runOperationsPipeline, type PipelineOptions } from "./operations-pipeline.ts";
 
 const SETTLEMENT_DEFAULTS = {
   "settlement-id": "SET-2026-10B",
@@ -185,4 +185,31 @@ test("duplicate inventory sku keeps the newer snapshot and records a warning", (
   assert.equal(result.inventory?.snapshotCount, 2);
   assert.equal(result.periods[0].inventory?.availableUnits, 50);
   assert.ok(result.warnings.some((warning) => /重复 SKU/.test(warning)));
+});
+
+test("parseAdSpendReport parses Ads CSV and feeds external ad attribution into pipeline", () => {
+  const parsed = parseAdSpendReport("Advertised SKU,Spend\nSKU-A,$12.50\nSKU-A,2.50\n");
+  assert.equal(parsed.rowCount, 2);
+  assert.equal(parsed.bySku["SKU-A"], 1_500);
+
+  const options = baseOptions();
+  options.externalAdSpendBySku = {
+    "SKU-A": { spendCents: parsed.bySku["SKU-A"], source: "ads_report" },
+  };
+  options.forecastsBySku = {
+    "SKU-A": {
+      unitNetProfitCents: 2_000,
+      unitLandedCostCents: 1_500,
+      costModelVersion: "v1",
+      forecastCurrency: "USD",
+      minDenominatorCents: 1_000,
+    },
+  };
+  const result = runOperationsPipeline({ settlementText: settlementTsv() }, options);
+  const row = result.periods[0];
+  assert.equal(row.adAttribution, "ads_report");
+  assert.equal(row.externalAdSpendCents, 1_500);
+  assert.equal(row.costBasis, "true_net_profit");
+  // contribution = 10000, landed = 2*1500 = 3000, externalAd = 1500 => trueNet = 5500
+  assert.equal(row.trueNetProfitCents, 5_500);
 });

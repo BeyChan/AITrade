@@ -229,3 +229,71 @@ test("inventory snapshots must sit inside the report period with non-negative co
     /reservedUnits/,
   );
 });
+
+test("aggregateSettlement preserves itemized costs, refunds and discounts without collapsing them", () => {
+  const [res] = aggregateSettlement(
+    [
+      line({ kind: "revenue", amountCents: 40_000, units: 10 }),
+      line({ kind: "refund", amountCents: 4_000, units: 1 }),
+      line({ kind: "discount", amountCents: 1_000 }),
+      line({ kind: "platformFee", amountCents: 5_250 }),
+      line({ kind: "fulfillmentFee", amountCents: 5_000 }),
+      line({ kind: "adCost", amountCents: 3_000 }),
+      line({ kind: "storage", amountCents: 450 }),
+    ],
+    { policy: "settlement", reportingCurrency: "USD" },
+  );
+
+  assert.equal(res.grossRevenueCents, 40_000);
+  assert.equal(res.refundCents, 4_000);
+  assert.equal(res.discountCents, 1_000);
+  assert.equal(res.grossUnits, 10);
+  assert.equal(res.refundUnits, 1);
+  assert.equal(res.units, 9);
+  assert.equal(res.costsByKey.platformFee, 5_250);
+  assert.equal(res.costsByKey.fulfillmentFee, 5_000);
+  assert.equal(res.costsByKey.adCost, 3_000);
+  assert.equal(res.costsByKey.storage, 450);
+
+  // 同口径对比：传入单位采购成本后，按 true_net_profit 计算真实净利与误差
+  const trueNetComp = compareWithForecast(res, {
+    unitNetProfitCents: 1_000,
+    unitLandedCostCents: 1_200,
+    externalAdSpendCents: 1_000,
+    adAttribution: "ads_report",
+    costModelVersion: "v2",
+    forecastCurrency: "USD",
+    minDenominatorCents: 1_000,
+    planBreakdown: {
+      salePriceCents: 4_000,
+      landedCostCents: 1_200,
+      fbaFeeCents: 500,
+      referralRate: 0.15,
+      adRate: 0.1,
+      returnRate: 0.05,
+      storageCents: 50,
+    },
+  });
+  assert.equal(trueNetComp.comparisonBasis, "true_net_profit");
+  assert.equal(trueNetComp.landedCostApplied, true);
+  assert.equal(trueNetComp.landedCostTotalCents, 10_800);
+  // contributionProfit = (40000 - 4000 - 1000) - (5250 + 5000 + 3000 + 450) = 35000 - 13700 = 21300
+  // trueNetProfit = 21300 - 10800 - 1000 = 9500; forecast = 9 * 1000 = 9000; diff = +500
+  assert.equal(trueNetComp.trueNetProfitCents, 9_500);
+  assert.equal(trueNetComp.variance.differenceCents, 500);
+  assert.equal(trueNetComp.breakdown.length, 6);
+
+  // 缺采购成本但有预测平台贡献时，按 platform_contribution 同口径比较
+  const platformComp = compareWithForecast(res, {
+    unitNetProfitCents: 1_000,
+    unitPlatformContributionCents: 2_300,
+    costModelVersion: "v2",
+    forecastCurrency: "USD",
+    minDenominatorCents: 1_000,
+  });
+  assert.equal(platformComp.comparisonBasis, "platform_contribution");
+  assert.equal(platformComp.landedCostApplied, false);
+  assert.equal(platformComp.trueNetProfitCents, null);
+  assert.equal(platformComp.forecastComparableProfitCents, 20_700);
+  assert.equal(platformComp.variance.differenceCents, 600);
+});

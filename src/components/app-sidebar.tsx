@@ -15,11 +15,11 @@ type SubItem = {
 type NavItem = {
   href: string;
   label: string;
-  icon: "ai" | "verify" | "competitor" | "case" | "sourcing" | "content" | "inbox" | "data" | "fx" | "settings" | "connection" | "audit";
+  icon: "ai" | "competitor" | "case" | "sourcing" | "content" | "data" | "settings";
   subItems?: SubItem[];
 };
 
-const SELECTION_NAV_ITEMS: NavItem[] = [
+const MAIN_NAV_ITEMS: NavItem[] = [
   {
     href: "/",
     label: "工作台",
@@ -39,10 +39,12 @@ const SELECTION_NAV_ITEMS: NavItem[] = [
     href: "/cases",
     label: "我的商品",
     icon: "case",
+    subItems: [
+      { href: "/cases", label: "全部商品台账" },
+      { href: "/cases?status=approved", label: "已立项商品" },
+      { href: "/cases?status=review_pending", label: "待评审立项" },
+    ],
   },
-];
-
-const STUDIO_NAV_ITEMS: NavItem[] = [
   {
     href: "/studio",
     label: "视觉工坊",
@@ -53,9 +55,6 @@ const STUDIO_NAV_ITEMS: NavItem[] = [
       { href: "/studio?tab=library", label: "统一素材库" },
     ],
   },
-];
-
-const OPERATIONS_NAV_ITEMS: NavItem[] = [
   {
     href: "/sourcing",
     label: "供应商管理",
@@ -115,15 +114,6 @@ function NavIcon({ name }: { name: NavItem["icon"] }) {
     );
   }
 
-  if (name === "verify") {
-    return (
-      <svg {...common}>
-        <circle cx="11" cy="11" r="7" />
-        <path d="m16.5 16.5 4 4M8 11h6M11 8v6" />
-      </svg>
-    );
-  }
-
   if (name === "competitor") {
     return (
       <svg {...common}>
@@ -131,15 +121,6 @@ function NavIcon({ name }: { name: NavItem["icon"] }) {
         <path d="M7 21h10" />
         <path d="M12 3v18" />
         <path d="M3 7h18" />
-      </svg>
-    );
-  }
-
-  if (name === "inbox") {
-    return (
-      <svg {...common}>
-        <path d="M3.5 13.5h4l1.5 2.5h6l1.5-2.5h4" />
-        <path d="M5.5 5.5h13l2 8v5H3.5v-5l2-8Z" />
       </svg>
     );
   }
@@ -173,53 +154,10 @@ function NavIcon({ name }: { name: NavItem["icon"] }) {
     );
   }
 
-  if (name === "fx") {
-    return (
-      <svg {...common}>
-        <circle cx="12" cy="12" r="9" />
-        <path d="M9.5 9.5c0-1.1 1.1-2 2.5-2s2.5.9 2.5 2-1.1 2-2.5 2-2.5.9-2.5 2 1.1 2 2.5 2 2.5-.9 2.5-2" />
-        <path d="M12 6v1.5M12 16.5V18" />
-      </svg>
-    );
-  }
-
-  if (name === "settings") {
-    return (
-      <svg {...common}>
-        <circle cx="12" cy="12" r="3" />
-        <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.86 2.86-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.09A1.7 1.7 0 0 0 8.5 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.86-2.86.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.09A1.7 1.7 0 0 0 4.6 8.5a1.7 1.7 0 0 0-.34-1.88l-.06-.06L7.06 3.7l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.09A1.7 1.7 0 0 0 15.5 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.86 2.86-.06.06A1.7 1.7 0 0 0 19.4 9c.13.36.34.69.6 1 .3.27.68.42 1.1.4H21v4h-.09A1.7 1.7 0 0 0 19.4 15Z" />
-      </svg>
-    );
-  }
-
-  if (name === "connection") {
-    return (
-      <svg {...common}>
-        <path d="M9.5 14.5 14.5 9" />
-        <path d="m7 16 1.4-1.4M16 8l1-1" />
-        <path d="M10.5 6.5 12 5a4.2 4.2 0 0 1 6 6l-1.5 1.5" />
-        <path d="M13.5 17.5 12 19a4.2 4.2 0 0 1-6-6l1.5-1.5" />
-      </svg>
-    );
-  }
-
-  if (name === "audit") {
-    return (
-      <svg {...common}>
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-        <polyline points="14 2 14 8 20 8" />
-        <line x1="8" y1="13" x2="16" y2="13" />
-        <line x1="8" y1="17" x2="13" y2="17" />
-      </svg>
-    );
-  }
-
   return (
     <svg {...common}>
-      <path d="M4 19V9" />
-      <path d="M10 19V5" />
-      <path d="M16 19v-7" />
-      <path d="M22 19V3" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.86 2.86-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.09A1.7 1.7 0 0 0 8.5 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.86-2.86.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.09A1.7 1.7 0 0 0 4.6 8.5a1.7 1.7 0 0 0-.34-1.88l-.06-.06L7.06 3.7l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.09A1.7 1.7 0 0 0 15.5 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.86 2.86-.06.06A1.7 1.7 0 0 0 19.4 9c.13.36.34.69.6 1 .3.27.68.42 1.1.4H21v4h-.09A1.7 1.7 0 0 0 19.4 15Z" />
     </svg>
   );
 }
@@ -244,14 +182,23 @@ function matchParentNav(item: NavItem, pathname: string): boolean {
   return false;
 }
 
+function extractActiveCaseId(pathname: string): string | null {
+  const match = /^\/cases\/([^/]+)/.exec(pathname);
+  return match?.[1] ?? null;
+}
+
 function SidebarItem({
   item,
   pathname,
   currentTab,
+  currentStatus,
+  mode,
 }: {
   item: NavItem;
   pathname: string;
   currentTab: string | null;
+  currentStatus: string | null;
+  mode: AppMode;
 }) {
   const isMatch = matchParentNav(item, pathname);
   const [isExpanded, setIsExpanded] = useState(isMatch);
@@ -263,7 +210,20 @@ function SidebarItem({
     }
   }, [isMatch]);
 
-  const hasSub = Boolean(item.subItems && item.subItems.length > 0);
+  const activeCaseId = item.href === "/cases" ? extractActiveCaseId(pathname) : null;
+  const caseStageItems: SubItem[] = activeCaseId
+    ? [
+        { href: `/cases/${activeCaseId}`, label: "1. 利润与合规" },
+        { href: `/cases/${activeCaseId}/sourcing`, label: "2. 寻源与定标" },
+        {
+          href: `/cases/${activeCaseId}/content${mode === "sandbox" ? "?preview=1" : ""}`,
+          label: "3. 文案与视觉",
+        },
+        { href: `/cases/${activeCaseId}/report`, label: "4. 立项决策战报" },
+      ]
+    : [];
+
+  const hasSub = Boolean((item.subItems && item.subItems.length > 0) || caseStageItems.length > 0);
 
   return (
     <div className={`sidebar-item${isMatch ? " active" : ""}`} style={{ marginBottom: "2px" }}>
@@ -305,13 +265,23 @@ function SidebarItem({
       {/* 二级菜单展开 */}
       {hasSub && isExpanded && (
         <ul className="sidebar-subnav" style={{ marginTop: "2px" }}>
-          {item.subItems!.map((sub) => {
+          {(item.subItems ?? []).map((sub) => {
             const [subPath, subQuery] = sub.href.split("?");
-            const subTab = subQuery ? new URLSearchParams(subQuery).get("tab") : null;
+            const subParams = subQuery ? new URLSearchParams(subQuery) : null;
+            const subTab = subParams?.get("tab") ?? null;
+            const subStatus = subParams?.get("status") ?? null;
             const defaultTab = subPath === "/settings" ? "general" : "image";
-            const isSubActive = subTab
-              ? pathname === subPath && (currentTab || defaultTab) === subTab
-              : pathname === sub.href || (sub.href !== "/" && pathname.startsWith(subPath));
+
+            let isSubActive = false;
+            if (subTab) {
+              isSubActive = pathname === subPath && (currentTab || defaultTab) === subTab;
+            } else if (subStatus) {
+              isSubActive = pathname === subPath && currentStatus === subStatus;
+            } else if (subPath === "/cases") {
+              isSubActive = pathname === "/cases" && !currentStatus;
+            } else {
+              isSubActive = pathname === sub.href || (sub.href !== "/" && pathname.startsWith(subPath));
+            }
 
             return (
               <li key={sub.href + sub.label}>
@@ -342,6 +312,32 @@ function SidebarItem({
               </li>
             );
           })}
+
+          {caseStageItems.length > 0 && (
+            <>
+              <li className="sidebar-subnav-divider" aria-hidden="true">
+                <span>当前商品阶段</span>
+              </li>
+              {caseStageItems.map((stageItem) => {
+                const stagePath = stageItem.href.split("?")[0];
+                const isStageActive =
+                  stagePath === `/cases/${activeCaseId}`
+                    ? pathname === stagePath
+                    : pathname.startsWith(stagePath);
+
+                return (
+                  <li key={stageItem.href}>
+                    <Link
+                      href={stageItem.href}
+                      className={`sidebar-sublink sidebar-stage-link${isStageActive ? " active" : ""}`}
+                    >
+                      <span>{stageItem.label}</span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </>
+          )}
         </ul>
       )}
     </div>
@@ -358,6 +354,7 @@ export function AppSidebar({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const currentTab = searchParams.get("tab");
+  const currentStatus = searchParams.get("status");
 
   return (
     <aside className="sidebar" data-mode={mode}>
@@ -370,39 +367,29 @@ export function AppSidebar({
       </Link>
 
       <nav className="sidebar-nav" aria-label="主导航">
-        <div style={{ marginBottom: "14px" }}>
-          <div className="sidebar-group-label">
-            选品与立项
-          </div>
-          {SELECTION_NAV_ITEMS.map((item) => (
-            <SidebarItem key={item.href} item={item} pathname={pathname} currentTab={currentTab} />
-          ))}
-        </div>
-
-        <div style={{ marginBottom: "14px" }}>
-          <div className="sidebar-group-label">
-            视觉与素材
-          </div>
-          {STUDIO_NAV_ITEMS.map((item) => (
-            <SidebarItem key={item.href} item={item} pathname={pathname} currentTab={currentTab} />
-          ))}
-        </div>
-
-        <div style={{ marginBottom: "14px" }}>
-          <div className="sidebar-group-label">
-            供应链与实盘
-          </div>
-          {OPERATIONS_NAV_ITEMS.map((item) => (
-            <SidebarItem key={item.href} item={item} pathname={pathname} currentTab={currentTab} />
+        <div>
+          {MAIN_NAV_ITEMS.map((item) => (
+            <SidebarItem
+              key={item.href}
+              item={item}
+              pathname={pathname}
+              currentTab={currentTab}
+              currentStatus={currentStatus}
+              mode={mode}
+            />
           ))}
         </div>
 
         <div className="sidebar-utility">
-          <div className="sidebar-group-label">
-            系统
-          </div>
           {SETTINGS_NAV_ITEMS.map((item) => (
-            <SidebarItem key={item.href} item={item} pathname={pathname} currentTab={currentTab} />
+            <SidebarItem
+              key={item.href}
+              item={item}
+              pathname={pathname}
+              currentTab={currentTab}
+              currentStatus={currentStatus}
+              mode={mode}
+            />
           ))}
         </div>
       </nav>

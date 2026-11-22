@@ -1,4 +1,4 @@
-import { apiError, readJsonObject, stringField } from "@/app/api/ai-inbox/http";
+import { apiError, readJsonObject, stringField } from "@/lib/api-http";
 import { generateStructuredJSON, getAIProviderStatus } from "@/lib/ai-provider";
 import { getImageSkillById, normalizeAspectRatio } from "@/lib/image-skills";
 import {

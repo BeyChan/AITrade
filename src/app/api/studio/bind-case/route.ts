@@ -1,5 +1,5 @@
 import { revalidatePath } from "next/cache";
-import { ApiInputError, apiError, readJsonObject, stringField } from "@/app/api/ai-inbox/http";
+import { ApiInputError, apiError, readJsonObject, stringField } from "@/lib/api-http";
 import { isSupportedImageSlot, type ImageAssetSlot } from "@/lib/image-skills";
 import { createAssetRecord, getContentDetail } from "@/lib/repository";
 import { createVideoAssetRecord } from "@/lib/video-asset-repository";

@@ -9,6 +9,7 @@ import { SupplierMatrixPk } from "@/components/supplier-matrix-pk";
 import { QuoteSmartPaste } from "@/components/quote-smart-paste";
 import { SourcingPracticalTools } from "@/components/sourcing-practical-tools";
 import { PageHeader, QueryNotices } from "@/components/ui";
+import { getAppMode } from "@/lib/app-mode";
 import { getDb } from "@/lib/db";
 import type { SampleLogRecord, SampleLogStatus } from "@/app/api/cases/[id]/samples/route";
 
@@ -20,10 +21,11 @@ type PageProps = {
 };
 
 export default async function SourcingDetailPage({ params, searchParams }: PageProps) {
-  const [{ id }, query, directoryData] = await Promise.all([
+  const [{ id }, query, directoryData, appMode] = await Promise.all([
     params,
     searchParams,
     listSupplierDirectory().catch(() => ({ suppliers: [] })),
+    getAppMode(),
   ]);
   const detail = await getSourcingDetail(id);
   if (!detail) notFound();
@@ -97,6 +99,7 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
         hasApprovedContent={Boolean(selection)}
         selectedSupplierName={selectedQuote?.supplier.name ?? null}
         status={productCase.status}
+        allowDemoBypass={appMode === "sandbox" || productCase.is_demo}
       />
 
       <QueryNotices notice={query.notice} error={query.error} />
@@ -250,7 +253,7 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
         </div>
 
         <aside className="stack">
-          <section className="action-card">
+          <section className="action-card" id="supplier-award">
             <div className="eyebrow" style={{ color: "var(--lime)" }}>人工决策</div>
             <h2>{selection ? "定标已完成" : "人工选定供应商"}</h2>
             {selection && selectedQuote ? (

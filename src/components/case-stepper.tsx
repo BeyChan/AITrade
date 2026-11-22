@@ -7,13 +7,15 @@ import { deriveCaseStage, type CaseStageInput } from "@/lib/case-stage";
 type CaseStepperProps = CaseStageInput & {
   reportId?: string | null;
   selectedSupplierName?: string | null;
+  allowDemoBypass?: boolean;
 };
 
 export function CaseStepper(props: CaseStepperProps) {
   const pathname = usePathname();
   const stage = deriveCaseStage(props);
-  const { caseId, reportId, selectedSupplierName, status } = props;
+  const { caseId, selectedSupplierName, status, allowDemoBypass = false } = props;
   const isTerminated = status === "archived" || status === "rejected";
+  const previewSuffix = allowDemoBypass && !stage.stepProgress.supplierAwarded ? "?preview=1" : "";
 
   const steps = [
     {
@@ -43,7 +45,7 @@ export function CaseStepper(props: CaseStepperProps) {
       subText: stage.stepProgress.supplierAwarded
         ? (selectedSupplierName ? `已定标: ${selectedSupplierName}` : "已核准定标")
         : "多厂对比定标",
-      href: `/cases/${caseId}/sourcing`,
+      href: `/cases/${caseId}/sourcing#supplier-award`,
       isCompleted: stage.stepProgress.supplierAwarded,
       isActive: pathname.startsWith(`/cases/${caseId}/sourcing`) && stage.stepProgress.supplierAwarded,
       isLocked: isTerminated,
@@ -52,8 +54,12 @@ export function CaseStepper(props: CaseStepperProps) {
       key: "stage4",
       number: "4",
       name: "文案与视觉",
-      subText: stage.stepProgress.contentApproved ? "内容已终审" : "五点 / 货架 / 生图",
-      href: `/cases/${caseId}/content`,
+      subText: stage.stepProgress.contentApproved
+        ? "内容已终审"
+        : previewSuffix
+          ? "演示可跳过预览"
+          : "五点 / 货架 / 生图",
+      href: `/cases/${caseId}/content${previewSuffix}`,
       isCompleted: stage.stepProgress.contentApproved,
       isActive: pathname.startsWith(`/cases/${caseId}/content`),
       isLocked: isTerminated,
@@ -62,8 +68,12 @@ export function CaseStepper(props: CaseStepperProps) {
       key: "stage5",
       number: "5",
       name: "上架就绪",
-      subText: stage.stepProgress.contentApproved ? "Flat File / ZIP 导出" : "待完成文案与主图",
-      href: `/cases/${caseId}/content`,
+      subText: stage.stepProgress.contentApproved
+        ? "Flat File / ZIP 导出"
+        : previewSuffix
+          ? "演示可跳过预览"
+          : "待完成文案与主图",
+      href: `/cases/${caseId}/content${previewSuffix}#launch-ready`,
       isCompleted: stage.key === "stage5_channels",
       isActive: stage.key === "stage5_channels" && pathname.startsWith(`/cases/${caseId}/content`),
       isLocked: isTerminated,
@@ -122,7 +132,12 @@ export function CaseStepper(props: CaseStepperProps) {
             className={`case-report-btn ${pathname.startsWith(`/cases/${caseId}/report`) ? "active" : ""}`}
             title="查看或打印立项决策评审战报 (A4 PDF)"
           >
-            <span>🖨️ 决策战报</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="6 9 6 2 18 2 18 9" />
+              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+              <rect x="6" y="14" width="12" height="8" />
+            </svg>
+            <span>决策战报</span>
           </Link>
         </div>
       </div>

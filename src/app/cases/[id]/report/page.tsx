@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/ui";
 import { emptyListingContent, normalizeListingContent } from "@/lib/listing";
 import { evaluateDecisionStage, opportunityScore, recommendationFor } from "@/lib/economics";
 import { money, percent } from "@/lib/format";
+import { getAppMode } from "@/lib/app-mode";
 import { PrintButton } from "./print-button";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +16,7 @@ type PageProps = { params: Promise<{ id: string }> };
 
 export default async function CaseExecutiveReportPage({ params }: PageProps) {
   const { id } = await params;
-  const detail = await getCaseDetail(id);
+  const [detail, appMode] = await Promise.all([getCaseDetail(id), getAppMode()]);
   if (!detail) notFound();
 
   const contentDetail = await getContentDetail(id);
@@ -109,18 +110,18 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
           hasSupplierSelection={detail.hasSupplierSelection}
           hasApprovedContent={Boolean(contentDetail?.listing)}
           status={productCase.status}
+          allowDemoBypass={appMode === "sandbox" || productCase.is_demo}
         />
       </div>
 
       {/* 4. 战报主排版容器 (作为标准 panel 满宽融入页面排版) */}
       <article
-        className="panel"
+        className="panel report-memo-sheet"
         style={{
-          background: "#ffffff",
+          background: "var(--paper)",
           padding: "40px 48px",
           borderRadius: "12px",
           border: "1px solid var(--line)",
-          boxShadow: "0 2px 12px rgba(0,0,0,0.03)",
         }}
       >
         {/* 战报头部标题与评审评级 */}
@@ -276,7 +277,7 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
           {result && assumptions ? (
             <div
               style={{
-                background: "#f8faf9",
+                background: "var(--surface-subtle)",
                 borderRadius: "10px",
                 border: "1px solid var(--line)",
                 padding: "18px",
@@ -293,11 +294,10 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
               >
                 <div
                   style={{
-                    background: "#ffffff",
+                    background: "var(--paper)",
                     padding: "12px 10px",
                     borderRadius: "8px",
                     border: "1px solid var(--line)",
-                    boxShadow: "0 1px 2px rgba(0,0,0,0.02)",
                   }}
                 >
                   <div style={{ fontSize: "12px", color: "var(--muted)", marginBottom: "2px" }}>销售单价</div>
@@ -305,11 +305,10 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
                 </div>
                 <div
                   style={{
-                    background: "#ffffff",
+                    background: "var(--paper)",
                     padding: "12px 10px",
                     borderRadius: "8px",
                     border: "1px solid var(--line)",
-                    boxShadow: "0 1px 2px rgba(0,0,0,0.02)",
                   }}
                 >
                   <div style={{ fontSize: "12px", color: "var(--muted)", marginBottom: "2px" }}>到岸采购成本</div>
@@ -317,11 +316,10 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
                 </div>
                 <div
                   style={{
-                    background: "#ffffff",
+                    background: "var(--paper)",
                     padding: "12px 10px",
                     borderRadius: "8px",
                     border: "1px solid var(--line)",
-                    boxShadow: "0 1px 2px rgba(0,0,0,0.02)",
                   }}
                 >
                   <div style={{ fontSize: "12px", color: "var(--muted)", marginBottom: "2px" }}>测算单件净利</div>
@@ -329,11 +327,10 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
                 </div>
                 <div
                   style={{
-                    background: "#ffffff",
+                    background: "var(--paper)",
                     padding: "12px 10px",
                     borderRadius: "8px",
                     border: "1px solid var(--line)",
-                    boxShadow: "0 1px 2px rgba(0,0,0,0.02)",
                   }}
                 >
                   <div style={{ fontSize: "12px", color: "var(--muted)", marginBottom: "2px" }}>基准净利率</div>
@@ -343,7 +340,7 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
 
               <table style={{ width: "100%", fontSize: "13px", borderCollapse: "collapse", color: "var(--ink)" }}>
                 <tbody>
-                  <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
+                  <tr style={{ borderBottom: "1px solid var(--line)" }}>
                     <td style={{ padding: "8px 10px", color: "var(--muted)", width: "22%" }}>FBA 配送履约费</td>
                     <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 600, width: "18%" }}>
                       {money(assumptions.fbaFeeCents)}
@@ -359,7 +356,7 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
                       )}
                     </td>
                   </tr>
-                  <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
+                  <tr style={{ borderBottom: "1px solid var(--line)" }}>
                     <td style={{ padding: "8px 10px", color: "var(--muted)" }}>平台佣金费率</td>
                     <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 600 }}>
                       {percent(assumptions.referralRate)}
@@ -403,9 +400,9 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
             <div
               style={{
                 padding: "20px",
-                background: "#f8fafc",
+                background: "var(--surface-subtle)",
                 borderRadius: "8px",
-                border: "1px dashed #cbd5e1",
+                border: "1px dashed var(--line)",
                 fontSize: "13px",
                 color: "var(--muted)",
               }}
@@ -423,11 +420,12 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
           {rfqPayload ? (
             <div
               style={{
-                background: "#fbfcfb",
+                background: "var(--surface-subtle)",
                 padding: "16px 18px",
                 borderRadius: "10px",
                 border: "1px solid var(--line)",
                 fontSize: "13px",
+                color: "var(--ink)",
               }}
             >
               <div style={{ display: "flex", gap: "24px", marginBottom: "12px", flexWrap: "wrap" }}>
@@ -451,7 +449,7 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
                     <div
                       key={idx}
                       style={{
-                        background: "#ffffff",
+                        background: "var(--paper)",
                         padding: "10px 12px",
                         borderRadius: "6px",
                         border: "1px solid var(--line)",
@@ -472,9 +470,9 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
             <div
               style={{
                 padding: "18px 20px",
-                background: "#f8fafc",
+                background: "var(--surface-subtle)",
                 borderRadius: "8px",
-                border: "1px dashed #cbd5e1",
+                border: "1px dashed var(--line)",
                 fontSize: "13px",
                 color: "var(--muted)",
               }}
@@ -492,10 +490,10 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
           <h2 style={{ fontSize: "16px", fontWeight: 800, color: "var(--ink)", marginBottom: "14px" }}>
             三、差异化反制五点文案 (Counter-Bullets)
           </h2>
-          {currentListing && currentListing.bullets && currentListing.bullets.length > 0 ? (
+          {currentListing && (currentListing.title?.trim() || currentListing.bullets?.some((b) => b.trim().length > 0)) ? (
             <div
               style={{
-                background: "#ffffff",
+                background: "var(--surface-subtle)",
                 padding: "16px 20px",
                 borderRadius: "10px",
                 border: "1px solid var(--line)",
@@ -504,7 +502,7 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
               }}
             >
               <div style={{ fontWeight: 700, color: "var(--ink)", marginBottom: "10px", fontSize: "14px" }}>
-                标题 (Title): {currentListing.title}
+                标题 (Title): {currentListing.title || "待填写"}
               </div>
               <ol
                 style={{
@@ -515,26 +513,28 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
                   gap: "8px",
                 }}
               >
-                {currentListing.bullets.map((b, idx) => (
-                  <li key={idx} style={{ color: "var(--ink)" }}>
-                    {b}
-                  </li>
-                ))}
+                {currentListing.bullets
+                  .filter((b) => b.trim().length > 0)
+                  .map((b, idx) => (
+                    <li key={idx} style={{ color: "var(--ink)" }}>
+                      {b}
+                    </li>
+                  ))}
               </ol>
             </div>
           ) : (
             <div
               style={{
                 padding: "18px 20px",
-                background: "#f8fafc",
+                background: "var(--surface-subtle)",
                 borderRadius: "8px",
-                border: "1px dashed #cbd5e1",
+                border: "1px dashed var(--line)",
                 fontSize: "13px",
                 color: "var(--muted)",
               }}
             >
               <div style={{ fontWeight: 600, color: "var(--ink)", marginBottom: "4px" }}>文案正在打磨中</div>
-              尚未定稿反制五点文案。可在「内容与上架」工作台由 AI 针对竞品差评缺口生成结构化文案草稿。
+              尚未定稿反制五点文案。可在「文案与视觉」工作台由 AI 针对竞品差评缺口生成结构化文案草稿。
             </div>
           )}
         </section>
@@ -566,14 +566,24 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
         </section>
       </article>
 
-      {/* 打印专用样式 */}
+      {/* 打印专用样式：仅打印 / 导出 PDF 时强制白纸黑字 */}
       <style>{`
         @media print {
+          :root,
+          html[data-theme="dark"] {
+            --paper: #ffffff !important;
+            --surface-subtle: #f8fafc !important;
+            --canvas: #f8fafc !important;
+            --ink: #0f172a !important;
+            --muted: #526071 !important;
+            --line: #e2e8f0 !important;
+          }
           .no-print {
             display: none !important;
           }
           body {
             background: #ffffff !important;
+            color: #0f172a !important;
             padding: 0 !important;
           }
           .page {

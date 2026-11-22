@@ -49,6 +49,7 @@ async function initializeDb() {
 type DemoCase = {
   asin: string;
   title: string;
+  legacyTitle: string;
   category: string;
   salePrice: number;
   landedCost: number;
@@ -66,7 +67,8 @@ type DemoCase = {
 const demoCases: DemoCase[] = [
   {
     asin: "B0DEMO0001",
-    title: "Stainless Steel Pet Water Fountain with Quiet Pump",
+    title: "不锈钢静音水泵宠物饮水器",
+    legacyTitle: "Stainless Steel Pet Water Fountain with Quiet Pump",
     category: "宠物饮水器",
     salePrice: 39.99,
     landedCost: 12.4,
@@ -95,7 +97,8 @@ const demoCases: DemoCase[] = [
   },
   {
     asin: "B0DEMO0002",
-    title: "Self-Cleaning Pet Grooming Brush for Long Hair",
+    title: "长毛宠物一键自清洁梳毛刷",
+    legacyTitle: "Self-Cleaning Pet Grooming Brush for Long Hair",
     category: "宠物清洁",
     salePrice: 24.99,
     landedCost: 5.2,
@@ -124,7 +127,8 @@ const demoCases: DemoCase[] = [
   },
   {
     asin: "B0DEMO0003",
-    title: "Extra Large Covered Cat Litter Box with Odor Control",
+    title: "超大号封闭式除臭猫砂盆",
+    legacyTitle: "Extra Large Covered Cat Litter Box with Odor Control",
     category: "猫砂盆",
     salePrice: 59.99,
     landedCost: 23,
@@ -153,7 +157,8 @@ const demoCases: DemoCase[] = [
   },
   {
     asin: "B0DEMO0004",
-    title: "Portable Dog Water Bottle with Leak-Proof Lock",
+    title: "防漏锁扣便携宠物外出饮水杯",
+    legacyTitle: "Portable Dog Water Bottle with Leak-Proof Lock",
     category: "户外宠物",
     salePrice: 19.99,
     landedCost: 4.8,
@@ -186,7 +191,15 @@ async function seedDemoData(db: PGlite) {
   const countResult = await db.query<{ count: string }>(
     "SELECT COUNT(*)::text AS count FROM product_cases WHERE is_demo = TRUE",
   );
-  if (Number(countResult.rows[0]?.count ?? 0) > 0) return;
+  if (Number(countResult.rows[0]?.count ?? 0) > 0) {
+    for (const demo of demoCases) {
+      await db.query(
+        "UPDATE product_cases SET title = $1 WHERE is_demo = TRUE AND asin = $2 AND title = $3",
+        [demo.title, demo.asin, demo.legacyTitle],
+      );
+    }
+    return;
+  }
 
   await db.transaction(async (tx) => {
     for (const demo of demoCases) {

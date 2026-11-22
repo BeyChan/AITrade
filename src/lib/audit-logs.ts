@@ -186,6 +186,11 @@ const ENTITY_TYPE_META: Record<
     module: "ingestion",
     href: () => "/operations",
   },
+  channel_sku_mapping: {
+    label: "SKU 成本映射",
+    module: "ingestion",
+    href: () => "/operations",
+  },
 };
 
 type ActionMeta = {
@@ -248,6 +253,8 @@ const ACTION_META: Record<string, ActionMeta> = {
   "video_studio.asset_deleted": { label: "删除视频工坊视频", level: "danger", module: "ai" },
   "video_skill.saved": { label: "保存自定义视频规范", level: "info", module: "settings" },
   "video_skill.deleted": { label: "删除自定义视频规范", level: "danger", module: "settings" },
+  "competitor.sourcing_target_saved": { label: "登记 1688 待回补进价目标", level: "info", module: "sourcing" },
+  "content.ai_autofill_generated": { label: "AI 一键填写商品定义 / Listing", level: "info", module: "ai" },
   "sourcing.quote_image_extracted": { label: "多模态识别工厂报价单截图", level: "info", module: "sourcing" },
   "connector.settings_saved": { label: "保存店铺连接器配置", level: "warn", module: "settings" },
   "connector.settings_cleared": { label: "清除店铺连接器配置", level: "warn", module: "settings" },
@@ -258,6 +265,10 @@ const ACTION_META: Record<string, ActionMeta> = {
   "connector_sync.failed": { label: "连接器同步失败", level: "danger", module: "ingestion" },
   "ingestion.completed": { label: "数据导入完成", level: "success", module: "ingestion" },
   "ingestion.failed": { label: "数据导入失败", level: "danger", module: "ingestion" },
+  "operations.sku_mapping_upserted": { label: "绑定 SKU 案卷与采购成本", level: "info", module: "ingestion" },
+  "operations.sku_mapping_deleted": { label: "解除 SKU 成本映射", level: "warn", module: "ingestion" },
+  "calibration.applied": { label: "应用实盘校准更新成本模型", level: "success", module: "case" },
+  "calibration.dismissed": { label: "暂不采纳实盘校准建议", level: "warn", module: "case" },
   "ai_sourcing.batch_created": { label: "创建 AI 选品批次", level: "info", module: "ai" },
   "ai_sourcing.batch_deleted": { label: "删除 AI 选品批次", level: "danger", module: "ai" },
   "ai_sourcing.hypothesis_selected": { label: "采纳选品机会假设", level: "success", module: "ai" },

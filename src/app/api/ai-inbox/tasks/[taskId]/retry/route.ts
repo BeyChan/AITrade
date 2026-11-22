@@ -1,6 +1,6 @@
 import { getAiInboxTask } from "@/lib/ai-inbox/repository";
 import { retryAiInboxTask } from "@/lib/ai-inbox/worker";
-import { apiError, readJsonObject, stringField } from "../../../http";
+import { apiError, readJsonObject, stringField } from "@/lib/api-http";
 
 export async function POST(
   request: Request,

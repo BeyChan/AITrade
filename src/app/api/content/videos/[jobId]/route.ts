@@ -1,4 +1,4 @@
-import { ApiInputError, apiError } from "@/app/api/ai-inbox/http";
+import { ApiInputError, apiError } from "@/lib/api-http";
 import { createVideoAssetRecord } from "@/lib/repository";
 import { saveVideoBuffer } from "@/lib/storage";
 import { getVideoJob, updateVideoJob } from "@/lib/video-jobs";

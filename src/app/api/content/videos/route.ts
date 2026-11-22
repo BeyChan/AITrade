@@ -1,4 +1,4 @@
-import { ApiInputError, apiError, readJsonObject, stringField } from "@/app/api/ai-inbox/http";
+import { ApiInputError, apiError, readJsonObject, stringField } from "@/lib/api-http";
 import { loadCaseCompetitorBenchmark } from "@/lib/ai-sourcing-repository";
 import { recordAuditLog } from "@/lib/audit-logs";
 import {

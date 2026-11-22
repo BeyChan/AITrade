@@ -1,6 +1,6 @@
 import { analyzeCompetitors } from "@/lib/competitor-compare/engine.ts";
 import { saveComparisonReport } from "@/lib/competitor-compare/storage.ts";
-import { readJsonObject, stringField } from "@/app/api/ai-inbox/http.ts";
+import { readJsonObject, stringField } from "@/lib/api-http.ts";
 import { recordAuditLog } from "@/lib/audit-logs.ts";
 import type {
   CompetitorFulfillmentType,

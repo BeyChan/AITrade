@@ -2,12 +2,15 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { updateCostModelAction } from "@/app/actions";
 import { RecommendationBadge, StatusBadge } from "@/components/badges";
+import { CaseCalibrationPanel } from "@/components/case-calibration-panel";
 import { CaseStepper } from "@/components/case-stepper";
 import { EconomicsSandbox } from "@/components/economics-sandbox";
 import { LogisticsCashflowPanel } from "@/components/logistics-cashflow-panel";
 import { OpportunityScoreHelp } from "@/components/opportunity-score-help";
 import { PrelaunchCompliancePanel } from "@/components/prelaunch-compliance-panel";
 import { PageHeader } from "@/components/ui";
+import { getCalibrationForCase } from "@/lib/calibration-repository";
+import { getAppMode } from "@/lib/app-mode";
 import { money, percent, shortDate } from "@/lib/format";
 import { opportunityScore, recommendationFor } from "@/lib/economics";
 import { getCaseDetail } from "@/lib/repository";
@@ -18,7 +21,11 @@ type PageProps = { params: Promise<{ id: string }> };
 
 export default async function CaseDetailPage({ params }: PageProps) {
   const { id } = await params;
-  const detail = await getCaseDetail(id);
+  const [detail, calibrationCtx, appMode] = await Promise.all([
+    getCaseDetail(id),
+    getCalibrationForCase(id).catch(() => null),
+    getAppMode(),
+  ]);
   if (!detail) notFound();
 
   const { productCase, costModel, hasSupplierSelection, evidence, auditLogs } = detail;
@@ -28,6 +35,13 @@ export default async function CaseDetailPage({ params }: PageProps) {
     : 0;
   const recommendation = result ? recommendationFor(result, score) : "HOLD";
   const assumptions = costModel?.assumptions;
+  const calibrationStatus = assumptions?.calibrationMeta?.status ?? "uncalibrated";
+  const calibrationLabel =
+    calibrationStatus === "calibrated"
+      ? "实盘已校准"
+      : calibrationStatus === "partial"
+        ? "部分校准"
+        : "待校准";
   const riskMessages: string[] = [];
   if (result && !result.isProfitable) riskMessages.push("基准情景不盈利");
   if (result && result.stressProfitCents <= 0) riskMessages.push("压力情景亏损");
@@ -49,6 +63,9 @@ export default async function CaseDetailPage({ params }: PageProps) {
           <>
             <StatusBadge status={productCase.status} />
             <RecommendationBadge value={recommendation} />
+            <span className={`badge ${calibrationStatus === "calibrated" ? "badge-success" : calibrationStatus === "partial" ? "status-review_pending" : "badge-neutral"}`}>
+              {calibrationLabel}
+            </span>
             <span className="badge badge-neutral">{productCase.marketplace}</span>
             <span className="badge badge-neutral">{productCase.category}</span>
             <span className="muted">机会分 {score} · 负责人 {productCase.owner}</span>
@@ -76,6 +93,7 @@ export default async function CaseDetailPage({ params }: PageProps) {
         hasSupplierSelection={hasSupplierSelection}
         hasApprovedContent={detail.productCase.status === "approved" && hasSupplierSelection}
         status={productCase.status}
+        allowDemoBypass={appMode === "sandbox" || productCase.is_demo}
       />
 
       {riskMessages.length ? (
@@ -132,6 +150,17 @@ export default async function CaseDetailPage({ params }: PageProps) {
               <p className="muted">请先补充成本参数。</p>
             )}
           </section>
+
+          {calibrationCtx ? (
+            <CaseCalibrationPanel
+              caseId={productCase.id}
+              currency={productCase.currency || assumptions?.currency || "USD"}
+              currentCalibrationStatus={calibrationStatus}
+              currentCalibrationScope={assumptions?.calibrationMeta?.scope}
+              suggestion={calibrationCtx.suggestion}
+              preview={calibrationCtx.preview}
+            />
+          ) : null}
 
           {assumptions ? (
             <EconomicsSandbox
