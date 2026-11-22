@@ -64,7 +64,9 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
               </Suspense>
             </header>
             <main>{children}</main>
-            <GlobalSearch />
+            <Suspense fallback={null}>
+              <GlobalSearch />
+            </Suspense>
           </div>
         </div>
       </body>

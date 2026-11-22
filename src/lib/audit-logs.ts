@@ -255,6 +255,7 @@ const ACTION_META: Record<string, ActionMeta> = {
   "video_skill.deleted": { label: "删除自定义视频规范", level: "danger", module: "settings" },
   "competitor.sourcing_target_saved": { label: "登记 1688 待回补进价目标", level: "info", module: "sourcing" },
   "content.ai_autofill_generated": { label: "AI 一键填写商品定义 / Listing", level: "info", module: "ai" },
+  "ai_assistant.chatted": { label: "使用 AI 操盘手问答", level: "info", module: "ai" },
   "sourcing.quote_image_extracted": { label: "多模态识别工厂报价单截图", level: "info", module: "sourcing" },
   "connector.settings_saved": { label: "保存店铺连接器配置", level: "warn", module: "settings" },
   "connector.settings_cleared": { label: "清除店铺连接器配置", level: "warn", module: "settings" },

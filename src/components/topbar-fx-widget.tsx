@@ -265,14 +265,14 @@ export function TopbarFxWidget({
         className={`topbar-fx-trigger ${open ? "is-open" : ""}`}
         aria-expanded={open}
         aria-haspopup="dialog"
-        aria-label={`${clock.cityLabel} ${clock.time12Text}，当前汇率 ${currentItem.currency}/CNY ${formatFxRate(currentItem.currency, currentItem.rateToRmb)}，点击查看或修改`}
-        title={`${clock.cityLabel} ${clock.time12Text} (${clock.tzAbbr}) · ${clock.windowLabel} · ${clock.offsetDiffText}（北京时间 ${clock.beijingTimeText}）`}
+        aria-label={`${clock.cityLabel} ${clock.timeText}，当前汇率 ${currentItem.currency}/CNY ${formatFxRate(currentItem.currency, currentItem.rateToRmb)}，点击查看或修改`}
+        title={`${clock.cityLabel} ${clock.timeText} (${clock.tzAbbr}) · ${clock.windowLabel} · ${clock.offsetDiffText}（北京时间 ${clock.beijingTimeText}）`}
         onClick={() => setOpen((prev) => !prev)}
       >
         <span className="topbar-fx-clock-seg">
           <span className={`pulse-dot is-${clock.windowTone}`} aria-hidden="true" />
           <span className="topbar-fx-clock-city">{clock.cityLabel}</span>
-          <strong className="topbar-fx-clock-time">{clock.time12Text}</strong>
+          <strong className="topbar-fx-clock-time">{clock.timeText}</strong>
         </span>
         <span className="topbar-fx-divider" aria-hidden="true" />
         <span className="topbar-fx-pair">{currentItem.currency}/CNY</span>
@@ -285,7 +285,7 @@ export function TopbarFxWidget({
           <div className="topbar-fx-clock-bar">
             <div>
               <span className={`pulse-dot is-${clock.windowTone}`} aria-hidden="true" />
-              <strong>{clock.cityLabel} {clock.time12Text}</strong>
+              <strong>{clock.cityLabel} {clock.timeText}</strong>
               {clock.tzAbbr ? <span className="topbar-fx-clock-tz">{clock.tzAbbr}</span> : null}
               <span className={`pulse-window is-${clock.windowTone}`}>{clock.windowLabel}</span>
             </div>

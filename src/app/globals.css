@@ -14542,3 +14542,242 @@ html[data-theme="dark"] .hero-eyebrow-demo {
 .autofill-hint.is-error {
   color: var(--red);
 }
+
+/* ============================================================================
+ * Spotlight 命令面板 & AI 助手增强样式
+ * ============================================================================ */
+.modal-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.search-clear-chat-btn {
+  padding: 4px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--surface-subtle);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.search-clear-chat-btn:hover {
+  color: var(--ink);
+  border-color: var(--line-strong, var(--line));
+}
+
+.search-input-clear {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: none;
+  background: var(--surface-subtle);
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.search-input-clear:hover {
+  color: var(--ink);
+}
+
+.spotlight-home {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 12px 16px 16px;
+}
+
+.spotlight-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.spotlight-section-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: 0.03em;
+  padding: 0 4px;
+}
+
+.spotlight-command-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.spotlight-command-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--surface-subtle);
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.spotlight-command-chip:hover {
+  border-color: var(--accent);
+  background: var(--paper);
+}
+
+.spotlight-command-chip strong {
+  font-size: 13px;
+  font-weight: 680;
+  color: var(--ink);
+}
+
+.spotlight-command-chip span {
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+}
+
+.search-item-quicklinks {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.search-quicklink-btn {
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--surface-subtle);
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.search-quicklink-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.search-item-badge.badge-command {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.search-item-badge.badge-competitor {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.search-fallback-ai-btn {
+  margin-top: 12px;
+}
+
+.chat-bubble-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.chat-bubble-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chat-source-tag {
+  font-size: 11px;
+  font-weight: 650;
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+
+.chat-source-tag.is-ai {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.chat-source-tag.is-local {
+  background: var(--surface-subtle);
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+
+.chat-tool-btn {
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.chat-tool-btn:hover {
+  color: var(--ink);
+  background: var(--surface-subtle);
+}
+
+.chat-md-h4 {
+  margin: 4px 0 8px;
+  font-size: 14px;
+  font-weight: 740;
+  color: var(--ink);
+}
+
+.chat-md-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.chat-md-p,
+.chat-md-bullet {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--ink);
+}
+
+.chat-md-list {
+  margin: 4px 0 8px;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+.chat-inline-code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+
+@media (max-width: 640px) {
+  .spotlight-command-grid {
+    grid-template-columns: 1fr;
+  }
+}

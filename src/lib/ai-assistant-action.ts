@@ -6,12 +6,23 @@ import {
   extractAnthropicText,
 } from "./ai-provider.ts";
 import { loadAIProviderConfig, validateBaseUrl } from "./app-settings.ts";
+import { recordAuditLog } from "./audit-logs.ts";
 import { loadCopilotContext, type CopilotContext } from "./copilot-context.ts";
 import { moneyIn, percent } from "./format.ts";
 
 export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
+  source?: "ai" | "local";
+  modelLabel?: string;
+};
+
+export type AiAssistantReply = {
+  content: string;
+  source: "ai" | "local";
+  provider: string;
+  modelLabel: string;
+  contextLabel: string;
 };
 
 export type CopilotContextPreview = {
@@ -21,8 +32,11 @@ export type CopilotContextPreview = {
   quickPrompts: CopilotContext["quickPrompts"];
 };
 
-export async function getCopilotContextPreview(pathname: string): Promise<CopilotContextPreview> {
-  const ctx = await loadCopilotContext(pathname);
+export async function getCopilotContextPreview(
+  pathname: string,
+  search = "",
+): Promise<CopilotContextPreview> {
+  const ctx = await loadCopilotContext(pathname, search);
   return {
     scope: ctx.scope,
     label: ctx.label,
@@ -48,22 +62,50 @@ const SYSTEM_PROMPT = `你是 AITrade 跨境电商超级智能业务助手（AI 
 
 export async function chatWithAiAssistant(
   history: ChatMessage[],
-  options?: { pathname?: string },
-): Promise<string> {
+  options?: { pathname?: string; search?: string },
+): Promise<AiAssistantReply> {
   const lastUserMessage = history.filter((m) => m.role === "user").pop()?.content ?? "";
+  const pathname = options?.pathname ?? "/";
+  const search = options?.search ?? "";
+
   if (!lastUserMessage.trim()) {
-    return "请问有什么选品、1688 寻源或成本门禁相关的问题我可以帮您解答？";
+    return {
+      content: "请问有什么选品、1688 寻源或成本门禁相关的问题我可以帮您解答？",
+      source: "local",
+      provider: "local-knowledge",
+      modelLabel: "本地专家规则",
+      contextLabel: "全局视图",
+    };
   }
 
   const [config, context] = await Promise.all([
     loadAIProviderConfig(),
-    loadCopilotContext(options?.pathname ?? "/"),
+    loadCopilotContext(pathname, search),
   ]);
 
   const contextualSystemPrompt = `${SYSTEM_PROMPT}
 
 【当前在场业务上下文（仅可引用以下已核实数据，严禁编造额外数字或 ASIN）】
 ${context.summaryText}`;
+
+  const logAndReturn = async (reply: AiAssistantReply): Promise<AiAssistantReply> => {
+    await recordAuditLog({
+      actor: "本机用户",
+      action: "ai_assistant.chatted",
+      entityType: context.caseSnapshot ? "product_case" : "ai_task",
+      entityId: context.caseSnapshot?.caseId ?? context.scope,
+      details: {
+        pathname,
+        scope: context.scope,
+        contextLabel: context.label,
+        source: reply.source,
+        provider: reply.provider,
+        model: reply.modelLabel,
+        promptPreview: lastUserMessage.slice(0, 80),
+      },
+    }).catch(() => {});
+    return reply;
+  };
 
   // 如果配置了真实的大模型（OpenAI-compatible、Anthropic-compatible 或 Ollama）
   if (config.provider === "anthropic-compatible" && config.apiKey && config.baseUrl && config.model) {
@@ -90,7 +132,15 @@ ${context.summaryText}`;
       if (res.ok) {
         const json = await res.json();
         const reply = extractAnthropicText(json);
-        if (reply) return reply;
+        if (reply) {
+          return logAndReturn({
+            content: reply,
+            source: "ai",
+            provider: config.provider,
+            modelLabel: config.model,
+            contextLabel: context.label,
+          });
+        }
       }
     } catch {
       // 降级使用内置确定性专家知识库
@@ -113,7 +163,7 @@ ${context.summaryText}`;
           model: config.model,
           messages: [
             { role: "system", content: contextualSystemPrompt },
-            ...history.slice(-6),
+            ...history.slice(-6).map((m) => ({ role: m.role, content: m.content })),
           ],
           temperature: 0.7,
           max_tokens: 600,
@@ -124,7 +174,15 @@ ${context.summaryText}`;
       if (res.ok) {
         const json = await res.json();
         const reply = json.choices?.[0]?.message?.content?.trim();
-        if (reply) return reply;
+        if (reply) {
+          return logAndReturn({
+            content: reply,
+            source: "ai",
+            provider: config.provider,
+            modelLabel: config.model,
+            contextLabel: context.label,
+          });
+        }
       }
     } catch {
       // 降级使用内置确定性专家知识库
@@ -142,7 +200,7 @@ ${context.summaryText}`;
           stream: false,
           messages: [
             { role: "system", content: contextualSystemPrompt },
-            ...history.slice(-6),
+            ...history.slice(-6).map((m) => ({ role: m.role, content: m.content })),
           ],
         }),
         signal: AbortSignal.timeout(12000),
@@ -151,7 +209,15 @@ ${context.summaryText}`;
       if (res.ok) {
         const json = await res.json();
         const reply = json.message?.content?.trim();
-        if (reply) return reply;
+        if (reply) {
+          return logAndReturn({
+            content: reply,
+            source: "ai",
+            provider: config.provider,
+            modelLabel: config.model,
+            contextLabel: context.label,
+          });
+        }
       }
     } catch {
       // 降级使用内置确定性专家知识库
@@ -159,7 +225,13 @@ ${context.summaryText}`;
   }
 
   // 内置跨境操盘手智能应答引擎（结合在场上下文，免配置开箱即用）
-  return generateDeterministicKnowledgeResponse(lastUserMessage, context);
+  return logAndReturn({
+    content: generateDeterministicKnowledgeResponse(lastUserMessage, context),
+    source: "local",
+    provider: "local-knowledge",
+    modelLabel: "本地专家规则",
+    contextLabel: context.label,
+  });
 }
 
 function normalizeAnthropicMessages(history: ChatMessage[], fallbackUserMessage: string): ChatMessage[] {

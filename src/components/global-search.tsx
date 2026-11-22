@@ -1,8 +1,13 @@
 "use client";
 
-import { useEffect, useState, useTransition, useRef } from "react";
-import { usePathname, useRouter } from "next/navigation";
-import { searchGlobal, type SearchResultItem } from "@/lib/search-actions";
+import { useEffect, useState, useTransition, useRef, type ReactNode } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import {
+  getSpotlightInitialData,
+  searchGlobal,
+  type SearchResultItem,
+  type SpotlightInitialData,
+} from "@/lib/search-actions";
 import {
   chatWithAiAssistant,
   getCopilotContextPreview,
@@ -14,17 +19,101 @@ type LauncherMode = "search" | "chat";
 
 const DEFAULT_GREETING: ChatMessage = {
   role: "assistant",
-  content: `👋 您好！我是 AITrade 跨境超级操盘手智能助手。
-我常驻全站，您可以随时向我咨询 **18% 净利门禁倒推**、**1688 源头询价与压价策略**、**美日欧站点选品差异** 或 **Listing 侵权排查**。
-您也可以随时切换上方标签进行全域秒级搜索。`,
+  content: `您好！我是 AITrade 跨境操盘手助手。
+我会自动识别你当前所在的页面（商品利润沙盘、1688 寻源、文案与视觉、竞品研报、实盘账本等），提供针对性的 **18% 净利门禁倒推**、**1688 压价话术**、**Listing 合规排查** 与 **实盘偏差诊断**。
+也可以随时切回上方「全域检索」秒搜商品、研报、工厂与全站功能。`,
 };
+
+function renderInlineMarkdown(text: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const pattern = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      nodes.push(text.slice(lastIndex, match.index));
+    }
+    const token = match[0];
+    if (token.startsWith("**") && token.endsWith("**")) {
+      nodes.push(<strong key={`b-${key++}`}>{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith("`") && token.endsWith("`")) {
+      nodes.push(<code key={`c-${key++}`} className="chat-inline-code">{token.slice(1, -1)}</code>);
+    }
+    lastIndex = pattern.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+  return nodes;
+}
+
+function renderAssistantMarkdown(content: string): ReactNode {
+  const blocks = content.split(/\n{2,}/);
+  return blocks.map((block, bIdx) => {
+    const trimmed = block.trim();
+    if (!trimmed) return null;
+
+    if (trimmed.startsWith("### ")) {
+      return (
+        <h4 key={bIdx} className="chat-md-h4">
+          {renderInlineMarkdown(trimmed.slice(4))}
+        </h4>
+      );
+    }
+
+    const lines = trimmed.split("\n").map((l) => l.trimEnd());
+    const isUl = lines.every((l) => /^\s*[-*•]\s+/.test(l));
+    if (isUl) {
+      return (
+        <ul key={bIdx} className="chat-md-list">
+          {lines.map((l, li) => (
+            <li key={li}>{renderInlineMarkdown(l.replace(/^\s*[-*•]\s+/, ""))}</li>
+          ))}
+        </ul>
+      );
+    }
+
+    const isOl = lines.every((l) => /^\s*\d+\.\s+/.test(l));
+    if (isOl) {
+      return (
+        <ol key={bIdx} className="chat-md-list">
+          {lines.map((l, li) => (
+            <li key={li}>{renderInlineMarkdown(l.replace(/^\s*\d+\.\s+/, ""))}</li>
+          ))}
+        </ol>
+      );
+    }
+
+    // 混合行：可能首行是普通段落，后续是列表
+    return (
+      <div key={bIdx} className="chat-md-block">
+        {lines.map((line, li) => {
+          if (/^###\s+/.test(line)) {
+            return <h4 key={li} className="chat-md-h4">{renderInlineMarkdown(line.replace(/^###\s+/, ""))}</h4>;
+          }
+          if (/^\s*[-*•]\s+/.test(line)) {
+            return <p key={li} className="chat-md-bullet">· {renderInlineMarkdown(line.replace(/^\s*[-*•]\s+/, ""))}</p>;
+          }
+          return <p key={li} className="chat-md-p">{renderInlineMarkdown(line)}</p>;
+        })}
+      </div>
+    );
+  });
+}
 
 export function GlobalSearch() {
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const searchStr = searchParams.toString();
+
   const [isOpen, setIsOpen] = useState(false);
   const [mode, setMode] = useState<LauncherMode>("search");
   const [copilotCtx, setCopilotCtx] = useState<CopilotContextPreview | null>(null);
+  const [initialData, setInitialData] = useState<SpotlightInitialData | null>(null);
 
   // Search state
   const [query, setQuery] = useState("");
@@ -37,6 +126,7 @@ export function GlobalSearch() {
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([DEFAULT_GREETING]);
   const [chatInput, setChatInput] = useState("");
   const [isAnswering, setIsAnswering] = useState(false);
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const chatBottomRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<HTMLInputElement>(null);
 
@@ -77,6 +167,20 @@ export function GlobalSearch() {
   }, [isOpen, mode]);
 
   useEffect(() => {
+    if (isOpen && mode === "search") {
+      let cancelled = false;
+      getSpotlightInitialData()
+        .then((data) => {
+          if (!cancelled) setInitialData(data);
+        })
+        .catch(() => {});
+      return () => {
+        cancelled = true;
+      };
+    }
+  }, [isOpen, mode]);
+
+  useEffect(() => {
     if (mode === "chat") {
       chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
@@ -95,14 +199,14 @@ export function GlobalSearch() {
         setResults(res);
         setSelectedIndex(0);
       });
-    }, 150);
+    }, 140);
 
     return () => clearTimeout(timer);
   }, [query, mode]);
 
-  function handleSelectResult(item: SearchResultItem) {
+  function navigateTo(href: string) {
     setIsOpen(false);
-    router.push(item.href);
+    router.push(href);
   }
 
   function handleSearchKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -115,15 +219,18 @@ export function GlobalSearch() {
     } else if (e.key === "Enter") {
       e.preventDefault();
       if (results[selectedIndex]) {
-        handleSelectResult(results[selectedIndex]);
+        navigateTo(results[selectedIndex].href);
+      } else if (query.trim() && results.length === 0 && !isSearching) {
+        handleAskAiFromSearch(query.trim());
       }
     }
   }
 
+  // 识别当前页面上下文（含 pathname + query）
   useEffect(() => {
-    if (isOpen && mode === "chat") {
+    if (isOpen) {
       let cancelled = false;
-      getCopilotContextPreview(pathname || "/")
+      getCopilotContextPreview(pathname || "/", searchStr)
         .then((ctx) => {
           if (!cancelled) setCopilotCtx(ctx);
         })
@@ -134,7 +241,7 @@ export function GlobalSearch() {
         cancelled = true;
       };
     }
-  }, [isOpen, mode, pathname]);
+  }, [isOpen, mode, pathname, searchStr]);
 
   async function sendChatMessage(promptText?: string) {
     const textToSend = (promptText ?? chatInput).trim();
@@ -146,21 +253,57 @@ export function GlobalSearch() {
     setIsAnswering(true);
 
     try {
-      const answer = await chatWithAiAssistant(newHistory, { pathname: pathname || "/" });
-      setChatHistory([...newHistory, { role: "assistant", content: answer }]);
+      const reply = await chatWithAiAssistant(newHistory, {
+        pathname: pathname || "/",
+        search: searchStr,
+      });
+      setChatHistory([
+        ...newHistory,
+        {
+          role: "assistant",
+          content: reply.content,
+          source: reply.source,
+          modelLabel: reply.modelLabel,
+        },
+      ]);
     } catch {
       setChatHistory([
         ...newHistory,
-        { role: "assistant", content: "AI 响应异常，请检查网络或设置中的 API Key 配置。" },
+        {
+          role: "assistant",
+          content: "AI 响应异常，请检查网络或「设置 → 大模型设置」中的 API Key 配置。",
+          source: "local",
+          modelLabel: "系统提示",
+        },
       ]);
     } finally {
       setIsAnswering(false);
     }
   }
 
+  function handleAskAiFromSearch(term: string) {
+    setMode("chat");
+    setQuery("");
+    void sendChatMessage(`帮我分析或查找与「${term}」相关的选品、成本或运营建议`);
+  }
+
+  function handleCopyMessage(idx: number, text: string) {
+    navigator.clipboard?.writeText(text).then(() => {
+      setCopiedIdx(idx);
+      setTimeout(() => {
+        setCopiedIdx((curr) => (curr === idx ? null : curr));
+      }, 1500);
+    }).catch(() => {});
+  }
+
+  function handleClearChat() {
+    setChatHistory([DEFAULT_GREETING]);
+    setCopiedIdx(null);
+  }
+
   return (
     <>
-      {/* 悬浮在右下角的高级复合图标胶囊 (Floating AI Assistant & Command Launcher) */}
+      {/* 悬浮在右下角的复合图标胶囊 */}
       <button
         type="button"
         className="floating-assistant-launcher"
@@ -169,7 +312,6 @@ export function GlobalSearch() {
         aria-label="打开 AI 助手与全域搜索"
       >
         <div className="launcher-icon-badge">
-          {/* 精心设计的复合 SVG 图标：透亮放大镜 + 闪耀 AI 四芒星 */}
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <circle cx="10" cy="10" r="6" stroke="#ffffff" strokeWidth="2.2" strokeLinecap="round" />
             <path d="M14.5 14.5L19.5 19.5" stroke="#ffffff" strokeWidth="2.2" strokeLinecap="round" />
@@ -214,22 +356,34 @@ export function GlobalSearch() {
                   <span>AI 操盘手问答</span>
                 </button>
               </div>
-              <button
-                type="button"
-                className="search-close-btn"
-                onClick={() => setIsOpen(false)}
-                title="关闭浮窗 (ESC)"
-              >
-                ESC
-              </button>
+              <div className="modal-header-right">
+                {mode === "chat" && chatHistory.length > 1 ? (
+                  <button
+                    type="button"
+                    className="search-clear-chat-btn"
+                    onClick={handleClearChat}
+                    title="清空当前对话记录"
+                  >
+                    清空对话
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="search-close-btn"
+                  onClick={() => setIsOpen(false)}
+                  title="关闭浮窗 (ESC)"
+                >
+                  ESC
+                </button>
+              </div>
             </div>
 
-            {/* 模式 A：全域秒搜 */}
+            {/* 模式 A：全域秒搜 + 命令面板 */}
             {mode === "search" && (
               <>
                 <div className="global-search-input-wrap">
                   <span className="search-input-icon-box">
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
                       <circle cx="11" cy="11" r="8"></circle>
                       <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                     </svg>
@@ -238,32 +392,92 @@ export function GlobalSearch() {
                     ref={searchInputRef}
                     type="text"
                     className="global-search-input"
-                    placeholder="输入商品名称、ASIN 代码、研报品类或 1688 合作工厂..."
+                    placeholder="搜商品、ASIN、竞品研报、1688 工厂，或直达功能（如：汇率、备份、生图、实盘）..."
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     onKeyDown={handleSearchKeyDown}
                   />
+                  {query ? (
+                    <button
+                      type="button"
+                      className="search-input-clear"
+                      onClick={() => setQuery("")}
+                      aria-label="清空搜索词"
+                    >
+                      ×
+                    </button>
+                  ) : null}
                   {isSearching && <span className="search-spinner" />}
                 </div>
 
                 <div className="global-search-body">
                   {query.trim() === "" ? (
-                    <div className="search-empty-hint">
-                      <div className="search-empty-badge">Spotlight · 全域秒级检索</div>
-                      <h3 className="search-empty-title">输入关键词即可秒级直达全站资源</h3>
-                      <p>支持跨模块即时搜索商品案卷、机会研报品类与 1688 合作工厂：</p>
-                      <div className="search-tags-hint">
-                        <button type="button" onClick={() => setQuery("吸尘器")}>📦 双风道吸尘器</button>
-                        <button type="button" onClick={() => setQuery("B0")}>🔍 ASIN 编码</button>
-                        <button type="button" onClick={() => setQuery("车载")}>📊 车载选品研报</button>
-                        <button type="button" onClick={() => setQuery("厂")}>🏭 1688 源头工厂</button>
+                    <div className="spotlight-home">
+                      {initialData?.recentCases && initialData.recentCases.length > 0 ? (
+                        <div className="spotlight-section">
+                          <div className="spotlight-section-title">最近商品</div>
+                          <ul className="global-search-list">
+                            {initialData.recentCases.map((item) => (
+                              <li
+                                key={`recent-${item.id}`}
+                                className="global-search-item"
+                                onClick={() => navigateTo(item.href)}
+                              >
+                                <span className={`search-item-badge badge-${item.type}`}>
+                                  {item.typeLabel}
+                                </span>
+                                <div className="search-item-info">
+                                  <strong className="search-item-title">{item.title}</strong>
+                                  <span className="search-item-sub">{item.subtitle}</span>
+                                </div>
+                                {item.quickLinks ? (
+                                  <div className="search-item-quicklinks" onClick={(e) => e.stopPropagation()}>
+                                    {item.quickLinks.map((ql) => (
+                                      <button
+                                        key={ql.href}
+                                        type="button"
+                                        className="search-quicklink-btn"
+                                        onClick={() => navigateTo(ql.href)}
+                                      >
+                                        {ql.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+
+                      <div className="spotlight-section">
+                        <div className="spotlight-section-title">常用功能直达</div>
+                        <div className="spotlight-command-grid">
+                          {(initialData?.quickCommands ?? []).map((cmd) => (
+                            <button
+                              key={cmd.id}
+                              type="button"
+                              className="spotlight-command-chip"
+                              onClick={() => navigateTo(cmd.href)}
+                            >
+                              <strong>{cmd.title}</strong>
+                              <span>{cmd.subtitle}</span>
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     </div>
                   ) : results.length === 0 && !isSearching ? (
                     <div className="search-no-results">
-                      <div className="search-no-results-icon">🔍</div>
-                      <p>未找到与「<strong>{query}</strong>」匹配的商品、研报或供应商</p>
-                      <small>请尝试更简短的关键词、ASIN 编号或品类名称</small>
+                      <p>未找到与「<strong>{query}</strong>」匹配的商品、研报、工厂或功能</p>
+                      <small>可尝试更简短的关键词、ASIN 编码，或直接转问 AI 操盘手</small>
+                      <button
+                        type="button"
+                        className="button primary search-fallback-ai-btn"
+                        onClick={() => handleAskAiFromSearch(query.trim())}
+                      >
+                        ✨ 转问 AI 操盘手：关于「{query.trim().slice(0, 18)}」
+                      </button>
                     </div>
                   ) : (
                     <ul className="global-search-list">
@@ -271,7 +485,7 @@ export function GlobalSearch() {
                         <li
                           key={`${item.type}-${item.id}`}
                           className={`global-search-item ${idx === selectedIndex ? "active" : ""}`}
-                          onClick={() => handleSelectResult(item)}
+                          onClick={() => navigateTo(item.href)}
                           onMouseEnter={() => setSelectedIndex(idx)}
                         >
                           <span className={`search-item-badge badge-${item.type}`}>
@@ -281,11 +495,26 @@ export function GlobalSearch() {
                             <strong className="search-item-title">{item.title}</strong>
                             <span className="search-item-sub">{item.subtitle}</span>
                           </div>
-                          <span className="search-item-arrow">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                              <polyline points="9 18 15 12 9 6"></polyline>
-                            </svg>
-                          </span>
+                          {item.quickLinks ? (
+                            <div className="search-item-quicklinks" onClick={(e) => e.stopPropagation()}>
+                              {item.quickLinks.map((ql) => (
+                                <button
+                                  key={ql.href}
+                                  type="button"
+                                  className="search-quicklink-btn"
+                                  onClick={() => navigateTo(ql.href)}
+                                >
+                                  {ql.label}
+                                </button>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="search-item-arrow">
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                <polyline points="9 18 15 12 9 6"></polyline>
+                              </svg>
+                            </span>
+                          )}
                         </li>
                       ))}
                     </ul>
@@ -294,11 +523,11 @@ export function GlobalSearch() {
 
                 <div className="global-search-footer">
                   <div className="footer-shortcuts">
-                    <span><kbd className="footer-kbd">↑</kbd><kbd className="footer-kbd">↓</kbd> 切换选项</span>
-                    <span><kbd className="footer-kbd">↵</kbd> 回车跳转</span>
                     <span><kbd className="footer-kbd">ESC</kbd> 退出</span>
                   </div>
-                  <span className="footer-brand">AITrade Spotlight</span>
+                  <span className="footer-brand">
+                    {copilotCtx ? `当前：${copilotCtx.label}` : "AITrade Spotlight"}
+                  </span>
                 </div>
               </>
             )}
@@ -309,7 +538,7 @@ export function GlobalSearch() {
                 {copilotCtx ? (
                   <div className="copilot-context-bar">
                     <span className="copilot-context-dot" />
-                    <span className="copilot-context-label">在场上下文：{copilotCtx.label}</span>
+                    <span className="copilot-context-label">当前页面识别：{copilotCtx.label}</span>
                     <span className="copilot-context-badge mono">{copilotCtx.badge}</span>
                   </div>
                 ) : null}
@@ -317,19 +546,41 @@ export function GlobalSearch() {
                   {chatHistory.map((msg, i) => (
                     <div key={i} className={`chat-bubble-row ${msg.role}`}>
                       <div className="chat-avatar">
-                        {msg.role === "assistant" ? "✨" : "👤"}
+                        {msg.role === "assistant" ? "✨" : "我"}
                       </div>
                       <div className="chat-bubble-card">
-                        <div className="chat-bubble-role">
-                          {msg.role === "assistant" ? "AITrade 智能业务助手" : "我"}
+                        <div className="chat-bubble-head">
+                          <span className="chat-bubble-role">
+                            {msg.role === "assistant" ? "AITrade 智能操盘手" : "我"}
+                          </span>
+                          {msg.role === "assistant" && i > 0 ? (
+                            <div className="chat-bubble-tools">
+                              {msg.modelLabel ? (
+                                <span className={`chat-source-tag ${msg.source === "ai" ? "is-ai" : "is-local"}`}>
+                                  {msg.modelLabel}
+                                </span>
+                              ) : null}
+                              {msg.source === "local" ? (
+                                <button
+                                  type="button"
+                                  className="chat-tool-btn"
+                                  onClick={() => navigateTo("/settings?tab=models")}
+                                >
+                                  配置模型
+                                </button>
+                              ) : null}
+                              <button
+                                type="button"
+                                className="chat-tool-btn"
+                                onClick={() => handleCopyMessage(i, msg.content)}
+                              >
+                                {copiedIdx === i ? "已复制" : "复制"}
+                              </button>
+                            </div>
+                          ) : null}
                         </div>
                         <div className="chat-bubble-text markdown-render">
-                          {msg.content.split("\n\n").map((para, pi) => {
-                            if (para.startsWith("### ")) {
-                              return <h4 key={pi} style={{ margin: "4px 0 8px 0", fontSize: "14px", fontWeight: 700, color: "var(--deep)" }}>{para.replace("### ", "")}</h4>;
-                            }
-                            return <p key={pi} style={{ margin: "4px 0", lineHeight: 1.55 }}>{para}</p>;
-                          })}
+                          {renderAssistantMarkdown(msg.content)}
                         </div>
                       </div>
                     </div>
@@ -338,7 +589,7 @@ export function GlobalSearch() {
                     <div className="chat-bubble-row assistant">
                       <div className="chat-avatar">✨</div>
                       <div className="chat-bubble-card">
-                        <span className="ai-typing-indicator">操盘手 AI 正在深度分析中...</span>
+                        <span className="ai-typing-indicator">操盘手 AI 正在结合当前页面数据分析中...</span>
                       </div>
                     </div>
                   )}
@@ -375,7 +626,7 @@ export function GlobalSearch() {
                     ref={chatInputRef}
                     type="text"
                     className="chat-text-input"
-                    placeholder="向 AI 咨询选品门禁、1688 询价或平台差异（按 Enter 发送）..."
+                    placeholder="结合当前页面提问（如利润门禁、压价话术、文案优化或实盘偏差）..."
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
                     disabled={isAnswering}
