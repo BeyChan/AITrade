@@ -1,5 +1,5 @@
 import { getAppMode } from "@/lib/app-mode";
-import { getDb } from "@/lib/db";
+import { getDb, getDbEngineInfo } from "@/lib/db";
 import { getStorageProviderInfo } from "@/lib/storage";
 
 export const runtime = "nodejs";
@@ -11,6 +11,7 @@ export async function GET() {
     const db = await getDb();
     await db.query("SELECT 1 AS ok");
     const dbLatencyMs = Date.now() - startedAt;
+    const dbInfo = getDbEngineInfo();
     const mode = await getAppMode();
     const storage = getStorageProviderInfo();
 
@@ -19,9 +20,15 @@ export async function GET() {
       service: "aitrade",
       mode,
       db: {
-        engine: process.env.DATABASE_URL ? "postgresql" : "pglite",
+        engine: dbInfo.engine,
         status: "connected",
         latencyMs: dbLatencyMs,
+        ...(dbInfo.configuredDatabaseUrlIgnored
+          ? {
+              warning:
+                "DATABASE_URL is set, but external PostgreSQL is not supported yet; using local PGlite.",
+            }
+          : {}),
       },
       storage,
       nodeVersion: process.version,

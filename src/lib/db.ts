@@ -9,6 +9,18 @@ declare global {
   var __aitradeDbPromise: Promise<PGlite> | undefined;
 }
 
+export type DbEngineInfo = {
+  engine: "pglite";
+  configuredDatabaseUrlIgnored: boolean;
+};
+
+export function getDbEngineInfo(): DbEngineInfo {
+  return {
+    engine: "pglite",
+    configuredDatabaseUrlIgnored: Boolean(process.env.DATABASE_URL?.trim()),
+  };
+}
+
 export function getDb() {
   if (!globalThis.__aitradeDbPromise) {
     globalThis.__aitradeDbPromise = initializeDb();
@@ -17,6 +29,11 @@ export function getDb() {
 }
 
 async function initializeDb() {
+  if (process.env.DATABASE_URL?.trim()) {
+    console.warn(
+      "[AITrade] DATABASE_URL is set, but external PostgreSQL adapter is not implemented yet; falling back to local PGlite.",
+    );
+  }
   const configuredDir = process.env.PGLITE_DATA_DIR || ".data/aitrade";
   // PGlite opens this path at runtime; it must not be traced into the server bundle.
   const dataDir = path.isAbsolute(configuredDir) ? configuredDir : path.resolve(/* turbopackIgnore: true */ process.cwd(), configuredDir);
