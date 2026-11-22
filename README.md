@@ -15,7 +15,7 @@
 
 ```mermaid
 flowchart TD
-    subgraph S1["① 选品雷达（/discover · /competitors · /import）"]
+    subgraph S1["① 选品雷达（/discover · /competitors · /selection-records）"]
         A1["还没定品：AI 类目机会发散"]
         A2["已有竞品：Chrome 二合一扩展抓 Amazon Top 20"]
         A3["已有货源：填 1688 拿货价或导入 CSV"]
@@ -61,7 +61,7 @@ flowchart TD
 | 入口 | 路由 | 核心能力 |
 |---|---|---|
 | **1. 工作台** | `/` | 一体化操盘手首页：**顶栏站点当地时间 + 实时汇率 + 双向换算胶囊**、最近竞品研报摘要、内嵌单行「**跨境情报简报**」（一键展开外部行业快讯与站内利润/断货/竞品异动 + 旺季海运备货倒计时）、紧凑 4 格 KPI 与 5 阶业务推进看板 |
-| **2. 选品雷达** | `/discover` `/competitors` `/import` | **3 选 1 选品向导**（统一收口 AI 类目机会发散、竞品格局测算与 18% 毛利快算，非 USD 站点自动读取全局实时汇率）+ **竞品四象限气泡图**（仅用真实采集售价绘制，严禁编造假 P50 与假销量）、按 ASIN 自动去重与重复研报合并、跨站采集自动定位对应站点与 CSV 批量导入 |
+| **2. 选品雷达** | `/discover` `/competitors` `/selection-records` | **3 步快速选品向导**（统一收口 AI 类目机会发散、竞品格局测算与 18% 毛利快算，非 USD 站点自动读取全局实时汇率）+ **竞品四象限气泡图**（仅用真实采集售价绘制，严禁编造假 P50 与假销量）、按 ASIN 自动去重与重复研报合并、跨站采集自动定位对应站点 + **全站点选品记录**（集中展示全部站点的竞品研报与 AI 选品批次，支持类型/状态/站点筛选与一键载入向导核成本，内置 CSV 批量导入入口） |
 | **3. 我的商品** | `/cases` `/cases/[id]` | 案卷台账视图与统一 5 阶状态机（`利润与合规 → 寻源与打样 → 财务定标 → 文案与视觉 → 上架就绪`），**全阶段自由切换**：交互式 What-If 财务沙盘、FBA 尺寸降档提醒、90 天现金流回本、前置合规红线清单；独立导出 **上架素材 ZIP**、Flat File (TSV) 与 A4 立项战报 PDF |
 | **4. 统一视觉工坊** | `/studio` | 将 **AI 生图**（自定义 Skill + 货架测试）、**AI 视频**（I2V 图生视频 + 异步队列 + `ffmpeg` 多镜头拼接）与 **统一素材库** 合三为一，顶部常驻「当前创作商品」联动归档 |
 | **5. 供应商管理与打样** | `/sourcing` `/cases/[id]/sourcing` | 供应商资产库（支持卡片内一键 **`+ 关联商品`** 快速填价入比价表、安全移除未定标工厂）、多厂横向 PK 与定标回写、**微信/1688 报价单截图多模态识别**、**人民币 & 抛货体积重头程直算器**（含 FBA 尺寸降档省钱提示）与 **拿样验货日记** |
@@ -141,7 +141,7 @@ npm run report:dry-run -- --help   # 报表 CLI 只读试算
 ```
 
 ```text
-src/app/         页面路由、Server Actions 与 API（/discover、/cases、/studio、/sourcing、/operations、/fx-rates、/settings、/unlock）
+src/app/         页面路由、Server Actions 与 API（/discover、/competitors、/selection-records、/cases、/studio、/sourcing、/operations、/fx-rates、/settings、/unlock）
 src/components/  交互组件（选品向导、财务沙盘、四象限图、1688 换算与打样日记、统一视觉工坊、实盘账本、实时汇率管理、整库备份）
 src/lib/         确定性经济/物流/合规/结算/实时汇率引擎、ZIP 打包器、AI/生图/视频供应商适配与数据库仓储层
 src/proxy.ts     Next.js 16 请求代理（可选 APP_ACCESS_PIN 共享口令保护）

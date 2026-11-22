@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
+import Link from "next/link";
 import { SelectionWizardClient } from "@/components/selection-wizard-client";
 import { PageHeader } from "@/components/ui";
-import { listAISourcingBatches } from "@/lib/ai-sourcing-repository";
 import { getComparisonReports } from "@/lib/competitor-compare/storage";
 import { getSiteOptions } from "@/lib/repository";
 import { resolvePersistedSiteScope } from "@/lib/site-scope";
@@ -9,7 +9,13 @@ import { resolvePersistedSiteScope } from "@/lib/site-scope";
 export const dynamic = "force-dynamic";
 
 type PageProps = {
-  searchParams: Promise<{ market?: string; platform?: string; entry?: string }>;
+  searchParams: Promise<{
+    market?: string;
+    platform?: string;
+    entry?: string;
+    reportId?: string;
+    step?: string;
+  }>;
 };
 
 export default async function DiscoverPage({ searchParams }: PageProps) {
@@ -27,16 +33,20 @@ export default async function DiscoverPage({ searchParams }: PageProps) {
   const marketCode = market?.code ?? "US";
   const platformCode = platform?.code ?? "amazon";
 
-  const [allReports, batches] = await Promise.all([
-    getComparisonReports(),
-    listAISourcingBatches(marketCode, platformCode),
-  ]);
+  const allReports = await getComparisonReports();
 
   const siteReports = allReports.filter(
     (r) =>
       r.marketCode.toUpperCase() === marketCode.toUpperCase() &&
       r.platformCode.toLowerCase() === platformCode.toLowerCase(),
   );
+
+  const requestedReport = query.reportId
+    ? allReports.find((r) => r.id === query.reportId) ?? null
+    : null;
+  const initialReport = requestedReport ?? siteReports[0] ?? null;
+  const initialStep: 1 | 2 | 3 =
+    query.step === "2" ? 2 : query.step === "3" ? 3 : 1;
 
   return (
     <div className="page">
@@ -49,9 +59,14 @@ export default async function DiscoverPage({ searchParams }: PageProps) {
         title="选品中心"
         description="按你手里现有的线索直接开干：看市场（竞品与痛点）→ 核成本（18% 硬门禁倒推）→ 拍板立项（合规红线与一键生成案卷）。"
         actions={
-          <span className="badge badge-neutral">
-            {market?.name ?? "美国"}站 · {platform?.name ?? "Amazon"} · {market?.currency ?? "USD"}
-          </span>
+          <div className="button-row">
+            <span className="badge badge-neutral">
+              {market?.name ?? "美国"}站 · {platform?.name ?? "Amazon"} · {market?.currency ?? "USD"}
+            </span>
+            <Link href="/selection-records" className="button secondary">
+              选品记录
+            </Link>
+          </div>
         }
       />
 
@@ -62,8 +77,8 @@ export default async function DiscoverPage({ searchParams }: PageProps) {
         platformName={platform?.name ?? "Amazon"}
         currency={market?.currency ?? "USD"}
         requestKey={randomUUID()}
-        reports={siteReports}
-        batches={batches}
+        initialReport={initialReport}
+        initialStep={initialStep}
         initialEntryMode={query.entry === "ai" ? "ai_brainstorm" : "wizard"}
       />
     </div>

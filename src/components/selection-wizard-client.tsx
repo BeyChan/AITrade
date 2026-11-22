@@ -17,25 +17,12 @@ import {
   opportunityScore,
   recommendationFor,
 } from "@/lib/economics";
-import { moneyIn, percent, shortDate } from "@/lib/format";
+import { moneyIn, percent } from "@/lib/format";
 import {
   COMPLIANCE_ATTRIBUTE_OPTIONS,
   evaluatePrelaunchCompliance,
   type ProductComplianceAttribute,
 } from "@/lib/prelaunch-compliance";
-
-type BatchSummary = {
-  id: string;
-  category: string;
-  brief: string;
-  marketCode: string;
-  platformCode: string;
-  hypothesisCount: number;
-  selectedCount: number;
-  goCount: number;
-  promotedCount: number;
-  createdAt: string;
-};
 
 type Props = {
   marketCode: string;
@@ -44,8 +31,8 @@ type Props = {
   platformName: string;
   currency: string;
   requestKey: string;
-  reports: CompetitorComparisonReport[];
-  batches: BatchSummary[];
+  initialReport: CompetitorComparisonReport | null;
+  initialStep?: 1 | 2 | 3;
   initialEntryMode?: "ai_brainstorm" | "wizard";
 };
 
@@ -59,25 +46,25 @@ export function SelectionWizardClient({
   platformName,
   currency,
   requestKey,
-  reports,
-  batches,
+  initialReport,
+  initialStep = 1,
   initialEntryMode = "wizard",
 }: Props) {
   const router = useRouter();
   const [entryMode, setEntryMode] = useState<EntryMode>(initialEntryMode);
-  const [step, setStep] = useState<WizardStep>(1);
+  const [step, setStep] = useState<WizardStep>(initialStep);
 
   // 第 1 步：市场与竞品状态
   const [rawCompetitors, setRawCompetitors] = useState("");
-  const [activeReport, setActiveReport] = useState<CompetitorComparisonReport | null>(reports[0] ?? null);
+  const [activeReport, setActiveReport] = useState<CompetitorComparisonReport | null>(initialReport);
   const [isAnalyzing, startAnalyze] = useTransition();
   const [stepError, setStepError] = useState<string | null>(null);
 
   // 第 2 步：成本与 18% 门禁状态
-  const [productTitle, setProductTitle] = useState(reports[0]?.title ?? "");
+  const [productTitle, setProductTitle] = useState(initialReport?.title ?? "");
   const [category, setCategory] = useState("跨境精品");
   const [targetPrice, setTargetPrice] = useState(
-    reports[0]?.priceStats?.p50 ? Number((reports[0].priceStats.p50 / 100).toFixed(2)) : 34.99,
+    initialReport?.priceStats?.p50 ? Number((initialReport.priceStats.p50 / 100).toFixed(2)) : 34.99,
   );
   const [factoryCostRmb, setFactoryCostRmb] = useState(32);
   const [freightPerUnit, setFreightPerUnit] = useState(2.2);
@@ -643,89 +630,6 @@ export function SelectionWizardClient({
           ) : null}
         </section>
       )}
-
-      {/* 底部：统一收口的「进行中的选品」列表（合并竞品研报 + AI 研究批次） */}
-      <section className="section">
-        <div className="section-header">
-          <div>
-            <h2>进行中的选品记录（{marketName}站 · {platformName}）</h2>
-            <p>竞品研报与 AI 选品批次统一汇总在此，点击任意一条即可继续推进；批量导入表格可使用右上角入口。</p>
-          </div>
-          <div className="button-row">
-            <Link href={`/import?market=${encodeURIComponent(marketCode)}&platform=${encodeURIComponent(platformCode)}`} className="button secondary">
-              批量导入 CSV
-            </Link>
-            <Link href="/competitors" className="button ghost">进入竞品研报</Link>
-          </div>
-        </div>
-
-        {reports.length === 0 && batches.length === 0 ? (
-          <div className="empty-state">
-            <h3>当前站点还没有选品记录</h3>
-            <p>直接从上方 3 选 1 起点开始你的第一款选品测试吧。</p>
-          </div>
-        ) : (
-          <div className="wizard-history-list">
-            {reports.slice(0, 6).map((report) => (
-              <div key={report.id} className="wizard-history-item">
-                <div>
-                  <div className="button-row" style={{ marginBottom: 4 }}>
-                    <span className="badge badge-neutral">竞品研报</span>
-                    <span className="badge badge-neutral mono">{report.competitors.length} 款竞品</span>
-                    {report.promotedCaseId ? <span className="badge badge-success">已立项</span> : null}
-                  </div>
-                  <strong>{report.title}</strong>
-                  <div className="muted mono" style={{ fontSize: 12 }}>
-                    P50 中位价 {moneyIn(report.currency, report.priceStats.p50)} · 更新于 {shortDate(report.createdAt)}
-                  </div>
-                </div>
-                <div className="button-row">
-                  <button
-                    type="button"
-                    className="button secondary"
-                    onClick={() => {
-                      setActiveReport(report);
-                      setProductTitle(report.title);
-                      if (report.priceStats.p50 > 0) {
-                        setTargetPrice(Number((report.priceStats.p50 / 100).toFixed(2)));
-                      }
-                      setEntryMode("wizard");
-                      setStep(2);
-                      window.scrollTo({ top: 0, behavior: "smooth" });
-                    }}
-                  >
-                    载入向导核成本
-                  </button>
-                  <Link href={`/competitors?id=${encodeURIComponent(report.id)}`} className="button ghost">
-                    详细研报
-                  </Link>
-                </div>
-              </div>
-            ))}
-
-            {batches.slice(0, 6).map((batch) => (
-              <div key={batch.id} className="wizard-history-item">
-                <div>
-                  <div className="button-row" style={{ marginBottom: 4 }}>
-                    <span className="badge badge-neutral">AI 发散批次</span>
-                    <span className="badge badge-neutral">{batch.category}</span>
-                    <span className="badge badge-success">{batch.goCount} 个 GO</span>
-                  </div>
-                  <strong>{batch.brief}</strong>
-                  <div className="muted" style={{ fontSize: 12 }}>
-                    {batch.hypothesisCount} 个方向 · {batch.selectedCount} 个验证中 · {shortDate(batch.createdAt)}
-                  </div>
-                </div>
-                <div className="button-row">
-                  <Link href={`/ai-sourcing/${encodeURIComponent(batch.id)}?tab=hypotheses`} className="button secondary">
-                    继续验证
-                  </Link>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
     </div>
   );
 }
