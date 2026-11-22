@@ -3,8 +3,8 @@ import { getDb } from "../db.ts";
 import {
   DEFAULT_SOURCING_THRESHOLDS,
   evaluateSourcingDecision,
-  platformEconomicDefaults,
 } from "../ai-sourcing.ts";
+import { loadCalibratedDefaultsForScope } from "../calibration-repository.ts";
 import { calculateEconomics } from "../economics.ts";
 import {
   loadHypothesisContext,
@@ -70,6 +70,15 @@ export async function refreshAISelectionDecision(hypothesisId: string): Promise<
   ]);
 
   const count = counts.rows[0];
+  const calibratedBundle = context.hypothesis.confirmedPriceCents
+    ? await loadCalibratedDefaultsForScope({
+        marketplace: context.batch.marketCode,
+        currency: context.batch.currency,
+        category: context.batch.category,
+        platformCode: context.batch.platformCode,
+        salePriceCents: context.hypothesis.confirmedPriceCents,
+      })
+    : null;
   const decision = evaluateSourcingDecision({
     opportunityScore: context.hypothesis.priorityScore,
     confirmedPriceCents: context.hypothesis.confirmedPriceCents,
@@ -80,6 +89,7 @@ export async function refreshAISelectionDecision(hypothesisId: string): Promise<
     quotes: quotes.rows.map(mapDecisionQuote),
     latestPatentRisk: riskLevel(patent.rows[0]?.risk_level, "missing"),
     latestLogisticsRisk: riskLevel(logistics.rows[0]?.risk_level, "missing"),
+    calibratedDefaults: calibratedBundle?.calibratedDefaults,
   });
 
   const decisionId = randomUUID();
@@ -182,11 +192,19 @@ export async function promoteHypothesisToProductCase(hypothesisId: string, actor
   const asin = `AI-${hypothesisId.replace(/-/g, "").slice(0, 12).toUpperCase()}`;
   const confirmedPrice = context.hypothesis.confirmedPriceCents;
   if (!confirmedPrice) throw new Error("请先录入已确认售价，再转商品立项");
+  const calibratedBundle = await loadCalibratedDefaultsForScope({
+    marketplace: context.batch.marketCode,
+    currency: context.batch.currency,
+    category: context.batch.category,
+    platformCode: context.batch.platformCode,
+    salePriceCents: confirmedPrice,
+  });
   const assumptions = {
     currency: context.batch.currency,
     salePriceCents: confirmedPrice,
     landedCostCents: bestQuote.landed_cost_cents,
-    ...platformEconomicDefaults(context.batch.platformCode, confirmedPrice),
+    ...calibratedBundle.defaults,
+    ...(calibratedBundle.calibrationMeta ? { calibrationMeta: calibratedBundle.calibrationMeta } : {}),
   };
   const economics = calculateEconomics(assumptions);
   const owner = actor.trim() || "运营人员";

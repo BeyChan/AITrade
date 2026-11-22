@@ -16,6 +16,8 @@ import {
 import {
   aggregateSettlement,
   compareWithForecast,
+  resolveEffectiveAdSpend,
+  type AdOverlapPolicy,
   type ForecastComparison,
   type ForecastComparisonInput,
   type NormalizedInventorySnapshot,
@@ -106,6 +108,8 @@ export type PipelineOptions = {
   forecastsBySku?: Record<string, ForecastComparisonInput>;
   /** 可选：按 SKU 提供的外部广告花费（分），用于补齐 Settlement V2 未按 SKU 拆分的广告费。 */
   externalAdSpendBySku?: Record<string, { spendCents: number; source: "ads_report" | "manual" }>;
+  /** 可选：结算单广告费与外部 Ads 报表同时存在时的去重口径，默认 dedupe_max（补差防重扣） */
+  adOverlapPolicy?: AdOverlapPolicy;
   inventoryDays?: PipelineInventoryDaysOptions;
 };
 
@@ -117,6 +121,10 @@ export type PipelineSkuPeriod = SettlementPeriodResult & {
   inventoryDays: InventoryDaysResult | null;
   /** 外部广告报表或手工录入的 SKU 级广告费（分） */
   externalAdSpendCents: number;
+  /** 去重后的周期有效总广告费（分），不会把重叠的结算单广告费与外部 Ads 广告费直接相加 */
+  effectiveAdSpendCents: number;
+  /** 是否检测到结算单广告费与外部 Ads 广告费重叠 */
+  adOverlapDetected: boolean;
   /** 本期该 SKU 的广告归因来源 */
   adAttribution: AdAttributionSource;
   /** 利润口径：绑定了采购成本时为 true_net_profit，否则仅为 platform_contribution_only */
@@ -209,6 +217,8 @@ export function runOperationsPipeline(
     warnings.push("未提供每日销量序列，不计算库存天数");
   }
 
+  const adOverlapPolicy: AdOverlapPolicy = options.adOverlapPolicy ?? "dedupe_max";
+
   const periods: PipelineSkuPeriod[] = basePeriods.map((period) => {
     const skuUpper = period.skuKey.toUpperCase();
     const externalAdEntry =
@@ -216,6 +226,12 @@ export function runOperationsPipeline(
       options.externalAdSpendBySku?.[skuUpper];
     const externalAdSpendCents = externalAdEntry ? Math.max(0, Math.round(externalAdEntry.spendCents)) : 0;
     const settlementAdCents = period.costsByKey.adCost ?? 0;
+    const adResolved = resolveEffectiveAdSpend(settlementAdCents, externalAdSpendCents, adOverlapPolicy);
+    if (adResolved.overlapDetected) {
+      warnings.push(
+        `SKU ${period.skuKey}（${period.periodKey}）同时存在结算单广告费（${(settlementAdCents / 100).toFixed(2)}）与外部 Ads 报表广告费（${(externalAdSpendCents / 100).toFixed(2)}），已按「${adOverlapPolicy === "dedupe_max" ? "补差防重扣" : adOverlapPolicy}」口径去重，避免重复扣减利润。`,
+      );
+    }
     const adAttribution: AdAttributionSource = externalAdEntry
       ? externalAdEntry.source
       : settlementAdCents > 0
@@ -228,6 +244,7 @@ export function runOperationsPipeline(
       ? {
           ...rawForecastInput,
           externalAdSpendCents: rawForecastInput.externalAdSpendCents ?? externalAdSpendCents,
+          adOverlapPolicy: rawForecastInput.adOverlapPolicy ?? adOverlapPolicy,
           adAttribution: rawForecastInput.adAttribution ?? adAttribution,
         }
       : undefined;
@@ -245,7 +262,7 @@ export function runOperationsPipeline(
       landedCostTotalCents !== null
         ? period.contribution.contributionProfitCents -
           landedCostTotalCents -
-          externalAdSpendCents -
+          adResolved.incrementalDeductionCents -
           amortizedTotal
         : null;
     const trueNetMarginRate =
@@ -276,6 +293,8 @@ export function runOperationsPipeline(
       inventory,
       inventoryDays: days,
       externalAdSpendCents,
+      effectiveAdSpendCents: adResolved.effectiveTotalAdCents,
+      adOverlapDetected: adResolved.overlapDetected,
       adAttribution,
       costBasis,
       unitLandedCostCents,

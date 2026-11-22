@@ -3,6 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { platformEconomicDefaults } from "@/lib/ai-sourcing";
+import { loadCalibratedDefaultsForScope } from "@/lib/calibration-repository";
 import { convertRmbToForeignCents } from "@/lib/currency";
 import { getEffectiveFxRate } from "@/lib/fx-rates";
 import { getDb } from "@/lib/db";
@@ -52,7 +53,14 @@ export async function quickCreateCaseFromWizardAction(
     const category = input.category.trim() || "未分类";
     const actor = input.actor?.trim() || "选品向导";
 
-    const defaults = platformEconomicDefaults(platformCode, targetPriceCents);
+    const calibratedBundle = await loadCalibratedDefaultsForScope({
+      marketplace: marketCode,
+      currency,
+      category,
+      platformCode,
+      salePriceCents: targetPriceCents,
+    });
+    const defaults = calibratedBundle.defaults;
     await getEffectiveFxRate(currency);
     const purchaseForeignCents = convertRmbToForeignCents(factoryCostRmb, currency);
     const freightCents =
@@ -83,6 +91,7 @@ export async function quickCreateCaseFromWizardAction(
       couponCents: defaults.couponCents,
       storageCents: defaults.storageCents,
       otherCostCents: defaults.otherCostCents,
+      ...(calibratedBundle.calibrationMeta ? { calibrationMeta: calibratedBundle.calibrationMeta } : {}),
     };
 
     const results = calculateEconomics(assumptions);

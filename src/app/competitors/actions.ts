@@ -775,12 +775,20 @@ export async function promoteCompetitorReportToCaseAction(params: {
     const estFreightCents = Math.round(purchaseCostCents * 0.25);
     const landedCostCents = purchaseCostCents + estFreightCents;
 
-    const defaults = platformEconomicDefaults(report.platformCode, params.targetPriceCents);
+    const { loadCalibratedDefaultsForScope } = await import("@/lib/calibration-repository");
+    const calibratedBundle = await loadCalibratedDefaultsForScope({
+      marketplace: report.marketCode,
+      currency,
+      category: report.hypothesisBridge?.category || report.title,
+      platformCode: report.platformCode,
+      salePriceCents: params.targetPriceCents,
+    });
     const assumptions = {
       currency,
       salePriceCents: params.targetPriceCents,
       landedCostCents,
-      ...defaults,
+      ...calibratedBundle.defaults,
+      ...(calibratedBundle.calibrationMeta ? { calibrationMeta: calibratedBundle.calibrationMeta } : {}),
     };
 
     const monthlySales = Math.round(

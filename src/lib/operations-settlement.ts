@@ -406,6 +406,97 @@ export type VarianceBreakdownItem = {
   status: "compared" | "unattributed" | "insufficient_units";
 };
 
+/**
+ * 结算单广告费与外部 Ads 报表广告费的重叠处理口径：
+ * - dedupe_max（默认 · 补差防重扣）：两份报表同时存在时，总广告费取二者较大值，
+ *   对已扣过结算单广告费的 contributionProfitCents 仅补扣 max(0, external - settlement)，杜绝重复扣款。
+ * - prefer_external：以外部 Ads 报表为准替换结算单广告费。
+ * - prefer_settlement：以结算单广告费为准，忽略外部 Ads 报表。
+ * - additive：仅在明确确认两份报表覆盖互斥渠道（如站内 + 站外）时才允许相加。
+ */
+export type AdOverlapPolicy = "dedupe_max" | "prefer_external" | "prefer_settlement" | "additive";
+
+export type ResolvedAdSpend = {
+  settlementAdCents: number;
+  externalAdCents: number;
+  /** 去重后的周期有效总广告费（分），用于广告费占比与实盘校准 */
+  effectiveTotalAdCents: number;
+  /**
+   * 相对 contributionProfitCents（内部已扣过 settlementAdCents）还需额外扣减的净额（分）。
+   * 若为 prefer_external 且 external < settlement，可为负数表示回冲差额。
+   */
+  incrementalDeductionCents: number;
+  /** 是否检测到同一周期内同时存在结算单广告费与外部 Ads 广告费 */
+  overlapDetected: boolean;
+  /** 实际生效的去重口径 */
+  policy: AdOverlapPolicy;
+};
+
+export function resolveEffectiveAdSpend(
+  rawSettlementAdCents: number,
+  rawExternalAdCents: number,
+  policy: AdOverlapPolicy = "dedupe_max",
+): ResolvedAdSpend {
+  const settlementAdCents = Math.max(0, Math.round(rawSettlementAdCents || 0));
+  const externalAdCents = Math.max(0, Math.round(rawExternalAdCents || 0));
+  const overlapDetected = settlementAdCents > 0 && externalAdCents > 0;
+
+  if (!overlapDetected) {
+    return {
+      settlementAdCents,
+      externalAdCents,
+      effectiveTotalAdCents: settlementAdCents + externalAdCents,
+      incrementalDeductionCents: externalAdCents,
+      overlapDetected: false,
+      policy,
+    };
+  }
+
+  if (policy === "additive") {
+    return {
+      settlementAdCents,
+      externalAdCents,
+      effectiveTotalAdCents: settlementAdCents + externalAdCents,
+      incrementalDeductionCents: externalAdCents,
+      overlapDetected: true,
+      policy,
+    };
+  }
+
+  if (policy === "prefer_settlement") {
+    return {
+      settlementAdCents,
+      externalAdCents,
+      effectiveTotalAdCents: settlementAdCents,
+      incrementalDeductionCents: 0,
+      overlapDetected: true,
+      policy,
+    };
+  }
+
+  if (policy === "prefer_external") {
+    return {
+      settlementAdCents,
+      externalAdCents,
+      effectiveTotalAdCents: externalAdCents,
+      incrementalDeductionCents: externalAdCents - settlementAdCents,
+      overlapDetected: true,
+      policy,
+    };
+  }
+
+  // 默认 dedupe_max：补差防重扣
+  const effectiveTotalAdCents = Math.max(settlementAdCents, externalAdCents);
+  return {
+    settlementAdCents,
+    externalAdCents,
+    effectiveTotalAdCents,
+    incrementalDeductionCents: Math.max(0, externalAdCents - settlementAdCents),
+    overlapDetected: true,
+    policy: "dedupe_max",
+  };
+}
+
 export type ForecastComparisonInput = {
   /** 单件预测净利，必须是站点币种；跨币种换算由调用方按 fxRate 显式完成。 */
   unitNetProfitCents: number;
@@ -417,6 +508,8 @@ export type ForecastComparisonInput = {
   unitAmortizedFixedCostCents?: number;
   /** 可选：外部导入的 SKU 级广告花费（非结算单内扣款），单位分 */
   externalAdSpendCents?: number;
+  /** 可选：结算单广告费与外部 Ads 报表同时存在时的去重口径，默认 dedupe_max（补差防重扣） */
+  adOverlapPolicy?: AdOverlapPolicy;
   /** 可选：广告归因状态 */
   adAttribution?: "settlement" | "ads_report" | "manual" | "missing";
   /** 可选：立项成本模型原始假设，用于输出分项误差拆解 */
@@ -439,8 +532,10 @@ export type ForecastComparison = {
   landedCostApplied: boolean;
   /** 扣减的周期采购到岸总成本（未绑定时为 null） */
   landedCostTotalCents: number | null;
-  /** 扣减的外部广告花费（分） */
+  /** 扣减的外部广告花费净额（分，已按去重口径处理，避免与结算单广告费重复扣除） */
   externalAdSpendCents: number;
+  /** 是否检测到结算单广告费与外部 Ads 报表重叠 */
+  adOverlapDetected: boolean;
   /** 实盘真实净利（未绑定采购成本时为 null） */
   trueNetProfitCents: number | null;
   /** 实盘分项 vs 立项预测误差拆解 */
@@ -462,9 +557,12 @@ function buildVarianceBreakdown(
   const actualSalePrice = grossUnits > 0 ? Math.round(grossRev / grossUnits) : null;
   const platformFee = result.costsByKey.platformFee ?? 0;
   const fulfillmentFee = result.costsByKey.fulfillmentFee ?? 0;
-  const settlementAd = result.costsByKey.adCost ?? 0;
-  const externalAd = Math.max(0, Math.round(input.externalAdSpendCents ?? 0));
-  const totalAd = settlementAd + externalAd;
+  const adResolved = resolveEffectiveAdSpend(
+    result.costsByKey.adCost ?? 0,
+    input.externalAdSpendCents ?? 0,
+    input.adOverlapPolicy ?? "dedupe_max",
+  );
+  const totalAd = adResolved.effectiveTotalAdCents;
   const storageFee = (result.costsByKey.storage ?? 0) + (result.costsByKey.longTermStorage ?? 0);
 
   const actualReferralRate = netRev > 0 ? platformFee / netRev : null;
@@ -548,7 +646,12 @@ export function compareWithForecast(
       `must match settlement currency ${result.currency}; convert with fxRate ${result.fxRate} first`,
     );
   }
-  const externalAdSpendCents = Math.max(0, Math.round(input.externalAdSpendCents ?? 0));
+  const adResolved = resolveEffectiveAdSpend(
+    result.costsByKey.adCost ?? 0,
+    input.externalAdSpendCents ?? 0,
+    input.adOverlapPolicy ?? "dedupe_max",
+  );
+  const incrementalExternalAdCents = adResolved.incrementalDeductionCents;
   const hasLandedCost =
     typeof input.unitLandedCostCents === "number" &&
     Number.isFinite(input.unitLandedCostCents) &&
@@ -567,7 +670,7 @@ export function compareWithForecast(
     trueNetProfitCents =
       result.contribution.contributionProfitCents -
       landedCostTotalCents -
-      externalAdSpendCents -
+      incrementalExternalAdCents -
       amortizedTotal;
     actualComparableProfitCents = trueNetProfitCents;
     forecastUnitProfitCents = input.unitNetProfitCents;
@@ -576,7 +679,8 @@ export function compareWithForecast(
     Number.isFinite(input.unitPlatformContributionCents)
   ) {
     comparisonBasis = "platform_contribution";
-    actualComparableProfitCents = result.contribution.contributionProfitCents - externalAdSpendCents;
+    actualComparableProfitCents =
+      result.contribution.contributionProfitCents - incrementalExternalAdCents;
     forecastUnitProfitCents = input.unitPlatformContributionCents;
   } else {
     comparisonBasis = "legacy_unadjusted";
@@ -604,7 +708,8 @@ export function compareWithForecast(
     forecastComparableProfitCents: folded.foldedProfitCents,
     landedCostApplied: hasLandedCost,
     landedCostTotalCents,
-    externalAdSpendCents,
+    externalAdSpendCents: incrementalExternalAdCents,
+    adOverlapDetected: adResolved.overlapDetected,
     trueNetProfitCents,
     breakdown: buildVarianceBreakdown(result, input),
   };

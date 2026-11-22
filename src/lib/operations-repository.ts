@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { getDb } from "./db.ts";
 import type { ContributionCostKey } from "./operations-metrics.ts";
 import type { AdAttributionSource, PipelineResult } from "./operations-pipeline.ts";
-import type { VarianceBreakdownItem } from "./operations-settlement.ts";
+import { resolveEffectiveAdSpend, type VarianceBreakdownItem } from "./operations-settlement.ts";
 
 export type ChannelSkuMapping = {
   id: string;
@@ -311,7 +311,8 @@ export async function saveOperationsBatch(params: {
     const fulfillmentFeeCents = costsByKey.fulfillmentFee ?? 0;
     const settlementAdCents = costsByKey.adCost ?? 0;
     const externalAdSpendCents = typeof p.externalAdSpendCents === "number" ? p.externalAdSpendCents : 0;
-    const totalAdSpendCents = settlementAdCents + externalAdSpendCents;
+    const adResolved = resolveEffectiveAdSpend(settlementAdCents, externalAdSpendCents, "dedupe_max");
+    const totalAdSpendCents = adResolved.effectiveTotalAdCents;
     const adAttribution: AdAttributionSource =
       p.adAttribution ??
       (externalAdSpendCents > 0 ? "ads_report" : settlementAdCents > 0 ? "settlement" : "missing");
@@ -344,7 +345,9 @@ export async function saveOperationsBatch(params: {
       effectiveUnitLanded !== null ? Math.round(effectiveUnitLanded * p.units) : null;
     const amortizedTotal = Math.round((matched?.lookup?.unitAmortizedFixedCostCents ?? 0) * p.units);
     const netProfitCents =
-      landedCostCents !== null ? contrib - landedCostCents - externalAdSpendCents - amortizedTotal : null;
+      landedCostCents !== null
+        ? contrib - landedCostCents - adResolved.incrementalDeductionCents - amortizedTotal
+        : null;
     const netMarginRate = netProfitCents !== null && rev > 0 ? netProfitCents / rev : null;
     const costBasis: "true_net_profit" | "platform_contribution_only" =
       netProfitCents !== null ? "true_net_profit" : "platform_contribution_only";
@@ -750,8 +753,9 @@ export async function upsertChannelSkuMapping(input: {
     contribution_cents: number;
     external_ad_spend_cents: number;
     margin_rate: string | number;
+    payload: { costsByKey?: Partial<Record<ContributionCostKey, number>> } | null;
   }>(
-    `SELECT s.id, s.units_sold, s.revenue_cents, s.contribution_cents, s.external_ad_spend_cents, s.margin_rate
+    `SELECT s.id, s.units_sold, s.revenue_cents, s.contribution_cents, s.external_ad_spend_cents, s.margin_rate, s.payload
      FROM operations_sku_snapshots s
      JOIN operations_settlement_batches b ON b.id = s.batch_id
      WHERE UPPER(b.marketplace) = UPPER($1) AND UPPER(s.sku) = UPPER($2)`,
@@ -762,12 +766,16 @@ export async function upsertChannelSkuMapping(input: {
     const units = Number(snap.units_sold);
     const rev = Number(snap.revenue_cents);
     const contrib = Number(snap.contribution_cents);
+    const settlementAd = Number(snap.payload?.costsByKey?.adCost ?? 0);
     const extAd = Number(snap.external_ad_spend_cents ?? 0);
+    const adResolved = resolveEffectiveAdSpend(settlementAd, extAd, "dedupe_max");
     const platformMargin = Number(snap.margin_rate);
 
     const landedTotal = effectiveUnitLanded !== null ? Math.round(effectiveUnitLanded * units) : null;
     const netProfit =
-      landedTotal !== null ? contrib - landedTotal - extAd - Math.round(amortizedUnit * units) : null;
+      landedTotal !== null
+        ? contrib - landedTotal - adResolved.incrementalDeductionCents - Math.round(amortizedUnit * units)
+        : null;
     const netMargin = netProfit !== null && rev > 0 ? netProfit / rev : null;
     const costBasis = netProfit !== null ? "true_net_profit" : "platform_contribution_only";
     const planRate = costBasis === "true_net_profit" ? planNet : planPlatform;

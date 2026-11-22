@@ -256,10 +256,11 @@ test("aggregateSettlement preserves itemized costs, refunds and discounts withou
   assert.equal(res.costsByKey.storage, 450);
 
   // 同口径对比：传入单位采购成本后，按 true_net_profit 计算真实净利与误差
+  // 结算单已含 adCost=3000，外部 Ads 报表为 4000 -> 默认 dedupe_max 仅补扣差额 1000，不重复扣 4000
   const trueNetComp = compareWithForecast(res, {
     unitNetProfitCents: 1_000,
     unitLandedCostCents: 1_200,
-    externalAdSpendCents: 1_000,
+    externalAdSpendCents: 4_000,
     adAttribution: "ads_report",
     costModelVersion: "v2",
     forecastCurrency: "USD",
@@ -277,11 +278,29 @@ test("aggregateSettlement preserves itemized costs, refunds and discounts withou
   assert.equal(trueNetComp.comparisonBasis, "true_net_profit");
   assert.equal(trueNetComp.landedCostApplied, true);
   assert.equal(trueNetComp.landedCostTotalCents, 10_800);
+  assert.equal(trueNetComp.adOverlapDetected, true);
+  assert.equal(trueNetComp.externalAdSpendCents, 1_000);
   // contributionProfit = (40000 - 4000 - 1000) - (5250 + 5000 + 3000 + 450) = 35000 - 13700 = 21300
-  // trueNetProfit = 21300 - 10800 - 1000 = 9500; forecast = 9 * 1000 = 9000; diff = +500
+  // 补差扣减 = max(0, 4000 - 3000) = 1000; trueNetProfit = 21300 - 10800 - 1000 = 9500
   assert.equal(trueNetComp.trueNetProfitCents, 9_500);
   assert.equal(trueNetComp.variance.differenceCents, 500);
   assert.equal(trueNetComp.breakdown.length, 6);
+  const adBreakdown = trueNetComp.breakdown.find((b) => b.key === "adRate");
+  assert.equal(adBreakdown?.actual, 4_000 / 40_000);
+
+  // 外部 Ads 报表金额小于结算单广告费时，默认 dedupe_max 不再重复扣减（补差为 0）
+  const smallerExternalComp = compareWithForecast(res, {
+    unitNetProfitCents: 1_000,
+    unitLandedCostCents: 1_200,
+    externalAdSpendCents: 1_000,
+    adAttribution: "ads_report",
+    costModelVersion: "v2",
+    forecastCurrency: "USD",
+    minDenominatorCents: 1_000,
+  });
+  assert.equal(smallerExternalComp.adOverlapDetected, true);
+  assert.equal(smallerExternalComp.externalAdSpendCents, 0);
+  assert.equal(smallerExternalComp.trueNetProfitCents, 10_500);
 
   // 缺采购成本但有预测平台贡献时，按 platform_contribution 同口径比较
   const platformComp = compareWithForecast(res, {
