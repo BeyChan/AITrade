@@ -9,7 +9,7 @@ import { resolvePersistedSiteScope } from "@/lib/site-scope";
 export const dynamic = "force-dynamic";
 
 type PageProps = {
-  searchParams: Promise<{ market?: string; platform?: string }>;
+  searchParams: Promise<{ market?: string; platform?: string; entry?: string }>;
 };
 
 export default async function DiscoverPage({ searchParams }: PageProps) {
@@ -64,6 +64,7 @@ export default async function DiscoverPage({ searchParams }: PageProps) {
         requestKey={randomUUID()}
         reports={siteReports}
         batches={batches}
+        initialEntryMode={query.entry === "ai" ? "ai_brainstorm" : "wizard"}
       />
     </div>
   );

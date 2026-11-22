@@ -24,6 +24,7 @@ type TopbarSiteScopeProps = {
   defaultPlatform?: string;
   leftSlot?: ReactNode;
   fxSnapshot?: FxRatesSnapshot;
+  initialNowIso?: string;
 };
 
 export function TopbarSiteScope({
@@ -33,6 +34,7 @@ export function TopbarSiteScope({
   defaultPlatform = "amazon",
   leftSlot,
   fxSnapshot,
+  initialNowIso,
 }: TopbarSiteScopeProps) {
   const searchParams = useSearchParams();
 
@@ -57,7 +59,12 @@ export function TopbarSiteScope({
       <div className="topbar-left">{leftSlot}</div>
       <div className="topbar-right">
         {fxSnapshot ? (
-          <TopbarFxWidget currency={selectedCurrency} initialSnapshot={fxSnapshot} />
+          <TopbarFxWidget
+            currency={selectedCurrency}
+            marketCode={selectedMarket ?? "US"}
+            initialNowIso={initialNowIso}
+            initialSnapshot={fxSnapshot}
+          />
         ) : null}
         {selectedMarket && selectedPlatform ? (
           <SiteScopeSwitcher

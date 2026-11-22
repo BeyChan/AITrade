@@ -46,6 +46,7 @@ type Props = {
   requestKey: string;
   reports: CompetitorComparisonReport[];
   batches: BatchSummary[];
+  initialEntryMode?: "ai_brainstorm" | "wizard";
 };
 
 type EntryMode = "choose" | "ai_brainstorm" | "wizard";
@@ -60,9 +61,10 @@ export function SelectionWizardClient({
   requestKey,
   reports,
   batches,
+  initialEntryMode = "wizard",
 }: Props) {
   const router = useRouter();
-  const [entryMode, setEntryMode] = useState<EntryMode>("wizard");
+  const [entryMode, setEntryMode] = useState<EntryMode>(initialEntryMode);
   const [step, setStep] = useState<WizardStep>(1);
 
   // 第 1 步：市场与竞品状态
@@ -284,9 +286,25 @@ export function SelectionWizardClient({
           <div className="section-header">
             <div>
               <h2>AI 类目机会发散（{marketName}站 · {platformName}）</h2>
-              <p>输入想做的类目和约束条件，系统生成 5 个待验证假设并自动进入研究批次；也可随时切回 3 步快速选品。</p>
+              <p>输入想做的类目和约束条件，系统生成 5 个待验证假设并自动进入研究批次（汇率已自动对接全局实时汇率）。</p>
             </div>
-            <Link href="/ai-sourcing" className="button ghost">查看全部历史批次</Link>
+            <div className="button-row">
+              <Link
+                href={`/import?market=${encodeURIComponent(marketCode)}&platform=${encodeURIComponent(platformCode)}`}
+                className="button secondary fx-btn-sm"
+              >
+                导入候选品 CSV
+              </Link>
+              <Link
+                href={`/cases?market=${encodeURIComponent(marketCode)}&platform=${encodeURIComponent(platformCode)}`}
+                className="button ghost fx-btn-sm"
+              >
+                查看全部商品
+              </Link>
+              <Link href="/ai-sourcing" className="button ghost fx-btn-sm">
+                历史批次
+              </Link>
+            </div>
           </div>
           <form action={createAISourcingBatchAction} className="stack">
             <input type="hidden" name="marketCode" value={marketCode} />

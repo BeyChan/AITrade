@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { formatFxRate, setRuntimeFxRates } from "@/lib/currency";
 import type { FxRatesSnapshot } from "@/lib/fx-rates";
+import { getMarketClockSnapshot } from "@/lib/market-clock";
 
 export const FX_UPDATED_EVENT = "aitrade:fx-updated";
 
@@ -31,15 +32,26 @@ function formatUpdatedLabel(isoOrDate: string | null): string {
 
 type TopbarFxWidgetProps = {
   currency: string;
+  marketCode?: string;
+  initialNowIso?: string;
   initialSnapshot: FxRatesSnapshot;
 };
 
-export function TopbarFxWidget({ currency, initialSnapshot }: TopbarFxWidgetProps) {
+export function TopbarFxWidget({
+  currency,
+  marketCode = "US",
+  initialNowIso,
+  initialSnapshot,
+}: TopbarFxWidgetProps) {
   const router = useRouter();
   const [snapshot, setSnapshot] = useState<FxRatesSnapshot>(initialSnapshot);
+  const [now, setNow] = useState<Date>(() => (initialNowIso ? new Date(initialNowIso) : new Date()));
   const [open, setOpen] = useState(false);
   const [reversed, setReversed] = useState(false);
   const [draftRate, setDraftRate] = useState("");
+  const [calcCny, setCalcCny] = useState("100");
+  const [calcForeign, setCalcForeign] = useState("");
+  const [calcSource, setCalcSource] = useState<"cny" | "foreign">("cny");
   const [busy, setBusy] = useState<"refresh" | "save" | "reset" | null>(null);
   const [feedback, setFeedback] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -47,6 +59,14 @@ export function TopbarFxWidget({ currency, initialSnapshot }: TopbarFxWidgetProp
 
   const normalizedCurrency = (currency || "USD").toUpperCase();
   const currentItem = snapshot.byCurrency[normalizedCurrency] ?? snapshot.byCurrency.USD ?? snapshot.items[0];
+
+  useEffect(() => {
+    setNow(new Date());
+    const timer = window.setInterval(() => {
+      setNow(new Date());
+    }, 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     setSnapshot(initialSnapshot);
@@ -93,6 +113,21 @@ export function TopbarFxWidget({ currency, initialSnapshot }: TopbarFxWidgetProp
         : currentItem.rateToRmb;
       setDraftRate(String(displayVal));
       setFeedback(null);
+      if (calcSource === "cny") {
+        const cnyVal = Number(calcCny);
+        setCalcForeign(
+          Number.isFinite(cnyVal) && cnyVal >= 0
+            ? (cnyVal / currentItem.rateToRmb).toFixed(2)
+            : "",
+        );
+      } else {
+        const foreignVal = Number(calcForeign);
+        setCalcCny(
+          Number.isFinite(foreignVal) && foreignVal >= 0
+            ? (foreignVal * currentItem.rateToRmb).toFixed(2)
+            : "",
+        );
+      }
     }
   }, [open, reversed, currentItem?.currency, currentItem?.rateToRmb]);
 
@@ -220,6 +255,7 @@ export function TopbarFxWidget({ currency, initialSnapshot }: TopbarFxWidgetProp
 
   const modeLabel =
     currentItem.mode === "manual" ? "手动" : currentItem.mode === "live" ? "实时" : "基准";
+  const clock = getMarketClockSnapshot(marketCode, now);
 
   return (
     <div className="topbar-fx-widget" ref={containerRef}>
@@ -228,9 +264,16 @@ export function TopbarFxWidget({ currency, initialSnapshot }: TopbarFxWidgetProp
         className={`topbar-fx-trigger ${open ? "is-open" : ""}`}
         aria-expanded={open}
         aria-haspopup="dialog"
-        aria-label={`当前汇率 ${currentItem.currency}/CNY ${formatFxRate(currentItem.currency, currentItem.rateToRmb)}，点击查看或修改`}
+        aria-label={`${clock.cityLabel} ${clock.timeText}，当前汇率 ${currentItem.currency}/CNY ${formatFxRate(currentItem.currency, currentItem.rateToRmb)}，点击查看或修改`}
+        title={`${clock.cityLabel} ${clock.timeText} (${clock.tzAbbr}) · ${clock.windowLabel} · ${clock.offsetDiffText}（北京时间 ${clock.beijingTimeText}）`}
         onClick={() => setOpen((prev) => !prev)}
       >
+        <span className="topbar-fx-clock-seg">
+          <span className={`pulse-dot is-${clock.windowTone}`} aria-hidden="true" />
+          <span className="topbar-fx-clock-city">{clock.cityLabel}</span>
+          <strong className="topbar-fx-clock-time">{clock.timeText}</strong>
+        </span>
+        <span className="topbar-fx-divider" aria-hidden="true" />
         <span className={`topbar-fx-dot is-${currentItem.mode}`} aria-hidden="true" />
         <span className="topbar-fx-pair">{currentItem.currency}/CNY</span>
         <strong className="topbar-fx-rate">{formatFxRate(currentItem.currency, currentItem.rateToRmb)}</strong>
@@ -238,7 +281,17 @@ export function TopbarFxWidget({ currency, initialSnapshot }: TopbarFxWidgetProp
       </button>
 
       {open ? (
-        <div className="topbar-fx-popover" role="dialog" aria-label="实时汇率与手动修改">
+        <div className="topbar-fx-popover" role="dialog" aria-label="站点时间与实时汇率">
+          <div className="topbar-fx-clock-bar">
+            <div>
+              <span className={`pulse-dot is-${clock.windowTone}`} aria-hidden="true" />
+              <strong>{clock.cityLabel} {clock.timeText}</strong>
+              {clock.tzAbbr ? <span className="topbar-fx-clock-tz">{clock.tzAbbr}</span> : null}
+              <span className={`pulse-window is-${clock.windowTone}`}>{clock.windowLabel}</span>
+            </div>
+            <span className="topbar-fx-clock-diff">{clock.offsetDiffText}</span>
+          </div>
+
           <div className="topbar-fx-pop-head">
             <div>
               <strong>
@@ -276,6 +329,55 @@ export function TopbarFxWidget({ currency, initialSnapshot }: TopbarFxWidgetProp
                     : `¥${formatFxRate(currentItem.currency, currentItem.liveRateToRmb)} (${formatUpdatedLabel(snapshot.liveUpdatedAt)})`
                   : "未拉取（点击下方刷新）"}
               </span>
+            </div>
+          </div>
+
+          <div className="topbar-fx-calc" aria-label="快捷双向金额换算">
+            <span className="topbar-fx-calc-label">快捷换算</span>
+            <div className="topbar-fx-calc-grid">
+              <label className="topbar-fx-calc-field">
+                <span>CNY ¥</span>
+                <input
+                  type="number"
+                  step="any"
+                  min="0"
+                  value={calcCny}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setCalcSource("cny");
+                    setCalcCny(val);
+                    const n = Number(val);
+                    setCalcForeign(
+                      val.trim() !== "" && Number.isFinite(n) && n >= 0
+                        ? (n / currentItem.rateToRmb).toFixed(2)
+                        : "",
+                    );
+                  }}
+                  placeholder="人民币"
+                />
+              </label>
+              <span className="topbar-fx-calc-eq" aria-hidden="true">⇄</span>
+              <label className="topbar-fx-calc-field">
+                <span>{currentItem.currency} {currentItem.symbol}</span>
+                <input
+                  type="number"
+                  step="any"
+                  min="0"
+                  value={calcForeign}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setCalcSource("foreign");
+                    setCalcForeign(val);
+                    const n = Number(val);
+                    setCalcCny(
+                      val.trim() !== "" && Number.isFinite(n) && n >= 0
+                        ? (n * currentItem.rateToRmb).toFixed(2)
+                        : "",
+                    );
+                  }}
+                  placeholder={currentItem.name}
+                />
+              </label>
             </div>
           </div>
 

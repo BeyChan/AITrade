@@ -71,6 +71,11 @@ const ENTITY_TYPE_META: Record<
     module: "settings",
     href: () => "/fx-rates",
   },
+  market_intel: {
+    label: "跨境情报",
+    module: "ingestion",
+    href: () => "/",
+  },
   model_profile: {
     label: "模型配置档案",
     module: "settings",
@@ -207,6 +212,7 @@ const ACTION_META: Record<string, ActionMeta> = {
   "fx.manual_rate_set": { label: "手动锁定汇率", level: "warn", module: "settings" },
   "fx.manual_rate_cleared": { label: "恢复跟随实时汇率", level: "info", module: "settings" },
   "fx.live_rates_refreshed": { label: "同步最新实时汇率", level: "success", module: "settings" },
+  "intel.feed_refreshed": { label: "刷新跨境行业快讯", level: "info", module: "ingestion" },
   "competitor.serp_captured": { label: "扩展批量采集 SERP 竞品", level: "success", module: "ai" },
   "competitor.dp_captured": { label: "扩展采集单品详情页", level: "success", module: "ai" },
   "competitor.report_created": { label: "生成竞品对比研报", level: "info", module: "ai" },

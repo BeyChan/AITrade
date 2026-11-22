@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { recordAuditLog } from "@/lib/audit-logs";
 import type { EconomicsAssumptions } from "@/lib/economics";
+import { getFxRatesSnapshot } from "@/lib/fx-rates";
+import { getSiteOptions } from "@/lib/repository";
 import {
   clearStoredAIProviderKey,
   clearStoredImageProviderKey,
@@ -113,17 +115,34 @@ export async function restoreCaseAction(formData: FormData) {
 export async function createAISourcingBatchAction(formData: FormData) {
   const marketCode = String(formData.get("marketCode") || "").trim().toUpperCase();
   const platformCode = String(formData.get("platformCode") || "").trim().toLowerCase();
-  const returnPath = `/?market=${encodeURIComponent(marketCode)}&platform=${encodeURIComponent(platformCode)}`;
+  const returnPath = `/discover?market=${encodeURIComponent(marketCode)}&platform=${encodeURIComponent(platformCode)}&entry=ai`;
   let outcome: Awaited<ReturnType<typeof createAISourcingBatch>>;
   try {
+    let fxRateToUsd = numberOrNull(formData.get("fxRateToUsd"));
+    let fxSourceUrl = String(formData.get("fxSourceUrl") || "").trim() || null;
+
+    if (!fxRateToUsd) {
+      const [siteOpts, fxSnapshot] = await Promise.all([getSiteOptions(), getFxRatesSnapshot()]);
+      const market = siteOpts.markets.find((m) => m.code.toUpperCase() === marketCode);
+      const currency = (market?.currency || "USD").toUpperCase();
+      if (currency !== "USD") {
+        const usdToRmb = fxSnapshot.byCurrency.USD?.rateToRmb ?? 7.22;
+        const targetToRmb = fxSnapshot.byCurrency[currency]?.rateToRmb;
+        if (targetToRmb && targetToRmb > 0) {
+          fxRateToUsd = Number((usdToRmb / targetToRmb).toFixed(4));
+          fxSourceUrl = fxSourceUrl || "https://open.er-api.com/v6/latest/CNY";
+        }
+      }
+    }
+
     outcome = await createAISourcingBatch({
       marketCode,
       platformCode,
       category: String(formData.get("category") || ""),
       brief: String(formData.get("brief") || ""),
       actor: String(formData.get("actor") || ""),
-      fxRateToUsd: numberOrNull(formData.get("fxRateToUsd")),
-      fxSourceUrl: String(formData.get("fxSourceUrl") || "") || null,
+      fxRateToUsd,
+      fxSourceUrl,
       requestKey: String(formData.get("requestKey") || "") || null,
     });
   } catch (error) {

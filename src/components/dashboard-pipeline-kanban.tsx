@@ -237,7 +237,13 @@ export function DashboardPipelineKanban({
           </h2>
         </div>
 
-        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+          <Link
+            href={`/cases?market=${encodeURIComponent(marketCode)}&platform=${encodeURIComponent(platformCode)}`}
+            className="button ghost fx-btn-sm"
+          >
+            查看全部商品
+          </Link>
           <div
             style={{
               display: "inline-flex",

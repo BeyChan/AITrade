@@ -1,20 +1,18 @@
-import { randomUUID } from "node:crypto";
 import Link from "next/link";
-import { createAISourcingBatchAction } from "@/app/actions";
-import { CategoryRecommender } from "@/components/category-recommender";
-import { GenerateResearchButton } from "@/components/generate-research-button";
-import { OpportunityScoreHelp } from "@/components/opportunity-score-help";
 import { getAIProviderStatus } from "@/lib/ai-provider";
-import { getAppMode } from "@/lib/app-mode";
 import { buildAiProposalDigest, loadPendingAiProposals } from "@/lib/ai-proposals/digest";
 import { listAISourcingBatches } from "@/lib/ai-sourcing-repository";
-import { money, percent, shortDate } from "@/lib/format";
+import { money, percent } from "@/lib/format";
 import { getSiteOptions, listCasesForSite, listSourcingCases, listTerminatedCases } from "@/lib/repository";
-import { TerminateCaseControl } from "@/components/case-lifecycle-controls";
 import { TerminatedCasesPanel } from "@/components/terminated-cases-panel";
+import { DashboardIntelBriefing, type InternalAlertItem } from "@/components/dashboard-intel-briefing";
 import { DashboardPipelineKanban } from "@/components/dashboard-pipeline-kanban";
 import { QueryNotices } from "@/components/ui";
 import { getComparisonReports } from "@/lib/competitor-compare/storage";
+import { formatFxRate } from "@/lib/currency";
+import { getFxRatesSnapshot } from "@/lib/fx-rates";
+import { getMarketIntelSnapshot } from "@/lib/market-intel";
+import { listOperationsBatches } from "@/lib/operations-repository";
 import { resolvePersistedSiteScope } from "@/lib/site-scope";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +28,7 @@ type PageProps = {
 };
 
 export default async function DashboardPage({ searchParams }: PageProps) {
-  const [query, options, mode] = await Promise.all([searchParams, getSiteOptions(), getAppMode()]);
+  const [query, options] = await Promise.all([searchParams, getSiteOptions()]);
   const siteScope = await resolvePersistedSiteScope(query.market, query.platform);
 
   const selectedMarket =
@@ -46,7 +44,18 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     throw new Error("缺少可用的国家或平台配置");
   }
 
-  const [cases, batches, sourcingCases, provider, proposals, terminatedCases, competitorReports] = await Promise.all([
+  const [
+    cases,
+    batches,
+    sourcingCases,
+    provider,
+    proposals,
+    terminatedCases,
+    competitorReports,
+    marketIntel,
+    fxSnapshot,
+    opsBatches,
+  ] = await Promise.all([
     listCasesForSite(selectedMarket.code, selectedPlatform.code),
     listAISourcingBatches(selectedMarket.code, selectedPlatform.code),
     listSourcingCases(),
@@ -57,16 +66,23 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     ),
     listTerminatedCases(),
     getComparisonReports(),
+    getMarketIntelSnapshot().catch(() => ({
+      items: [],
+      updatedAt: null,
+      isStale: true,
+      sourcesChecked: 4,
+      sourcesSucceeded: 0,
+    })),
+    getFxRatesSnapshot(),
+    listOperationsBatches(5).catch(() => []),
   ]);
 
   const siteLabel = `${selectedMarket.name}站 · ${selectedPlatform.name}`;
   const siteQuery = `market=${encodeURIComponent(selectedMarket.code)}&platform=${encodeURIComponent(selectedPlatform.code)}`;
-  const newResearchHref = `/?${siteQuery}&new=1#new-research`;
-  const importHref = `/import?${siteQuery}`;
+  const newResearchHref = `/discover?${siteQuery}&entry=ai`;
   const approvedCases = cases.filter((item) => item.status === "approved");
   const approvedCaseIds = new Set(approvedCases.map((item) => item.id));
   const siteSourcingCases = sourcingCases.filter((item) => approvedCaseIds.has(item.productCase.id));
-  const sourcingByCaseId = new Map(siteSourcingCases.map((item) => [item.productCase.id, item]));
 
   const batchSelectedCount = batches.reduce((sum, batch) => sum + batch.selectedCount, 0);
   const batchGoCount = batches.reduce((sum, batch) => sum + batch.goCount, 0);
@@ -75,15 +91,11 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const pendingAwardCases = siteSourcingCases.filter((item) => item.quoteCount > 0 && !item.selection);
   const contentReadyCases = siteSourcingCases.filter((item) => item.selection);
   const activeBatch = batches.find((batch) => batch.selectedCount > batch.goCount) ?? batches[0];
-  const recentCases = [...approvedCases]
-    .sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())
-    .slice(0, 5);
   const demoCount = approvedCases.filter((item) => item.is_demo).length;
   const siteTerminatedCases = terminatedCases.filter(
     (entry) => entry.caseItem.marketplace.toUpperCase() === selectedMarket.code.toUpperCase(),
   );
   const dashboardReturnPath = `/?${siteQuery}`;
-  const researchRequestKey = randomUUID();
 
   // 宏观商业经营指标计算
   const casesWithMargin = approvedCases.filter((item) => item.costModel?.results?.marginRate != null);
@@ -96,6 +108,93 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     const sales = item.monthly_sales_estimate || 0;
     return sum + profit * sales;
   }, 0);
+
+  // 站内经营异动（100% 来自真实业务数据）
+  const internalAlerts: InternalAlertItem[] = [];
+
+  // 1. 利润低于 18% 门禁线的在办商品
+  const lowMarginCases = casesWithMargin
+    .filter((item) => (item.costModel?.results?.marginRate ?? 1) < 0.18)
+    .sort((a, b) => (a.costModel?.results?.marginRate ?? 0) - (b.costModel?.results?.marginRate ?? 0));
+  for (const item of lowMarginCases.slice(0, 2)) {
+    const rate = item.costModel?.results?.marginRate ?? 0;
+    internalAlerts.push({
+      id: `margin-${item.id}`,
+      tag: "利润破线",
+      tone: rate < 0.1 ? "danger" : "warn",
+      title: item.title,
+      detail: `当前测算净利率 ${percent(rate)}，低于 18% GO 门禁线`,
+      href: `/cases/${item.id}`,
+      actionLabel: "调成本",
+    });
+  }
+
+  // 2. 实盘账本 FBA 断货倒计时预警
+  const siteOpsBatch = opsBatches.find(
+    (b) => b.marketplace.toUpperCase() === selectedMarket.code.toUpperCase(),
+  ) ?? opsBatches[0];
+  if (siteOpsBatch) {
+    const riskSku = siteOpsBatch.skus.find(
+      (s) => s.stockoutRisk === "critical" || s.stockoutRisk === "warning",
+    );
+    if (riskSku) {
+      internalAlerts.push({
+        id: `stockout-${riskSku.id}`,
+        tag: riskSku.stockoutRisk === "critical" ? "断货高危" : "库存预警",
+        tone: riskSku.stockoutRisk === "critical" ? "danger" : "warn",
+        title: `SKU ${riskSku.sku} 可售天数告急`,
+        detail:
+          riskSku.daysOfSupply !== null
+            ? `预计仅够售 ${Math.round(riskSku.daysOfSupply)} 天（可售 ${riskSku.availableUnits ?? "—"} 件）`
+            : `批次「${siteOpsBatch.label}」存在 ${siteOpsBatch.stockoutRiskCount} 个断货风险 SKU`,
+        href: "/operations",
+        actionLabel: "看账本",
+      });
+    }
+  }
+
+  // 3. 竞品研报最新异动（价格跳水 / 评论激增 / 待人工确认）
+  const siteReports = competitorReports.filter(
+    (r) => (r.marketCode || "US").toUpperCase() === selectedMarket.code.toUpperCase(),
+  );
+  const diffReport = siteReports.find((r) => r.snapshotDiff && Array.isArray(r.snapshotDiff.alerts) && r.snapshotDiff.alerts.length > 0);
+  if (diffReport && diffReport.snapshotDiff) {
+    internalAlerts.push({
+      id: `comp-diff-${diffReport.id}`,
+      tag: "竞品异动",
+      tone: "info",
+      title: diffReport.title,
+      detail: diffReport.snapshotDiff.alerts[0],
+      href: `/competitors?id=${encodeURIComponent(diffReport.id)}`,
+      actionLabel: "看研报",
+    });
+  } else if (siteReports[0]) {
+    const latestReport = siteReports[0];
+    const p50 = latestReport.priceStats?.p50 ?? 0;
+    internalAlerts.push({
+      id: `comp-latest-${latestReport.id}`,
+      tag: "竞品动态",
+      tone: "info",
+      title: latestReport.title,
+      detail: `已收录 ${latestReport.competitors.length} 款竞品 · 价格中位 ${p50 > 0 ? `${(p50 / 100).toFixed(1)} ${latestReport.currency || selectedMarket.currency}` : "待采集"}`,
+      href: `/competitors?id=${encodeURIComponent(latestReport.id)}`,
+      actionLabel: "查看",
+    });
+  }
+
+  // 当前站点币种汇率偏离官方基准 ≥ 1% 时，在外部情报栏顶部给出联动提示
+  const siteFx = fxSnapshot.byCurrency[selectedMarket.currency.toUpperCase()];
+  let fxNotice: { title: string; detail: string } | null = null;
+  if (siteFx && siteFx.mode !== "default" && siteFx.defaultRateToRmb > 0) {
+    const deltaPct = ((siteFx.rateToRmb - siteFx.defaultRateToRmb) / siteFx.defaultRateToRmb) * 100;
+    if (Math.abs(deltaPct) >= 1) {
+      const dir = deltaPct > 0 ? "上浮" : "回落";
+      fxNotice = {
+        title: `${siteFx.currency}/CNY 较基准${dir} ${Math.abs(deltaPct).toFixed(1)}%（当前 ¥${formatFxRate(siteFx.currency, siteFx.rateToRmb)}）`,
+        detail: `${siteFx.source} · 建议复核 1688 采购上限与在办商品利润安全垫`,
+      };
+    }
+  }
 
   const attentionTasks = [
     ...(proposals.total > 0 ? [{
@@ -165,59 +264,158 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     },
   ].filter((task) => task.value > 0);
 
+  const nowIso = new Date().toISOString();
+  const totalAttentionCount = attentionTasks.reduce((sum, task) => sum + task.value, 0);
+  const topTaskLabel = attentionTasks[0]?.label;
+  const focusReport = !activeBatch ? (siteReports[0] ?? competitorReports[0] ?? null) : null;
+
   return (
     <div className="page dashboard-page">
-      <section className="dashboard-hero">
-        <div className="dashboard-hero-copy">
-          <div className="dashboard-context">
-            <span>当前工作区</span>
-            <strong>{siteLabel}</strong>
-            <small>{selectedMarket.currency}</small>
+      {/* 1. 一体化工作台主 Hero（左：行动指引 · 右：最近研报焦点 · 底：内嵌单行情报头条条） */}
+      <section className="dashboard-hero-v2">
+        <div className="hero-v2-main">
+          <div className="hero-v2-left">
             {demoCount > 0 ? (
-              <span className="dashboard-demo-badge" title="当前工作区包含演示样板数据">
-                DEMO 样板 ({demoCount})
-              </span>
+              <div className="hero-eyebrow-bar">
+                <span className="hero-eyebrow-demo" title="当前工作区包含演示样板数据">
+                  DEMO ({demoCount})
+                </span>
+              </div>
             ) : null}
-          </div>
-          <h1>今天先处理什么</h1>
-          <p>
-            {attentionTasks.length > 0
-              ? `今天有 ${attentionTasks.length} 类待办。按顺序处理，每一项都能直接跳到要操作的位置。`
-              : "当前没有必须人工处理的事项，可以查看商品进度或发起新一轮选品研究。"}
-          </p>
-          <div className="dashboard-hero-actions">
-            <Link href={`/discover?${siteQuery}`} className="button primary">开始选品（3 步向导）</Link>
-            <Link href="#pipeline-kanban" className="button secondary">查看业务推进大盘</Link>
-          </div>
-        </div>
 
-        <aside className="dashboard-focus-card" aria-label="当前研究">
-          <span className="dashboard-kicker">{activeBatch ? "继续当前研究" : "最近研究"}</span>
+            <h1 className="hero-v2-title">
+              {totalAttentionCount > 0
+                ? `今天有 ${totalAttentionCount} 项待办待推进`
+                : `${siteLabel} 工作台`}
+            </h1>
+
+            <p className="hero-v2-desc">
+              {totalAttentionCount > 0
+                ? `优先处理「${topTaskLabel ?? "在办商品"}」，点击下方看板或右侧按钮可直接跳到对应步骤。`
+                : "当前没有阻塞待办，可以从 3 步选品向导开启下一轮机会验证，或继续查看右侧最近研报。"}
+            </p>
+
+            <div className="hero-v2-actions">
+              <Link href={`/discover?${siteQuery}`} className="button primary">
+                开始选品（3 步向导）
+              </Link>
+              {attentionTasks[0] ? (
+                <Link href={attentionTasks[0].href} className="button secondary">
+                  优先处理：{attentionTasks[0].action}
+                </Link>
+              ) : null}
+            </div>
+          </div>
+
+          <aside className="hero-focus-card" aria-label="当前研究">
           {activeBatch ? (
             <>
-              <h2>{activeBatch.category}</h2>
-              <p>{activeBatch.brief}</p>
-              <div className="dashboard-focus-metrics">
-                <span><strong>{activeBatch.hypothesisCount}</strong> 个方向</span>
-                <span><strong>{activeBatch.selectedCount}</strong> 个验证中</span>
-                <span><strong>{activeBatch.goCount}</strong> 个 GO</span>
+              <div className="hero-focus-head">
+                <span className="hero-focus-kicker">继续当前 AI 研究</span>
               </div>
-              <Link href={`/ai-sourcing/${activeBatch.id}?tab=hypotheses`} className="dashboard-text-link">继续验证</Link>
+              <h2 className="hero-focus-title">{activeBatch.category}</h2>
+              <p className="hero-focus-desc">{activeBatch.brief}</p>
+              <div className="hero-focus-stats">
+                <div className="hero-stat-cell">
+                  <span>候选方向</span>
+                  <strong>{activeBatch.hypothesisCount}</strong>
+                </div>
+                <div className="hero-stat-cell">
+                  <span>验证中</span>
+                  <strong>{activeBatch.selectedCount}</strong>
+                </div>
+                <div className="hero-stat-cell">
+                  <span>通过 GO</span>
+                  <strong>{activeBatch.goCount}</strong>
+                </div>
+              </div>
+              <div className="hero-focus-footer">
+                <Link href={`/ai-sourcing/${activeBatch.id}?tab=hypotheses`} className="button secondary fx-btn-sm">
+                  继续验证 →
+                </Link>
+              </div>
             </>
+          ) : focusReport ? (
+            (() => {
+              const p50 = focusReport.priceStats?.p50 ?? 0;
+              const mathEv = focusReport.productIndex?.mathEvidence;
+              const hhiVal = mathEv && mathEv.hhiBasis !== "insufficient" ? Math.round(mathEv.hhi) : null;
+              return (
+                <>
+                  <div className="hero-focus-head">
+                    <span className="hero-focus-kicker">最近竞品研报</span>
+                    <span className="hero-focus-badge">
+                      {(focusReport.marketCode || selectedMarket.code).toUpperCase()}
+                    </span>
+                  </div>
+                  <h2 className="hero-focus-title" title={focusReport.title}>
+                    {focusReport.title}
+                  </h2>
+                  <div className="hero-focus-stats">
+                    <div className="hero-stat-cell">
+                      <span>样本数</span>
+                      <strong>{focusReport.competitors.length} 款</strong>
+                    </div>
+                    <div className="hero-stat-cell">
+                      <span>价格中位 P50</span>
+                      <strong>
+                        {p50 > 0
+                          ? `${(p50 / 100).toFixed(1)} ${focusReport.currency || selectedMarket.currency}`
+                          : "待采集"}
+                      </strong>
+                    </div>
+                    <div className="hero-stat-cell">
+                      <span>垄断度 HHI</span>
+                      <strong>{hhiVal !== null ? hhiVal : "—"}</strong>
+                    </div>
+                  </div>
+                  <div className="hero-focus-footer">
+                    <Link
+                      href={`/competitors?id=${encodeURIComponent(focusReport.id)}`}
+                      className="button secondary fx-btn-sm"
+                    >
+                      查看研报 →
+                    </Link>
+                    <Link href={newResearchHref} className="hero-focus-ghost-link">
+                      新建 AI 研究
+                    </Link>
+                  </div>
+                </>
+              );
+            })()
           ) : (
             <>
-              <h2>从一轮研究开始</h2>
-              <p>输入一个类目和研究条件，生成 5 个可验证的候选方向。</p>
-              <Link href={newResearchHref} className="dashboard-text-link">填写研究条件</Link>
+              <div className="hero-focus-head">
+                <span className="hero-focus-kicker">最近研究</span>
+              </div>
+              <h2 className="hero-focus-title">从一轮研究开始</h2>
+              <p className="hero-focus-desc">
+                输入类目与约束条件，让 AI 拆出 5 个可验证的细分机会方向。
+              </p>
+              <div className="hero-focus-footer">
+                <Link href={newResearchHref} className="button secondary fx-btn-sm">
+                  填写研究条件 →
+                </Link>
+              </div>
             </>
           )}
         </aside>
+        </div>
+
+        <DashboardIntelBriefing
+          marketCode={selectedMarket.code}
+          initialNowIso={nowIso}
+          initialIntel={marketIntel}
+          internalAlerts={internalAlerts}
+          fxNotice={fxNotice}
+          embedded
+        />
       </section>
 
       <QueryNotices notice={query.notice} error={query.error} />
 
-      {/* 宏观商业大盘 KPI 摘要条（可点击跳转至对应工作区） */}
-      <section className="dashboard-kpi-grid" aria-label="大盘测算潜力指标">
+      {/* 2. 紧凑 4 格 KPI 摘要条 */}
+      <section className="dashboard-kpi-grid is-compact" aria-label="大盘测算潜力指标">
         <Link href="#pipeline-kanban" className="dashboard-kpi-card" title="点击直达业务推进大盘">
           <div className="kpi-meta">
             <span className="kpi-label">推进中商品</span>
@@ -228,14 +426,14 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           </div>
           <div className="kpi-sub">
             {batchGoCount > 0 ? (
-              <span><strong>{batchGoCount}</strong> 款待立项决策 · 查看看板</span>
+              <span><strong>{batchGoCount}</strong> 款待立项决策</span>
             ) : (
-              <span>全部在办品正常流转中 · 查看看板</span>
+              <span>全部正常流转中</span>
             )}
           </div>
         </Link>
 
-        <Link href="#opportunities" className="dashboard-kpi-card" title="点击查看商品测算详情与成本模型">
+        <Link href={`/cases?${siteQuery}`} className="dashboard-kpi-card" title="点击查看商品测算详情与成本模型">
           <div className="kpi-meta">
             <span className="kpi-label">测算预期月毛利</span>
           </div>
@@ -245,13 +443,20 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             </strong>
           </div>
           <div className="kpi-sub">
-            <span>基于各品月销预估与确定性成本 · 查看单品</span>
+            <span>{approvedCases.length} 款在办品确定性测算汇总</span>
           </div>
         </Link>
 
-        <Link href="#opportunities" className="dashboard-kpi-card" title="点击核对低于 18% 门禁的薄利商品">
+        <Link
+          href={`/cases?${siteQuery}`}
+          className={`dashboard-kpi-card ${casesWithMargin.length && avgMarginRate < 0.18 ? "is-alert" : ""}`}
+          title="点击核对低于 18% 门禁的薄利商品"
+        >
           <div className="kpi-meta">
             <span className="kpi-label">平均测算净利率</span>
+            {casesWithMargin.length && avgMarginRate < 0.18 ? (
+              <span className="badge badge-warn">低于 18%</span>
+            ) : null}
           </div>
           <div className="kpi-value-row">
             <strong className={`kpi-value ${casesWithMargin.length && avgMarginRate < 0.18 ? "warn" : ""}`}>
@@ -262,9 +467,9 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             <span>
               {casesWithMargin.length
                 ? avgMarginRate >= 0.18
-                  ? "毛利结构健康 · 达到 18% GO 门禁"
-                  : "部分低毛利品 · 低于 18% 门禁线"
-                : "待建成本模型测算"}
+                  ? "达到 18% GO 门禁"
+                  : `${lowMarginCases.length} 款低于 18% 门禁线`
+                : "待建成本模型"}
             </span>
           </div>
         </Link>
@@ -274,15 +479,16 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             <span className="kpi-label">今日待办事项</span>
           </div>
           <div className="kpi-value-row">
-            <strong className="kpi-value">{attentionTasks.reduce((s, t) => s + t.value, 0)}</strong>
+            <strong className="kpi-value">{totalAttentionCount}</strong>
             <span className="kpi-unit">项</span>
           </div>
           <div className="kpi-sub">
-            <span className="kpi-link">查看看板阶段分布与行动卡</span>
+            <span className="kpi-link">{topTaskLabel ? `优先：${topTaskLabel}` : "暂无阻塞待办"}</span>
           </div>
         </Link>
       </section>
 
+      {/* 3. 主舞台：5 阶业务推进看板 */}
       <div id="pipeline-kanban">
         <DashboardPipelineKanban
           marketCode={selectedMarket.code}
@@ -296,193 +502,14 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         />
       </div>
 
-      <section className="panel dashboard-recent" id="opportunities">
-        <div className="panel-header">
-          <div>
-            <span className="dashboard-kicker">进行中的对象</span>
-            <h2>商品进度</h2>
-            <p>最近更新的 5 个商品，每项都标出当前阶段和下一步，点「继续」直接回到该步骤。</p>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-            <OpportunityScoreHelp />
-            <Link href="/content" className="button ghost">查看全部商品</Link>
-          </div>
-        </div>
-
-        {recentCases.length === 0 ? (
-          <div className="empty-state dashboard-onboarding-empty">
-            {mode === "live" ? (
-              <div className="onboarding-guide">
-                <div className="onboarding-header">
-                  <span className="badge badge-success">真实生产模式</span>
-                  <h3>{siteLabel} 暂无真实立项商品</h3>
-                  <p>您已切入真实数据模式，当前彻底隔离演示样本。通过以下 3 步开始真实跨境业务流转：</p>
-                </div>
-                <div className="onboarding-steps">
-                  <div className="onboarding-step-card">
-                    <span className="step-num">1</span>
-                    <strong>导入竞品与候选品</strong>
-                    <p>上传已调研的 ASIN 竞品清单或线下整理的 CSV 选品数据表</p>
-                    <Link href={importHref} className="button secondary">去导入数据</Link>
-                  </div>
-                  <div className="onboarding-step-card">
-                    <span className="step-num">2</span>
-                    <strong>发起 AI 选品研究</strong>
-                    <p>针对具体类目输入门槛条件，生成 5 个经证伪推演的候选方向</p>
-                    <Link href={newResearchHref} className="button primary">新建选品研究</Link>
-                  </div>
-                  <div className="onboarding-step-card">
-                    <span className="step-num">3</span>
-                    <strong>随时查看演示样板</strong>
-                    <p>如需复习全生命周期流程，可在左下角侧边栏随时切回「演示模式」</p>
-                    <Link href="/settings" className="button ghost">模型与系统设置</Link>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <>
-                <h3>{siteLabel}还没有已立项商品</h3>
-                <p>先完成一轮证据与报价验证；只有确定性 GO 才能转入商品立项。</p>
-                <div className="dashboard-empty-actions">
-                  <Link href={newResearchHref} className="button primary">新建选品研究</Link>
-                  <Link href={importHref} className="button secondary">导入候选品</Link>
-                </div>
-              </>
-            )}
-          </div>
-        ) : (
-          <div className="dashboard-product-list">
-            {recentCases.map((item) => {
-              const result = item.costModel?.results;
-              const sourcingCase = sourcingByCaseId.get(item.id);
-              const nextStep = !sourcingCase || sourcingCase.quoteCount === 0
-                ? { label: "录入报价", className: "badge-neutral", href: `/cases/${item.id}/sourcing` }
-                : !sourcingCase.selection
-                  ? { label: "对比定标", className: "status-review_pending", href: `/cases/${item.id}/sourcing` }
-                  : { label: "制作内容", className: "badge-success", href: `/cases/${item.id}/content` };
-
-              return (
-                <article className="dashboard-product-row" key={item.id}>
-                  <div className="dashboard-product-main">
-                    <div className="product-title">
-                      <Link href={`/cases/${item.id}`} className="product-title-link">
-                        {item.title}
-                      </Link>
-                      {item.is_demo ? <span className="badge demo-badge">演示</span> : null}
-                    </div>
-                    <div className="product-meta">
-                      <span>{item.marketplace}</span>
-                      <span>{item.category}</span>
-                      <span>更新 {shortDate(item.updated_at)}</span>
-                    </div>
-                  </div>
-                  <div className="dashboard-product-metric">
-                    <span>选品分</span>
-                    <strong>{item.opportunityScore}</strong>
-                  </div>
-                  <div className="dashboard-product-metric">
-                    <span>单件净利</span>
-                    <strong className={(result?.netProfitCents ?? 0) < 0 ? "negative" : ""}>
-                      {result ? money(result.netProfitCents) : "—"}
-                    </strong>
-                    <small>{result ? `${percent(result.marginRate)} 净利率` : "待建成本模型"}</small>
-                  </div>
-                  <div className="dashboard-product-next">
-                    <span>当前阶段</span>
-                    <span className={`badge ${nextStep.className}`}>{nextStep.label}</span>
-                  </div>
-                  <div className="dashboard-product-actions">
-                    <Link href={nextStep.href} className="button secondary">继续</Link>
-                    <TerminateCaseControl
-                      caseId={item.id}
-                      title={item.title}
-                      returnPath={`${dashboardReturnPath}#opportunities`}
-                    />
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        )}
-
-        <TerminatedCasesPanel
-          entries={siteTerminatedCases}
-          returnPath={dashboardReturnPath}
-        />
-      </section>
-
-      <section className="panel dashboard-research-drawer" id="new-research">
-        <details open={query.new === "1"}>
-          <summary className="dashboard-drawer-summary">
-            <div>
-              <span className="dashboard-kicker">新建研究</span>
-              <strong>从类目和研究条件开始，生成 5 个候选方向</strong>
-              <small>AI 只生成待验证假设，不虚构销量、评论、供应商或报价。</small>
-            </div>
-            <span className="dashboard-drawer-action">
-              <span className="dashboard-drawer-open">展开填写</span>
-              <span className="dashboard-drawer-close">收起</span>
-              <span className="dashboard-drawer-plus" aria-hidden="true">+</span>
-            </span>
-          </summary>
-
-          <div className="dashboard-research-body">
-            <div className="dashboard-research-intro">
-              <div>
-                <h2>为 {siteLabel} 新建选品研究</h2>
-                <p>先写清目标用户、使用场景、价格带和首单预算，再生成候选方向。</p>
-              </div>
-              <span className="info-pill">{selectedMarket.currency} 口径</span>
-            </div>
-
-            <form action={createAISourcingBatchAction} className="form-grid ai-research-form">
-              <input type="hidden" name="marketCode" value={selectedMarket.code} />
-              <input type="hidden" name="platformCode" value={selectedPlatform.code} />
-              <input type="hidden" name="requestKey" value={researchRequestKey} />
-              <div className="ai-research-basics">
-                <CategoryRecommender
-                  marketCode={selectedMarket.code}
-                  marketName={selectedMarket.name}
-                  platformCode={selectedPlatform.code}
-                  platformName={selectedPlatform.name}
-                />
-                <div className="field ai-research-actor">
-                  <label htmlFor="actor">创建人</label>
-                  <input id="actor" name="actor" placeholder="例如：老板 / 采购" defaultValue="运营人员" maxLength={80} />
-                </div>
-              </div>
-              <div className="field full">
-                <label htmlFor="brief">研究条件</label>
-                <textarea
-                  id="brief"
-                  name="brief"
-                  placeholder="例如：面向长毛猫狗家庭，优先轻小件，首单预算 1 万人民币以内。"
-                  required
-                  minLength={3}
-                  maxLength={1200}
-                  rows={5}
-                />
-              </div>
-              {selectedMarket.currency !== "USD" ? (
-                <>
-                  <div className="field">
-                    <label htmlFor="fxRateToUsd">汇率（1 USD = ? {selectedMarket.currency}）</label>
-                    <input id="fxRateToUsd" name="fxRateToUsd" type="number" min="0.000001" step="any" placeholder="例如：7.18" required />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="fxSourceUrl">汇率来源 URL</label>
-                    <input id="fxSourceUrl" name="fxSourceUrl" type="url" placeholder="https://..." required />
-                  </div>
-                </>
-              ) : null}
-              <div className="field full ai-form-footer">
-                <p className="muted">生成后先筛方向，再录入真实竞品、差评、专利、物流、供应商和报价证据。</p>
-                <GenerateResearchButton />
-              </div>
-            </form>
-          </div>
-        </details>
-      </section>
+      {siteTerminatedCases.length > 0 ? (
+        <section className="panel" aria-label="已终止商品归档">
+          <TerminatedCasesPanel
+            entries={siteTerminatedCases}
+            returnPath={dashboardReturnPath}
+          />
+        </section>
+      ) : null}
 
       <footer className="dashboard-model-status">
         <span>AI 模型</span>

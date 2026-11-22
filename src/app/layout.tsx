@@ -79,6 +79,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
                   defaultPlatform={persistedScope.platformCode}
                   leftSlot={<WorkContextBar items={workContext} />}
                   fxSnapshot={fxSnapshot}
+                  initialNowIso={new Date().toISOString()}
                 />
               </Suspense>
             </header>
