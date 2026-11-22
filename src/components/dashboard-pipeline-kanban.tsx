@@ -208,8 +208,6 @@ export function DashboardPipelineKanban({
     },
   ];
 
-  const totalActiveCases = stage2Items.length + stage3Items.length + stage4Items.length + stage5Items.length;
-
   return (
     <section className="panel" style={{ padding: "24px" }}>
       {/* 头部标题与视图切换 */}
@@ -227,9 +225,6 @@ export function DashboardPipelineKanban({
           <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
             <span className="eyebrow" style={{ color: "var(--green)", margin: 0, lineHeight: 1 }}>
               操盘手业务大盘
-            </span>
-            <span className="badge badge-success" style={{ fontSize: "12px", margin: 0, lineHeight: 1, display: "inline-flex", alignItems: "center" }}>
-              活跃管道: {totalActiveCases} 项
             </span>
           </div>
           <h2 style={{ margin: "2px 0 0 0", fontSize: "18px", color: "var(--ink)", fontWeight: 800 }}>
