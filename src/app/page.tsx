@@ -23,7 +23,6 @@ type PageProps = {
     platform?: string;
     notice?: string;
     error?: string;
-    new?: string;
   }>;
 };
 

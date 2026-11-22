@@ -52,6 +52,7 @@ export function TopbarFxWidget({
   const [calcCny, setCalcCny] = useState("100");
   const [calcForeign, setCalcForeign] = useState("");
   const [calcSource, setCalcSource] = useState<"cny" | "foreign">("cny");
+  const [calcSwapped, setCalcSwapped] = useState(false);
   const [busy, setBusy] = useState<"refresh" | "save" | "reset" | null>(null);
   const [feedback, setFeedback] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -335,49 +336,79 @@ export function TopbarFxWidget({
           <div className="topbar-fx-calc" aria-label="快捷双向金额换算">
             <span className="topbar-fx-calc-label">快捷换算</span>
             <div className="topbar-fx-calc-grid">
-              <label className="topbar-fx-calc-field">
-                <span>CNY ¥</span>
-                <input
-                  type="number"
-                  step="any"
-                  min="0"
-                  value={calcCny}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setCalcSource("cny");
-                    setCalcCny(val);
-                    const n = Number(val);
-                    setCalcForeign(
-                      val.trim() !== "" && Number.isFinite(n) && n >= 0
-                        ? (n / currentItem.rateToRmb).toFixed(2)
-                        : "",
-                    );
-                  }}
-                  placeholder="人民币"
-                />
-              </label>
-              <span className="topbar-fx-calc-eq" aria-hidden="true">⇄</span>
-              <label className="topbar-fx-calc-field">
-                <span>{currentItem.currency} {currentItem.symbol}</span>
-                <input
-                  type="number"
-                  step="any"
-                  min="0"
-                  value={calcForeign}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setCalcSource("foreign");
-                    setCalcForeign(val);
-                    const n = Number(val);
-                    setCalcCny(
-                      val.trim() !== "" && Number.isFinite(n) && n >= 0
-                        ? (n * currentItem.rateToRmb).toFixed(2)
-                        : "",
-                    );
-                  }}
-                  placeholder={currentItem.name}
-                />
-              </label>
+              {(() => {
+                const cnyField = (
+                  <label className="topbar-fx-calc-field" key="cny">
+                    <span>CNY ¥</span>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={calcCny}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setCalcSource("cny");
+                        setCalcCny(val);
+                        const n = Number(val);
+                        setCalcForeign(
+                          val.trim() !== "" && Number.isFinite(n) && n >= 0
+                            ? (n / currentItem.rateToRmb).toFixed(2)
+                            : "",
+                        );
+                      }}
+                      placeholder="人民币"
+                    />
+                  </label>
+                );
+                const foreignField = (
+                  <label className="topbar-fx-calc-field" key="foreign">
+                    <span>{currentItem.currency} {currentItem.symbol}</span>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={calcForeign}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setCalcSource("foreign");
+                        setCalcForeign(val);
+                        const n = Number(val);
+                        setCalcCny(
+                          val.trim() !== "" && Number.isFinite(n) && n >= 0
+                            ? (n * currentItem.rateToRmb).toFixed(2)
+                            : "",
+                        );
+                      }}
+                      placeholder={currentItem.name}
+                    />
+                  </label>
+                );
+                const swapBtn = (
+                  <button
+                    type="button"
+                    key="swap"
+                    className="topbar-fx-calc-eq"
+                    title="点击互换币种顺序"
+                    aria-label="互换人民币与外币输入框顺序"
+                    onClick={() => setCalcSwapped((prev) => !prev)}
+                  >
+                    ⇄
+                  </button>
+                );
+                return calcSwapped ? (
+                  <>
+                    {foreignField}
+                    {swapBtn}
+                    {cnyField}
+                  </>
+                ) : (
+                  <>
+                    {cnyField}
+                    {swapBtn}
+                    {foreignField}
+                  </>
+                );
+              })()}
             </div>
           </div>
 
