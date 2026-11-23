@@ -61,9 +61,9 @@ export default async function DiscoverPage({ searchParams }: PageProps) {
           { label: "选品看板", href: "/ai-sourcing" },
           { label: "新建选品" },
         ]}
-        eyebrow="3 步极简选品向导"
+        eyebrow="选品入口 · 两条路径"
         title="新建选品"
-        description="按你手里现有的线索直接开干：看市场（竞品与痛点）→ 核成本（18% 硬门禁倒推）→ 拍板立项（合规红线与一键生成案卷）。"
+        description="还没定品就让 AI 发散方向；已有竞品或货源则走 3 步极速立项：看市场 → 核 18% 毛利 → 合规立项。系统负责形成可推进案卷与交付资料，平台发布仍在卖家后台完成。"
       />
 
       <SelectionWizardClient
@@ -75,7 +75,7 @@ export default async function DiscoverPage({ searchParams }: PageProps) {
         requestKey={randomUUID()}
         initialReport={initialReport}
         initialStep={initialStep}
-        initialEntryMode={query.entry === "ai" ? "ai_brainstorm" : "wizard"}
+        initialEntryMode={query.entry === "wizard" ? "wizard" : "ai_brainstorm"}
         initialConstraints={savedConstraints}
         eliminatedHistory={eliminatedHistory}
       />

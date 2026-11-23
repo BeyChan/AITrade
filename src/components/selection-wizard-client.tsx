@@ -315,49 +315,51 @@ export function SelectionWizardClient({
 
   return (
     <div className="stack">
-      {/* 顶部 3 选 1 场景起点 */}
-      <section className="wizard-entry-grid" aria-label="选品起点分流">
+      {/* 顶部两条路径：还没定品走 AI 发散；已有线索直接进入 3 步立项向导 */}
+      <section className="wizard-entry-grid is-two" role="tablist" aria-label="选品工作模式">
         <button
           type="button"
+          role="tab"
+          aria-selected={entryMode === "ai_brainstorm"}
           className={`wizard-entry-card${entryMode === "ai_brainstorm" ? " is-active" : ""}`}
           onClick={() => setEntryMode("ai_brainstorm")}
         >
-          <span className="wizard-entry-num mono">01</span>
+          <span className="wizard-entry-num mono">A</span>
           <div>
             <strong>还没定品 · 让 AI 找方向</strong>
-            <p>输入类目与预算，AI 拆出 5 个细分痛点机会供筛选</p>
+            <p>输入类目与预算，AI 拆出 5 个细分痛点机会，进入候选看板筛选</p>
           </div>
         </button>
 
-        <button
-          type="button"
-          className={`wizard-entry-card${entryMode === "wizard" && step === 1 ? " is-active" : ""}`}
-          onClick={() => {
-            setEntryMode("wizard");
-            setStep(1);
-          }}
-        >
-          <span className="wizard-entry-num mono">02</span>
-          <div>
-            <strong>已有竞品 · 测市场格局</strong>
-            <p>粘贴 ASIN 或用扩展抓搜索页 Top 20，秒出四象限图与价格带</p>
+        <article className={`wizard-entry-card${entryMode === "wizard" ? " is-active" : ""}`}>
+          <span className="wizard-entry-num mono">B</span>
+          <div className="wizard-entry-body">
+            <strong>已有线索 · 3 步极速立项</strong>
+            <p>有竞品先测市场；已有货源可直接核 18% 毛利，最后完成合规自查并生成案卷。</p>
+            <div className="wizard-entry-actions">
+              <button
+                type="button"
+                className={`wizard-entry-action${entryMode === "wizard" && step === 1 ? " is-active" : ""}`}
+                onClick={() => {
+                  setEntryMode("wizard");
+                  setStep(1);
+                }}
+              >
+                有竞品 · 测市场 →
+              </button>
+              <button
+                type="button"
+                className={`wizard-entry-action${entryMode === "wizard" && step === 2 ? " is-active" : ""}`}
+                onClick={() => {
+                  setEntryMode("wizard");
+                  setStep(2);
+                }}
+              >
+                有货源 · 核毛利 →
+              </button>
+            </div>
           </div>
-        </button>
-
-        <button
-          type="button"
-          className={`wizard-entry-card${entryMode === "wizard" && step === 2 ? " is-active" : ""}`}
-          onClick={() => {
-            setEntryMode("wizard");
-            setStep(2);
-          }}
-        >
-          <span className="wizard-entry-num mono">03</span>
-          <div>
-            <strong>已有货源 · 极速测 18% 毛利</strong>
-            <p>直接填售价与 1688 拿货价，实时判定 GO / HOLD / NO-GO</p>
-          </div>
-        </button>
+        </article>
       </section>
 
       {/* 分支 A：还没定品 → AI 发散方向表单 */}
@@ -932,6 +934,11 @@ export function SelectionWizardClient({
                     <span>未命中高危强认证属性，按常规专利与商标排查即可。</span>
                   </div>
                 )}
+
+                <div className="notice" style={{ marginBottom: 14 }}>
+                  <span className="badge badge-neutral">交付边界</span>
+                  <span>立项后系统会继续推进报价、定标、文案视觉与交付资料；最终上架仍需在卖家后台手动完成，系统不会自动发布商品。</span>
+                </div>
 
                 <div className="wizard-final-summary">
                   <div>
