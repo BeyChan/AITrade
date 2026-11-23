@@ -29,6 +29,13 @@ export type AISourcingHypothesis = {
   priorityScore: number;
   selectedForValidation: boolean;
   productCaseId: string | null;
+  sourceKind: string;
+  comparisonReportId: string | null;
+  referenceFactoryCostRmb: number | null;
+  complianceAttrs: string[];
+  eliminatedAt: string | null;
+  eliminationReason: string | null;
+  eliminationNote: string | null;
   createdAt: string;
 };
 
@@ -65,6 +72,9 @@ export type AICompetitorSnapshot = {
   monthlySalesMax: number | null;
   sellerCount: number | null;
   variationCount: number | null;
+  brand?: string | null;
+  isSponsored?: boolean;
+  boughtPastMonth?: number | null;
   observedAt: string;
 };
 
@@ -274,6 +284,13 @@ export type HypothesisRow = {
   priority_score: number;
   selected_for_validation: boolean;
   product_case_id: string | null;
+  source_kind?: string | null;
+  comparison_report_id?: string | null;
+  reference_factory_cost_rmb?: string | number | null;
+  compliance_attrs?: string[] | null;
+  eliminated_at?: string | null;
+  elimination_reason?: string | null;
+  elimination_note?: string | null;
   created_at: string;
 };
 
@@ -308,6 +325,9 @@ export type CompetitorRow = {
   monthly_sales_max: number | null;
   seller_count: number | null;
   variation_count: number | null;
+  brand?: string | null;
+  is_sponsored?: boolean | null;
+  bought_past_month?: number | null;
   observed_at: string;
 };
 

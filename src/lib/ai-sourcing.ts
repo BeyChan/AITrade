@@ -130,7 +130,7 @@ export type DecisionEvaluation = {
 export const DEFAULT_SOURCING_THRESHOLDS = {
   minOpportunityScore: 65,
   minCompetitors: 20,
-  minReviewSamples: 50,
+  minReviewSamples: 15,
   minSuppliers: 3,
   minQuotes: 3,
   maxLandedCostUsdCents: 450,
@@ -374,8 +374,9 @@ export function buildTemplateHypotheses(input: HypothesisGenerationInput): Hypot
     },
   ];
 
+  const shortFocus = (input.category.trim() || focus).slice(0, 18);
   return directions.map((direction, index) => ({
-    concept: `${focus} · ${direction.suffix}`,
+    concept: `${direction.suffix} · ${shortFocus}`,
     targetUser: `${marketLabel}：${direction.user}`,
     painPoint: direction.pain,
     differentiator: direction.differentiator,

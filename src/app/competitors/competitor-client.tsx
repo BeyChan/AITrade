@@ -903,6 +903,14 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                 {copied ? "已复制 Markdown" : "复制研报"}
               </button>
 
+              <Link
+                href={`/discover?reportId=${encodeURIComponent(currentReport.id)}&step=2&market=${encodeURIComponent(currentReport.marketCode)}&platform=${encodeURIComponent(currentReport.platformCode)}`}
+                className="button secondary"
+                style={{ fontSize: "12px", padding: "6px 14px", height: "34px", borderRadius: "10px", display: "inline-flex", alignItems: "center" }}
+              >
+                载入向导核成本
+              </Link>
+
               <button
                 type="button"
                 className="button primary"

@@ -4,7 +4,11 @@ import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { runCompetitorAnalysisAction } from "@/app/competitors/actions";
-import { createAISourcingBatchAction } from "@/app/actions";
+import {
+  createAISourcingBatchAction,
+  createQuickCandidateAction,
+  saveSourcingConstraintsAction,
+} from "@/app/actions";
 import { quickCreateCaseFromWizardAction } from "@/app/discover/actions";
 import { CategoryRecommender } from "@/components/category-recommender";
 import { CompetitorQuadrantChart } from "@/components/competitor-quadrant-chart";
@@ -17,12 +21,20 @@ import {
   opportunityScore,
   recommendationFor,
 } from "@/lib/economics";
-import { moneyIn, percent } from "@/lib/format";
+import { moneyIn, percent, shortDate } from "@/lib/format";
 import {
   COMPLIANCE_ATTRIBUTE_OPTIONS,
   evaluatePrelaunchCompliance,
   type ProductComplianceAttribute,
 } from "@/lib/prelaunch-compliance";
+import {
+  DEFAULT_SOURCING_CONSTRAINTS,
+  ELIMINATION_REASONS,
+  findEliminationMatches,
+  type CustomExclusionItem,
+  type EliminatedHistoryRecord,
+  type SourcingConstraints,
+} from "@/lib/sourcing-funnel";
 
 type Props = {
   marketCode: string;
@@ -34,6 +46,8 @@ type Props = {
   initialReport: CompetitorComparisonReport | null;
   initialStep?: 1 | 2 | 3;
   initialEntryMode?: "ai_brainstorm" | "wizard";
+  initialConstraints?: SourcingConstraints;
+  eliminatedHistory?: EliminatedHistoryRecord[];
 };
 
 type EntryMode = "choose" | "ai_brainstorm" | "wizard";
@@ -49,6 +63,8 @@ export function SelectionWizardClient({
   initialReport,
   initialStep = 1,
   initialEntryMode = "wizard",
+  initialConstraints = DEFAULT_SOURCING_CONSTRAINTS,
+  eliminatedHistory = [],
 }: Props) {
   const router = useRouter();
   const [entryMode, setEntryMode] = useState<EntryMode>(initialEntryMode);
@@ -75,6 +91,62 @@ export function SelectionWizardClient({
   const [complianceAttrs, setComplianceAttrs] = useState<ProductComplianceAttribute[]>([]);
   const [patentConfirmed, setPatentConfirmed] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+
+  // 阶段 4：结构化选品约束 + 实时淘汰避坑匹配
+  const [briefText, setBriefText] = useState(initialConstraints.customNote || "");
+  const [excludedAttrs, setExcludedAttrs] = useState<ProductComplianceAttribute[]>(
+    initialConstraints.excludedAttrs,
+  );
+  const [customExclusions, setCustomExclusions] = useState<CustomExclusionItem[]>(
+    initialConstraints.customExclusions ?? [],
+  );
+  const [hiddenAttrs, setHiddenAttrs] = useState<ProductComplianceAttribute[]>(
+    initialConstraints.hiddenAttrs ?? [],
+  );
+  const [attrLabelOverrides, setAttrLabelOverrides] = useState<
+    Partial<Record<ProductComplianceAttribute, string>>
+  >(initialConstraints.attrLabelOverrides ?? {});
+  const [isEditingExclusions, setIsEditingExclusions] = useState(false);
+  const [newExclusionLabel, setNewExclusionLabel] = useState("");
+
+  const persistConstraints = (next: {
+    excludedAttrs?: ProductComplianceAttribute[];
+    customExclusions?: CustomExclusionItem[];
+    hiddenAttrs?: ProductComplianceAttribute[];
+    attrLabelOverrides?: Partial<Record<ProductComplianceAttribute, string>>;
+  }) => {
+    saveSourcingConstraintsAction({
+      minPriceUsd: initialConstraints.minPriceUsd,
+      maxPriceUsd: initialConstraints.maxPriceUsd,
+      maxWeightKg: initialConstraints.maxWeightKg,
+      excludedAttrs: next.excludedAttrs ?? excludedAttrs,
+      customExclusions: next.customExclusions ?? customExclusions,
+      hiddenAttrs: next.hiddenAttrs ?? hiddenAttrs,
+      attrLabelOverrides: next.attrLabelOverrides ?? attrLabelOverrides,
+      customNote: briefText,
+    }).catch(() => {});
+  };
+
+  const handleAddCustomExclusion = () => {
+    const label = newExclusionLabel.trim();
+    if (!label) return;
+    const nextItem: CustomExclusionItem = {
+      id: `custom_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+      label,
+      enabled: true,
+    };
+    const next = [...customExclusions, nextItem];
+    setCustomExclusions(next);
+    setNewExclusionLabel("");
+    persistConstraints({ customExclusions: next });
+  };
+  const eliminationAlerts = useMemo(() => {
+    const query =
+      entryMode === "ai_brainstorm"
+        ? briefText
+        : `${productTitle} ${rawCompetitors} ${activeReport?.title ?? ""}`;
+    return findEliminationMatches(query, category, eliminatedHistory);
+  }, [entryMode, briefText, productTitle, rawCompetitors, activeReport, category, eliminatedHistory]);
 
   const targetPriceCents = Math.max(100, Math.round((Number(targetPrice) || 0) * 100));
   const defaults = useMemo(
@@ -278,18 +350,24 @@ export function SelectionWizardClient({
             <div className="button-row">
               <Link
                 href={`/import?market=${encodeURIComponent(marketCode)}&platform=${encodeURIComponent(platformCode)}`}
-                className="button secondary fx-btn-sm"
+                className="button funnel-import-cta"
               >
-                导入候选品 CSV
-              </Link>
-              <Link
-                href={`/cases?market=${encodeURIComponent(marketCode)}&platform=${encodeURIComponent(platformCode)}`}
-                className="button ghost fx-btn-sm"
-              >
-                查看全部商品
-              </Link>
-              <Link href="/ai-sourcing" className="button ghost fx-btn-sm">
-                历史批次
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+                <span>导入候选品 CSV</span>
               </Link>
             </div>
           </div>
@@ -297,6 +375,22 @@ export function SelectionWizardClient({
             <input type="hidden" name="marketCode" value={marketCode} />
             <input type="hidden" name="platformCode" value={platformCode} />
             <input type="hidden" name="requestKey" value={requestKey} />
+            <input type="hidden" name="actor" value="选品负责人" />
+
+            {eliminationAlerts.length > 0 ? (
+              <div className="notice warn funnel-history-alert" role="status">
+                <strong>避坑提醒：历史曾淘汰过相似方向</strong>
+                <div className="funnel-history-alert-list">
+                  {eliminationAlerts.map(({ record }) => (
+                    <span key={record.id}>
+                      「{record.concept}」于 {shortDate(record.eliminatedAt)} 因 <strong>{record.eliminationReason}</strong> 淘汰
+                      {record.eliminationNote ? `（${record.eliminationNote}）` : ""}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             <div className="form-grid">
               <div className="ai-research-basics">
                 <CategoryRecommender
@@ -305,27 +399,224 @@ export function SelectionWizardClient({
                   platformCode={platformCode}
                   platformName={platformName}
                 />
-                <div className="field ai-research-actor">
-                  <label htmlFor="wizard-actor">发起人</label>
-                  <input id="wizard-actor" name="actor" defaultValue="选品负责人" required maxLength={80} />
+                <div className="funnel-constraint-nums">
+                  <div className="field">
+                    <label htmlFor="minPriceUsd">客单价下限 ($)</label>
+                    <input
+                      id="minPriceUsd"
+                      name="minPriceUsd"
+                      type="number"
+                      min="1"
+                      step="1"
+                      defaultValue={initialConstraints.minPriceUsd ?? 20}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="maxPriceUsd">客单价上限 ($)</label>
+                    <input
+                      id="maxPriceUsd"
+                      name="maxPriceUsd"
+                      type="number"
+                      min="1"
+                      step="1"
+                      defaultValue={initialConstraints.maxPriceUsd ?? 60}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="maxWeightKg">单件重量上限 (kg)</label>
+                    <input
+                      id="maxWeightKg"
+                      name="maxWeightKg"
+                      type="number"
+                      min="0.1"
+                      step="0.1"
+                      defaultValue={initialConstraints.maxWeightKg ?? 1.0}
+                    />
+                  </div>
                 </div>
               </div>
+
               <div className="field full">
-                <label htmlFor="brief">选品条件与避坑要求</label>
+                <div className="funnel-compliance-header">
+                  <label>直接排除项（命中即在生成结果中自动过滤，记忆上次偏好）</label>
+                  <div className="funnel-compliance-header-actions">
+                    {isEditingExclusions && (hiddenAttrs.length > 0 || Object.keys(attrLabelOverrides).length > 0) ? (
+                      <button
+                        type="button"
+                        className="button ghost compact-button"
+                        onClick={() => {
+                          setHiddenAttrs([]);
+                          setAttrLabelOverrides({});
+                          persistConstraints({ hiddenAttrs: [], attrLabelOverrides: {} });
+                        }}
+                      >
+                        恢复默认
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="button ghost compact-button"
+                      onClick={() => {
+                        if (isEditingExclusions) {
+                          persistConstraints({});
+                        }
+                        setIsEditingExclusions((prev) => !prev);
+                      }}
+                    >
+                      {isEditingExclusions ? "完成编辑" : "编辑排除项"}
+                    </button>
+                  </div>
+                </div>
+                <input type="hidden" name="customExclusionsJson" value={JSON.stringify(customExclusions)} />
+                <input type="hidden" name="hiddenAttrsJson" value={JSON.stringify(hiddenAttrs)} />
+                <input type="hidden" name="attrLabelOverridesJson" value={JSON.stringify(attrLabelOverrides)} />
+                <div className="funnel-compliance-pills">
+                  {COMPLIANCE_ATTRIBUTE_OPTIONS.filter((opt) => !hiddenAttrs.includes(opt.id)).map((opt) => {
+                    const checked = excludedAttrs.includes(opt.id);
+                    const displayLabel = attrLabelOverrides[opt.id] ?? opt.label;
+                    if (isEditingExclusions) {
+                      return (
+                        <div key={opt.id} className="funnel-compliance-pill is-editing">
+                          <input
+                            type="text"
+                            className="funnel-compliance-pill-input"
+                            value={displayLabel}
+                            aria-label={`编辑排除项 ${opt.label}`}
+                            onChange={(e) => {
+                              const nextOverrides = { ...attrLabelOverrides, [opt.id]: e.target.value };
+                              setAttrLabelOverrides(nextOverrides);
+                            }}
+                            onBlur={() => persistConstraints({ attrLabelOverrides })}
+                          />
+                          <button
+                            type="button"
+                            className="funnel-compliance-pill-remove"
+                            title="删除此排除项"
+                            aria-label={`删除 ${displayLabel}`}
+                            onClick={() => {
+                              const nextHidden = [...hiddenAttrs, opt.id];
+                              const nextExcluded = excludedAttrs.filter((x) => x !== opt.id);
+                              setHiddenAttrs(nextHidden);
+                              setExcludedAttrs(nextExcluded);
+                              persistConstraints({ hiddenAttrs: nextHidden, excludedAttrs: nextExcluded });
+                            }}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      );
+                    }
+                    return (
+                      <label key={opt.id} className="funnel-compliance-pill" title={opt.hint}>
+                        <input
+                          type="checkbox"
+                          name="excludedAttr"
+                          value={opt.id}
+                          checked={checked}
+                          onChange={() => {
+                            const nextExcluded = checked
+                              ? excludedAttrs.filter((x) => x !== opt.id)
+                              : [...excludedAttrs, opt.id];
+                            setExcludedAttrs(nextExcluded);
+                            persistConstraints({ excludedAttrs: nextExcluded });
+                          }}
+                        />
+                        <span>{displayLabel}</span>
+                      </label>
+                    );
+                  })}
+
+                  {customExclusions.map((item) =>
+                    isEditingExclusions ? (
+                      <div key={item.id} className="funnel-compliance-pill is-editing">
+                        <input
+                          type="text"
+                          className="funnel-compliance-pill-input"
+                          value={item.label}
+                          aria-label={`编辑自定义排除项 ${item.label}`}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setCustomExclusions((prev) =>
+                              prev.map((c) => (c.id === item.id ? { ...c, label: val } : c)),
+                            );
+                          }}
+                          onBlur={() => persistConstraints({ customExclusions })}
+                        />
+                        <button
+                          type="button"
+                          className="funnel-compliance-pill-remove"
+                          title="删除此排除项"
+                          aria-label={`删除 ${item.label}`}
+                          onClick={() => {
+                            const next = customExclusions.filter((c) => c.id !== item.id);
+                            setCustomExclusions(next);
+                            persistConstraints({ customExclusions: next });
+                          }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ) : (
+                      <label key={item.id} className="funnel-compliance-pill">
+                        <input
+                          type="checkbox"
+                          checked={item.enabled}
+                          onChange={() => {
+                            const next = customExclusions.map((c) =>
+                              c.id === item.id ? { ...c, enabled: !c.enabled } : c,
+                            );
+                            setCustomExclusions(next);
+                            persistConstraints({ customExclusions: next });
+                          }}
+                        />
+                        <span>{item.label}</span>
+                      </label>
+                    ),
+                  )}
+                </div>
+
+                {isEditingExclusions ? (
+                  <div className="funnel-compliance-add-row">
+                    <input
+                      type="text"
+                      value={newExclusionLabel}
+                      onChange={(e) => setNewExclusionLabel(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handleAddCustomExclusion();
+                        }
+                      }}
+                      placeholder="输入新的排除项（例如：易碎玻璃、超大件、强季节性）"
+                      aria-label="新增排除项"
+                    />
+                    <button
+                      type="button"
+                      className="button secondary compact-button"
+                      onClick={handleAddCustomExclusion}
+                    >
+                      + 新增
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="field full">
+                <label htmlFor="brief">补充方向 / 痛点要求（选填）</label>
                 <textarea
                   id="brief"
                   name="brief"
-                  rows={4}
-                  required
-                  minLength={3}
-                  maxLength={1200}
-                  placeholder="例如：客单价 $25–$45，重量不超过 1kg，避开强电与儿童类目，优先找差评集中在异响/难清洗的微改良机会。"
+                  rows={2}
+                  maxLength={600}
+                  value={briefText}
+                  onChange={(e) => setBriefText(e.target.value)}
+                  placeholder="例如：优先找差评集中在异响、难清洗或安装不牢的微改良机会。"
                 />
               </div>
             </div>
             <div className="form-actions">
-              <span className="help">AI 只产出待验证假设，绝不编造销量和价格；生成后可直接进入验证。</span>
-              <button type="submit" className="button primary">生成 5 个选品方向</button>
+              <span className="help">AI 仅按你的硬约束生成待验证方向，进入候选看板后用搜索页 Top 20 快筛。</span>
+              <button type="submit" className="button primary">生成候选方向并进入看板</button>
             </div>
           </form>
         </section>
@@ -358,6 +649,20 @@ export function SelectionWizardClient({
             <span className="badge badge-neutral mono">STEP {step}/3</span>
             <span>{nextStepBanner}</span>
           </div>
+
+          {eliminationAlerts.length > 0 ? (
+            <div className="notice warn funnel-history-alert" style={{ marginBottom: 14 }} role="status">
+              <strong>避坑提醒：历史曾淘汰过相似方向</strong>
+              <div className="funnel-history-alert-list">
+                {eliminationAlerts.map(({ record }) => (
+                  <span key={record.id}>
+                    「{record.concept}」于 {shortDate(record.eliminatedAt)} 因 <strong>{record.eliminationReason}</strong> 淘汰
+                    {record.eliminationNote ? `（${record.eliminationNote}）` : ""}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           {stepError ? (
             <div className="notice warn" style={{ marginBottom: 14 }}>
@@ -527,12 +832,35 @@ export function SelectionWizardClient({
 
                 <div className="wizard-actions-row">
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <button type="button" className="button ghost" onClick={() => setStep(1)}>
-                      ← 返回第 1 步
-                    </button>
                     <a href={search1688Url} target="_blank" rel="noreferrer" className="button secondary">
                       打开 1688 搜同款查底价
                     </a>
+                    <form action={createQuickCandidateAction} style={{ display: "inline-flex", gap: 6 }}>
+                      <input type="hidden" name="marketCode" value={marketCode} />
+                      <input type="hidden" name="platformCode" value={platformCode} />
+                      <input type="hidden" name="category" value={category} />
+                      <input type="hidden" name="concept" value={productTitle.trim() || activeReport?.title || `${category} 候选`} />
+                      <input type="hidden" name="sourceKind" value={activeReport ? "asin_scan" : "quick_calc"} />
+                      {activeReport ? <input type="hidden" name="comparisonReportId" value={activeReport.id} /> : null}
+                      <input type="hidden" name="confirmedPrice" value={targetPrice} />
+                      <input type="hidden" name="referenceFactoryCostRmb" value={factoryCostRmb} />
+                      {complianceAttrs.map((a) => (
+                        <input key={a} type="hidden" name="complianceAttr" value={a} />
+                      ))}
+                      <button type="submit" className="button secondary">
+                        写入候选看板
+                      </button>
+                      {economics.marginRate < 0.18 || economics.stressProfitCents <= 0 ? (
+                        <button
+                          type="submit"
+                          name="eliminationReason"
+                          value={ELIMINATION_REASONS[2]}
+                          className="button ghost"
+                        >
+                          利润不够·记入淘汰
+                        </button>
+                      ) : null}
+                    </form>
                   </div>
                   <button type="button" className="button primary" onClick={() => setStep(3)}>
                     下一步：合规自查与立项 →
@@ -612,10 +940,7 @@ export function SelectionWizardClient({
                   <span>我已确认上述数字为初步核验基准，立项后将在案卷内补齐工厂正式报价与专利核查</span>
                 </label>
 
-                <div className="wizard-actions-row" style={{ marginTop: 16 }}>
-                  <button type="button" className="button ghost" onClick={() => setStep(2)}>
-                    ← 返回修改成本
-                  </button>
+                <div className="wizard-actions-row" style={{ marginTop: 16, justifyContent: "flex-end" }}>
                   <button
                     type="button"
                     className="button primary"

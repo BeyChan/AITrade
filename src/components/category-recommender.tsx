@@ -7,13 +7,8 @@ const BRIEF_FIELD_ID = "brief";
 
 // Built only from the recommendation's own verification and risk notes plus conservative solo-seller limits; no sales, price or budget figures are invented.
 function briefFor(item: CategoryRecommendation) {
-  return [
-    `围绕「${item.category}」做首轮选品验证。`,
-    `第一步核验：${item.firstValidation}`,
-    `主要风险：${item.riskNote}`,
-    `核验关键词：${item.searchKeywords.slice(0, 4).join("、")}`,
-    "限制：团队 1 到 2 人，小批量试单；优先轻小件、非电子、非液体，避开需要认证的品类。",
-  ].join("\n").slice(0, 1200); // the brief field allows 1200 characters; value set from code bypasses maxLength
+  const keywords = item.searchKeywords.slice(0, 3).join(" / ");
+  return `核验词：${keywords}；重点排查：${item.riskNote}`.slice(0, 200);
 }
 
 type Props = {

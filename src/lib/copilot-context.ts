@@ -343,10 +343,9 @@ export async function loadCopilotContext(pathname: string, search = ""): Promise
     };
   }
 
-  // 6. 选品雷达 (/discover, /selection-records, /ai-sourcing)
+  // 6. 选品雷达 (/discover, /ai-sourcing)
   if (
     cleanPath.startsWith("/discover") ||
-    cleanPath.startsWith("/selection-records") ||
     cleanPath.startsWith("/ai-sourcing")
   ) {
     return {

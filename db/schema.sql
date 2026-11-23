@@ -1306,3 +1306,54 @@ CREATE INDEX IF NOT EXISTS idx_sourcing_sample_logs_case
   ON sourcing_sample_logs(case_id, created_at DESC);
 
 ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS profile JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+-- 选品漏斗统一化：来源标识、扫描绑定、1688参考价、合规属性、淘汰原因
+ALTER TABLE opportunity_hypotheses ADD COLUMN IF NOT EXISTS source_kind TEXT NOT NULL DEFAULT 'ai';
+ALTER TABLE opportunity_hypotheses ADD COLUMN IF NOT EXISTS comparison_report_id TEXT;
+ALTER TABLE opportunity_hypotheses ADD COLUMN IF NOT EXISTS reference_factory_cost_rmb NUMERIC(10, 2);
+ALTER TABLE opportunity_hypotheses ADD COLUMN IF NOT EXISTS compliance_attrs JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE opportunity_hypotheses ADD COLUMN IF NOT EXISTS eliminated_at TIMESTAMPTZ;
+ALTER TABLE opportunity_hypotheses ADD COLUMN IF NOT EXISTS elimination_reason TEXT;
+ALTER TABLE opportunity_hypotheses ADD COLUMN IF NOT EXISTS elimination_note TEXT;
+
+-- 竞品快照补齐 SERP 扫描信号字段
+ALTER TABLE competitor_snapshots ADD COLUMN IF NOT EXISTS brand TEXT;
+ALTER TABLE competitor_snapshots ADD COLUMN IF NOT EXISTS is_sponsored BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE competitor_snapshots ADD COLUMN IF NOT EXISTS bought_past_month INTEGER;
+
+-- 同步修正历史批次的供应商短名单口径（10 家 → 3 家）与通用差评描述，并自动点亮已达标的旧任务
+UPDATE validation_tasks
+SET target_count = 3,
+    title = '建立 3 家供应商短名单',
+    updated_at = NOW()
+WHERE task_type = 'supplier_shortlist' AND target_count = 10;
+
+UPDATE validation_tasks
+SET description = '优先看 1–3 星评论，按核心痛点、质量缺陷、使用体验、尺寸与退货原因归类，记录样本数与原文摘录。',
+    updated_at = NOW()
+WHERE task_type = 'review_research' AND description LIKE '%卡毛%';
+
+UPDATE validation_tasks t
+SET status = 'done', updated_at = NOW()
+WHERE t.task_type = 'supplier_shortlist'
+  AND t.status <> 'done'
+  AND (SELECT COUNT(*) FROM supplier_shortlists s WHERE s.hypothesis_id = t.hypothesis_id) >= t.target_count;
+
+-- 同步下调差评样本门禁（50 条 → 15 条，与 competitor-insights 口径统一）
+UPDATE validation_tasks
+SET target_count = 15,
+    title = '整理 15 条差评样本',
+    updated_at = NOW()
+WHERE task_type = 'review_research' AND target_count = 50;
+
+UPDATE validation_tasks t
+SET status = 'done', updated_at = NOW()
+WHERE t.task_type = 'review_research'
+  AND t.status <> 'done'
+  AND (
+    SELECT COALESCE(SUM(ri.sample_size), 0)
+    FROM review_insights ri
+    LEFT JOIN opportunity_evidence e ON e.id = ri.evidence_id
+    WHERE ri.hypothesis_id = t.hypothesis_id
+      AND COALESCE(e.source_type, '') NOT IN ('ai_generated', 'template_generated')
+  ) >= t.target_count;

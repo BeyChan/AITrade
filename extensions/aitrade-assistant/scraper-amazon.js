@@ -469,7 +469,7 @@
   var seenReviews = {};
   function pushReview(text) {
     var clean = (text || "").replace(/\s+/g, " ").trim();
-    if (!clean || clean.length < 15 || seenReviews[clean] || criticalReviews.length >= 8) return;
+    if (!clean || clean.length < 15 || seenReviews[clean] || criticalReviews.length >= 25) return;
     seenReviews[clean] = true;
     criticalReviews.push(clean.slice(0, 320));
   }

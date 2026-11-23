@@ -26,7 +26,7 @@ export async function refreshAISelectionDecision(hypothesisId: string): Promise<
   const db = await getDb();
   const context = await loadHypothesisContext(hypothesisId);
   if (!context) throw new Error("机会假设不存在");
-  const [counts, reviews, quotes, patent, logistics] = await Promise.all([
+  const [counts, reviews, quotes, patent, logistics, rfqDrafts] = await Promise.all([
     db.query<{ competitors: string | number; synthetic_competitors: string | number; suppliers: string | number; quotes: string | number }>(
       `SELECT
         (SELECT COUNT(*) FROM competitor_snapshots c
@@ -65,6 +65,10 @@ export async function refreshAISelectionDecision(hypothesisId: string): Promise<
        FROM opportunity_evidence
        WHERE hypothesis_id = $1 AND evidence_type = 'logistics_check'
        ORDER BY observed_at DESC LIMIT 1`,
+      [hypothesisId],
+    ),
+    db.query<{ draft_count: string | number }>(
+      "SELECT COUNT(*) AS draft_count FROM ai_supplier_drafts WHERE hypothesis_id = $1",
       [hypothesisId],
     ),
   ]);
@@ -135,13 +139,20 @@ export async function refreshAISelectionDecision(hypothesisId: string): Promise<
         }),
       ],
     );
+    const passedSamples = quotes.rows.filter((q) => (q.sample_score ?? 0) >= DEFAULT_SOURCING_THRESHOLDS.minSampleScore).length;
+    const latestPatent = riskLevel(patent.rows[0]?.risk_level, "missing");
+    const latestLogistics = riskLevel(logistics.rows[0]?.risk_level, "missing");
     await tx.query(
       `UPDATE validation_tasks SET status = 'done', updated_at = NOW()
        WHERE hypothesis_id = $1 AND (
          (task_type = 'competitor_scan' AND $2 >= target_count) OR
          (task_type = 'review_research' AND $3 >= target_count) OR
          (task_type = 'supplier_shortlist' AND $4 >= target_count) OR
-         (task_type = 'quote_collection' AND $5 >= target_count)
+         (task_type = 'quote_collection' AND $5 >= target_count) OR
+         (task_type = 'rfq_draft' AND $6 >= target_count) OR
+         (task_type = 'sample_order' AND $7 >= target_count) OR
+         (task_type = 'patent_check' AND $8 = 'clear') OR
+         (task_type = 'logistics_check' AND $9 = 'clear')
        )`,
       [
         hypothesisId,
@@ -149,6 +160,10 @@ export async function refreshAISelectionDecision(hypothesisId: string): Promise<
         Number(reviews.rows[0]?.sample_count ?? 0),
         Number(count?.suppliers ?? 0),
         Number(count?.quotes ?? 0),
+        Number(rfqDrafts.rows[0]?.draft_count ?? 0),
+        passedSamples,
+        latestPatent,
+        latestLogistics,
       ],
     );
     await tx.query(

@@ -2,36 +2,37 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { cookies } from "next/headers";
 import { DetailTabCookie } from "@/components/detail-tab-cookie";
-import { HashOpenDetails } from "@/components/hash-open-details";
 import { PageHeader, QueryNotices } from "@/components/ui";
 import {
   getAISourcingBatch,
   getBatchSiteLabel,
+  listEliminatedHypotheses,
 } from "@/lib/ai-sourcing-repository";
+import { loadFunnelThresholds } from "@/lib/app-settings";
+import { getComparisonReports } from "@/lib/competitor-compare/storage";
 import {
   listSupplierDraftsByRun,
   type SupplierDraft,
 } from "@/lib/ai-supplier-assistant/repository";
 import { listAiInboxTaskCountsByRun } from "@/lib/ai-inbox/repository";
 import { shortDate } from "@/lib/format";
-import { dateTimeInputValue } from "./_components/helpers";
-import { HypothesisCard, HypothesisSummaryList } from "./_components/hypothesis-card";
+import { dateTimeInputValue, type DetailTab } from "./_components/helpers";
+import { CandidateSwitcher } from "./_components/candidate-switcher";
+import { HypothesisCard } from "./_components/hypothesis-card";
 
 export const dynamic = "force-dynamic";
 
-/** 详情页按步骤分区，避免一个长页面堆满所有操作。 */
-const DETAIL_TABS = [
-  { key: "overview", label: "概览", hint: "批次进展与机会方向" },
-  { key: "hypotheses", label: "验证证据", hint: "补任务、录证据、核对竞品" },
-  { key: "suppliers", label: "找供应商", hint: "采集、对比、人工核验" },
-  { key: "quotes", label: "报价与 RFQ", hint: "真实报价、成本倒推、内部草稿" },
-  { key: "decision", label: "门禁结论", hint: "确定性结论与转立项" },
-] as const;
-
-type DetailTab = (typeof DETAIL_TABS)[number]["key"];
+/** 纯净 4 步单品推进工作台（取消冗余的「概览」Tab，与「选品看板」分工零重叠） */
+const DETAIL_TABS: Array<{ key: DetailTab; label: string; hint: string }> = [
+  { key: "hypotheses", label: "市场与利润", hint: "扫 Top 20 · 算 18% · 差评" },
+  { key: "suppliers", label: "找供应商", hint: "1688 选 3 家短名单" },
+  { key: "quotes", label: "报价与 RFQ", hint: "询盘 · 3 份报价 · 样品分" },
+  { key: "decision", label: "门禁与立项", hint: "专利物流 · GO 转立项" },
+];
 
 function parseDetailTab(value: string | undefined): DetailTab {
-  return DETAIL_TABS.find((tab) => tab.key === value)?.key ?? "overview";
+  if (value === "suppliers" || value === "quotes" || value === "decision") return value;
+  return "hypotheses";
 }
 
 type PageProps = {
@@ -49,12 +50,20 @@ type PageProps = {
 
 export default async function AISourcingDetailPage({ params, searchParams }: PageProps) {
   const [{ runId }, query, cookieStore] = await Promise.all([params, searchParams, cookies()]);
-  const [batch, supplierDrafts, aiInboxCounts] = await Promise.all([
+  const [batch, supplierDrafts, aiInboxCounts, allReports, funnelThresholds, eliminatedHistory] = await Promise.all([
     getAISourcingBatch(runId),
     listSupplierDraftsByRun(runId),
     listAiInboxTaskCountsByRun(runId),
+    getComparisonReports(),
+    loadFunnelThresholds(),
+    listEliminatedHypotheses(),
   ]);
   if (!batch) notFound();
+
+  const siteReports = allReports.filter(
+    (r) => r.marketCode.toUpperCase() === batch.marketCode.toUpperCase(),
+  );
+  const recentReports = siteReports.length > 0 ? siteReports : allReports;
 
   const draftsByHypothesis = new Map<string, SupplierDraft[]>();
   for (const draft of supplierDrafts) {
@@ -64,26 +73,21 @@ export default async function AISourcingDetailPage({ params, searchParams }: Pag
   }
 
   const siteLabel = getBatchSiteLabel(batch);
-  const selectedCount = batch.hypotheses.filter((item) => item.selectedForValidation).length;
   const goCount = batch.hypotheses.filter((item) => item.decision?.decision === "GO").length;
-  const completeness = batch.hypotheses.length
-    ? Math.round(batch.hypotheses.reduce((sum, item) => sum + (item.decision?.evidenceCompleteness ?? 0), 0) / batch.hypotheses.length)
-    : 0;
+  const eliminatedCount = batch.hypotheses.filter((item) => Boolean(item.eliminatedAt)).length;
   const observedAt = dateTimeInputValue(new Date());
-  const requestedHypothesisId = batch.hypotheses.some((item) => item.id === query.hypothesisId)
-    ? query.hypothesisId
-    : undefined;
-  const defaultHypothesisId =
-    requestedHypothesisId ??
-    batch.hypotheses.find((item) => item.decision?.decision === "GO")?.id ??
-    batch.hypotheses.find((item) => item.selectedForValidation)?.id ??
-    batch.hypotheses[0]?.id;
+
+  const activeHypothesis =
+    batch.hypotheses.find((item) => item.id === query.hypothesisId) ??
+    batch.hypotheses.find((item) => !item.eliminatedAt && item.decision?.decision === "GO") ??
+    batch.hypotheses.find((item) => !item.eliminatedAt) ??
+    batch.hypotheses[0];
+
   const savedTab = cookieStore.get("aitrade_detail_tab")?.value;
   const activeTab = parseDetailTab(query.tab ?? savedTab);
-  const activeTabMeta = DETAIL_TABS.find((tab) => tab.key === activeTab) ?? DETAIL_TABS[0];
-  const tabHref = (key: DetailTab) => {
+  const tabHref = (key: DetailTab, hypothesisId = activeHypothesis?.id) => {
     const search = new URLSearchParams({ tab: key });
-    if (requestedHypothesisId) search.set("hypothesisId", requestedHypothesisId);
+    if (hypothesisId) search.set("hypothesisId", hypothesisId);
     return `/ai-sourcing/${encodeURIComponent(runId)}?${search.toString()}`;
   };
 
@@ -93,35 +97,57 @@ export default async function AISourcingDetailPage({ params, searchParams }: Pag
       <PageHeader
         breadcrumbs={[
           { label: "工作台", href: "/" },
-          { label: "AI 选品批次", href: "/ai-sourcing" },
-          { label: "批次详情" },
+          { label: "选品看板", href: "/ai-sourcing" },
+          { label: batch.category },
         ]}
-        eyebrow="证据优先的选品验证"
+        eyebrow="单品 4 步推进"
         title={`${batch.category} · 选品验证`}
         meta={
           <>
             <span className="badge badge-neutral">{siteLabel}</span>
             <span className="badge badge-neutral">{batch.currency}</span>
-            <span className="badge badge-success">{goCount} 个 GO</span>
-            <span className="badge status-review_pending">{selectedCount} 个验证中</span>
+            <span className="badge badge-success">{goCount} GO</span>
+            {eliminatedCount > 0 ? <span className="badge badge-danger">{eliminatedCount} 已淘汰</span> : null}
           </>
         }
         actions={
-          <>
-            <Link href="/ai-sourcing" className="button secondary">返回研究列表</Link>
-            <Link href={`/?market=${encodeURIComponent(batch.marketCode)}&platform=${encodeURIComponent(batch.platformCode)}#opportunities`} className="button ghost">查看已立项商品</Link>
-          </>
+          <details className="funnel-brief-pop">
+            <summary className="button ghost compact-button">简报 ⓘ</summary>
+            <div className="funnel-brief-popover">
+              <div className="funnel-brief-popover-head">
+                <strong>研究简报</strong>
+                <span>{shortDate(batch.createdAt)} · {batch.model}</span>
+              </div>
+              <p>{batch.brief}</p>
+            </div>
+          </details>
         }
       />
 
       <QueryNotices notice={query.notice} error={query.error} />
       {batch.templateFallback ? (
         <div className="notice warn">
-          <strong>本批假设由内置模板生成：</strong>模型调用失败，已自动回退（{batch.providerError ?? "原因未记录"}）。这 5 个方向不是 {batch.provider} / {batch.model} 的输出。
+          <strong>本批假设由内置模板生成：</strong>模型调用失败，已自动回退（{batch.providerError ?? "原因未记录"}）。
         </div>
       ) : null}
 
-      <nav className="ai-detail-tabs" aria-label="验证步骤">
+      {/* 同批次兄弟方向切换条（支持单个删除 + 弹窗确认） */}
+      <CandidateSwitcher
+        runId={batch.id}
+        activeTab={activeTab}
+        activeHypothesisId={activeHypothesis?.id}
+        items={batch.hypotheses.map((item) => ({
+          id: item.id,
+          position: item.position,
+          concept: item.concept,
+          eliminatedAt: item.eliminatedAt,
+          productCaseId: item.productCaseId,
+          decision: item.decision?.decision ?? null,
+        }))}
+      />
+
+      {/* 纯净 4 步动作导航 */}
+      <nav className="ai-detail-tabs funnel-tabs-4" aria-label="4 步验证流程">
         {DETAIL_TABS.map((tab, index) => (
           <Link
             key={tab.key}
@@ -136,114 +162,38 @@ export default async function AISourcingDetailPage({ params, searchParams }: Pag
         ))}
       </nav>
 
-      {activeTab === "overview" ? (
-        <>
-      <section className="ai-batch-overview">
-        <div>
-          <span className="eyebrow" style={{ color: "var(--lime)" }}>研究简报</span>
-          <h2>{batch.brief}</h2>
-          <p>创建人 {batch.createdBy} · {shortDate(batch.createdAt)} · {batch.provider} / {batch.model}</p>
-        </div>
-        <div className="ai-batch-overview-side">
-          <span>币种口径</span>
-          <strong>{batch.currency}</strong>
-          {batch.currency === "USD" ? (
-            <small>USD 无需汇率换算</small>
-          ) : batch.fxSourceUrl ? (
-            <a href={batch.fxSourceUrl} target="_blank" rel="noreferrer">
-              1 USD = {batch.fxRateToUsd ?? "—"} {batch.currency} · 查看汇率来源
-            </a>
-          ) : (
-            <small>未记录汇率来源</small>
-          )}
-        </div>
-      </section>
-
-      <section className="metrics-grid ai-metrics" aria-label="批次验证概览">
-        <Link href={tabHref("hypotheses")} className="metric-card" title="点击查看所有待验证方向">
-          <div className="metric-label">机会假设</div>
-          <div className="metric-value">{batch.hypotheses.length}</div>
-          <div className="metric-note">AI 只生成待验证方向 · 点击核验</div>
-        </Link>
-        <Link href={tabHref("hypotheses")} className="metric-card" title="点击查看已加入验证方向的证据与任务">
-          <div className="metric-label">已加入验证</div>
-          <div className="metric-value">{selectedCount}</div>
-          <div className="metric-note">加入后开放证据与报价录入 · 点击推进</div>
-        </Link>
-        <Link href={tabHref("decision")} className="metric-card" title="点击查看确定性门禁结论与转立项">
-          <div className="metric-label">确定性 GO</div>
-          <div className="metric-value">{goCount}</div>
-          <div className="metric-note">证据、利润、风险、现金全部达标 · 查看结论</div>
-        </Link>
-        <Link href={tabHref("hypotheses")} className="metric-card" title="点击核对证据链完整度">
-          <div className="metric-label">平均证据完整度</div>
-          <div className="metric-value">{completeness}%</div>
-          <div className="metric-note">竞品、评论、供应商、报价、专利、样品</div>
-        </Link>
-      </section>
-
-      <p className="muted" style={{ fontSize: "12px", margin: "0 0 8px" }}>
-        下方为流程示意，不代表当前进度；各假设的真实进度请看验证任务与 GO 门禁面板。
-      </p>
-      <div className="ai-workflow-strip" aria-label="选品验证流程示意（非当前进度）">
-        {[
-          ["01", "AI 假设"],
-          ["02", "人工核实证据"],
-          ["03", "供应商报价"],
-          ["04", "确定性门禁"],
-          ["05", "GO 转立项"],
-          ["06", "定标与内容"],
-        ].map(([step, label]) => (
-          <div key={step}>
-            <span>{step}</span>
-            <strong>{label}</strong>
-          </div>
-        ))}
-      </div>
-
-          <HypothesisSummaryList batch={batch} />
-
-      <section className="panel ai-guardrail-panel">
-        <div className="panel-header">
-          <div>
-            <div className="eyebrow">流程护栏</div>
-            <h2>这套流程不会替你虚构事实</h2>
-            <p>AI 仅生成假设；销量、评论、竞品、供应商、报价、专利和利润都必须有来源。系统不会自动联系供应商、下单、付款或发布 Listing。</p>
-          </div>
-          <span className="badge badge-success">externalActions: none</span>
-        </div>
-      </section>
-        </>
-      ) : (
-        <>
-          <div className="ai-tab-intro">
-            <div>
-              <span className="eyebrow">当前步骤</span>
-              <strong>{activeTabMeta.label}</strong>
-              <span>{activeTabMeta.hint}</span>
-            </div>
-            <Link href={tabHref("overview")} className="button ghost">返回概览</Link>
-          </div>
-
-      <div className="ai-hypothesis-list">
-        {batch.hypotheses.map((hypothesis) => (
-          <HypothesisCard
-            key={hypothesis.id}
-            batch={batch}
-            hypothesis={hypothesis}
-            tab={activeTab}
-            supplierDrafts={draftsByHypothesis.get(hypothesis.id) ?? []}
-            aiInboxCounts={aiInboxCounts.get(hypothesis.id) ?? null}
-            observedAt={observedAt}
-            defaultOpen={hypothesis.id === defaultHypothesisId}
-            autoReadClipboard={query.capture === "clipboard" && query.hypothesisId === hypothesis.id}
-          />
-        ))}
-      </div>
-
-        </>
-      )}
+      {activeHypothesis ? (
+        <HypothesisCard
+          batch={batch}
+          hypothesis={activeHypothesis}
+          tab={activeTab}
+          supplierDrafts={draftsByHypothesis.get(activeHypothesis.id) ?? []}
+          aiInboxCounts={aiInboxCounts.get(activeHypothesis.id) ?? null}
+          observedAt={observedAt}
+          autoReadClipboard={query.capture === "clipboard" && query.hypothesisId === activeHypothesis.id}
+          recentReports={recentReports}
+          funnelThresholds={funnelThresholds}
+          eliminatedHistory={eliminatedHistory}
+          nextTabHref={
+            activeTab === "hypotheses"
+              ? tabHref("suppliers")
+              : activeTab === "suppliers"
+                ? tabHref("quotes")
+                : activeTab === "quotes"
+                  ? tabHref("decision")
+                  : undefined
+          }
+          nextTabLabel={
+            activeTab === "hypotheses"
+              ? "下一步：02 找供应商 →"
+              : activeTab === "suppliers"
+                ? "下一步：03 报价与 RFQ →"
+                : activeTab === "quotes"
+                  ? "下一步：04 门禁与立项 →"
+                  : undefined
+          }
+        />
+      ) : null}
     </div>
   );
 }
-

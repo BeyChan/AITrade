@@ -13,20 +13,30 @@ import {
 } from "@/lib/ai-supplier-assistant/repository";
 import { isSupplierDraftType } from "@/lib/ai-supplier-assistant/schema";
 import {
+  attachComparisonReportToHypothesis,
   autoImportSiteCompetitors,
   confirmHypothesisPrice,
   createAISourcingBatch,
+  createQuickCandidateBatch,
   deleteAISourcingBatch,
+  deleteHypothesis,
+  eliminateHypothesis,
   promoteHypothesisToProductCase,
   recordAISupplierQuote,
   recordCompetitorEvidence,
   recordOpportunityEvidence,
   recordSupplierCandidates,
   rejectSupplierCandidate,
+  restoreHypothesis,
+  saveHypothesisProfitCheck,
   selectHypothesisForValidation,
   shortlistSupplierCandidate,
   toggleValidationTaskStatus,
 } from "@/lib/ai-sourcing-repository";
+import { saveFunnelThresholds, saveSourcingConstraints } from "@/lib/app-settings";
+import { convertRmbToForeignCents } from "@/lib/currency";
+import type { ProductComplianceAttribute } from "@/lib/prelaunch-compliance";
+import type { SourcingConstraints } from "@/lib/sourcing-funnel";
 import {
   approveListingContent,
   createAssetRecord,
@@ -111,6 +121,40 @@ export async function createAISourcingBatchAction(formData: FormData) {
       }
     }
 
+    const hasStructuredConstraints =
+      formData.has("minPriceUsd") ||
+      formData.has("maxPriceUsd") ||
+      formData.has("maxWeightKg") ||
+      formData.has("excludedAttr") ||
+      formData.has("customExclusionsJson");
+
+    let constraints: SourcingConstraints | null = null;
+    if (hasStructuredConstraints) {
+      const parseJsonField = <T,>(key: string, fallback: T): T => {
+        const raw = formData.get(key);
+        if (typeof raw !== "string" || !raw.trim()) return fallback;
+        try {
+          return JSON.parse(raw) as T;
+        } catch {
+          return fallback;
+        }
+      };
+      constraints = {
+        minPriceUsd: numberOrNull(formData.get("minPriceUsd")),
+        maxPriceUsd: numberOrNull(formData.get("maxPriceUsd")),
+        maxWeightKg: numberOrNull(formData.get("maxWeightKg")),
+        excludedAttrs: formData
+          .getAll("excludedAttr")
+          .map((v) => String(v).trim())
+          .filter(Boolean) as ProductComplianceAttribute[],
+        customExclusions: parseJsonField("customExclusionsJson", []),
+        hiddenAttrs: parseJsonField("hiddenAttrsJson", []),
+        attrLabelOverrides: parseJsonField("attrLabelOverridesJson", {}),
+        customNote: String(formData.get("brief") || "").trim().slice(0, 600),
+      };
+      await saveSourcingConstraints(constraints, String(formData.get("actor") || "选品负责人"));
+    }
+
     outcome = await createAISourcingBatch({
       marketCode,
       platformCode,
@@ -120,12 +164,17 @@ export async function createAISourcingBatchAction(formData: FormData) {
       fxRateToUsd,
       fxSourceUrl,
       requestKey: String(formData.get("requestKey") || "") || null,
+      constraints,
     });
   } catch (error) {
     redirect(`${returnPath}&error=${encodeURIComponent(errorMessage(error))}`);
   }
   revalidateAISourcing(outcome.runId);
-  redirect(`/ai-sourcing/${encodeURIComponent(outcome.runId)}?notice=${encodeURIComponent("已生成 5 个选品假设；下一步请用真实竞品、评论和供应商报价验证")}`);
+  const filteredHint =
+    "filteredOutCount" in outcome && outcome.filteredOutCount > 0
+      ? `（已按约束自动剔除 ${outcome.filteredOutCount} 个不合规方向）`
+      : "";
+  redirect(`/ai-sourcing/${encodeURIComponent(outcome.runId)}?tab=hypotheses&notice=${encodeURIComponent(`已生成候选方向${filteredHint}；下一步：扫搜索页 Top 20 快筛`)}`);
 }
 
 export async function deleteAISourcingBatchAction(formData: FormData) {
@@ -289,16 +338,26 @@ export async function recordAISupplierQuoteAction(formData: FormData) {
   const runId = String(formData.get("runId") || "");
   const hypothesisId = String(formData.get("hypothesisId") || "");
   const score = numberOrNull(formData.get("sampleScore"));
+  const currency = String(formData.get("currency") || "USD").trim().toUpperCase();
+  const unitPriceRmb = numberOrNull(formData.get("unitPriceRmb"));
+  const unitPriceCents =
+    unitPriceRmb && unitPriceRmb > 0
+      ? convertRmbToForeignCents(unitPriceRmb, currency)
+      : dollarsToCents(formData.get("unitPrice"));
+  const supplierUrlRaw = String(formData.get("supplierUrl") || "").trim();
+  const quoteUrlRaw = String(formData.get("quoteUrl") || "").trim();
+  const supplierName = String(formData.get("supplierName") || "").trim();
+  const fallback1688Url = `https://s.1688.com/selloffer/offer_search.htm?keywords=${encodeURIComponent(supplierName || "工厂")}`;
   try {
     await recordAISupplierQuote({
       hypothesisId,
-      supplierName: String(formData.get("supplierName") || ""),
-      supplierPlatform: String(formData.get("supplierPlatform") || ""),
-      supplierUrl: String(formData.get("supplierUrl") || ""),
+      supplierName,
+      supplierPlatform: String(formData.get("supplierPlatform") || "1688"),
+      supplierUrl: supplierUrlRaw || fallback1688Url,
       contact: String(formData.get("contact") || ""),
-      country: String(formData.get("country") || ""),
+      country: String(formData.get("country") || "CN"),
       productMatch: String(formData.get("productMatch") || ""),
-      unitPriceCents: dollarsToCents(formData.get("unitPrice")),
+      unitPriceCents,
       freightPerUnitCents: dollarsToCents(formData.get("freightPerUnit")),
       dutyRate: percentToRate(formData.get("dutyRate")),
       moq: integerFrom(formData.get("moq")),
@@ -308,15 +367,199 @@ export async function recordAISupplierQuoteAction(formData: FormData) {
       certifications: String(formData.get("certifications") || ""),
       paymentTerms: String(formData.get("paymentTerms") || ""),
       incoterm: String(formData.get("incoterm") || ""),
-      quoteUrl: String(formData.get("quoteUrl") || ""),
-      observedAt: String(formData.get("observedAt") || ""),
-      actor: String(formData.get("actor") || ""),
+      quoteUrl: quoteUrlRaw || supplierUrlRaw || fallback1688Url,
+      observedAt: String(formData.get("observedAt") || new Date().toISOString()),
+      actor: String(formData.get("actor") || "采购人员"),
     });
   } catch (error) {
     redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
   }
   revalidateAISourcing(runId);
-  redirect(aiSourcingDetailPath(runId, "notice", "供应商真实报价已记录并重新计算到岸成本、利润和门禁"));
+  redirect(`/ai-sourcing/${encodeURIComponent(runId)}?tab=quotes&hypothesisId=${encodeURIComponent(hypothesisId)}&notice=${encodeURIComponent("供应商真实报价已记录并重新计算到岸成本、利润和门禁")}#hypothesis-${encodeURIComponent(hypothesisId)}`);
+}
+
+export async function eliminateHypothesisAction(formData: FormData) {
+  const runId = String(formData.get("runId") || "").trim();
+  const hypothesisId = String(formData.get("hypothesisId") || "").trim();
+  const reason = String(formData.get("reason") || "").trim();
+  const note = String(formData.get("note") || "").trim();
+  const actor = String(formData.get("actor") || "运营人员").trim();
+  const returnPath = formData.get("returnPath") ? safeReturnPath(formData.get("returnPath")) : null;
+
+  try {
+    await eliminateHypothesis({ hypothesisId, reason, note, actor });
+  } catch (error) {
+    if (returnPath) redirect(withQuery(returnPath, "error", errorMessage(error)));
+    redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
+  }
+
+  revalidateAISourcing(runId);
+  revalidatePath("/discover");
+  const msg = `已淘汰该方向（原因：${reason}），已沉淀至团队避坑清单`;
+  if (returnPath) redirect(withQuery(returnPath, "notice", msg));
+  redirect(`/ai-sourcing/${encodeURIComponent(runId)}?tab=hypotheses&hypothesisId=${encodeURIComponent(hypothesisId)}&notice=${encodeURIComponent(msg)}#hypothesis-${encodeURIComponent(hypothesisId)}`);
+}
+
+export async function restoreHypothesisAction(formData: FormData) {
+  const runId = String(formData.get("runId") || "").trim();
+  const hypothesisId = String(formData.get("hypothesisId") || "").trim();
+  const actor = String(formData.get("actor") || "运营人员").trim();
+  const returnPath = formData.get("returnPath") ? safeReturnPath(formData.get("returnPath")) : null;
+
+  try {
+    await restoreHypothesis(hypothesisId, actor);
+  } catch (error) {
+    if (returnPath) redirect(withQuery(returnPath, "error", errorMessage(error)));
+    redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
+  }
+
+  revalidateAISourcing(runId);
+  revalidatePath("/discover");
+  const msg = "已恢复该候选方向为验证中";
+  if (returnPath) redirect(withQuery(returnPath, "notice", msg));
+  redirect(`/ai-sourcing/${encodeURIComponent(runId)}?tab=hypotheses&hypothesisId=${encodeURIComponent(hypothesisId)}&notice=${encodeURIComponent(msg)}#hypothesis-${encodeURIComponent(hypothesisId)}`);
+}
+
+export async function deleteHypothesisAction(formData: FormData) {
+  const runId = String(formData.get("runId") || "").trim();
+  const hypothesisId = String(formData.get("hypothesisId") || "").trim();
+  const tab = String(formData.get("tab") || "hypotheses").trim();
+  const actor = String(formData.get("actor") || "运营人员").trim();
+
+  let deleted: Awaited<ReturnType<typeof deleteHypothesis>>;
+  try {
+    deleted = await deleteHypothesis(hypothesisId, actor);
+  } catch (error) {
+    redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
+  }
+
+  revalidateAISourcing(deleted.runId);
+  revalidatePath("/discover");
+  const preserved = deleted.preservedProductCase ? "（已立项案卷保留）" : "";
+  const msg = `已删除候选方向「${deleted.concept}」${preserved}`;
+  if (deleted.remainingCount === 0) {
+    redirect(`/ai-sourcing?notice=${encodeURIComponent(msg)}`);
+  }
+  redirect(`/ai-sourcing/${encodeURIComponent(deleted.runId)}?tab=${encodeURIComponent(tab)}&notice=${encodeURIComponent(msg)}`);
+}
+
+export async function attachComparisonReportAction(formData: FormData) {
+  const runId = String(formData.get("runId") || "").trim();
+  const hypothesisId = String(formData.get("hypothesisId") || "").trim();
+  const reportId = String(formData.get("reportId") || "").trim();
+  const actor = String(formData.get("actor") || "运营人员").trim();
+
+  let res: Awaited<ReturnType<typeof attachComparisonReportToHypothesis>>;
+  try {
+    res = await attachComparisonReportToHypothesis({ hypothesisId, reportId, actor });
+  } catch (error) {
+    redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
+  }
+
+  revalidateAISourcing(runId);
+  const parts = [`已从扫描导入 ${res.addedCompetitors} 条真实竞品`];
+  if (res.addedReviewSamples > 0) parts.push(`${res.addedReviewSamples} 条真实差评`);
+  if (res.p50PriceCents) parts.push("并自动带入中位售价");
+  redirect(`/ai-sourcing/${encodeURIComponent(runId)}?tab=hypotheses&hypothesisId=${encodeURIComponent(hypothesisId)}&notice=${encodeURIComponent(parts.join("，"))}#hypothesis-${encodeURIComponent(hypothesisId)}`);
+}
+
+export async function saveHypothesisProfitCheckAction(formData: FormData) {
+  const runId = String(formData.get("runId") || "").trim();
+  const hypothesisId = String(formData.get("hypothesisId") || "").trim();
+  const refCostRmb = numberOrNull(formData.get("referenceFactoryCostRmb"));
+  const complianceAttrs = formData.getAll("complianceAttr").map((v) => String(v).trim()).filter(Boolean);
+  const priceRaw = numberOrNull(formData.get("confirmedPrice"));
+  const confirmedPriceCents = priceRaw && priceRaw > 0 ? Math.round(priceRaw * 100) : null;
+  const actor = String(formData.get("actor") || "运营人员").trim();
+
+  try {
+    await saveHypothesisProfitCheck({
+      hypothesisId,
+      referenceFactoryCostRmb: refCostRmb,
+      complianceAttrs,
+      confirmedPriceCents,
+      actor,
+    });
+  } catch (error) {
+    redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
+  }
+
+  revalidateAISourcing(runId);
+  redirect(`/ai-sourcing/${encodeURIComponent(runId)}?tab=hypotheses&hypothesisId=${encodeURIComponent(hypothesisId)}&notice=${encodeURIComponent("已保存 1688 参考价与合规自查结果")}#hypothesis-${encodeURIComponent(hypothesisId)}`);
+}
+
+export async function createQuickCandidateAction(formData: FormData) {
+  const marketCode = String(formData.get("marketCode") || "US").trim().toUpperCase();
+  const platformCode = String(formData.get("platformCode") || "amazon").trim().toLowerCase();
+  const category = String(formData.get("category") || "跨境候选").trim();
+  const concept = String(formData.get("concept") || "").trim();
+  const sourceKindRaw = String(formData.get("sourceKind") || "manual_idea");
+  const sourceKind =
+    sourceKindRaw === "asin_scan" || sourceKindRaw === "quick_calc" ? sourceKindRaw : "manual_idea";
+  const comparisonReportId = String(formData.get("comparisonReportId") || "").trim() || null;
+  const priceRaw = numberOrNull(formData.get("confirmedPrice"));
+  const confirmedPriceCents = priceRaw && priceRaw > 0 ? Math.round(priceRaw * 100) : null;
+  const referenceFactoryCostRmb = numberOrNull(formData.get("referenceFactoryCostRmb"));
+  const complianceAttrs = formData.getAll("complianceAttr").map((v) => String(v).trim()).filter(Boolean);
+  const eliminationReason = String(formData.get("eliminationReason") || "").trim() || null;
+  const eliminationNote = String(formData.get("eliminationNote") || "").trim() || null;
+  const actor = String(formData.get("actor") || "选品负责人").trim();
+
+  let created: { runId: string; hypothesisId: string };
+  try {
+    created = await createQuickCandidateBatch({
+      marketCode,
+      platformCode,
+      category,
+      concept: concept || `${category} 候选方向`,
+      sourceKind,
+      searchKeyword: String(formData.get("searchKeyword") || concept).trim(),
+      confirmedPriceCents,
+      referenceFactoryCostRmb,
+      complianceAttrs,
+      comparisonReportId,
+      eliminationReason,
+      eliminationNote,
+      actor,
+    });
+    if (comparisonReportId) {
+      await attachComparisonReportToHypothesis({
+        hypothesisId: created.hypothesisId,
+        reportId: comparisonReportId,
+        actor,
+      });
+    }
+  } catch (error) {
+    redirect(`/discover?market=${encodeURIComponent(marketCode)}&platform=${encodeURIComponent(platformCode)}&error=${encodeURIComponent(errorMessage(error))}`);
+  }
+
+  revalidateAISourcing(created.runId);
+  revalidatePath("/discover");
+  if (eliminationReason) {
+    redirect(`/ai-sourcing?notice=${encodeURIComponent(`已将「${concept || category}」记入淘汰避坑清单（原因：${eliminationReason}）`)}`);
+  }
+  redirect(`/ai-sourcing/${encodeURIComponent(created.runId)}?tab=hypotheses&hypothesisId=${encodeURIComponent(created.hypothesisId)}&notice=${encodeURIComponent("已纳入统一候选漏斗，可继续推进验证")}#hypothesis-${encodeURIComponent(created.hypothesisId)}`);
+}
+
+export async function saveFunnelThresholdsAction(formData: FormData) {
+  const returnPath = safeReturnPath(formData.get("returnPath") || "/ai-sourcing");
+  try {
+    await saveFunnelThresholds({
+      minCompetitorsForPass: numberOrNull(formData.get("minCompetitorsForPass")) ?? undefined,
+      maxHhi: numberOrNull(formData.get("maxHhi")) ?? undefined,
+      maxBrandCr3Percent: numberOrNull(formData.get("maxBrandCr3Percent")) ?? undefined,
+      maxMedianReviews: numberOrNull(formData.get("maxMedianReviews")) ?? undefined,
+      minMarginRate: (() => {
+        const pct = numberOrNull(formData.get("minMarginPct"));
+        return pct ? pct / 100 : undefined;
+      })(),
+      maxComplianceCostUsd: numberOrNull(formData.get("maxComplianceCostUsd")) ?? undefined,
+    });
+  } catch (error) {
+    redirect(withQuery(returnPath, "error", errorMessage(error)));
+  }
+  revalidatePath("/ai-sourcing");
+  redirect(withQuery(returnPath, "notice", "已更新选品漏斗红灯阈值配置"));
 }
 
 export async function recordSupplierCandidatesAction(formData: FormData) {
@@ -692,4 +935,10 @@ export async function createSupplierDirectoryEntryAction(formData: FormData) {
     redirect(`/sourcing?error=${encodeURIComponent(failure)}`);
   }
   redirect(`/sourcing?notice=${encodeURIComponent(`已成功录入供应商「${name}」至工厂资产池`)}`);
+}
+
+export async function saveSourcingConstraintsAction(input: SourcingConstraints) {
+  await saveSourcingConstraints(input, "选品负责人");
+  revalidatePath("/discover");
+  return { ok: true };
 }

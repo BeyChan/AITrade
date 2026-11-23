@@ -2,7 +2,7 @@ import type { getAISourcingBatch } from "@/lib/ai-sourcing-repository";
 
 export type BatchType = NonNullable<Awaited<ReturnType<typeof getAISourcingBatch>>>;
 
-export type DetailTab = "overview" | "hypotheses" | "suppliers" | "quotes" | "decision";
+export type DetailTab = "hypotheses" | "suppliers" | "quotes" | "decision";
 
 export function evidenceTypeLabel(value: string) {
   const labels: Record<string, string> = {

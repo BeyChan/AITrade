@@ -121,14 +121,14 @@ export function buildValidationTasks(
     {
       taskType: "review_research",
       title: `整理 ${DEFAULT_SOURCING_THRESHOLDS.minReviewSamples} 条差评样本`,
-      description: `优先看 1–3 星评论，按“卡毛、难清理、耐用性、尺寸、退货”等主题归类，记录样本数与原文摘录。`,
+      description: `优先看 1–3 星评论，按「${batch.category}」核心痛点、质量缺陷、使用体验、尺寸与退货原因归类，记录样本数与原文摘录。`,
       targetCount: DEFAULT_SOURCING_THRESHOLDS.minReviewSamples,
     },
     {
       taskType: "supplier_shortlist",
-      title: "建立 10 家供应商短名单",
+      title: `建立 ${DEFAULT_SOURCING_THRESHOLDS.minSuppliers} 家供应商短名单`,
       description: `在 1688 / Alibaba 搜索「${supplierQuery}」，核验工厂链接、主营类目、起订量、认证和最近更新时间。`,
-      targetCount: 10,
+      targetCount: DEFAULT_SOURCING_THRESHOLDS.minSuppliers,
     },
     {
       taskType: "rfq_draft",
@@ -243,6 +243,16 @@ export function mapHypothesis(row: HypothesisRow): AISourcingHypothesis {
     priorityScore: Number(row.priority_score),
     selectedForValidation: Boolean(row.selected_for_validation),
     productCaseId: row.product_case_id,
+    sourceKind: row.source_kind ?? "ai",
+    comparisonReportId: row.comparison_report_id ?? null,
+    referenceFactoryCostRmb:
+      row.reference_factory_cost_rmb === null || row.reference_factory_cost_rmb === undefined
+        ? null
+        : Number(row.reference_factory_cost_rmb),
+    complianceAttrs: Array.isArray(row.compliance_attrs) ? row.compliance_attrs : [],
+    eliminatedAt: row.eliminated_at ?? null,
+    eliminationReason: row.elimination_reason ?? null,
+    eliminationNote: row.elimination_note ?? null,
     createdAt: row.created_at,
   };
 }
@@ -280,6 +290,9 @@ export function mapCompetitor(row: CompetitorRow): AICompetitorSnapshot {
     monthlySalesMax: row.monthly_sales_max === null ? null : Number(row.monthly_sales_max),
     sellerCount: row.seller_count === null ? null : Number(row.seller_count),
     variationCount: row.variation_count === null ? null : Number(row.variation_count),
+    brand: row.brand ?? null,
+    isSponsored: Boolean(row.is_sponsored),
+    boughtPastMonth: row.bought_past_month === null || row.bought_past_month === undefined ? null : Number(row.bought_past_month),
     observedAt: row.observed_at,
   };
 }

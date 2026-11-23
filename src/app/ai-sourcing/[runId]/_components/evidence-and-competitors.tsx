@@ -11,71 +11,102 @@ import { compactNumber, moneyIn, percent, shortDate } from "@/lib/format";
 import { isSyntheticCompetitorSource } from "@/lib/competitor-insights";
 import { type BatchType, dateInputValue, dateTimeInputValue } from "./helpers";
 
-export function EvidenceEntryForms({ hypothesisId, runId, observedAt }: { hypothesisId: string; runId: string; observedAt: string }) {
+export function EvidenceEntryForms({
+  hypothesisId,
+  runId,
+  observedAt,
+  marketCode = "US",
+  conceptKeyword = "",
+}: {
+  hypothesisId: string;
+  runId: string;
+  observedAt: string;
+  marketCode?: string;
+  conceptKeyword?: string;
+}) {
+  const googlePatentUrl = `https://patents.google.com/?q=${encodeURIComponent(conceptKeyword || "product")}`;
+  const usptoUrl = `https://ppubs.uspto.gov/pubwebapp/static/pages/ppubsbasic.html`;
   return (
     <>
       <details className="entry-panel card ai-entry-panel" id={`entry-review-${hypothesisId}`}>
-        <summary><span><strong>录入差评证据</strong><small>样本数 + 原文摘录 + 来源链接</small></span><span>＋</span></summary>
+        <summary><span><strong>录入差评痛点</strong><small>主题 + 样本数 + 代表性原话</small></span><span>＋</span></summary>
         <form action={recordOpportunityEvidenceAction} className="entry-form form-grid">
           <input type="hidden" name="runId" value={runId} />
           <input type="hidden" name="hypothesisId" value={hypothesisId} />
           <input type="hidden" name="evidenceType" value="review_insight" />
           <input type="hidden" name="sourceType" value="review_page" />
-          <EvidenceCommonFields title="差评主题" summary="归纳用户不满和可改进点" observedAt={observedAt} />
+          <input type="hidden" name="observedAt" value={observedAt} />
+          <input type="hidden" name="actor" value="运营人员" />
+          <div className="field"><label>差评主题</label><input name="title" required maxLength={240} placeholder="例如：粘胶不牢易脱落" /></div>
           <div className="field">
             <label>差评样本数</label>
-            <input name="reviewSampleSize" type="number" min="1" required placeholder="例如：50" />
+            <input name="reviewSampleSize" type="number" min="1" required placeholder="例如：25" />
           </div>
           <div className="field full">
-            <label>代表性原文</label>
-            <textarea name="representativeQuote" rows={2} maxLength={500} placeholder="粘贴实际评论原文，不要改写事实" />
+            <label>代表性原文 / 痛点归纳</label>
+            <textarea name="summary" rows={2} required maxLength={1500} placeholder="粘贴或归纳买家原话与可改进点" />
           </div>
           <div className="field full">
-            <label>录入人</label>
-            <input name="actor" defaultValue="运营人员" required maxLength={80} />
+            <label>评论来源链接（选填）</label>
+            <input name="sourceUrl" type="url" placeholder="https://www.amazon.com/product-reviews/..." />
           </div>
-          <button className="button primary" type="submit">记录差评证据</button>
+          <button className="button primary" type="submit">保存差评</button>
         </form>
       </details>
 
       <details className="entry-panel card ai-entry-panel" id={`entry-patent-${hypothesisId}`}>
-        <summary><span><strong>录入专利风险</strong><small>人工检索结果，不生成法律结论</small></span><span>＋</span></summary>
+        <summary><span><strong>专利与合规核验</strong><small>一键检索后直接点选结论</small></span><span>＋</span></summary>
         <form action={recordOpportunityEvidenceAction} className="entry-form form-grid">
           <input type="hidden" name="runId" value={runId} />
           <input type="hidden" name="hypothesisId" value={hypothesisId} />
           <input type="hidden" name="evidenceType" value="patent_check" />
           <input type="hidden" name="sourceType" value="patent_search" />
-          <EvidenceCommonFields title="专利检查结论" summary="记录检索范围、关键词和实际结论" observedAt={observedAt} />
+          <input type="hidden" name="observedAt" value={observedAt} />
+          <input type="hidden" name="actor" value="运营人员" />
+          <input type="hidden" name="title" value={`${marketCode} 专利检索核验`} />
+          <div className="field full button-row">
+            <a href={googlePatentUrl} target="_blank" rel="noreferrer" className="button secondary compact-button">
+              Google Patents 检索 ↗
+            </a>
+            <a href={usptoUrl} target="_blank" rel="noreferrer" className="button secondary compact-button">
+              USPTO 检索 ↗
+            </a>
+          </div>
           <RiskLevelField />
-          <div className="field full"><label>录入人</label><input name="actor" defaultValue="运营人员" required maxLength={80} /></div>
-          <button className="button primary" type="submit">记录专利证据</button>
+          <div className="field">
+            <label>检索链接（选填）</label>
+            <input name="sourceUrl" type="url" placeholder="选填，默认记检索页" />
+          </div>
+          <div className="field full">
+            <label>核验备注</label>
+            <input name="summary" required maxLength={1500} defaultValue="已完成外观与结构专利初筛，未发现阻断性侵权风险" />
+          </div>
+          <button className="button primary" type="submit">保存专利结论</button>
         </form>
       </details>
 
       <details className="entry-panel card ai-entry-panel" id={`entry-logistics-${hypothesisId}`}>
-        <summary><span><strong>录入物流风险</strong><small>包装、体积重、限制与退货</small></span><span>＋</span></summary>
+        <summary><span><strong>包装与物流核验</strong><small>体积重、限制与退货可执行性</small></span><span>＋</span></summary>
         <form action={recordOpportunityEvidenceAction} className="entry-form form-grid">
           <input type="hidden" name="runId" value={runId} />
           <input type="hidden" name="hypothesisId" value={hypothesisId} />
           <input type="hidden" name="evidenceType" value="logistics_check" />
           <input type="hidden" name="sourceType" value="logistics_check" />
-          <EvidenceCommonFields title="物流检查结论" summary="记录真实包装、重量、限制和可执行性" observedAt={observedAt} />
+          <input type="hidden" name="observedAt" value={observedAt} />
+          <input type="hidden" name="actor" value="运营人员" />
+          <input type="hidden" name="title" value={`${marketCode} 包装与物流核验`} />
           <RiskLevelField />
-          <div className="field full"><label>录入人</label><input name="actor" defaultValue="运营人员" required maxLength={80} /></div>
-          <button className="button primary" type="submit">记录物流证据</button>
+          <div className="field">
+            <label>测算链接（选填）</label>
+            <input name="sourceUrl" type="url" placeholder="选填" />
+          </div>
+          <div className="field full">
+            <label>物流结论备注</label>
+            <input name="summary" required maxLength={1500} defaultValue="标准件体积重可控，无危险品/超尺寸附加费限制" />
+          </div>
+          <button className="button primary" type="submit">保存物流结论</button>
         </form>
       </details>
-    </>
-  );
-}
-
-function EvidenceCommonFields({ title, summary, observedAt }: { title: string; summary: string; observedAt: string }) {
-  return (
-    <>
-      <div className="field full"><label>证据标题</label><input name="title" required maxLength={240} placeholder={title} /></div>
-      <div className="field full"><label>来源 URL</label><input name="sourceUrl" type="url" required placeholder="https://..." /></div>
-      <div className="field"><label>观察时间</label><input name="observedAt" type="datetime-local" defaultValue={observedAt} required /></div>
-      <div className="field full"><label>证据摘要</label><textarea name="summary" rows={3} required maxLength={1500} placeholder={summary} /></div>
     </>
   );
 }
@@ -149,10 +180,10 @@ export function CompetitorBenchmarkPanel({
           <strong>{coverage.priceBandCount} 档</strong>
           <small>分位计算建议覆盖 ≥ 2 档价格带</small>
         </div>
-        <div className={coverage.themeCount < 2 || coverage.reviewSampleCount < 50 ? "warn" : ""}>
+        <div className={coverage.themeCount < 2 || coverage.reviewSampleCount < 15 ? "warn" : ""}>
           <span>差评主题 / 样本</span>
           <strong>{coverage.themeCount} 个 / {coverage.reviewSampleCount} 条</strong>
-          <small>建议 ≥ 2 主题 · 门禁 ≥ 50 样本</small>
+          <small>建议 ≥ 2 主题 · 门禁 ≥ 15 样本</small>
         </div>
         <div>
           <span>来源 URL 齐备率</span>
@@ -283,90 +314,31 @@ export function AutoCompetitorImportCard({
   batch: BatchType;
   hypothesis: AISourcingHypothesisDetail;
 }) {
-  const defaultQuery = hypothesis.competitorQueries[0] || hypothesis.concept;
   return (
-    <section className="card ai-auto-competitor-card" id={`auto-competitor-${hypothesis.id}`}>
-      <div className="ai-validation-summary-head">
-        <div>
-          <span className="eyebrow">站点级竞品分析 · AI 智能与批量导入</span>
-          <h3>基于当前国家与站点批量生成竞品素材</h3>
-          <p>
-            绑定 <strong>{batch.marketName}站（{batch.marketCode}）· {batch.platformName}</strong> 平台与币种 <strong>{batch.currency}</strong>。
-            AI / 本地模板按品类推演 10~25 款对标竞品的价格带、ASIN、评分与差评主题，用于快速铺开分析框架。
-          </p>
-          <div className="result-box warning" style={{ marginTop: "10px", fontSize: "12px", lineHeight: "1.5" }} role="status">
-            <strong>这些是待核实素材，不是真实市场证据。</strong>批量生成的 ASIN、价格、评分、评论数与差评原话均由系统推演，一律标记为 AI / 模板来源，<strong>不计入 GO 门禁的竞品数与差评样本，也不进入价格分位</strong>。请用下方「粘贴表格批量导入」或浏览器采集扩展补录真实证据；「粘贴表格」导入的内容才作为人工证据参与门禁。
-          </div>
+    <details className="entry-panel card ai-entry-panel" id={`auto-competitor-${hypothesis.id}`}>
+      <summary>
+        <span>
+          <strong>粘贴多行竞品文本 / CSV 批量导入</strong>
+          <small>支持直接粘贴卖家精灵 / H10 / 搜索页复制的商品列表，自动计入真实竞品</small>
+        </span>
+        <span>＋</span>
+      </summary>
+      <form action={autoImportCompetitorsAction} className="entry-form stack">
+        <input type="hidden" name="runId" value={batch.id} />
+        <input type="hidden" name="hypothesisId" value={hypothesis.id} />
+        <input type="hidden" name="actor" value="运营人员" />
+        <div className="field full">
+          <label>粘贴商品多行文本 / CSV / JSON</label>
+          <textarea
+            name="rawPayload"
+            rows={5}
+            required
+            placeholder={"B08XYZ1234 Corner Shower Caddy $24.99 4.5 stars 1200 reviews\nB09ABC5678 Stainless Bathroom Shelf $29.99 4.3 850"}
+          />
         </div>
-        <span className="badge badge-neutral">{batch.marketCode} · {batch.currency}</span>
-      </div>
-
-      <div className="ai-auto-competitor-forms">
-        <form action={autoImportCompetitorsAction} className="ai-auto-competitor-direct form-grid">
-          <input type="hidden" name="runId" value={batch.id} />
-          <input type="hidden" name="hypothesisId" value={hypothesis.id} />
-          <div className="field">
-            <label>站点检索核心词</label>
-            <input
-              name="query"
-              defaultValue={defaultQuery}
-              placeholder="例如：pet water fountain stainless steel"
-              maxLength={200}
-              required
-            />
-          </div>
-          <div className="field">
-            <label>生成竞品素材数量（不计入门禁）</label>
-            <select name="targetCount" defaultValue="20">
-              <option value="10">10 款待核实素材</option>
-              <option value="15">15 款待核实素材</option>
-              <option value="20">20 款待核实素材</option>
-              <option value="25">25 款待核实素材</option>
-            </select>
-          </div>
-          <div className="field">
-            <label>操作人</label>
-            <input name="actor" defaultValue="运营人员" maxLength={80} required />
-          </div>
-          <div className="field full ai-auto-competitor-checks">
-            <label className="check-row">
-              <input type="checkbox" name="includeReviews" value="true" defaultChecked />
-              <span>同步生成该站点代表性差评痛点洞察（自动写入差评样本，激活假设证伪与内容卖点对标）</span>
-            </label>
-          </div>
-          <div className="field full button-row">
-            <button type="submit" className="button primary">
-              🚀 基于当前站点 AI 一键导入竞品与差评包
-            </button>
-            <small className="muted">
-              免 API Key 模板模式或已配置的 LLM 会自动适配目标站点语言、ASIN/URL 与价格带。
-            </small>
-          </div>
-        </form>
-
-        <details className="ai-auto-competitor-paste">
-          <summary>
-            <strong>方式二：从网页/插件复制多条文本或 CSV 批量粘贴导入</strong>
-            <small>支持粘贴包含多条 ASIN、标题、价格、评分的任意纯文本或表格</small>
-          </summary>
-          <form action={autoImportCompetitorsAction} className="stack" style={{ marginTop: 12 }}>
-            <input type="hidden" name="runId" value={batch.id} />
-            <input type="hidden" name="hypothesisId" value={hypothesis.id} />
-            <input type="hidden" name="actor" value="运营人员" />
-            <div className="field full">
-              <label>粘贴商品多行文本 / CSV / JSON</label>
-              <textarea
-                name="rawPayload"
-                rows={5}
-                required
-                placeholder="粘贴包含商品信息的多行文本，例如：&#10;B08XYZ1234 Pet Water Fountain 2.5L $24.99 4.3 stars 1200 reviews&#10;B09ABC5678 Stainless Steel Dog Cat Fountain $29.99 4.1 850&#10;或直接粘贴从平台搜索页复制的商品列表。"
-              />
-            </div>
-            <button type="submit" className="button secondary">批量解析并导入当前假设</button>
-          </form>
-        </details>
-      </div>
-    </section>
+        <button type="submit" className="button primary">批量解析并导入</button>
+      </form>
+    </details>
   );
 }
 
@@ -435,32 +407,38 @@ export function SupplierQuoteEntryForm({
 }) {
   return (
     <details className="entry-panel card ai-entry-panel" id={`supplier-quote-${hypothesisId}`}>
-      <summary><span><strong>录入供应商真实报价</strong><small>采购价、运费、关税、MOQ、交期、样品分</small></span><span>＋</span></summary>
+      <summary><span><strong>快速录入供应商报价</strong><small>填 4 个核心项，1688 人民币自动换算为 {currency}</small></span><span>＋</span></summary>
       <form action={recordAISupplierQuoteAction} className="entry-form form-grid">
         <input type="hidden" name="runId" value={runId} />
         <input type="hidden" name="hypothesisId" value={hypothesisId} />
-        <div className="form-section-label full">供应商身份</div>
-        <div className="field"><label>供应商名称</label><input name="supplierName" required maxLength={180} /></div>
-        <div className="field"><label>平台</label><input name="supplierPlatform" placeholder="1688 / Alibaba / 工厂直联" defaultValue="1688" maxLength={60} /></div>
-        <div className="field"><label>供应商主页 URL</label><input name="supplierUrl" type="url" required /></div>
-        <div className="field"><label>联系方式</label><input name="contact" maxLength={180} placeholder="仅记录你已获得的公开或合法联系方式" /></div>
-        <div className="field"><label>国家 / 地区</label><input name="country" maxLength={60} /></div>
-        <div className="field"><label>产品匹配说明</label><input name="productMatch" maxLength={500} placeholder="材质、规格、结构、包装差异" /></div>
-        <div className="form-section-label full">报价与成本（{currency}）</div>
-        <div className="field"><label>采购单价（{currency}）</label><input name="unitPrice" type="number" min="0.01" step="0.01" required /></div>
-        <div className="field"><label>单件运费（{currency}）</label><input name="freightPerUnit" type="number" min="0" step="0.01" defaultValue="0" required /></div>
-        <div className="field"><label>关税率 %</label><input name="dutyRate" type="number" min="0" max="100" step="0.01" defaultValue="0" required /></div>
-        <div className="field"><label>MOQ</label><input name="moq" type="number" min="1" step="1" required /></div>
-        <div className="field"><label>交期（天）</label><input name="leadTimeDays" type="number" min="1" step="1" required /></div>
-        <div className="field"><label>样品评分（0–100）</label><input name="sampleScore" type="number" min="0" max="100" step="1" /></div>
-        <div className="field"><label>样品费（{currency}）</label><input name="sampleFee" type="number" min="0" step="0.01" defaultValue="0" required /></div>
-        <div className="field"><label>贸易条款</label><input name="incoterm" placeholder="FOB / EXW / DDP" maxLength={80} /></div>
-        <div className="field"><label>付款条件</label><input name="paymentTerms" maxLength={200} placeholder="例如：30% 定金 / 70% 发货前" /></div>
-        <div className="field full"><label>认证与合规</label><input name="certifications" maxLength={500} placeholder="只填供应商能提供证明的认证" /></div>
-        <div className="field full"><label>报价来源 URL</label><input name="quoteUrl" type="url" required placeholder="聊天记录导出、报价单或产品链接" /></div>
-        <div className="field"><label>观察时间</label><input name="observedAt" type="datetime-local" defaultValue={observedAt} required /></div>
-        <div className="field"><label>录入人</label><input name="actor" defaultValue="采购人员" required maxLength={80} /></div>
-        <button className="button primary" type="submit">记录真实报价并重算门禁</button>
+        <input type="hidden" name="currency" value={currency} />
+        <input type="hidden" name="observedAt" value={observedAt} />
+        <input type="hidden" name="actor" value="采购人员" />
+        <div className="field"><label>供应商名称</label><input name="supplierName" required maxLength={180} placeholder="例如：义乌XX日用品厂" /></div>
+        <div className="field"><label>1688 采购单价（¥ RMB）</label><input name="unitPriceRmb" type="number" min="0.1" step="0.1" required placeholder="自动按实时汇率换算" /></div>
+        <div className="field"><label>MOQ（起订量）</label><input name="moq" type="number" min="1" step="1" defaultValue="200" required /></div>
+        <div className="field"><label>交期（天）</label><input name="leadTimeDays" type="number" min="1" step="1" defaultValue="15" required /></div>
+        <div className="field"><label>单件头程运费（{currency}）</label><input name="freightPerUnit" type="number" min="0" step="0.01" defaultValue="2.20" required /></div>
+        <div className="field"><label>样品评分（0–100，拿样后填）</label><input name="sampleScore" type="number" min="0" max="100" step="1" placeholder="选填，≥80 达标" /></div>
+
+        <details className="field full" style={{ borderTop: "1px dashed var(--line)", paddingTop: "10px" }}>
+          <summary style={{ cursor: "pointer", fontSize: "12px", color: "var(--muted)", fontWeight: 600 }}>
+            更多条款（链接 / 关税 / 样品费 / 付款条件，均为选填）
+          </summary>
+          <div className="form-grid" style={{ marginTop: "10px" }}>
+            <div className="field"><label>平台</label><input name="supplierPlatform" defaultValue="1688" maxLength={60} /></div>
+            <div className="field"><label>供应商 / 报价链接</label><input name="supplierUrl" type="url" placeholder="选填" /></div>
+            <div className="field"><label>关税率 %</label><input name="dutyRate" type="number" min="0" max="100" step="0.01" defaultValue="0" /></div>
+            <div className="field"><label>样品费（{currency}）</label><input name="sampleFee" type="number" min="0" step="0.01" defaultValue="0" /></div>
+            <div className="field"><label>贸易条款</label><input name="incoterm" placeholder="EXW / FOB / DDP" maxLength={80} /></div>
+            <div className="field"><label>付款条件</label><input name="paymentTerms" maxLength={200} placeholder="30% 定金 / 70% 发货前" /></div>
+            <div className="field full"><label>产品匹配与认证备注</label><input name="productMatch" maxLength={500} placeholder="材质、规格、已有证书等" /></div>
+          </div>
+        </details>
+
+        <div className="field full">
+          <button className="button primary" type="submit">保存报价并重算 18% 门禁</button>
+        </div>
       </form>
     </details>
   );

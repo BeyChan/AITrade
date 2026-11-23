@@ -7,6 +7,8 @@ import {
   isSyntheticCompetitorSource,
   type CompetitorBenchmark,
 } from "../competitor-insights.ts";
+import { getComparisonReportById } from "../competitor-compare/storage.ts";
+import { isVerifiedCompetitorField } from "../competitor-compare/types.ts";
 import {
   generateSiteCompetitorPack,
   parseBulkCompetitorText,
@@ -109,8 +111,15 @@ export async function recordOpportunityEvidence(input: {
   const db = await getDb();
   await assertSelected(input.hypothesisId);
   const evidenceId = randomUUID();
-  const observedAt = normalizeObservedAt(input.observedAt);
-  const sourceUrl = validateEvidenceUrl(input.sourceUrl.trim());
+  const observedAt = normalizeObservedAt(input.observedAt || new Date().toISOString());
+  const rawUrl = input.sourceUrl.trim();
+  const fallbackUrl =
+    input.evidenceType === "patent_check"
+      ? "https://patents.google.com/"
+      : input.evidenceType === "logistics_check"
+        ? "https://sellercentral.amazon.com/hz/fba/profitabilitycalculator"
+        : "https://www.amazon.com/";
+  const sourceUrl = validateEvidenceUrl(rawUrl || fallbackUrl);
   const sampleSize = Math.max(1, Math.round(input.reviewSampleSize || 1));
   const riskLevel = input.riskLevel ?? (input.evidenceType === "patent_check" || input.evidenceType === "logistics_check" ? "review" : undefined);
 
@@ -594,4 +603,214 @@ export async function loadCaseCompetitorBenchmark(
 
   return { status: "ok", benchmark, candidates };
 }
+
+/**
+ * 将入口 B（浏览器扩展 / 竞品对比研报）的真实扫描结果一键写入候选批次：
+ * - 自动写入去重后的真实竞品快照（补齐 brand / is_sponsored / bought_past_month）
+ * - 若包含真实采集差评，同步写入 review_insights
+ * - 若尚未确认售价且研报有真实 P50，自动带入 confirmed_price_cents
+ */
+export async function attachComparisonReportToHypothesis(input: {
+  hypothesisId: string;
+  reportId: string;
+  actor?: string;
+}) {
+  const db = await getDb();
+  const context = await loadHypothesisContext(input.hypothesisId);
+  if (!context) throw new Error("候选方向不存在");
+
+  const report = await getComparisonReportById(input.reportId);
+  if (!report) throw new Error("未找到对应的竞品扫描研报");
+
+  const actor = (input.actor ?? "").trim() || "运营人员";
+  if (!context.hypothesis.selectedForValidation) {
+    await selectHypothesisForValidation(input.hypothesisId, actor);
+  }
+
+  const existingRows = await db.query<{ asin: string | null; source_url: string }>(
+    "SELECT asin, source_url FROM competitor_snapshots WHERE hypothesis_id = $1",
+    [input.hypothesisId],
+  );
+  const existingAsins = new Set(
+    existingRows.rows.map((r) => (r.asin || "").trim().toUpperCase()).filter(Boolean),
+  );
+  const existingUrls = new Set(existingRows.rows.map((r) => r.source_url.trim().toLowerCase()));
+
+  const observedAt = normalizeObservedAt(report.createdAt || new Date().toISOString());
+  const sourceType = report.provenance === "captured" ? "browser_extension" : "manual_verified";
+
+  let addedCompetitors = 0;
+  let addedReviewSamples = 0;
+
+  await db.transaction(async (tx) => {
+    for (const item of report.competitors) {
+      const effectivePrice =
+        typeof item.effectivePriceCents === "number" && item.effectivePriceCents > 0
+          ? item.effectivePriceCents
+          : item.priceCents;
+      if (!effectivePrice || effectivePrice <= 0) continue;
+
+      const asin = (item.asin || "").trim().toUpperCase();
+      const sourceUrl =
+        item.sourceUrl && /^https?:\/\//i.test(item.sourceUrl)
+          ? item.sourceUrl
+          : asin
+            ? `https://www.amazon.com/dp/${asin}`
+            : "https://www.amazon.com/";
+
+      const isDup = (asin && existingAsins.has(asin)) || existingUrls.has(sourceUrl.toLowerCase());
+      if (!isDup) {
+        const evidenceId = randomUUID();
+        const title = (item.title || asin || "未命名竞品").trim().slice(0, 240);
+        const rating =
+          isVerifiedCompetitorField(item, "rating") && item.rating > 0 ? item.rating : null;
+        const reviewCount =
+          isVerifiedCompetitorField(item, "reviewCount") && item.reviewCount >= 0
+            ? Math.round(item.reviewCount)
+            : Math.max(0, Math.round(item.reviewCount || 0));
+        const bsr = isVerifiedCompetitorField(item, "bsr") && item.bsr > 0 ? Math.round(item.bsr) : null;
+        const bought =
+          typeof item.boughtPastMonth === "number" && item.boughtPastMonth > 0
+            ? Math.round(item.boughtPastMonth)
+            : null;
+
+        await tx.query(
+          `INSERT INTO opportunity_evidence
+            (id, hypothesis_id, evidence_type, source_type, source_url, title, summary, observed_at, raw_snapshot, created_by)
+           VALUES ($1, $2, 'competitor_snapshot', $3, $4, $5, $6, $7, $8::jsonb, $9)`,
+          [
+            evidenceId,
+            input.hypothesisId,
+            sourceType,
+            sourceUrl,
+            title,
+            `扫描导入竞品（${report.title}）：${title}`.slice(0, 1500),
+            observedAt,
+            JSON.stringify({
+              reportId: report.id,
+              asin: asin || null,
+              brand: item.brand || null,
+              priceCents: effectivePrice,
+              isSponsored: Boolean(item.isSponsored),
+              boughtPastMonth: bought,
+            }),
+            actor,
+          ],
+        );
+        await tx.query(
+          `INSERT INTO competitor_snapshots
+            (id, hypothesis_id, evidence_id, asin, title, source_url, price_cents, rating, review_count, bsr,
+             monthly_sales_min, brand, is_sponsored, bought_past_month, observed_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+          [
+            randomUUID(),
+            input.hypothesisId,
+            evidenceId,
+            asin || null,
+            title,
+            sourceUrl,
+            Math.round(effectivePrice),
+            rating,
+            reviewCount,
+            bsr,
+            bought,
+            item.brand?.trim().slice(0, 120) || null,
+            Boolean(item.isSponsored),
+            bought,
+            observedAt,
+          ],
+        );
+        if (asin) existingAsins.add(asin);
+        existingUrls.add(sourceUrl.toLowerCase());
+        addedCompetitors += 1;
+      }
+
+      // 若该竞品含真实采集到的差评文本，同步落入 review_insights
+      const reviews = Array.isArray(item.capturedReviews)
+        ? item.capturedReviews.map((s) => s.trim()).filter((s) => s.length >= 10)
+        : [];
+      if (reviews.length > 0) {
+        const revEvidenceId = randomUUID();
+        const theme = `${asin || item.brand || "竞品"} 买家差评实采`.slice(0, 180);
+        await tx.query(
+          `INSERT INTO opportunity_evidence
+            (id, hypothesis_id, evidence_type, source_type, source_url, title, summary, observed_at, raw_snapshot, created_by)
+           VALUES ($1, $2, 'review_insight', $3, $4, $5, $6, $7, $8::jsonb, $9)`,
+          [
+            revEvidenceId,
+            input.hypothesisId,
+            sourceType,
+            sourceUrl,
+            theme,
+            reviews.slice(0, 3).join(" | ").slice(0, 1500),
+            observedAt,
+            JSON.stringify({ reportId: report.id, reviewSampleSize: reviews.length }),
+            actor,
+          ],
+        );
+        await tx.query(
+          `INSERT INTO review_insights
+            (id, hypothesis_id, evidence_id, theme, sentiment, sample_size, representative_quote)
+           VALUES ($1, $2, $3, $4, 'negative', $5, $6)`,
+          [randomUUID(), input.hypothesisId, revEvidenceId, theme, reviews.length, reviews[0]!.slice(0, 500)],
+        );
+        addedReviewSamples += reviews.length;
+      }
+    }
+
+    // 绑定研报，并在未确认售价时自动用真实 P50 预填确认售价
+    const autoPriceCents =
+      !context.hypothesis.confirmedPriceCents && report.priceStats.p50 > 0
+        ? Math.round(report.priceStats.p50)
+        : null;
+    const priceSourceUrl =
+      report.competitors[0]?.sourceUrl && /^https?:\/\//i.test(report.competitors[0].sourceUrl)
+        ? report.competitors[0].sourceUrl
+        : "https://www.amazon.com/";
+
+    if (autoPriceCents) {
+      await tx.query(
+        `UPDATE opportunity_hypotheses
+         SET comparison_report_id = $2,
+             confirmed_price_cents = $3,
+             confirmed_price_source_url = $4,
+             confirmed_price_at = NOW()
+         WHERE id = $1`,
+        [input.hypothesisId, report.id, autoPriceCents, priceSourceUrl],
+      );
+    } else {
+      await tx.query(
+        "UPDATE opportunity_hypotheses SET comparison_report_id = $2 WHERE id = $1",
+        [input.hypothesisId, report.id],
+      );
+    }
+
+    await tx.query(
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
+       VALUES ($1, $2, 'ai_sourcing.scan_report_attached', 'opportunity_hypothesis', $3, $4::jsonb)`,
+      [
+        randomUUID(),
+        actor,
+        input.hypothesisId,
+        JSON.stringify({
+          reportId: report.id,
+          reportTitle: report.title,
+          addedCompetitors,
+          addedReviewSamples,
+          autoPriceCents,
+        }),
+      ],
+    );
+  });
+
+  const decision = await refreshAISelectionDecision(input.hypothesisId);
+  return {
+    runId: context.hypothesis.runId,
+    addedCompetitors,
+    addedReviewSamples,
+    p50PriceCents: report.priceStats.p50 || null,
+    decision,
+  };
+}
+
 

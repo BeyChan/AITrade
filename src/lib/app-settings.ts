@@ -2,6 +2,12 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID }
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { getDb } from "./db.ts";
+import {
+  DEFAULT_FUNNEL_THRESHOLDS,
+  DEFAULT_SOURCING_CONSTRAINTS,
+  type SourcingConstraints,
+  type SourcingFunnelThresholds,
+} from "./sourcing-funnel.ts";
 
 export type AIProviderId = "template" | "ollama" | "openai-compatible" | "anthropic-compatible";
 export type ImageProviderId =
@@ -595,4 +601,89 @@ function isMissingFile(error: unknown) {
 
 function isAlreadyExists(error: unknown) {
   return error instanceof Error && "code" in error && error.code === "EEXIST";
+}
+
+export async function loadFunnelThresholds(): Promise<SourcingFunnelThresholds> {
+  const db = await getDb();
+  const res = await db.query<{ value: string }>(
+    "SELECT value FROM app_settings WHERE key = 'sourcing_funnel_thresholds' LIMIT 1",
+  );
+  const raw = res.rows[0]?.value;
+  if (!raw) return { ...DEFAULT_FUNNEL_THRESHOLDS };
+  try {
+    const parsed = JSON.parse(raw) as Partial<SourcingFunnelThresholds>;
+    return {
+      minCompetitorsForPass: Number(parsed.minCompetitorsForPass) || DEFAULT_FUNNEL_THRESHOLDS.minCompetitorsForPass,
+      maxHhi: Number(parsed.maxHhi) || DEFAULT_FUNNEL_THRESHOLDS.maxHhi,
+      maxBrandCr3Percent: Number(parsed.maxBrandCr3Percent) || DEFAULT_FUNNEL_THRESHOLDS.maxBrandCr3Percent,
+      maxMedianReviews: Number(parsed.maxMedianReviews) || DEFAULT_FUNNEL_THRESHOLDS.maxMedianReviews,
+      minMarginRate: Number(parsed.minMarginRate) || DEFAULT_FUNNEL_THRESHOLDS.minMarginRate,
+      maxComplianceCostUsd: Number(parsed.maxComplianceCostUsd) || DEFAULT_FUNNEL_THRESHOLDS.maxComplianceCostUsd,
+    };
+  } catch {
+    return { ...DEFAULT_FUNNEL_THRESHOLDS };
+  }
+}
+
+export async function saveFunnelThresholds(input: Partial<SourcingFunnelThresholds>, actor = "管理员") {
+  const db = await getDb();
+  const current = await loadFunnelThresholds();
+  const merged: SourcingFunnelThresholds = {
+    minCompetitorsForPass: Math.max(4, Math.round(Number(input.minCompetitorsForPass ?? current.minCompetitorsForPass))),
+    maxHhi: Math.max(1000, Math.round(Number(input.maxHhi ?? current.maxHhi))),
+    maxBrandCr3Percent: Math.max(20, Math.min(100, Math.round(Number(input.maxBrandCr3Percent ?? current.maxBrandCr3Percent)))),
+    maxMedianReviews: Math.max(100, Math.round(Number(input.maxMedianReviews ?? current.maxMedianReviews))),
+    minMarginRate: Math.max(0.05, Math.min(0.6, Number(input.minMarginRate ?? current.minMarginRate))),
+    maxComplianceCostUsd: Math.max(100, Math.round(Number(input.maxComplianceCostUsd ?? current.maxComplianceCostUsd))),
+  };
+  await db.query(
+    `INSERT INTO app_settings (key, value, updated_by, updated_at)
+     VALUES ('sourcing_funnel_thresholds', $1, $2, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+    [JSON.stringify(merged), actor.trim() || "管理员"],
+  );
+  return merged;
+}
+
+export async function loadSourcingConstraints(): Promise<SourcingConstraints> {
+  const db = await getDb();
+  const res = await db.query<{ value: string }>(
+    "SELECT value FROM app_settings WHERE key = 'sourcing_constraints' LIMIT 1",
+  );
+  const raw = res.rows[0]?.value;
+  if (!raw) return { ...DEFAULT_SOURCING_CONSTRAINTS };
+  try {
+    const parsed = JSON.parse(raw) as Partial<SourcingConstraints>;
+    return {
+      minPriceUsd: typeof parsed.minPriceUsd === "number" && parsed.minPriceUsd > 0 ? parsed.minPriceUsd : null,
+      maxPriceUsd: typeof parsed.maxPriceUsd === "number" && parsed.maxPriceUsd > 0 ? parsed.maxPriceUsd : null,
+      maxWeightKg: typeof parsed.maxWeightKg === "number" && parsed.maxWeightKg > 0 ? parsed.maxWeightKg : null,
+      excludedAttrs: Array.isArray(parsed.excludedAttrs) ? parsed.excludedAttrs : DEFAULT_SOURCING_CONSTRAINTS.excludedAttrs,
+      customExclusions: Array.isArray(parsed.customExclusions)
+        ? parsed.customExclusions.filter(
+            (item): item is { id: string; label: string; enabled: boolean } =>
+              Boolean(item && typeof item.id === "string" && typeof item.label === "string" && typeof item.enabled === "boolean"),
+          )
+        : [],
+      hiddenAttrs: Array.isArray(parsed.hiddenAttrs) ? parsed.hiddenAttrs : [],
+      attrLabelOverrides:
+        parsed.attrLabelOverrides && typeof parsed.attrLabelOverrides === "object"
+          ? parsed.attrLabelOverrides
+          : {},
+      customNote: typeof parsed.customNote === "string" ? parsed.customNote : "",
+    };
+  } catch {
+    return { ...DEFAULT_SOURCING_CONSTRAINTS };
+  }
+}
+
+export async function saveSourcingConstraints(input: SourcingConstraints, actor = "选品负责人") {
+  const db = await getDb();
+  await db.query(
+    `INSERT INTO app_settings (key, value, updated_by, updated_at)
+     VALUES ('sourcing_constraints', $1, $2, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+    [JSON.stringify(input), actor.trim() || "选品负责人"],
+  );
+  return input;
 }

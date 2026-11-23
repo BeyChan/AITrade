@@ -333,9 +333,8 @@ export async function createProductCaseFromCompetitors(
     realEvidenceScore,
   );
 
-  // 严谨立项原则：从竞品初筛转入案卷，初始状态为待人工立项评审 (review_pending)，
-  // 防止未经人工打样核实的 AI 研报直接绕过立项门禁
-  const status: CaseStatus = "review_pending";
+  // 点「正式立项」即视为已立项生效，不再卡在待审批中间态
+  const status: CaseStatus = "approved";
 
   await db.transaction(async (tx) => {
     await tx.query(

@@ -18,19 +18,22 @@ export default async function ProductCasesPage({ searchParams }: PageProps) {
   const query = await searchParams;
   const cases = await listCases();
 
-  const currentStatus = query.status || "all";
+  const currentView = query.status === "archived" ? "archived" : "active";
   const currentMarket = query.market || "all";
 
+  const isArchived = (status: string) => status === "archived" || status === "rejected";
+
   const filteredCases = cases.filter((c) => {
-    if (currentStatus !== "all" && c.status !== currentStatus) return false;
+    if (currentView === "archived" && !isArchived(c.status)) return false;
+    if (currentView === "active" && isArchived(c.status)) return false;
     if (currentMarket !== "all" && c.marketplace.toUpperCase() !== currentMarket.toUpperCase()) return false;
     return true;
   });
 
-  const totalCases = cases.length;
-  const approvedCases = cases.filter((c) => c.status === "approved").length;
-  const pendingCases = cases.filter((c) => c.status === "review_pending").length;
-  const totalMonthlyProfitCents = cases.reduce((acc, c) => {
+  const activeCases = cases.filter((c) => !isArchived(c.status));
+  const archivedCases = cases.filter((c) => isArchived(c.status));
+  const goCases = activeCases.filter((c) => c.recommendation === "GO").length;
+  const totalMonthlyProfitCents = activeCases.reduce((acc, c) => {
     const net = c.costModel?.results?.netProfitCents || 0;
     return acc + net * (c.monthly_sales_estimate || 0);
   }, 0);
@@ -86,64 +89,60 @@ export default async function ProductCasesPage({ searchParams }: PageProps) {
       />
 
       <MetricGrid
-        ariaLabel="商品案卷核心指标"
+        ariaLabel="我的商品核心指标"
         items={[
-          { label: "已立项商品案卷", value: totalCases, note: "覆盖活跃立项商品" },
-          { label: "已终审立项 (Approved)", value: approvedCases, note: "已完成财务定标审批", tone: "success" },
-          { label: "待财务核准 (Review)", value: pendingCases, note: "等待管理层审批报价", tone: "warn" },
+          { label: "活跃商品", value: activeCases.length, note: "正在推进中的已立项商品" },
+          { label: "达标 GO 商品", value: goCases, note: "满足 18% 净利率门禁", tone: "success" },
+          { label: "已归档", value: archivedCases.length, note: "已终止或归档复盘" },
           { label: "预估月度利润贡献", value: money(totalMonthlyProfitCents), note: "按测算单件净利 × 月销估计", tone: "success" },
         ]}
       />
 
-      {/* 筛选过滤栏 */}
-      <div
-        style={{
-          background: "var(--paper)",
-          padding: "11px 16px",
-          borderRadius: "10px",
-          border: "1px solid var(--line)",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          flexWrap: "wrap",
-          gap: "12px",
-          marginBottom: "14px",
-        }}
-      >
-        <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
-          <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--muted)", marginRight: "4px" }}>状态筛选</span>
-          {[
-            { id: "all", label: "全部案卷" },
-            { id: "approved", label: "已立项通过" },
-            { id: "review_pending", label: "待财务核准" },
-            { id: "draft", label: "调研初选" },
-          ].map((tab) => {
-            const active = currentStatus === tab.id;
-            return (
-              <Link
-                key={tab.id}
-                href={`/cases?status=${tab.id}&market=${currentMarket}`}
-                style={{
-                  fontSize: "12px",
-                  padding: "5px 12px",
-                  borderRadius: "6px",
-                  textDecoration: "none",
-                  fontWeight: active ? 700 : 500,
-                  background: active ? "var(--deep)" : "var(--canvas)",
-                  color: active ? "var(--deep-fg)" : "var(--ink)",
-                  transition: "all 0.15s ease",
-                }}
-              >
-                {tab.label}
-              </Link>
-            );
-          })}
+      {archivedCases.length > 0 || currentView === "archived" ? (
+        <div
+          style={{
+            background: "var(--paper)",
+            padding: "10px 16px",
+            borderRadius: "10px",
+            border: "1px solid var(--line)",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: "12px",
+            marginBottom: "14px",
+          }}
+        >
+          <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+            {[
+              { id: "active", label: `活跃商品 (${activeCases.length})`, href: `/cases${currentMarket !== "all" ? `?market=${currentMarket}` : ""}` },
+              { id: "archived", label: `已归档 (${archivedCases.length})`, href: `/cases?status=archived${currentMarket !== "all" ? `&market=${currentMarket}` : ""}` },
+            ].map((tab) => {
+              const active = currentView === tab.id;
+              return (
+                <Link
+                  key={tab.id}
+                  href={tab.href}
+                  style={{
+                    fontSize: "12px",
+                    padding: "5px 12px",
+                    borderRadius: "6px",
+                    textDecoration: "none",
+                    fontWeight: active ? 700 : 500,
+                    background: active ? "var(--deep)" : "var(--canvas)",
+                    color: active ? "var(--deep-fg)" : "var(--ink)",
+                  }}
+                >
+                  {tab.label}
+                </Link>
+              );
+            })}
+          </div>
+          <div style={{ fontSize: "12px", color: "var(--muted)" }}>
+            共展示 <strong className="badge-num" style={{ color: "var(--ink)" }}>{filteredCases.length}</strong> 个商品
+          </div>
         </div>
-
-        <div style={{ fontSize: "12px", color: "var(--muted)" }}>
-          共展示 <strong className="badge-num" style={{ color: "var(--ink)" }}>{filteredCases.length}</strong> 个商品案卷
-        </div>
-      </div>
+      ) : null}
 
       {/* 跨境立项审计台账表 */}
       {filteredCases.length === 0 ? (

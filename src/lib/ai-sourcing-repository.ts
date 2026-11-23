@@ -16,15 +16,24 @@ export type {
 
 export {
   createAISourcingBatch,
+  createQuickCandidateBatch,
   deleteAISourcingBatch,
+  deleteHypothesis,
+  eliminateHypothesis,
   getAISourcingBatch,
   getBatchSiteLabel,
   listAISourcingBatches,
+  listEliminatedHypotheses,
+  listKanbanCandidates,
+  restoreHypothesis,
+  saveHypothesisProfitCheck,
   selectHypothesisForValidation,
   toggleValidationTaskStatus,
+  type KanbanCandidateItem,
 } from "./ai-sourcing-repo/batches.ts";
 
 export {
+  attachComparisonReportToHypothesis,
   autoImportSiteCompetitors,
   confirmHypothesisPrice,
   loadCaseCompetitorBenchmark,
