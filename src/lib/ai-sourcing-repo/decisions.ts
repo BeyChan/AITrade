@@ -186,7 +186,12 @@ export async function refreshAISelectionDecision(hypothesisId: string): Promise<
   };
 }
 
-export async function promoteHypothesisToProductCase(hypothesisId: string, actor: string) {
+export async function promoteHypothesisToProductCase(
+  hypothesisId: string,
+  actor: string,
+  options?: { provisional?: boolean },
+) {
+  const provisional = Boolean(options?.provisional);
   const db = await getDb();
   const context = await loadHypothesisContext(hypothesisId);
   if (!context) throw new Error("机会假设不存在");
@@ -194,7 +199,9 @@ export async function promoteHypothesisToProductCase(hypothesisId: string, actor
   if (context.hypothesis.productCaseId) return { caseId: context.hypothesis.productCaseId, created: false };
 
   const decision = await refreshAISelectionDecision(hypothesisId);
-  if (decision.decision !== "GO") throw new Error("确定性门禁尚未给出 GO，不能转入商品立项");
+  if (!provisional && decision.decision !== "GO") {
+    throw new Error("确定性门禁尚未给出 GO，不能正式立项（可补齐红项，或选择「先建待验证案卷」）");
+  }
 
   const quotes = await db.query<PromotableQuoteRow>(
     `SELECT q.*, s.supplier_name, s.platform AS supplier_platform, s.supplier_url,
@@ -206,11 +213,28 @@ export async function promoteHypothesisToProductCase(hypothesisId: string, actor
     [hypothesisId],
   );
   const bestQuote = quotes.rows[0];
-  if (!bestQuote) throw new Error("缺少真实报价");
+  if (!provisional && !bestQuote) throw new Error("缺少真实报价");
   const caseId = randomUUID();
   const asin = `AI-${hypothesisId.replace(/-/g, "").slice(0, 12).toUpperCase()}`;
-  const confirmedPrice = context.hypothesis.confirmedPriceCents;
-  if (!confirmedPrice) throw new Error("请先录入已确认售价，再转商品立项");
+  const confirmedPrice =
+    context.hypothesis.confirmedPriceCents ??
+    (provisional && context.hypothesis.recommendedPriceCents > 0
+      ? context.hypothesis.recommendedPriceCents
+      : null);
+  if (!confirmedPrice) throw new Error("请先在第 2 步「利润测算」确认拟定售价后再立项");
+
+  let landedCostCents = bestQuote?.landed_cost_cents ?? 0;
+  if (!bestQuote) {
+    const refRmb = context.hypothesis.referenceFactoryCostRmb;
+    if (refRmb && refRmb > 0) {
+      const { convertRmbToForeignCents } = await import("../currency.ts");
+      const purchaseCents = convertRmbToForeignCents(refRmb, context.batch.currency);
+      landedCostCents = purchaseCents + Math.max(120, Math.round(purchaseCents * 0.25));
+    } else {
+      landedCostCents = Math.round(confirmedPrice * 0.3);
+    }
+  }
+
   const calibratedBundle = await loadCalibratedDefaultsForScope({
     marketplace: context.batch.marketCode,
     currency: context.batch.currency,
@@ -221,12 +245,14 @@ export async function promoteHypothesisToProductCase(hypothesisId: string, actor
   const assumptions = {
     currency: context.batch.currency,
     salePriceCents: confirmedPrice,
-    landedCostCents: bestQuote.landed_cost_cents,
+    landedCostCents,
     ...calibratedBundle.defaults,
     ...(calibratedBundle.calibrationMeta ? { calibrationMeta: calibratedBundle.calibrationMeta } : {}),
   };
   const economics = calculateEconomics(assumptions);
   const owner = actor.trim() || "运营人员";
+  const caseStatus = provisional && decision.decision !== "GO" ? "review_pending" : "approved";
+  const stagePrefix = caseStatus === "review_pending" ? "[待验证立项] " : "";
 
   await db.transaction(async (tx) => {
     const guard = await tx.query<{ product_case_id: string | null }>(
@@ -249,7 +275,7 @@ export async function promoteHypothesisToProductCase(hypothesisId: string, actor
         (id, asin, marketplace, category, title, status, competitor_price_cents, monthly_sales_estimate,
          review_count, rating, notes, owner, evidence_score, is_demo, source_code, source_record_id,
          source_observed_at, currency)
-       VALUES ($1, $2, $3, $4, $5, 'approved', $6, 0, 0, NULL, $7, $8, $9, $12,
+       VALUES ($1, $2, $3, $4, $5, $13, $6, 0, 0, NULL, $7, $8, $9, $12,
                'ai_sourcing', $10, NOW(), $11)`,
       [
         caseId,
@@ -258,12 +284,13 @@ export async function promoteHypothesisToProductCase(hypothesisId: string, actor
         context.batch.category,
         context.hypothesis.concept,
         confirmedPrice,
-        `由 AI 选品验证批次转入；已核实竞品 ${context.counts.competitors} 个${(context.counts.syntheticCompetitors ?? 0) > 0 ? `（另有 ${context.counts.syntheticCompetitors} 条 AI/模板合成素材，不计入证据与门禁）` : ""}，差评样本 ${context.counts.reviewSamples} 条，供应商 ${context.counts.suppliers} 家，报价 ${context.counts.quotes} 份。决策证据完整度 ${decision.evidenceCompleteness}%。`,
+        `${stagePrefix}由统一选品工作台转入；已核实竞品 ${context.counts.competitors} 个${(context.counts.syntheticCompetitors ?? 0) > 0 ? `（另有 ${context.counts.syntheticCompetitors} 条 AI/模板合成素材，不计入证据与门禁）` : ""}，差评样本 ${context.counts.reviewSamples} 条，供应商 ${context.counts.suppliers} 家，报价 ${context.counts.quotes} 份。决策证据完整度 ${decision.evidenceCompleteness}%。`,
         owner,
         decision.evidenceCompleteness,
         hypothesisId,
         context.batch.currency,
         isDemo,
+        caseStatus,
       ],
     );
     await tx.query(

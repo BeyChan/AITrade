@@ -216,16 +216,15 @@ function SidebarItem({
   const activeCaseId = item.href === "/cases" ? extractActiveCaseId(pathname) : null;
   const caseStageItems: SubItem[] = activeCaseId
     ? [
-        { href: `/cases/${activeCaseId}`, label: "1. 利润与合规" },
-        { href: `/cases/${activeCaseId}/sourcing`, label: "2. 寻源与打样" },
-        { href: `/cases/${activeCaseId}/sourcing#supplier-award`, label: "3. 财务定标" },
+        { href: `/cases/${activeCaseId}`, label: "商品总览与核算" },
+        { href: `/cases/${activeCaseId}/sourcing`, label: "1. 锁厂定标" },
         {
           href: `/cases/${activeCaseId}/content${mode === "sandbox" ? "?preview=1" : ""}`,
-          label: "4. 文案与视觉",
+          label: "2. 文案与视觉",
         },
         {
           href: `/cases/${activeCaseId}/content${mode === "sandbox" ? "?preview=1" : ""}#launch-ready`,
-          label: "5. 上架就绪",
+          label: "3. 上架就绪",
         },
         { href: `/cases/${activeCaseId}/report`, label: "立项决策战报" },
       ]

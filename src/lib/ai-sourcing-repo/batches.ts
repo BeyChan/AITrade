@@ -751,8 +751,8 @@ export async function deleteHypothesis(hypothesisId: string, actor = "运营人�
 
 export async function saveHypothesisProfitCheck(input: {
   hypothesisId: string;
-  referenceFactoryCostRmb: number | null;
-  complianceAttrs: string[];
+  referenceFactoryCostRmb?: number | null;
+  complianceAttrs?: string[];
   confirmedPriceCents?: number | null;
   actor?: string;
 }) {
@@ -764,12 +764,17 @@ export async function saveHypothesisProfitCheck(input: {
   }
 
   const refCost =
-    input.referenceFactoryCostRmb !== null &&
-    Number.isFinite(input.referenceFactoryCostRmb) &&
-    input.referenceFactoryCostRmb > 0
-      ? Number(input.referenceFactoryCostRmb.toFixed(2))
-      : null;
-  const attrs = [...new Set(input.complianceAttrs.map((a) => a.trim()).filter(Boolean))];
+    input.referenceFactoryCostRmb === undefined
+      ? context.hypothesis.referenceFactoryCostRmb
+      : input.referenceFactoryCostRmb !== null &&
+          Number.isFinite(input.referenceFactoryCostRmb) &&
+          input.referenceFactoryCostRmb > 0
+        ? Number(input.referenceFactoryCostRmb.toFixed(2))
+        : null;
+  const attrs =
+    input.complianceAttrs === undefined
+      ? context.hypothesis.complianceAttrs
+      : [...new Set(input.complianceAttrs.map((a) => a.trim()).filter(Boolean))];
   const actor = (input.actor ?? "").trim() || "运营人员";
   const nextPrice =
     input.confirmedPriceCents && Number.isInteger(input.confirmedPriceCents) && input.confirmedPriceCents > 0

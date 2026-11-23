@@ -4,7 +4,6 @@ import { calculateEconomics } from "./economics.ts";
 import {
   evaluateFlatFileExportGate,
   evaluateMediaPackExportGate,
-  evaluateWizardServerGate,
 } from "./export-gates.ts";
 import { assertSourcingGateAllowed } from "./repo/sourcing.ts";
 import { buildWorkContextCaseItem, filterCasesForWorkContextScope } from "./work-context.ts";
@@ -111,41 +110,6 @@ test("导出门禁：未终审时 Flat File 与素材包均返回 409", () => {
     boundMediaCount: 0,
   });
   assert.equal(packOk.allowed, true);
-});
-
-test("向导服务端门禁分流：NO-GO 需例外审批，纯估算落待验证，有研报 GO 落正式推进", () => {
-  const lossModel = makeCostModel(2000, 1400);
-  const nogo = evaluateWizardServerGate({
-    results: lossModel.results,
-    monthlySalesEstimate: 600,
-    reviewCount: 200,
-    competitorCount: 0,
-    hasSourceReport: false,
-  });
-  assert.equal(nogo.recommendation, "NO-GO");
-  assert.equal(nogo.requiresException, true);
-  assert.equal(nogo.caseStatus, "review_pending");
-
-  const goodModel = makeCostModel(4500, 700);
-  const estimateOnly = evaluateWizardServerGate({
-    results: goodModel.results,
-    monthlySalesEstimate: 1500,
-    reviewCount: 100,
-    competitorCount: 0,
-    hasSourceReport: false,
-  });
-  assert.equal(estimateOnly.caseStatus, "review_pending");
-  assert.equal(estimateOnly.requiresException, false);
-
-  const withReport = evaluateWizardServerGate({
-    results: goodModel.results,
-    monthlySalesEstimate: 1500,
-    reviewCount: 100,
-    competitorCount: 6,
-    hasSourceReport: true,
-  });
-  assert.equal(withReport.recommendation, "GO");
-  assert.equal(withReport.caseStatus, "approved");
 });
 
 test("询价与定标门禁：NO-GO 拦截，NO-GO 例外通过放行，HOLD 允许继续询价", () => {

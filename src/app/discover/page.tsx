@@ -15,7 +15,6 @@ type PageProps = {
     platform?: string;
     entry?: string;
     reportId?: string;
-    step?: string;
   }>;
 };
 
@@ -49,9 +48,12 @@ export default async function DiscoverPage({ searchParams }: PageProps) {
   const requestedReport = query.reportId
     ? allReports.find((r) => r.id === query.reportId) ?? null
     : null;
-  const initialReport = requestedReport ?? siteReports[0] ?? null;
-  const initialStep: 1 | 2 | 3 =
-    query.step === "2" ? 2 : query.step === "3" ? 3 : 1;
+  const initialEntryMode: "ai" | "competitor" | "sourcing" =
+    query.entry === "competitor" || query.entry === "wizard" || Boolean(requestedReport)
+      ? "competitor"
+      : query.entry === "sourcing"
+        ? "sourcing"
+        : "ai";
 
   return (
     <div className="page">
@@ -61,9 +63,9 @@ export default async function DiscoverPage({ searchParams }: PageProps) {
           { label: "选品看板", href: "/ai-sourcing" },
           { label: "新建选品" },
         ]}
-        eyebrow="选品入口 · 两条路径"
+        eyebrow="统一选品入口"
         title="新建选品"
-        description="还没定品就让 AI 发散方向；已有竞品或货源则走 3 步极速立项：看市场 → 核 18% 毛利 → 合规立项。系统负责形成可推进案卷与交付资料，平台发布仍在卖家后台完成。"
+        description="不论从 AI 找方向、竞品链接还是 1688 货源开始，创建后都会进入同一套 4 步选品工作台（1 竞品研报 → 2 利润测算 → 3 找厂与打样 → 4 风险与立项）。"
       />
 
       <SelectionWizardClient
@@ -73,9 +75,9 @@ export default async function DiscoverPage({ searchParams }: PageProps) {
         platformName={platform?.name ?? "Amazon"}
         currency={market?.currency ?? "USD"}
         requestKey={randomUUID()}
-        initialReport={initialReport}
-        initialStep={initialStep}
-        initialEntryMode={query.entry === "wizard" ? "wizard" : "ai_brainstorm"}
+        siteReports={siteReports.slice(0, 12)}
+        initialReportId={requestedReport?.id ?? ""}
+        initialEntryMode={initialEntryMode}
         initialConstraints={savedConstraints}
         eliminatedHistory={eliminatedHistory}
       />

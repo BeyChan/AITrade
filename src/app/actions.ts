@@ -488,9 +488,19 @@ export async function attachComparisonReportAction(formData: FormData) {
 export async function saveHypothesisProfitCheckAction(formData: FormData) {
   const runId = String(formData.get("runId") || "").trim();
   const hypothesisId = String(formData.get("hypothesisId") || "").trim();
-  const refCostRmb = numberOrNull(formData.get("referenceFactoryCostRmb"));
-  const complianceAttrs = formData.getAll("complianceAttr").map((v) => String(v).trim()).filter(Boolean);
-  const priceRaw = numberOrNull(formData.get("confirmedPrice"));
+  const returnTabRaw = String(formData.get("returnTab") || "profit").trim();
+  const returnTab =
+    returnTabRaw === "hypotheses" || returnTabRaw === "suppliers" || returnTabRaw === "decision"
+      ? returnTabRaw
+      : "profit";
+  const hasRefCost = formData.has("referenceFactoryCostRmb");
+  const refCostRmb = hasRefCost ? numberOrNull(formData.get("referenceFactoryCostRmb")) : undefined;
+  const hasComplianceField = formData.has("updateCompliance");
+  const complianceAttrs = hasComplianceField
+    ? formData.getAll("complianceAttr").map((v) => String(v).trim()).filter(Boolean)
+    : undefined;
+  const hasPriceField = formData.has("confirmedPrice");
+  const priceRaw = hasPriceField ? numberOrNull(formData.get("confirmedPrice")) : null;
   const confirmedPriceCents = priceRaw && priceRaw > 0 ? Math.round(priceRaw * 100) : null;
   const actor = String(formData.get("actor") || "运营人员").trim();
 
@@ -507,7 +517,10 @@ export async function saveHypothesisProfitCheckAction(formData: FormData) {
   }
 
   revalidateAISourcing(runId);
-  redirect(`/ai-sourcing/${encodeURIComponent(runId)}?tab=hypotheses&hypothesisId=${encodeURIComponent(hypothesisId)}&notice=${encodeURIComponent("已保存 1688 参考价与合规自查结果")}#hypothesis-${encodeURIComponent(hypothesisId)}`);
+  const msg = hasComplianceField && !hasRefCost
+    ? "已保存商品合规属性排查"
+    : "已保存售价与 1688 参考拿货价，18% 毛利门禁已更新";
+  redirect(`/ai-sourcing/${encodeURIComponent(runId)}?tab=${encodeURIComponent(returnTab)}&hypothesisId=${encodeURIComponent(hypothesisId)}&notice=${encodeURIComponent(msg)}#hypothesis-${encodeURIComponent(hypothesisId)}`);
 }
 
 export async function createQuickCandidateAction(formData: FormData) {
@@ -555,12 +568,18 @@ export async function createQuickCandidateAction(formData: FormData) {
     redirect(`/discover?market=${encodeURIComponent(marketCode)}&platform=${encodeURIComponent(platformCode)}&error=${encodeURIComponent(errorMessage(error))}`);
   }
 
+  const targetTabRaw = String(formData.get("targetTab") || "hypotheses").trim();
+  const targetTab =
+    targetTabRaw === "profit" || targetTabRaw === "suppliers" || targetTabRaw === "decision"
+      ? targetTabRaw
+      : "hypotheses";
+
   revalidateAISourcing(created.runId);
   revalidatePath("/discover");
   if (eliminationReason) {
     redirect(`/ai-sourcing?notice=${encodeURIComponent(`已将「${concept || category}」记入淘汰避坑清单（原因：${eliminationReason}）`)}`);
   }
-  redirect(`/ai-sourcing/${encodeURIComponent(created.runId)}?tab=hypotheses&hypothesisId=${encodeURIComponent(created.hypothesisId)}&notice=${encodeURIComponent("已纳入统一候选漏斗，可继续推进验证")}#hypothesis-${encodeURIComponent(created.hypothesisId)}`);
+  redirect(`/ai-sourcing/${encodeURIComponent(created.runId)}?tab=${encodeURIComponent(targetTab)}&hypothesisId=${encodeURIComponent(created.hypothesisId)}&notice=${encodeURIComponent("已纳入统一选品工作台，按 4 步推进验证")}#hypothesis-${encodeURIComponent(created.hypothesisId)}`);
 }
 
 export async function saveFunnelThresholdsAction(formData: FormData) {
@@ -684,17 +703,25 @@ export async function reviewSupplierDraftAction(formData: FormData) {
 export async function promoteHypothesisAction(formData: FormData) {
   const runId = String(formData.get("runId") || "");
   const hypothesisId = String(formData.get("hypothesisId") || "");
+  const provisional = String(formData.get("mode") || "") === "provisional";
   let outcome: Awaited<ReturnType<typeof promoteHypothesisToProductCase>>;
   try {
-    outcome = await promoteHypothesisToProductCase(hypothesisId, String(formData.get("actor") || ""));
+    outcome = await promoteHypothesisToProductCase(
+      hypothesisId,
+      String(formData.get("actor") || ""),
+      { provisional },
+    );
   } catch (error) {
-    redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
+    redirect(`/ai-sourcing/${encodeURIComponent(runId)}?tab=decision&hypothesisId=${encodeURIComponent(hypothesisId)}&error=${encodeURIComponent(errorMessage(error))}`);
   }
   revalidateAISourcing(runId);
   revalidatePath("/");
   revalidatePath(`/cases/${outcome.caseId}`);
   revalidatePath(`/cases/${outcome.caseId}/sourcing`);
-  redirect(`/cases/${encodeURIComponent(outcome.caseId)}/sourcing?notice=${encodeURIComponent("GO 机会已转入商品立项，全部真实报价已带入供应商比价与定标")}`);
+  const noticeMsg = provisional
+    ? "已创建待验证案卷，后续可继续锁厂定标与完善文案视觉"
+    : "已正式立项，全部报价与样品数据已自动带入商品开发";
+  redirect(`/cases/${encodeURIComponent(outcome.caseId)}/sourcing?notice=${encodeURIComponent(noticeMsg)}`);
 }
 
 function revalidateAISourcing(runId: string) {

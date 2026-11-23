@@ -8,13 +8,12 @@ import {
   confirmComparisonReport,
   deleteComparisonReport,
   getComparisonReportById,
-  markComparisonReportPromoted,
   saveComparisonReport,
 } from "@/lib/competitor-compare/storage";
 import { createAISourcingBatch } from "@/lib/ai-sourcing-repository";
 import { countVerifyPlaceholders, generateAntiListingContent, type AntiListingResult } from "@/lib/competitor-compare/anti-listing";
 import { generateSupplierRfqFromCompetitors, type SupplierRfqDraft } from "@/lib/competitor-compare/supplier-rfq";
-import { createListingDraft, createProductCaseFromCompetitors, getContentDetail, listCasesForSite, listSupplierDirectory } from "@/lib/repository";
+import { createListingDraft, getContentDetail, listCasesForSite, listSupplierDirectory } from "@/lib/repository";
 import { getDb } from "@/lib/db";
 import { generateStructuredJSON } from "@/lib/ai-provider";
 import { loadAIProviderConfig } from "@/lib/app-settings";
@@ -728,115 +727,6 @@ export async function applyAntiListingToCaseAction(
     return {
       success: false,
       error: err instanceof Error ? err.message : "写入商品 Listing 失败",
-    };
-  }
-}
-
-export async function promoteCompetitorReportToCaseAction(params: {
-  reportId: string;
-  quoteCostRmb: number;
-  targetPriceCents: number;
-  antiListing?: AntiListingResult | null;
-  rfqDraft?: SupplierRfqDraft | null;
-  actor?: string;
-}): Promise<{ success: boolean; caseId?: string; error?: string }> {
-  try {
-    const report = await getComparisonReportById(params.reportId);
-    if (!report) {
-      return { success: false, error: "未找到对应的竞品对比报告" };
-    }
-
-    // 幂等防重门禁：若该研报此前已经正式立项过，直接返回已有 caseId，绝不重复生成多条案卷
-    if (report.promotedCaseId) {
-      return {
-        success: true,
-        caseId: report.promotedCaseId,
-      };
-    }
-
-    // 严谨立项门禁 1：研报必须经过人工复核确认
-    if (report.reviewStatus !== "confirmed") {
-      return {
-        success: false,
-        error: "竞品研报尚未人工核对确认！请在研报顶部核实竞品价格真实性，并点击「我已核对，确认可用」后再立项。",
-      };
-    }
-
-    // 严谨立项门禁 2：研报必须有至少 1 款以上真实竞品
-    if (!report.competitors || report.competitors.length === 0) {
-      return {
-        success: false,
-        error: "研报中缺少竞品对比数据，无法建立正式商品案卷！",
-      };
-    }
-
-    const currency = report.currency || "USD";
-    const purchaseCostCents = convertRmbToForeignCents(params.quoteCostRmb, currency);
-    const estFreightCents = Math.round(purchaseCostCents * 0.25);
-    const landedCostCents = purchaseCostCents + estFreightCents;
-
-    const { loadCalibratedDefaultsForScope } = await import("@/lib/calibration-repository");
-    const calibratedBundle = await loadCalibratedDefaultsForScope({
-      marketplace: report.marketCode,
-      currency,
-      category: report.hypothesisBridge?.category || report.title,
-      platformCode: report.platformCode,
-      salePriceCents: params.targetPriceCents,
-    });
-    const assumptions = {
-      currency,
-      salePriceCents: params.targetPriceCents,
-      landedCostCents,
-      ...calibratedBundle.defaults,
-      ...(calibratedBundle.calibrationMeta ? { calibrationMeta: calibratedBundle.calibrationMeta } : {}),
-    };
-
-    const monthlySales = Math.round(
-      report.competitors.reduce((acc, c) => acc + (c.monthlySalesEst || 300), 0) /
-        Math.max(1, report.competitors.length),
-    );
-    const medianReview = Math.round(
-      report.competitors.reduce((acc, c) => acc + (c.reviewCount || 100), 0) /
-        Math.max(1, report.competitors.length),
-    );
-    const medianRating =
-      report.competitors.reduce((acc, c) => acc + (c.rating || 4.2), 0) /
-      Math.max(1, report.competitors.length);
-
-    const competitorAsins = report.competitors.map((c) => c.asin).filter(Boolean);
-
-    const result = await createProductCaseFromCompetitors(
-      {
-        title: report.hypothesisBridge?.concept || report.title,
-        category: report.hypothesisBridge?.category || report.title,
-        marketplace: report.marketCode,
-        platform: report.platformCode,
-        currency,
-        competitorPriceCents: params.targetPriceCents,
-        monthlySalesEstimate: monthlySales,
-        reviewCount: medianReview,
-        rating: medianRating,
-        notes: `由竞品对比报告 ${report.title} 直接立项。1688 询价底价 ¥${params.quoteCostRmb}，测算到岸成本 ${(landedCostCents / 100).toFixed(2)} ${currency}。`,
-        assumptions,
-        antiListing: params.antiListing,
-        rfqDraft: params.rfqDraft,
-        competitorAsins,
-        reportId: report.id,
-      },
-      params.actor || "竞品操盘手",
-    );
-
-    // 回写研报状态，实现已立项闭环与幂等绑定
-    await markComparisonReportPromoted(report.id, result.caseId);
-
-    revalidatePath("/");
-    revalidatePath("/cases");
-    revalidatePath("/competitors");
-    return { success: true, caseId: result.caseId };
-  } catch (err) {
-    return {
-      success: false,
-      error: err instanceof Error ? err.message : "正式立项失败",
     };
   }
 }

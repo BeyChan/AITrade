@@ -380,22 +380,6 @@ export function CompetitorEntryForm({
   );
 }
 
-export function ConfirmPriceForm({ hypothesisId, runId, currency }: { hypothesisId: string; runId: string; currency: string }) {
-  return (
-    <details className="entry-panel card ai-entry-panel" id={`confirm-price-${hypothesisId}`}>
-      <summary><span><strong>确认售价</strong><small>依据真实竞品价格带；利润门禁只使用这里的价格</small></span><span>＋</span></summary>
-      <form action={confirmHypothesisPriceAction} className="entry-form form-grid">
-        <input type="hidden" name="runId" value={runId} />
-        <input type="hidden" name="hypothesisId" value={hypothesisId} />
-        <div className="field"><label>已确认售价（{currency}）</label><input name="price" type="number" min="0.01" step="0.01" required /></div>
-        <div className="field full"><label>依据链接（竞品页、价格带记录等）</label><input name="sourceUrl" type="url" required placeholder="https://..." /></div>
-        <div className="field full"><label>录入人</label><input name="actor" defaultValue="运营人员" required maxLength={80} /></div>
-        <button className="button primary" type="submit">记录已确认售价</button>
-      </form>
-    </details>
-  );
-}
-
 export function SupplierQuoteEntryForm({
   hypothesisId,
   runId,

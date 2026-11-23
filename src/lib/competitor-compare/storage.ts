@@ -348,14 +348,3 @@ export async function confirmComparisonReport(id: string): Promise<CompetitorCom
   await saveComparisonReport(updated);
   return updated;
 }
-
-/** 标记竞品研报已正式立项，防止重复创建案卷并实现业务流转闭环 */
-export async function markComparisonReportPromoted(id: string, caseId: string): Promise<void> {
-  const target = await getComparisonReportById(id, { mode: "sandbox" });
-  if (!target) return;
-  await saveComparisonReport({
-    ...target,
-    promotedCaseId: caseId,
-    promotedAt: new Date().toISOString(),
-  });
-}

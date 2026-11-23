@@ -1,12 +1,16 @@
 import { PGlite } from "@electric-sql/pglite";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
 import path from "node:path";
 import { calculateEconomics, type EconomicsAssumptions } from "./economics.ts";
 
 declare global {
   // eslint-disable-next-line no-var
   var __aitradeDbPromise: Promise<PGlite> | undefined;
+  // eslint-disable-next-line no-var
+  var __aitradeDbInstance: PGlite | undefined;
+  // eslint-disable-next-line no-var
+  var __aitradeDbShutdownHooked: boolean | undefined;
 }
 
 export type DbEngineInfo = {
@@ -23,9 +27,77 @@ export function getDbEngineInfo(): DbEngineInfo {
 
 export function getDb() {
   if (!globalThis.__aitradeDbPromise) {
-    globalThis.__aitradeDbPromise = initializeDb();
+    globalThis.__aitradeDbPromise = initializeDb().catch((error) => {
+      globalThis.__aitradeDbPromise = undefined;
+      throw error;
+    });
   }
   return globalThis.__aitradeDbPromise;
+}
+
+function removeStalePostmasterPid(dataDir: string) {
+  const pidFile = path.join(dataDir, "postmaster.pid");
+  if (existsSync(pidFile)) {
+    try {
+      rmSync(pidFile, { force: true });
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function registerDbShutdownHooks() {
+  if (globalThis.__aitradeDbShutdownHooked) return;
+  globalThis.__aitradeDbShutdownHooked = true;
+  const closeSafely = () => {
+    const inst = globalThis.__aitradeDbInstance;
+    if (inst && !inst.closed) {
+      globalThis.__aitradeDbInstance = undefined;
+      globalThis.__aitradeDbPromise = undefined;
+      void inst.close().catch(() => undefined);
+    }
+  };
+  process.once("beforeExit", closeSafely);
+  process.once("SIGINT", closeSafely);
+  process.once("SIGTERM", closeSafely);
+}
+
+async function openPGliteWithRecovery(dataDir: string): Promise<PGlite> {
+  // PGlite 是单进程嵌入式数据库；dev 重启/异常中断常残留 postmaster.pid 导致 WASM Aborted()
+  if (!globalThis.__aitradeDbInstance) {
+    removeStalePostmasterPid(dataDir);
+  }
+  try {
+    const db = new PGlite(dataDir);
+    await db.waitReady;
+    return db;
+  } catch (firstError) {
+    // 若仍启动失败，先清理 postmaster.pid 重试一次
+    removeStalePostmasterPid(dataDir);
+    try {
+      const retryDb = new PGlite(dataDir);
+      await retryDb.waitReady;
+      return retryDb;
+    } catch {
+      // WAL checkpoint 损坏（例如双开 dev 或强杀进程导致 PANIC: could not locate a valid checkpoint record）
+      // 自动将损坏目录备份移走并重建干净库，避免服务永久 500 卡死
+      const backupDir = `${dataDir}.corrupted-${Date.now()}`;
+      try {
+        if (existsSync(dataDir)) {
+          renameSync(dataDir, backupDir);
+        }
+        mkdirSync(dataDir, { recursive: true });
+        console.warn(
+          `[AITrade] 检测到本地 PGlite 数据目录损坏（WAL checkpoint 异常），已自动备份至 ${backupDir} 并重建干净数据库。`,
+        );
+        const freshDb = new PGlite(dataDir);
+        await freshDb.waitReady;
+        return freshDb;
+      } catch {
+        throw firstError;
+      }
+    }
+  }
 }
 
 async function initializeDb() {
@@ -38,8 +110,9 @@ async function initializeDb() {
   // PGlite opens this path at runtime; it must not be traced into the server bundle.
   const dataDir = path.isAbsolute(configuredDir) ? configuredDir : path.resolve(/* turbopackIgnore: true */ process.cwd(), configuredDir);
   mkdirSync(dataDir, { recursive: true });
-  const db = new PGlite(dataDir);
-  await db.waitReady;
+  const db = await openPGliteWithRecovery(dataDir);
+  globalThis.__aitradeDbInstance = db;
+  registerDbShutdownHooks();
   const schema = readFileSync(path.resolve(process.cwd(), "db/schema.sql"), "utf8");
   await db.exec(schema);
   await seedDemoData(db);

@@ -266,21 +266,21 @@ export function groupValidationTasks(
           current: supplierDraftCount,
           progressText: task.status === "done" ? "已完成" : `${Math.min(supplierDraftCount, 1)}/1`,
           actionLabel: "生成询盘",
-          actionHref: `${baseHref}?tab=quotes&hypothesisId=${encodeURIComponent(hypothesis.id)}#hypothesis-${hypothesis.id}`,
+          actionHref: `${baseHref}?tab=suppliers&hypothesisId=${encodeURIComponent(hypothesis.id)}#hypothesis-${hypothesis.id}`,
         };
       case "quote_collection":
         return {
           current: hypothesis.counts.quotes,
           progressText: task.status === "done" ? "已完成" : `${hypothesis.counts.quotes}/${task.targetCount}`,
           actionLabel: "录报价",
-          actionHref: `${baseHref}?tab=quotes&hypothesisId=${encodeURIComponent(hypothesis.id)}#supplier-quote-${hypothesis.id}`,
+          actionHref: `${baseHref}?tab=suppliers&hypothesisId=${encodeURIComponent(hypothesis.id)}#supplier-quote-${hypothesis.id}`,
         };
       case "sample_order":
         return {
           current: samplePassCount,
           progressText: task.status === "done" ? "已完成" : `${samplePassCount}/${task.targetCount}`,
           actionLabel: "录样品分",
-          actionHref: `${baseHref}?tab=quotes&hypothesisId=${encodeURIComponent(hypothesis.id)}#supplier-quote-${hypothesis.id}`,
+          actionHref: `${baseHref}?tab=suppliers&hypothesisId=${encodeURIComponent(hypothesis.id)}#supplier-quote-${hypothesis.id}`,
         };
       case "patent_check":
         return {
@@ -608,17 +608,17 @@ export function deriveCandidateKanbanStage(c: KanbanCandidateInput): DerivedKanb
   if (c.quoteCount > 0) {
     return {
       stage: "sampling",
-      nextActionLabel: c.decision === "GO" ? "一键立项" : "补样品/报价",
+      nextActionLabel: c.decision === "GO" ? "去立项" : "补样品/报价",
       nextActionHref: c.decision === "GO"
         ? `/ai-sourcing/${encodeURIComponent(c.runId)}?tab=decision&hypothesisId=${encodeURIComponent(c.id)}#hypothesis-${c.id}`
-        : `/ai-sourcing/${encodeURIComponent(c.runId)}?tab=quotes&hypothesisId=${encodeURIComponent(c.id)}#hypothesis-${c.id}`,
+        : `/ai-sourcing/${encodeURIComponent(c.runId)}?tab=suppliers&hypothesisId=${encodeURIComponent(c.id)}#hypothesis-${c.id}`,
       metricBadge: `${c.quoteCount}/3 报价 · ${c.supplierCount}/3 厂`,
     };
   }
 
   const hasMarketScan = Boolean(c.comparisonReportId) || c.verifiedCompetitorCount > 0;
   if (hasMarketScan) {
-    // 检查第 ③ 步利润与合规是否已通过
+    // 检查第 ② 步利润是否已通过
     if (c.referenceFactoryCostRmb && c.referenceFactoryCostRmb > 0 && c.confirmedPriceCents && c.confirmedPriceCents > 0) {
       const check = evaluateFastScreen({
         marketCode: c.marketCode,
@@ -633,7 +633,7 @@ export function deriveCandidateKanbanStage(c: KanbanCandidateInput): DerivedKanb
       if (check.profitStatus === "pass" && check.complianceStatus !== "fail") {
         return {
           stage: "profit_ok",
-          nextActionLabel: "录报价",
+          nextActionLabel: "找厂与打样",
           nextActionHref: `/ai-sourcing/${encodeURIComponent(c.runId)}?tab=suppliers&hypothesisId=${encodeURIComponent(c.id)}#hypothesis-${c.id}`,
           metricBadge: check.marginRate ? `净利 ${(check.marginRate * 100).toFixed(0)}%` : "利润通过",
         };
@@ -641,16 +641,19 @@ export function deriveCandidateKanbanStage(c: KanbanCandidateInput): DerivedKanb
     }
     return {
       stage: "scanned",
-      nextActionLabel: c.verifiedCompetitorCount < 20 ? "补抓竞品" : "填 1688 价",
-      nextActionHref: `${detailBase}#fast-screen-profit-${c.id}`,
+      nextActionLabel: c.verifiedCompetitorCount < 20 ? "补抓竞品" : "算 18% 毛利",
+      nextActionHref:
+        c.verifiedCompetitorCount < 20
+          ? `${detailBase}#stage-market-${c.id}`
+          : `/ai-sourcing/${encodeURIComponent(c.runId)}?tab=profit&hypothesisId=${encodeURIComponent(c.id)}#stage-profit-${c.id}`,
       metricBadge: `${c.verifiedCompetitorCount}/20 竞品`,
     };
   }
 
   return {
     stage: "candidate",
-    nextActionLabel: "抓搜索页",
-    nextActionHref: `${detailBase}#fast-screen-market-${c.id}`,
+    nextActionLabel: "做竞品研报",
+    nextActionHref: `${detailBase}#stage-market-${c.id}`,
     metricBadge: "待扫市场",
   };
 }

@@ -23,7 +23,6 @@ import {
   generateCompetitorConclusionAction,
   generateSupplierRfqAction,
   getAvailableCasesAction,
-  promoteCompetitorReportToCaseAction,
   reanalyzeCompetitorReportAction,
   runCompetitorAnalysisAction,
   saveCompetitorItemShippingAction,
@@ -39,7 +38,6 @@ import {
 } from "./_components/helpers";
 import { AntiListingPanel } from "./_components/anti-listing-panel";
 import { SupplierRfqPanel } from "./_components/supplier-rfq-panel";
-import { LaunchCalculatorSection } from "./_components/launch-calculator-section";
 import { MarketOverviewSection } from "./_components/market-overview-section";
 import { CompetitorPkMatrix } from "./_components/competitor-pk-matrix";
 import { AiConclusionSection } from "./_components/ai-conclusion-section";
@@ -95,9 +93,6 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
   const [editingShippingVal, setEditingShippingVal] = useState<string>("");
   const [isSavingShipping, setIsSavingShipping] = useState(false);
   const [isGeneratingConclusion, setIsGeneratingConclusion] = useState(false);
-  const [isPromoting, setIsPromoting] = useState(false);
-  const [promotedCaseId, setPromotedCaseId] = useState<string | null>(null);
-  const [showPromotionSuccess, setShowPromotionSuccess] = useState(false);
 
   useEffect(() => {
     getAvailableCasesAction(currentMarket, currentPlatform).then((cases) => {
@@ -546,42 +541,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
     ...defaults,
   };
   const economics = calculateEconomics(assumptions);
-
-  const landedCostInCurr = landedCostCents / 100;
-  const estNetProfit = economics.netProfitCents / 100;
   const estMarginRate = economics.marginRate;
-
-  // 权威机会分，与案卷详情模型完全保持一致
-  const calcOppScore = Math.min(100, Math.max(0, Math.round(
-    Math.min(45, (estMarginRate / 0.20) * 45) +
-    Math.min(25, (Math.max(0, economics.netProfitCents) / (targetPriceCents * 0.18 || 1)) * 25) +
-    (economics.isProfitable ? 20 : 0) +
-    10
-  )));
-
-  const handlePromoteToCase = async () => {
-    if (!currentReport) return;
-    setIsPromoting(true);
-    setStatusMsg(null);
-    try {
-      const res = await promoteCompetitorReportToCaseAction({
-        reportId: currentReport.id,
-        quoteCostRmb,
-        targetPriceCents: Math.round(targetPriceVal * 100),
-        antiListing,
-        rfqDraft: rfqData,
-      });
-      if (res.success && res.caseId) {
-        setPromotedCaseId(res.caseId);
-        setShowPromotionSuccess(true);
-        setStatusMsg({ type: "success", text: "已成功正式立项为新商品 (Case)！数据已同步至商品案卷库。" });
-      } else {
-        setStatusMsg({ type: "error", text: res.error || "立项失败" });
-      }
-    } finally {
-      setIsPromoting(false);
-    }
-  };
 
   const handleCopyBulletsText = (data: AntiListingResult) => {
     const text = [
@@ -659,11 +619,11 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
           </div>
           {convertBatchId && (
             <Link
-              href={`/ai-sourcing?market=${currentReport?.marketCode}&platform=${currentReport?.platformCode}`}
+              href={`/ai-sourcing/${encodeURIComponent(convertBatchId)}?tab=profit`}
               className="button secondary"
               style={{ padding: "4px 10px", fontSize: "12px", height: "auto" }}
             >
-              前往选品验证 &rarr;
+              进入选品工作台算毛利 &rarr;
             </Link>
           )}
         </div>
@@ -903,23 +863,15 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                 {copied ? "已复制 Markdown" : "复制研报"}
               </button>
 
-              <Link
-                href={`/discover?reportId=${encodeURIComponent(currentReport.id)}&step=2&market=${encodeURIComponent(currentReport.marketCode)}&platform=${encodeURIComponent(currentReport.platformCode)}`}
-                className="button secondary"
-                style={{ fontSize: "12px", padding: "6px 14px", height: "34px", borderRadius: "10px", display: "inline-flex", alignItems: "center" }}
-              >
-                载入向导核成本
-              </Link>
-
               <button
                 type="button"
                 className="button primary"
                 disabled={isPending || !isConfirmed}
-                title={isConfirmed ? "转入选品池" : "请先点击「我已核对，确认可用」"}
+                title={isConfirmed ? "加入选品看板，进入第 2 步利润测算" : "请先点击「我已核对，确认可用」"}
                 onClick={() => handleConvertToHypothesis(currentReport.id)}
                 style={{ fontSize: "12px", padding: "6px 14px", height: "34px", borderRadius: "10px" }}
               >
-                沉淀为选品假设
+                加入选品看板（去算毛利）→
               </button>
             </div>
           </section>
@@ -953,28 +905,6 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
             />
           )}
 
-          {/* 业务大动脉闭环：采购成本核算、机会分测算与一键正式立项 */}
-          <LaunchCalculatorSection
-            currentReport={currentReport}
-            costSource={costSource}
-            quoteCostRmb={quoteCostRmb}
-            targetPriceVal={targetPriceVal}
-            landedCostInCurr={landedCostInCurr}
-            estMarginRate={estMarginRate}
-            estNetProfit={estNetProfit}
-            calcOppScore={calcOppScore}
-            economics={economics}
-            promotedCaseId={promotedCaseId}
-            isPromoting={isPromoting}
-            isConfirmed={isConfirmed}
-            onChangeQuoteCostRmb={(val) => {
-              setQuoteCostRmb(val);
-              setCostSource("manual");
-            }}
-            onChangeTargetPriceVal={setTargetPriceVal}
-            onPromoteToCase={handlePromoteToCase}
-          />
-
           {/* 视角快捷导航条（单品 / 多品自适应标签） */}
           <nav
             aria-label="研报视角导航"
@@ -998,11 +928,8 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
               <a href="#section-pk" className="button ghost" style={{ fontSize: "12px", padding: "4px 10px", height: "28px" }}>
                 {isSingleProduct ? "② 卖点与差评拆解" : "② 横向 PK 矩阵"}
               </a>
-              <a href="#section-launch" className="button ghost" style={{ fontSize: "12px", padding: "4px 10px", height: "28px" }}>
-                ③ 财务测算与立项
-              </a>
               <a href="#section-conclusion" className="button ghost" style={{ fontSize: "12px", padding: "4px 10px", height: "28px" }}>
-                ④ AI 结论
+                ③ AI 结论
               </a>
             </div>
             <span style={{ fontSize: "12px", color: "var(--muted)" }}>
@@ -1071,52 +998,6 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
             当前站点暂无竞品研报。系统不会自动生成示例数据 —— 请在上方输入链接、点击「填入示例」，或用浏览器扩展采集真实商品页。
           </p>
         </section>
-      )}
-
-      {/* 正式立项成功承接模态弹窗 */}
-      {showPromotionSuccess && (promotedCaseId || currentReport?.promotedCaseId) && (
-        <div className="promotion-modal-overlay" role="dialog" aria-modal="true">
-          <div className="promotion-modal-card">
-            <div className="promotion-modal-icon">
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                <polyline points="22 4 12 14.01 9 11.01" />
-              </svg>
-            </div>
-            <h3>🎉 正式商品立项成功！</h3>
-            <p>
-              已从竞品研报建立全新商品案卷。竞品 ASIN 矩阵、反制五点文案与 1688 询价草案均已安全沉淀至案卷档案。
-            </p>
-            <div className="promotion-modal-meta">
-              <div><span>目标售价</span><strong>${targetPriceVal}</strong></div>
-              <div><span>1688 实报</span><strong>¥{quoteCostRmb}</strong></div>
-              <div><span>机会分</span><strong>{calcOppScore} 分</strong></div>
-            </div>
-            <div className="promotion-modal-actions">
-              <Link
-                href={`/cases/${promotedCaseId || currentReport?.promotedCaseId}/sourcing`}
-                className="button primary"
-                style={{ justifyContent: "center" }}
-              >
-                立即前往 1688 询价与定标
-              </Link>
-              <Link
-                href={`/cases/${promotedCaseId || currentReport?.promotedCaseId}`}
-                className="button secondary"
-                style={{ justifyContent: "center" }}
-              >
-                查看商品案卷与财务模型
-              </Link>
-              <button
-                type="button"
-                onClick={() => setShowPromotionSuccess(false)}
-                className="button ghost"
-              >
-                留在当前研报
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );

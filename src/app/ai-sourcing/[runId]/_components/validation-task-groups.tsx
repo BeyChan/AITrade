@@ -144,7 +144,7 @@ export function ValidationTaskGroups({
                       </details>
                     ) : isSample && !isDone ? (
                       <Link
-                        href={`/ai-sourcing/${encodeURIComponent(runId)}?tab=quotes&hypothesisId=${encodeURIComponent(hypothesis.id)}#supplier-quote-${hypothesis.id}`}
+                        href={`/ai-sourcing/${encodeURIComponent(runId)}?tab=suppliers&hypothesisId=${encodeURIComponent(hypothesis.id)}#supplier-quote-${hypothesis.id}`}
                         className="button secondary compact-button"
                       >
                         去录样品分

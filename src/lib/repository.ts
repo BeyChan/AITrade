@@ -1,6 +1,5 @@
 export {
   createCostModelVersion,
-  createProductCaseFromCompetitors,
   getCaseDetail,
   getCaseWorkflowFacts,
   getSiteOptions,
@@ -10,7 +9,6 @@ export {
   listTerminatedCases,
   recordCaseNoGoException,
   setCaseLifecycle,
-  type CreateCaseFromCompetitorInput,
   type TerminatedCase,
 } from "./repo/cases.ts";
 

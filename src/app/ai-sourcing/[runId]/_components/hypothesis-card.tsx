@@ -1,12 +1,10 @@
 import Link from "next/link";
 import { CostBackCalculator } from "@/components/cost-back-calculator";
-import {
-  promoteHypothesisAction,
-  selectHypothesisAction,
-} from "@/app/actions";
-import type {
-  AISourcingHypothesisDetail,
-} from "@/lib/ai-sourcing-repository";
+import { CompetitorMarketStage } from "@/components/stages/competitor-market-stage";
+import { ProfitGateStage } from "@/components/stages/profit-gate-stage";
+import { RiskApproveStage } from "@/components/stages/risk-approve-stage";
+import { selectHypothesisAction } from "@/app/actions";
+import type { AISourcingHypothesisDetail } from "@/lib/ai-sourcing-repository";
 import type { CompetitorComparisonReport } from "@/lib/competitor-compare/types";
 import type { SupplierDraft } from "@/lib/ai-supplier-assistant/repository";
 import type { AiInboxHypothesisTaskCounts } from "@/lib/ai-inbox/repository";
@@ -24,6 +22,7 @@ import {
   type BatchType,
   type DetailTab,
   evidenceTypeLabel,
+  marketplaceSearchUrl,
 } from "./helpers";
 import {
   DecisionBadge,
@@ -34,10 +33,8 @@ import {
 import {
   AutoCompetitorImportCard,
   CompetitorBenchmarkPanel,
-  ConfirmPriceForm,
   SupplierQuoteEntryForm,
 } from "./evidence-and-competitors";
-import { FastScreenPanel } from "./fast-screen-panel";
 import { ValidationTaskGroups } from "./validation-task-groups";
 
 export function HypothesisCard({
@@ -92,6 +89,9 @@ export function HypothesisCard({
         hypothesis.id,
       );
 
+  const searchQuery = hypothesis.competitorQueries[0] || hypothesis.concept;
+  const searchUrl = marketplaceSearchUrl(batch.platformCode, batch.marketCode, searchQuery);
+
   const notStartedNotice = (
     <div className="notice warn ai-tab-notice">
       <div>
@@ -136,7 +136,7 @@ export function HypothesisCard({
                   售价 {moneyIn(batch.currency, hypothesis.confirmedPriceCents)}
                 </span>
               ) : null}
-              {hypothesis.productCaseId ? <span className="badge badge-success">已转商品立项</span> : null}
+              {hypothesis.productCaseId ? <span className="badge badge-success">已立项</span> : null}
             </div>
           </div>
         </div>
@@ -174,21 +174,18 @@ export function HypothesisCard({
           </div>
         </details>
 
-        {/* 02 验证证据：只负责扫市场 + 算利润 + 15 条差评 + 淘汰 */}
+        {/* 01 竞品研报：只看价格带、竞争度与差评痛点 */}
         {tab === "hypotheses" ? (
           <>
-            <FastScreenPanel
-              batch={batch}
+            <CompetitorMarketStage
+              runId={batch.id}
+              platformName={batch.platformName}
+              currency={batch.currency}
+              searchUrl={searchUrl}
               hypothesis={hypothesis}
               recentReports={recentReports}
-              thresholds={funnelThresholds ?? {
-                minCompetitorsForPass: 20,
-                maxHhi: 3500,
-                maxBrandCr3Percent: 60,
-                maxMedianReviews: 3000,
-                minMarginRate: 0.18,
-                maxComplianceCostUsd: 1000,
-              }}
+              attachedReport={attachedReport}
+              evalResult={fastEval}
               eliminationAlerts={eliminationAlerts}
             />
 
@@ -243,7 +240,7 @@ export function HypothesisCard({
                     <div className="funnel-inline-collapse-body">
                       {hypothesis.evidence.length === 0 ? (
                         <p className="muted" style={{ fontSize: "12px", margin: 0 }}>
-                          暂无证据，先用上方「一键导入」写入 Top 20 扫描即可自动生成。
+                          暂无证据，先用上方「一键导入研报数据」写入 Top 20 扫描即可自动生成。
                         </p>
                       ) : (
                         <div className="evidence-list">
@@ -271,7 +268,37 @@ export function HypothesisCard({
           </>
         ) : null}
 
-        {/* 03 找供应商：专注 1688 采集与 3 家短名单 */}
+        {/* 02 利润测算：专注 18% 硬门禁与倒推拿货上限 */}
+        {tab === "profit" ? (
+          <>
+            <ProfitGateStage
+              runId={batch.id}
+              currency={batch.currency}
+              hypothesis={hypothesis}
+              evalResult={fastEval}
+              nextTabHref={nextTabHref}
+              nextTabLabel={nextTabLabel}
+            />
+
+            <CostBackCalculator
+              platformCode={batch.platformCode}
+              platformName={batch.platformName}
+              currency={batch.currency}
+              recommendedPriceCents={hypothesis.recommendedPriceCents}
+              confirmedPriceCents={hypothesis.confirmedPriceCents}
+              suggestedMarginRate={hypothesis.expectedMarginRate}
+              quotes={hypothesis.quotes.map((quote) => ({
+                ...quote,
+                supplierName: supplierByShortlistId.get(quote.supplierShortlistId)?.supplierName,
+              }))}
+              priceEntryHref={`#stage-profit-${hypothesis.id}`}
+              quoteEntryHref={`/ai-sourcing/${encodeURIComponent(batch.id)}?tab=suppliers&hypothesisId=${encodeURIComponent(hypothesis.id)}#supplier-quote-${hypothesis.id}`}
+              fxRateToUsd={batch.fxRateToUsd}
+            />
+          </>
+        ) : null}
+
+        {/* 03 找厂与打样：1688 选厂 + RFQ + 真实报价录入 + 样品分，一页打通 */}
         {tab === "suppliers" ? (
           <>
             <SupplierDiscoveryWorkspace
@@ -282,6 +309,71 @@ export function HypothesisCard({
               defaultQuery={supplierLeads[0]?.query ?? hypothesis.concept}
               autoReadClipboard={autoReadClipboard}
             />
+
+            {hypothesis.selectedForValidation ? (
+              <>
+                <SupplierQuoteEntryForm
+                  hypothesisId={hypothesis.id}
+                  runId={batch.id}
+                  observedAt={observedAt}
+                  currency={batch.currency}
+                />
+
+                {hypothesis.quotes.length > 0 ? (
+                  <section className="ai-record-block">
+                    <div className="ai-validation-summary-head">
+                      <div>
+                        <span className="eyebrow">已核验报价与样品分</span>
+                        <h3>真实供应商报价</h3>
+                      </div>
+                      <span className="info-pill">{hypothesis.quotes.length} 份 · 按到岸成本排序</span>
+                    </div>
+                    <div className="quote-grid ai-quote-grid">
+                      {hypothesis.quotes.map((quote, index) => {
+                        const supplier = supplierByShortlistId.get(quote.supplierShortlistId);
+                        return (
+                          <article className={`quote-card${quote.id === decision?.bestQuoteId ? " preferred" : ""}`} key={quote.id}>
+                            <div className="quote-card-top">
+                              <div>
+                                <span className="quote-rank">报价 #{index + 1}{quote.id === decision?.bestQuoteId ? " · 最低到岸" : ""}</span>
+                                <h3>{supplier?.supplierName ?? "供应商"}</h3>
+                                <a href={quote.quoteUrl} target="_blank" rel="noreferrer" className="muted">查看报价来源</a>
+                              </div>
+                              <div className="quote-score">
+                                <strong>{quote.sampleScore ?? "—"}</strong>
+                                <span>样品分</span>
+                              </div>
+                            </div>
+                            <div className="quote-cost-band">
+                              <div><span>采购</span><strong>{moneyIn(quote.currency, quote.unitPriceCents)}</strong></div>
+                              <div><span>运费</span><strong>{moneyIn(quote.currency, quote.freightPerUnitCents)}</strong></div>
+                              <div><span>到岸</span><strong>{moneyIn(quote.currency, quote.landedCostCents)}</strong></div>
+                            </div>
+                            <div className="quote-facts">
+                              <div><span>MOQ</span><strong>{quote.moq}</strong></div>
+                              <div><span>交期</span><strong>{quote.leadTimeDays} 天</strong></div>
+                              <div><span>关税</span><strong>{percent(quote.dutyRate)}</strong></div>
+                              <div><span>样品费</span><strong>{moneyIn(quote.currency, quote.sampleFeeCents)}</strong></div>
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ) : null}
+
+                <div id={`supplier-assistant-${hypothesis.id}`}>
+                  <SupplierAssistantPanel
+                    runId={batch.id}
+                    hypothesis={hypothesis}
+                    drafts={supplierDrafts}
+                  />
+                </div>
+              </>
+            ) : (
+              notStartedNotice
+            )}
+
             {nextTabHref && nextTabLabel ? (
               <div className="funnel-step-footer" style={{ justifyContent: "flex-end" }}>
                 <Link href={nextTabHref} className="button primary compact-button">{nextTabLabel}</Link>
@@ -290,94 +382,7 @@ export function HypothesisCard({
           </>
         ) : null}
 
-        {/* 03 报价与打样：成本倒推 + 3 份真实报价 + 样品分 */}
-        {tab === "quotes" ? (
-          hypothesis.selectedForValidation ? (
-            <>
-              <CostBackCalculator
-                platformCode={batch.platformCode}
-                platformName={batch.platformName}
-                currency={batch.currency}
-                recommendedPriceCents={hypothesis.recommendedPriceCents}
-                confirmedPriceCents={hypothesis.confirmedPriceCents}
-                suggestedMarginRate={hypothesis.expectedMarginRate}
-                quotes={hypothesis.quotes.map((quote) => ({
-                  ...quote,
-                  supplierName: supplierByShortlistId.get(quote.supplierShortlistId)?.supplierName,
-                }))}
-                priceEntryHref={`#confirm-price-${hypothesis.id}`}
-                quoteEntryHref={`#supplier-quote-${hypothesis.id}`}
-                fxRateToUsd={batch.fxRateToUsd}
-              />
-
-              <div className="ai-entry-grid">
-                <SupplierQuoteEntryForm hypothesisId={hypothesis.id} runId={batch.id} observedAt={observedAt} currency={batch.currency} />
-                <ConfirmPriceForm hypothesisId={hypothesis.id} runId={batch.id} currency={batch.currency} />
-              </div>
-
-              {hypothesis.quotes.length > 0 ? (
-                <section className="ai-record-block">
-                  <div className="ai-validation-summary-head">
-                    <div>
-                      <span className="eyebrow">已核验报价</span>
-                      <h3>真实供应商报价</h3>
-                    </div>
-                    <span className="info-pill">{hypothesis.quotes.length} 份 · 按到岸成本排序</span>
-                  </div>
-                  <div className="quote-grid ai-quote-grid">
-                    {hypothesis.quotes.map((quote, index) => {
-                      const supplier = supplierByShortlistId.get(quote.supplierShortlistId);
-                      return (
-                        <article className={`quote-card${quote.id === decision?.bestQuoteId ? " preferred" : ""}`} key={quote.id}>
-                          <div className="quote-card-top">
-                            <div>
-                              <span className="quote-rank">报价 #{index + 1}{quote.id === decision?.bestQuoteId ? " · 最低到岸" : ""}</span>
-                              <h3>{supplier?.supplierName ?? "供应商"}</h3>
-                              <a href={quote.quoteUrl} target="_blank" rel="noreferrer" className="muted">查看报价来源</a>
-                            </div>
-                            <div className="quote-score">
-                              <strong>{quote.sampleScore ?? "—"}</strong>
-                              <span>样品分</span>
-                            </div>
-                          </div>
-                          <div className="quote-cost-band">
-                            <div><span>采购</span><strong>{moneyIn(quote.currency, quote.unitPriceCents)}</strong></div>
-                            <div><span>运费</span><strong>{moneyIn(quote.currency, quote.freightPerUnitCents)}</strong></div>
-                            <div><span>到岸</span><strong>{moneyIn(quote.currency, quote.landedCostCents)}</strong></div>
-                          </div>
-                          <div className="quote-facts">
-                            <div><span>MOQ</span><strong>{quote.moq}</strong></div>
-                            <div><span>交期</span><strong>{quote.leadTimeDays} 天</strong></div>
-                            <div><span>关税</span><strong>{percent(quote.dutyRate)}</strong></div>
-                            <div><span>样品费</span><strong>{moneyIn(quote.currency, quote.sampleFeeCents)}</strong></div>
-                          </div>
-                        </article>
-                      );
-                    })}
-                  </div>
-                </section>
-              ) : null}
-
-              <div id={`supplier-assistant-${hypothesis.id}`}>
-                <SupplierAssistantPanel
-                  runId={batch.id}
-                  hypothesis={hypothesis}
-                  drafts={supplierDrafts}
-                />
-              </div>
-
-              {nextTabHref && nextTabLabel ? (
-                <div className="funnel-step-footer" style={{ justifyContent: "flex-end" }}>
-                  <Link href={nextTabHref} className="button primary compact-button">{nextTabLabel}</Link>
-                </div>
-              ) : null}
-            </>
-          ) : (
-            notStartedNotice
-          )
-        ) : null}
-
-        {/* 05 门禁结论：专利/物流 0 输入点选 + 确定性 GO 门禁 + 转立项 */}
+        {/* 04 风险与立项：合规属性红线 + 专利物流核验 + 确定性门禁 + 全站唯一立项口 */}
         {tab === "decision" ? (
           hypothesis.selectedForValidation ? (
             <>
@@ -392,27 +397,12 @@ export function HypothesisCard({
 
               <DecisionPanel decision={decision} hypothesis={hypothesis} currency={batch.currency} />
 
-              <div className="ai-promotion-bar">
-                <div>
-                  <strong>{decision?.decision === "GO" ? "门禁已通过，可以转入商品立项" : "门禁尚未通过，补齐上方红项即可立项"}</strong>
-                  <p>转立项后直接进入供应商定标、文案生成、主图与 Listing 工作流。</p>
-                </div>
-                {hypothesis.productCaseId ? (
-                  <div className="button-row">
-                    <Link href={`/cases/${hypothesis.productCaseId}`} className="button secondary">查看商品立项</Link>
-                    <Link href={`/cases/${hypothesis.productCaseId}/sourcing`} className="button primary">进入供应商定标</Link>
-                  </div>
-                ) : (
-                  <form action={promoteHypothesisAction} className="button-row">
-                    <input type="hidden" name="runId" value={batch.id} />
-                    <input type="hidden" name="hypothesisId" value={hypothesis.id} />
-                    <input type="hidden" name="actor" value="运营人员" />
-                    <button type="submit" className="button primary" disabled={decision?.decision !== "GO"}>
-                      GO 转为商品立项
-                    </button>
-                  </form>
-                )}
-              </div>
+              <RiskApproveStage
+                runId={batch.id}
+                marketCode={batch.marketCode}
+                hypothesis={hypothesis}
+                evalResult={fastEval}
+              />
             </>
           ) : (
             notStartedNotice

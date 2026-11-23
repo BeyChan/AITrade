@@ -26,11 +26,11 @@ type PageProps = {
 type CaseDetailTab = "overview" | "economics" | "sourcing" | "content" | "audit";
 
 const CASE_DETAIL_TABS: Array<{ id: CaseDetailTab; label: string; description: string }> = [
-  { id: "overview", label: "总览", description: "阶段、门禁与下一步" },
-  { id: "economics", label: "经济模型", description: "利润、压测与成本" },
-  { id: "sourcing", label: "寻源定标", description: "报价、打样与例外" },
-  { id: "content", label: "内容交付", description: "视觉、终审与导出" },
-  { id: "audit", label: "证据审计", description: "证据、时间线与口径" },
+  { id: "overview", label: "总览", description: "开发进度与下一步" },
+  { id: "economics", label: "利润校准", description: "定标后最终成本与毛利" },
+  { id: "sourcing", label: "锁厂定标", description: "比价、定标与例外审批" },
+  { id: "content", label: "文案与上架", description: "视觉、Listing 与导出" },
+  { id: "audit", label: "证据审计", description: "选品证据与审计记录" },
 ];
 
 function resolveCaseDetailTab(value: string | undefined): CaseDetailTab {
