@@ -290,7 +290,7 @@ export function HypothesisCard({
           </>
         ) : null}
 
-        {/* 04 报价与 RFQ：专注询盘草稿 + 3 份真实报价 + 样品分 */}
+        {/* 03 报价与打样：成本倒推 + 3 份真实报价 + 样品分 */}
         {tab === "quotes" ? (
           hypothesis.selectedForValidation ? (
             <>

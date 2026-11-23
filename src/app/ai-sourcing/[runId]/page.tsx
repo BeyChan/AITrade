@@ -25,8 +25,8 @@ export const dynamic = "force-dynamic";
 /** 纯净 4 步单品推进工作台（取消冗余的「概览」Tab，与「选品看板」分工零重叠） */
 const DETAIL_TABS: Array<{ key: DetailTab; label: string; hint: string }> = [
   { key: "hypotheses", label: "市场与利润", hint: "扫 Top 20 · 算 18% · 差评" },
-  { key: "suppliers", label: "找供应商", hint: "1688 选 3 家短名单" },
-  { key: "quotes", label: "报价与 RFQ", hint: "询盘 · 3 份报价 · 样品分" },
+  { key: "suppliers", label: "找供应商", hint: "1688 选厂 · 生成 RFQ" },
+  { key: "quotes", label: "报价与打样", hint: "成本倒推 · 3 份报价 · 样品分" },
   { key: "decision", label: "门禁与立项", hint: "专利物流 · GO 转立项" },
 ];
 
@@ -187,7 +187,7 @@ export default async function AISourcingDetailPage({ params, searchParams }: Pag
             activeTab === "hypotheses"
               ? "下一步：02 找供应商 →"
               : activeTab === "suppliers"
-                ? "下一步：03 报价与 RFQ →"
+                ? "下一步：03 报价与打样 →"
                 : activeTab === "quotes"
                   ? "下一步：04 门禁与立项 →"
                   : undefined
