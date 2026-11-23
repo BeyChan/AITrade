@@ -445,7 +445,6 @@ export function SupplierAssistantPanel({
     <section className="ai-supplier-assistant ai-record-block">
       <div className="ai-validation-summary-head">
         <div>
-          <span className="eyebrow">供应商内部草稿</span>
           <h3>供应商内部草稿</h3>
           <p>AI 只润色主题和开场；缺失信息由确定性程序追加为问题。草稿仅供内部复核，系统不会发送。</p>
         </div>
