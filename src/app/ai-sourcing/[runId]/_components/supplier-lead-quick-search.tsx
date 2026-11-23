@@ -21,14 +21,14 @@ export function SupplierLeadQuickSearch({ leads }: { leads: SupplierLead[] }) {
           const isActive = idx === activeIndex;
           return (
             <button
-              key={lead.role}
+              key={`${lead.role}-${lead.query}`}
               type="button"
               role="tab"
               aria-selected={isActive}
               className={`ai-supplier-lead-tab${isActive ? " is-active" : ""}`}
               onClick={() => setActiveIndex(idx)}
             >
-              {lead.role}
+              {lead.query}
             </button>
           );
         })}
@@ -36,7 +36,6 @@ export function SupplierLeadQuickSearch({ leads }: { leads: SupplierLead[] }) {
 
       <div className="ai-supplier-lead">
         <div className="ai-supplier-lead-copy">
-          <span>{current.role}</span>
           <strong>{current.query}</strong>
         </div>
         <div className="ai-supplier-lead-links">

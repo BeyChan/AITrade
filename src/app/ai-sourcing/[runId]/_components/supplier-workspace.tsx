@@ -112,7 +112,7 @@ export function SupplierDiscoveryWorkspace({
           <div className="ai-supplier-discovery-head">
             <div>
               <strong>① 快速找货源</strong>
-              <span>默认选中核心品名，可切换上方标签按结构、场景或源头工厂词直达搜索。</span>
+              <span>点选搜索词，直接打开 1688 / Alibaba / Google 查工厂。</span>
             </div>
           </div>
           <SupplierLeadQuickSearch leads={supplierLeads} />

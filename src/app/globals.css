@@ -3265,18 +3265,7 @@ tbody tr:last-child td {
 .ai-supplier-lead-copy {
   display: flex;
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
   min-width: 0;
-}
-
-.ai-supplier-lead-copy > span {
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--paper);
-  color: var(--muted);
-  font-size: 11.5px;
-  font-weight: 600;
 }
 
 .ai-supplier-lead-copy strong {
