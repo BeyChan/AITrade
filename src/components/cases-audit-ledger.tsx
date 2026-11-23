@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { money } from "@/lib/format";
 import type { CaseStatus } from "@/lib/types";
+import type { WorkflowActionKind } from "@/lib/case-stage";
 import { StatusBadge } from "@/components/badges";
 import { IconCheck, IconClipboard, IconDownload, IconPrinter } from "@/components/icons";
 
@@ -16,6 +17,11 @@ export type AuditLedgerRow = {
   status: CaseStatus;
   recommendation: "GO" | "HOLD" | "NO-GO";
   stageLabel?: string;
+  nextActionLabel: string;
+  nextActionHref: string;
+  nextActionKind: WorkflowActionKind;
+  showSourcing: boolean;
+  showContent: boolean;
   canExportFlatFile?: boolean;
   opportunityScore: number;
   isVerified: boolean;
@@ -38,7 +44,9 @@ export function CasesAuditLedger({ rows }: { rows: AuditLedgerRow[] }) {
   const selectedSet = new Set(selectedIds);
   const allSelected = rows.length > 0 && rows.every((row) => selectedSet.has(row.id));
   const selectedRows = rows.filter((row) => selectedSet.has(row.id));
-  const selectedMonthlyTotalCents = selectedRows.reduce((sum, row) => sum + (row.monthlyProfitCents ?? 0), 0);
+  const selectedProfitRows = selectedRows.filter((row) => row.recommendation !== "NO-GO");
+  const selectedNoGoCount = selectedRows.length - selectedProfitRows.length;
+  const selectedMonthlyTotalCents = selectedProfitRows.reduce((sum, row) => sum + (row.monthlyProfitCents ?? 0), 0);
 
   function toggleAll() {
     if (allSelected) {
@@ -92,8 +100,11 @@ export function CasesAuditLedger({ rows }: { rows: AuditLedgerRow[] }) {
             </span>
             <span className="audit-bulk-sep" aria-hidden="true">·</span>
             <span>
-              预估月贡献合计{" "}
+              测算月毛利（非承诺）合计{" "}
               <strong className="badge-num">{money(selectedMonthlyTotalCents)}</strong>
+              {selectedNoGoCount > 0 ? (
+                <span className="muted">（已排除 {selectedNoGoCount} 款 NO-GO）</span>
+              ) : null}
             </span>
           </div>
 
@@ -134,7 +145,7 @@ export function CasesAuditLedger({ rows }: { rows: AuditLedgerRow[] }) {
               <th className="num">到岸成本</th>
               <th className="num">单件净利</th>
               <th className="num">基准净利率</th>
-              <th className="num">预估月贡献</th>
+              <th className="num">测算月毛利（非承诺）</th>
               <th>判定</th>
               <th style={{ textAlign: "right" }}>操作</th>
             </tr>
@@ -148,6 +159,14 @@ export function CasesAuditLedger({ rows }: { rows: AuditLedgerRow[] }) {
                 marginRate === null
                   ? 0
                   : Math.min(100, Math.max(6, Math.round((Math.max(0, marginRate) / 0.3) * 100)));
+              const netProfitColor =
+                row.recommendation === "GO"
+                  ? "var(--green)"
+                  : row.recommendation === "NO-GO"
+                    ? "var(--red)"
+                    : row.netProfitCents === null
+                      ? "var(--muted)"
+                      : "var(--amber)";
 
               return (
                 <tr
@@ -197,12 +216,7 @@ export function CasesAuditLedger({ rows }: { rows: AuditLedgerRow[] }) {
                     className="num"
                     style={{
                       fontWeight: 700,
-                      color:
-                        row.netProfitCents === null
-                          ? "var(--muted)"
-                          : row.netProfitCents > 0
-                            ? "var(--green)"
-                            : "var(--red)",
+                      color: netProfitColor,
                     }}
                   >
                     {row.netProfitText}
@@ -261,17 +275,37 @@ export function CasesAuditLedger({ rows }: { rows: AuditLedgerRow[] }) {
 
                   <td>
                     <div className="ledger-actions">
-                      <Link href={`/cases/${row.id}`} className="ledger-action-link">
-                        总览
-                      </Link>
-                      {row.recommendation !== "NO-GO" ? (
-                        <Link href={`/cases/${row.id}/sourcing`} className="ledger-action-link">
-                          报价
+                      {row.nextActionKind === "download" ? (
+                        <a
+                          href={row.nextActionHref}
+                          download
+                          className="ledger-action-link is-primary"
+                          title="执行该案卷当前唯一真实下一步"
+                        >
+                          {row.nextActionLabel}
+                        </a>
+                      ) : row.nextActionKind === "link" ? (
+                        <Link
+                          href={row.nextActionHref}
+                          className="ledger-action-link is-primary"
+                          title="执行该案卷当前唯一真实下一步"
+                        >
+                          {row.nextActionLabel}
                         </Link>
                       ) : null}
-                      <Link href={`/cases/${row.id}/content`} className="ledger-action-link">
-                        文案
+                      <Link href={`/cases/${row.id}?tab=overview`} className="ledger-action-link">
+                        查看案卷
                       </Link>
+                      {row.showSourcing ? (
+                        <Link href={`/cases/${row.id}?tab=sourcing`} className="ledger-action-link">
+                          寻源
+                        </Link>
+                      ) : null}
+                      {row.showContent ? (
+                        <Link href={`/cases/${row.id}?tab=content`} className="ledger-action-link">
+                          内容
+                        </Link>
+                      ) : null}
                       {row.canExportFlatFile ? (
                         <a
                           href={`/api/cases/${row.id}/flatfile`}

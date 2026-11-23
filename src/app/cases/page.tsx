@@ -34,7 +34,9 @@ export default async function ProductCasesPage({ searchParams }: PageProps) {
   const activeCases = cases.filter((c) => !isArchived(c.status));
   const archivedCases = cases.filter((c) => isArchived(c.status));
   const goCases = activeCases.filter((c) => c.recommendation === "GO").length;
-  const totalMonthlyProfitCents = activeCases.reduce((acc, c) => {
+  const profitEligibleCases = activeCases.filter((c) => c.recommendation !== "NO-GO");
+  const noGoCaseCount = activeCases.filter((c) => c.recommendation === "NO-GO").length;
+  const totalMonthlyProfitCents = profitEligibleCases.reduce((acc, c) => {
     const net = c.costModel?.results?.netProfitCents || 0;
     return acc + net * (c.monthly_sales_estimate || 0);
   }, 0);
@@ -66,6 +68,17 @@ export default async function ProductCasesPage({ searchParams }: PageProps) {
       status: c.status,
       recommendation: c.recommendation,
       stageLabel: `${workflow.name} · ${workflow.subName}`,
+      nextActionLabel: workflow.primaryAction.label,
+      nextActionHref: workflow.primaryAction.href,
+      nextActionKind: workflow.primaryAction.kind,
+      showSourcing:
+        workflow.permissions.canRecordQuote ||
+        workflow.permissions.canSelectSupplier ||
+        workflow.facts.quoteCount > 0,
+      showContent:
+        workflow.permissions.canEditContent ||
+        workflow.permissions.canExportDeliveryPack ||
+        workflow.facts.hasApprovedContent,
       canExportFlatFile: workflow.permissions.canExportDeliveryPack,
       opportunityScore: c.opportunityScore,
       isVerified: !c.is_demo && c.evidence_score >= 50,
@@ -91,7 +104,7 @@ export default async function ProductCasesPage({ searchParams }: PageProps) {
         ]}
         eyebrow="立项台账与全周期追踪"
         title="商品案卷"
-        description="集中管理所有已立项商品案卷。追踪从竞品研报、工厂询价、财务核准、内容打磨到批量发布模板 (Flat File) 的完整进度。"
+        description="集中管理所有已立项商品案卷。追踪从竞品研报、工厂询价、财务核准、内容打磨到平台导入资料交付的完整进度。"
         actions={
           <>
             <Link href="/discover" className="button primary">
@@ -110,7 +123,12 @@ export default async function ProductCasesPage({ searchParams }: PageProps) {
           { label: "活跃商品", value: activeCases.length, note: "正在推进中的已立项商品" },
           { label: "达标 GO 商品", value: goCases, note: "净利率 ≥ 18%、压测为正且机会分 ≥ 65", tone: "success" },
           { label: "已归档", value: archivedCases.length, note: "已终止或归档复盘" },
-          { label: "预估月度利润贡献", value: money(totalMonthlyProfitCents), note: "按测算单件净利 × 月销估计", tone: "success" },
+          {
+            label: "测算月毛利（非承诺）",
+            value: money(totalMonthlyProfitCents),
+            note: `${profitEligibleCases.length} 款参与测算${noGoCaseCount > 0 ? ` · 已排除 ${noGoCaseCount} 款 NO-GO` : ""}`,
+            tone: totalMonthlyProfitCents >= 0 ? "success" : "danger",
+          },
         ]}
       />
 

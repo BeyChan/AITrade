@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { runCompetitorAnalysisAction } from "@/app/competitors/actions";
@@ -69,6 +69,23 @@ export function SelectionWizardClient({
   const router = useRouter();
   const [entryMode, setEntryMode] = useState<EntryMode>(initialEntryMode);
   const [step, setStep] = useState<WizardStep>(initialStep);
+  const pendingScrollY = useRef<number | null>(null);
+  const pointerScrollY = useRef<number | null>(null);
+
+  useLayoutEffect(() => {
+    if (pendingScrollY.current === null) return;
+
+    const targetY = pendingScrollY.current;
+    pendingScrollY.current = null;
+    const restoreViewport = () => {
+      const maxScrollY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+      window.scrollTo(window.scrollX, Math.min(targetY, maxScrollY));
+    };
+
+    restoreViewport();
+    const frame = window.requestAnimationFrame(restoreViewport);
+    return () => window.cancelAnimationFrame(frame);
+  }, [entryMode, step]);
 
   // 第 1 步：市场与竞品状态
   const [rawCompetitors, setRawCompetitors] = useState("");
@@ -313,58 +330,85 @@ export function SelectionWizardClient({
           : `第 2/3 步卡点：当前净利率 ${percent(economics.marginRate)} 未达 18% 门禁，建议将 1688 拿货价压至 ¥${maxFactoryRmb.toFixed(1)} 以内或调整拟定售价。`
         : "第 3/3 步：勾选商品合规属性排查专利与认证雷区，确认无硬伤后点击「正式立项」生成案卷。";
 
+  const capturePointerViewport = () => {
+    pointerScrollY.current = window.scrollY;
+  };
+
+  const keepViewportOnStateChange = (update: () => void) => {
+    pendingScrollY.current = pointerScrollY.current ?? window.scrollY;
+    pointerScrollY.current = null;
+    update();
+  };
+
+  const revealEntryPanel = (mode: Exclude<EntryMode, "choose">, nextStep?: WizardStep) => {
+    keepViewportOnStateChange(() => {
+      setEntryMode(mode);
+      if (nextStep) setStep(nextStep);
+    });
+  };
+
   return (
-    <div className="stack">
+    <div className="stack selection-wizard-root">
       {/* 顶部两条路径：还没定品走 AI 发散；已有线索直接进入 3 步立项向导 */}
-      <section className="wizard-entry-grid is-two" role="tablist" aria-label="选品工作模式">
+      <section className="wizard-entry-grid is-two" aria-label="选品工作模式">
         <button
           type="button"
-          role="tab"
-          aria-selected={entryMode === "ai_brainstorm"}
+          aria-pressed={entryMode === "ai_brainstorm"}
+          aria-controls="ai-brainstorm-panel"
           className={`wizard-entry-card${entryMode === "ai_brainstorm" ? " is-active" : ""}`}
-          onClick={() => setEntryMode("ai_brainstorm")}
+          onPointerDown={capturePointerViewport}
+          onClick={() => revealEntryPanel("ai_brainstorm")}
         >
           <span className="wizard-entry-num mono">A</span>
-          <div>
+          <span className="wizard-entry-body">
             <strong>还没定品 · 让 AI 找方向</strong>
-            <p>输入类目与预算，AI 拆出 5 个细分痛点机会，进入候选看板筛选</p>
-          </div>
+            <span className="wizard-entry-description">输入类目与预算，AI 拆出 5 个细分痛点机会，进入候选看板筛选</span>
+          </span>
         </button>
 
-        <article className={`wizard-entry-card${entryMode === "wizard" ? " is-active" : ""}`}>
-          <span className="wizard-entry-num mono">B</span>
-          <div className="wizard-entry-body">
-            <strong>已有线索 · 3 步极速立项</strong>
-            <p>有竞品先测市场；已有货源可直接核 18% 毛利，最后完成合规自查并生成案卷。</p>
-            <div className="wizard-entry-actions">
-              <button
-                type="button"
-                className={`wizard-entry-action${entryMode === "wizard" && step === 1 ? " is-active" : ""}`}
-                onClick={() => {
-                  setEntryMode("wizard");
-                  setStep(1);
-                }}
-              >
-                有竞品 · 测市场 →
-              </button>
-              <button
-                type="button"
-                className={`wizard-entry-action${entryMode === "wizard" && step === 2 ? " is-active" : ""}`}
-                onClick={() => {
-                  setEntryMode("wizard");
-                  setStep(2);
-                }}
-              >
-                有货源 · 核毛利 →
-              </button>
-            </div>
+        <article className={`wizard-entry-card wizard-entry-card-multi${entryMode === "wizard" ? " is-active" : ""}`}>
+          <button
+            type="button"
+            className="wizard-entry-card-main"
+            aria-pressed={entryMode === "wizard"}
+            aria-controls="wizard-panel"
+            onPointerDown={capturePointerViewport}
+            onClick={() => revealEntryPanel("wizard", entryMode === "wizard" ? step : 1)}
+          >
+            <span className="wizard-entry-num mono">B</span>
+            <span className="wizard-entry-body">
+              <strong>已有线索 · 3 步极速立项</strong>
+              <span className="wizard-entry-description">
+                有竞品先测市场；已有货源可直接核 18% 毛利，最后完成合规自查并生成案卷。
+              </span>
+            </span>
+          </button>
+          <div className="wizard-entry-actions">
+            <button
+              type="button"
+              className={`wizard-entry-action${entryMode === "wizard" && step === 1 ? " is-active" : ""}`}
+              aria-pressed={entryMode === "wizard" && step === 1}
+              onPointerDown={capturePointerViewport}
+              onClick={() => revealEntryPanel("wizard", 1)}
+            >
+              有竞品 · 测市场 →
+            </button>
+            <button
+              type="button"
+              className={`wizard-entry-action${entryMode === "wizard" && step === 2 ? " is-active" : ""}`}
+              aria-pressed={entryMode === "wizard" && step === 2}
+              onPointerDown={capturePointerViewport}
+              onClick={() => revealEntryPanel("wizard", 2)}
+            >
+              有货源 · 核毛利 →
+            </button>
           </div>
         </article>
       </section>
 
       {/* 分支 A：还没定品 → AI 发散方向表单 */}
       {entryMode === "ai_brainstorm" ? (
-        <section className="section">
+        <section className="section wizard-panel-anchor" id="ai-brainstorm-panel">
           <div className="section-header">
             <div>
               <h2>AI 类目机会发散（{marketName}站 · {platformName}）</h2>
@@ -645,7 +689,7 @@ export function SelectionWizardClient({
         </section>
       ) : (
         /* 分支 B：核心 3 步极简选品闯关向导 */
-        <section className="section wizard-shell">
+        <section className="section wizard-shell wizard-panel-anchor" id="wizard-panel">
           {/* 3 步进度条 */}
           <div className="wizard-stepper" role="tablist" aria-label="选品 3 步向导">
             {[
@@ -659,7 +703,8 @@ export function SelectionWizardClient({
                 role="tab"
                 aria-selected={step === item.id}
                 className={`wizard-step-tab${step === item.id ? " is-current" : ""}${step > item.id ? " is-done" : ""}`}
-                onClick={() => setStep(item.id)}
+                onPointerDown={capturePointerViewport}
+                onClick={() => keepViewportOnStateChange(() => setStep(item.id))}
               >
                 <strong>{item.title}</strong>
                 <span>{item.desc}</span>

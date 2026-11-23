@@ -84,34 +84,37 @@ export function SupplierDiscoveryWorkspace({
       label: "搜索并采集 1688",
       detail: latestRun ? `最近采集 ${shortDate(latestRun.capturedAt)}` : "打开搜索结果页后点击采集",
       state: latestRun ? "done" : "active",
+      href: `#supplier-step-capture-${hypothesis.id}`,
     },
     {
       label: "对比与人工核验",
       detail: shortlistedCount > 0 ? `已入短名单 ${shortlistedCount} 个` : "对比后核验供应商和产品",
       state: shortlistedCount > 0 ? "done" : latestRun ? "active" : "todo",
+      href: `#supplier-step-review-${hypothesis.id}`,
     },
     {
       label: "生成 RFQ 询价",
       detail: hasRfqDraft ? "已有内部草稿，待人工复制" : "短名单供应商可一键生成",
       state: hasRfqDraft ? "done" : shortlistedCount > 0 ? "active" : "todo",
+      href: `#supplier-step-review-${hypothesis.id}`,
     },
   ];
   return (
     <>
       <div className="ai-discovery-progress" aria-label="供应商发现流程">
         {discoverySteps.map((step, index) => (
-          <div className={step.state} key={step.label}>
+          <a className={step.state} key={step.label} href={step.href}>
             <span>0{index + 1}</span>
             <div><strong>{step.label}</strong><small>{step.detail}</small></div>
-          </div>
+          </a>
         ))}
       </div>
 
       {supplierLeads.length > 0 ? (
-        <section className="ai-supplier-discovery" id={`supplier-discovery-${hypothesis.id}`}>
+        <section className="ai-supplier-discovery ai-supplier-step-anchor" id={`supplier-step-capture-${hypothesis.id}`}>
           <div className="ai-supplier-discovery-head">
             <div>
-              <strong>① 快速找货源</strong>
+              <strong>搜索并采集 1688 · 先找货源</strong>
               <span>点选搜索词，直接打开 1688 / Alibaba / Google 查工厂。</span>
             </div>
           </div>
@@ -119,11 +122,14 @@ export function SupplierDiscoveryWorkspace({
         </section>
       ) : null}
 
-      <section className="ai-candidate-capture">
+      <section
+        className="ai-candidate-capture ai-supplier-step-anchor"
+        id={supplierLeads.length > 0 ? undefined : `supplier-step-capture-${hypothesis.id}`}
+      >
         <div className="ai-candidate-capture-head">
           <div>
             <span className="eyebrow">用户触发采集</span>
-            <strong>② 采集 1688 当前页 · 自动生成 TOP 10</strong>
+            <strong>搜索并采集 1688 · 采集当前页，自动生成 TOP 10</strong>
             <p>用户点击才采集，只处理当前可见商品卡；不后台抓取、不自动翻页、不登录，也不绕过验证码。</p>
           </div>
           <div className="ai-candidate-capture-badges">
@@ -161,10 +167,10 @@ export function SupplierDiscoveryWorkspace({
           </div>
         ) : null}
 
-        <div className="ai-candidate-review-head">
+        <div className="ai-candidate-review-head ai-supplier-step-anchor" id={`supplier-step-review-${hypothesis.id}`}>
           <div>
-            <strong>③ 对比并人工核验</strong>
-            <span>先对比，再打开来源核验。只有勾选人工核验的候选才进入短名单，其他候选可排除。</span>
+            <strong>对比与人工核验 · 生成 RFQ 询价</strong>
+            <span>先对比，再打开来源核验；勾选人工核验的候选进入短名单，短名单供应商可一键生成 RFQ 草稿。</span>
           </div>
           <span className="badge badge-neutral">TOP {Math.min(10, activeCandidates.length)}</span>
         </div>
@@ -184,7 +190,7 @@ export function SupplierDiscoveryWorkspace({
             ))}
           </div>
         ) : (
-          <div className="empty-inline">还没有候选。打开 1688 搜索结果页，用扩展或书签采集当前可见商品卡。</div>
+          <div className="empty-inline">暂无候选，完成上方采集后会在这里出现。</div>
         )}
 
         {rejectedCandidates.length > 0 ? (

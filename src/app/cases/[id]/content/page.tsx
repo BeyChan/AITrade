@@ -311,7 +311,7 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
                 </div>
                 <div className="content-gate-unlock-item">
                   <strong>五点文案与合规雷达</strong>
-                  <span>结合竞品对标与敏感词扫描生成可发布 Listing</span>
+                  <span>结合竞品对标与敏感词扫描生成可交付 Listing 草稿</span>
                 </div>
                 <div className="content-gate-unlock-item">
                   <strong>主图审核与货架测试</strong>

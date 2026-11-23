@@ -260,23 +260,25 @@ export function CompetitorBenchmarkPanel({
               <strong>假设 vs 市场证据 · 3 行证伪矩阵</strong>
               <small>确定性交叉核对，只做风险揭示，不替代门禁</small>
             </div>
-            {contradictions.map((row) => {
-              const meta = verdictMeta[row.verdict];
-              return (
-                <article className={`benchmark-contradiction-row verdict-${row.verdict}`} key={row.field}>
-                  <div className="benchmark-contradiction-claim">
-                    <span className="eyebrow">{fieldLabel[row.field] ?? row.field}</span>
-                    <strong>{row.assertion}</strong>
-                  </div>
-                  <div className="benchmark-contradiction-evidence">
-                    <p>{row.note}</p>
-                  </div>
-                  <div className="benchmark-contradiction-verdict">
-                    <span className={`badge ${meta.badge}`}>{meta.label}</span>
-                  </div>
-                </article>
-              );
-            })}
+            <div className="benchmark-contradiction-rows">
+              {contradictions.map((row) => {
+                const meta = verdictMeta[row.verdict];
+                return (
+                  <article className={`benchmark-contradiction-row verdict-${row.verdict}`} key={row.field}>
+                    <div className="benchmark-contradiction-claim">
+                      <span className="eyebrow">{fieldLabel[row.field] ?? row.field}</span>
+                      <strong>{row.assertion}</strong>
+                    </div>
+                    <div className="benchmark-contradiction-evidence">
+                      <p>{row.note}</p>
+                    </div>
+                    <div className="benchmark-contradiction-verdict">
+                      <span className={`badge ${meta.badge}`}>{meta.label}</span>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
           </div>
 
           {themes.length > 0 ? (

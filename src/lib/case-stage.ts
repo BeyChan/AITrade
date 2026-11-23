@@ -110,6 +110,153 @@ export type CaseStageInput = {
   hasChannelTargets?: boolean;
 };
 
+export type CaseActionQueueStage = "stage1" | "stage2" | "stage3" | "stage4" | "stage5";
+
+export type CaseActionQueueSource = CaseStageInput & {
+  title: string;
+  asin?: string | null;
+  category?: string | null;
+};
+
+export type CaseActionQueueItem = {
+  caseId: string;
+  title: string;
+  asin: string | null;
+  category: string | null;
+  stage: CaseActionQueueStage;
+  stageNumber: number;
+  stageName: string;
+  stageSubName: string;
+  blocker: string | null;
+  actionLabel: string;
+  shortAction: string;
+  href: string;
+  actionKind: WorkflowActionKind;
+  tradeGate: TradeGateVerdict;
+  deliveryState: DeliveryReadinessState;
+  priority: number;
+};
+
+export type CaseActionQueueTask = {
+  stage: CaseActionQueueStage;
+  label: string;
+  value: number;
+  detail: string;
+  href: string;
+  action: string;
+};
+
+const ACTION_QUEUE_STAGE_META: Record<
+  CaseActionQueueStage,
+  { label: string; shortAction: string; priority: number }
+> = {
+  stage1: { label: "待补选品与门禁", shortAction: "处理门禁", priority: 1 },
+  stage2: { label: "待录入工厂报价", shortAction: "录入报价", priority: 2 },
+  stage3: { label: "待对比定标", shortAction: "对比定标", priority: 3 },
+  stage4: { label: "待完成内容与视觉", shortAction: "制作内容", priority: 4 },
+  stage5: { label: "待导出交付资料", shortAction: "导出交付", priority: 5 },
+};
+
+function actionQueueStageFor(stage: CaseStageKey): CaseActionQueueStage {
+  switch (stage) {
+    case "stage2_sourcing":
+      return "stage2";
+    case "stage3_financial":
+      return "stage3";
+    case "stage4_content":
+      return "stage4";
+    case "stage5_channels":
+      return "stage5";
+    case "stage1_screening":
+    default:
+      return "stage1";
+  }
+}
+
+/** 将案卷对象统一转换为工作流快照输入，避免各页面自行拼字段后漂移。 */
+export function caseStageInputFromCase(caseItem: {
+  id: string;
+  status: string;
+  recommendation?: "GO" | "HOLD" | "NO-GO" | null;
+  hasNoGoException?: boolean;
+  costModel?: unknown;
+  hasCostModel?: boolean;
+  quoteCount?: number;
+  validQuoteCount?: number;
+  hasSupplierSelection?: boolean;
+  approvedMainImageCount?: number;
+  hasApprovedContent?: boolean;
+  hasFlatFileExported?: boolean;
+  hasMediaPackExported?: boolean;
+}): CaseStageInput {
+  return {
+    caseId: caseItem.id,
+    status: caseItem.status,
+    recommendation: caseItem.recommendation,
+    hasNoGoException: Boolean(caseItem.hasNoGoException),
+    hasCostModel: caseItem.hasCostModel ?? Boolean(caseItem.costModel),
+    quoteCount: caseItem.quoteCount ?? 0,
+    validQuoteCount: caseItem.validQuoteCount,
+    hasSupplierSelection: Boolean(caseItem.hasSupplierSelection),
+    approvedMainImageCount: caseItem.approvedMainImageCount,
+    hasApprovedContent: Boolean(caseItem.hasApprovedContent),
+    hasFlatFileExported: Boolean(caseItem.hasFlatFileExported),
+    hasMediaPackExported: Boolean(caseItem.hasMediaPackExported),
+  };
+}
+
+/** 单一待办队列：每个活跃案卷按快照只出现一次，完成交付或已归档后自动移出。 */
+export function deriveCaseActionQueue(cases: CaseActionQueueSource[]): CaseActionQueueItem[] {
+  const queue: CaseActionQueueItem[] = [];
+  for (const caseItem of cases) {
+    const snapshot = deriveCaseWorkflowSnapshot(caseItem);
+    if (snapshot.caseLifecycle === "archived" || snapshot.deliveryState === "complete") continue;
+
+    const stage = actionQueueStageFor(snapshot.key);
+    const meta = ACTION_QUEUE_STAGE_META[stage];
+    queue.push({
+      caseId: caseItem.caseId,
+      title: caseItem.title,
+      asin: caseItem.asin ?? null,
+      category: caseItem.category ?? null,
+      stage,
+      stageNumber: snapshot.stepNumber,
+      stageName: snapshot.name,
+      stageSubName: snapshot.subName,
+      blocker: snapshot.blocker,
+      actionLabel: snapshot.primaryAction.label,
+      shortAction: meta.shortAction,
+      href: snapshot.primaryAction.href,
+      actionKind: snapshot.primaryAction.kind,
+      tradeGate: snapshot.tradeGate,
+      deliveryState: snapshot.deliveryState,
+      priority: snapshot.tradeGate === "NO-GO" ? 0 : meta.priority,
+    });
+  }
+  return queue.sort(
+    (a, b) => a.priority - b.priority || a.stageNumber - b.stageNumber || a.title.localeCompare(b.title, "zh-CN"),
+  );
+}
+
+/** 将队列收敛成看板/首页共用的阶段任务，计数与明细来自同一份队列。 */
+export function groupCaseActionQueue(items: CaseActionQueueItem[]): CaseActionQueueTask[] {
+  const stageOrder: CaseActionQueueStage[] = ["stage1", "stage2", "stage3", "stage4", "stage5"];
+  return stageOrder.flatMap((stage) => {
+    const stageItems = items.filter((item) => item.stage === stage);
+    if (stageItems.length === 0) return [];
+    const first = stageItems[0];
+    const meta = ACTION_QUEUE_STAGE_META[stage];
+    return [{
+      stage,
+      label: meta.label,
+      value: stageItems.length,
+      detail: stageItems.length > 1 ? `${first.title} 等 ${stageItems.length} 款` : first.title,
+      href: first.href,
+      action: meta.shortAction,
+    }];
+  });
+}
+
 /** 统一判断内容终审状态：同时兼容 content_approved 与历史 published */
 export function isContentApprovedStatus(status: string | null | undefined): boolean {
   return status === "content_approved" || status === "published";
@@ -270,7 +417,7 @@ export function deriveCaseWorkflowSnapshot(input: CaseStageInput): CaseWorkflowS
   if (!hasCost) {
     const primaryAction: CaseWorkflowAction = {
       label: "完成选品与利润",
-      href: `/cases/${encodedId}#cost-assumptions`,
+      href: `/cases/${encodedId}?tab=economics#cost-assumptions`,
       kind: "link",
     };
     return {
@@ -290,7 +437,7 @@ export function deriveCaseWorkflowSnapshot(input: CaseStageInput): CaseWorkflowS
   if (isNoGoBlocked) {
     const primaryAction: CaseWorkflowAction = {
       label: "查看原因 / 申请例外",
-      href: `/cases/${encodedId}#gate-exception`,
+      href: `/cases/${encodedId}?tab=sourcing#gate-exception`,
       kind: "link",
     };
     return {

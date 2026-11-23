@@ -107,7 +107,7 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
       : `跟进中 (${initialSamples.length} 份)`;
 
   const sourcingPrimaryAction = isNoGoBlocked
-    ? { label: "查看原因 / 申请例外", href: `/cases/${productCase.id}#gate-exception` }
+    ? { label: "查看原因 / 申请例外", href: `/cases/${productCase.id}?tab=sourcing#gate-exception` }
     : selection
       ? { label: "进入内容与视觉", href: `/cases/${productCase.id}/content` }
       : quotes.length === 0

@@ -10,7 +10,7 @@ import { OpportunityScoreHelp } from "@/components/opportunity-score-help";
 import { PrelaunchCompliancePanel } from "@/components/prelaunch-compliance-panel";
 import { PageHeader, QueryNotices } from "@/components/ui";
 import { getCalibrationForCase } from "@/lib/calibration-repository";
-import { deriveCaseWorkflowSnapshot } from "@/lib/case-stage";
+import { deriveCaseWorkflowSnapshot, type CaseWorkflowAction } from "@/lib/case-stage";
 import { getAppMode } from "@/lib/app-mode";
 import { money, percent, shortDate } from "@/lib/format";
 import { opportunityScore, recommendationFor } from "@/lib/economics";
@@ -20,11 +20,28 @@ export const dynamic = "force-dynamic";
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ notice?: string; error?: string }>;
+  searchParams: Promise<{ tab?: string; notice?: string; error?: string }>;
 };
+
+type CaseDetailTab = "overview" | "economics" | "sourcing" | "content" | "audit";
+
+const CASE_DETAIL_TABS: Array<{ id: CaseDetailTab; label: string; description: string }> = [
+  { id: "overview", label: "总览", description: "阶段、门禁与下一步" },
+  { id: "economics", label: "经济模型", description: "利润、压测与成本" },
+  { id: "sourcing", label: "寻源定标", description: "报价、打样与例外" },
+  { id: "content", label: "内容交付", description: "视觉、终审与导出" },
+  { id: "audit", label: "证据审计", description: "证据、时间线与口径" },
+];
+
+function resolveCaseDetailTab(value: string | undefined): CaseDetailTab {
+  return CASE_DETAIL_TABS.some((tab) => tab.id === value)
+    ? (value as CaseDetailTab)
+    : "overview";
+}
 
 export default async function CaseDetailPage({ params, searchParams }: PageProps) {
   const [{ id }, query] = await Promise.all([params, searchParams]);
+  const activeTab = resolveCaseDetailTab(query.tab);
   const [detail, calibrationCtx, appMode] = await Promise.all([
     getCaseDetail(id),
     getCalibrationForCase(id).catch(() => null),
@@ -66,6 +83,11 @@ export default async function CaseDetailPage({ params, searchParams }: PageProps
     hasFlatFileExported,
     hasMediaPackExported,
   });
+
+  const hasDetailSidebar =
+    activeTab === "overview" ||
+    activeTab === "audit" ||
+    (activeTab === "sourcing" && workflow.tradeGate === "NO-GO");
 
   const assumptions = costModel?.assumptions;
   const calibrationStatus = assumptions?.calibrationMeta?.status ?? "uncalibrated";
@@ -154,25 +176,109 @@ export default async function CaseDetailPage({ params, searchParams }: PageProps
 
       <QueryNotices notice={query.notice} error={query.error} />
 
-      {workflow.tradeGate === "NO-GO" ? (
-        <div className="notice warn">
-          <span className="badge recommendation-no-go">NO-GO</span>
-          <span><strong>贸易门禁已拦截：</strong> {workflow.blocker}</span>
-        </div>
-      ) : riskMessages.length ? (
-        <div className="notice warn">
-          <span className="badge status-review_pending">RISK</span>
-          <span><strong>需要关注：</strong> {riskMessages.join("；")}。</span>
-        </div>
-      ) : (
-        <div className="notice">
-          <span className="badge badge-success">CHECK</span>
-          <span><strong>基础门槛通过：</strong> 基准与压力情景均为正，请按当前阶段推进实证报价与定标。</span>
-        </div>
-      )}
+      <nav className="case-detail-tabs" aria-label="商品案卷分区">
+        {CASE_DETAIL_TABS.map((tab) => (
+          <Link
+            key={tab.id}
+            href={`/cases/${productCase.id}?tab=${tab.id}`}
+            className={`case-detail-tab${activeTab === tab.id ? " is-active" : ""}`}
+            aria-current={activeTab === tab.id ? "page" : undefined}
+          >
+            <strong>{tab.label}</strong>
+            <span>{tab.description}</span>
+          </Link>
+        ))}
+      </nav>
 
-      <div className="detail-grid">
+      <section
+        className={`case-decision-strip ${
+          workflow.tradeGate === "NO-GO"
+            ? "is-no-go"
+            : workflow.tradeGate === "HOLD"
+              ? "is-hold"
+              : "is-go"
+        }`}
+        aria-label="当前决策与下一步"
+      >
+        <div className="case-decision-main">
+          <RecommendationBadge value={workflow.tradeGate} />
+          <div>
+            <span className="eyebrow">阶段 {workflow.stepNumber} · {workflow.name}</span>
+            <strong>{workflow.subName}</strong>
+            <p>{workflow.blocker ?? "当前无阻断项，请按下一步执行并保留实证记录。"}</p>
+          </div>
+        </div>
+        <WorkflowActionButton action={workflow.primaryAction} className="button primary case-decision-action" />
+      </section>
+
+      <div className={`detail-grid${hasDetailSidebar ? "" : " is-wide"}`}>
         <div className="stack">
+          {activeTab === "overview" ? (
+            <>
+              <section className="section">
+                <div className="section-header">
+                  <div>
+                    <div className="eyebrow">经营快照</div>
+                    <h2>{result ? "当前测算结论" : "尚未建立经济模型"}</h2>
+                    <p>所有金额均为测算值，不构成销量或利润承诺；“交付资料已齐”也不代表商品已在平台发布。</p>
+                  </div>
+                  <RecommendationBadge value={workflow.tradeGate} />
+                </div>
+
+                {result && assumptions ? (
+                  <div className="metric-pairs">
+                    <div className="metric-pair"><small>预计售价</small><strong>{money(assumptions.salePriceCents)}</strong></div>
+                    <div className="metric-pair"><small>单件净利</small><strong>{money(result.netProfitCents)}</strong></div>
+                    <div className="metric-pair"><small>净利率</small><strong>{percent(result.marginRate)}</strong></div>
+                    <div className="metric-pair"><small>压力情景净利</small><strong>{money(result.stressProfitCents)}</strong></div>
+                    <div className="metric-pair"><small>真实报价</small><strong>{quoteCount} 家</strong></div>
+                    <div className="metric-pair"><small>交付状态</small><strong style={{ fontSize: 14 }}>{workflow.deliveryLabel}</strong></div>
+                  </div>
+                ) : (
+                  <div className="empty-state" style={{ padding: "24px 16px" }}>
+                    <h3>先补齐售价与成本</h3>
+                    <p>建立成本模型后才能判断 GO / HOLD / NO-GO，并解锁真实报价与后续阶段。</p>
+                    <Link href={`/cases/${productCase.id}?tab=economics#cost-assumptions`} className="button primary">
+                      去完成经济模型
+                    </Link>
+                  </div>
+                )}
+
+                {riskMessages.length ? (
+                  <div className="notice warn" style={{ marginTop: 16 }}>
+                    <span className="badge status-review_pending">RISK</span>
+                    <span><strong>需要关注：</strong> {riskMessages.join("；")}。</span>
+                  </div>
+                ) : null}
+              </section>
+
+              <section className="section">
+                <div className="section-header">
+                  <div>
+                    <div className="eyebrow">唯一下一步</div>
+                    <h2>{workflow.primaryAction.label}</h2>
+                    <p>系统按当前阶段与门禁自动给出下一步；完成后会自动切换到后续任务。</p>
+                  </div>
+                </div>
+                <div className="case-next-action-row">
+                  <div>
+                    <strong>{workflow.name} · {workflow.subName}</strong>
+                    <p>{workflow.blocker ?? "当前无阻断项。"}</p>
+                  </div>
+                  <WorkflowActionButton action={workflow.primaryAction} className="button primary" />
+                </div>
+                <div className="case-tab-shortcuts">
+                  <Link href={`/cases/${productCase.id}?tab=economics#cost-assumptions`}>经济模型与成本</Link>
+                  <Link href={`/cases/${productCase.id}?tab=sourcing`}>报价与定标</Link>
+                  <Link href={`/cases/${productCase.id}?tab=content`}>内容与交付</Link>
+                  <Link href={`/cases/${productCase.id}?tab=audit`}>证据与审计</Link>
+                </div>
+              </section>
+            </>
+          ) : null}
+
+          {activeTab === "economics" ? (
+            <>
           <section className="section">
             <div className="section-header">
               <div>
@@ -261,6 +367,7 @@ export default async function CaseDetailPage({ params, searchParams }: PageProps
             </div>
             <form action={updateCostModelAction} className="form-grid">
               <input type="hidden" name="caseId" value={productCase.id} />
+              <input type="hidden" name="returnPath" value={`/cases/${productCase.id}?tab=economics#cost-assumptions`} />
               <div className="field"><label htmlFor="salePrice">售价</label><input id="salePrice" name="salePrice" type="number" min="0.01" step="0.01" defaultValue={assumptions ? (assumptions.salePriceCents / 100).toFixed(2) : "0"} required /></div>
               <div className="field"><label htmlFor="landedCost">采购与落地成本</label><input id="landedCost" name="landedCost" type="number" min="0" step="0.01" defaultValue={assumptions ? (assumptions.landedCostCents / 100).toFixed(2) : "0"} required /></div>
               <div className="field"><label htmlFor="fbaFee">FBA / 履约费</label><input id="fbaFee" name="fbaFee" type="number" min="0" step="0.01" defaultValue={assumptions ? (assumptions.fbaFeeCents / 100).toFixed(2) : "0"} required /></div>
@@ -276,7 +383,10 @@ export default async function CaseDetailPage({ params, searchParams }: PageProps
               <div className="field full"><button className="button secondary" type="submit">保存新成本版本并重新计算</button></div>
             </form>
           </section>
+            </>
+          ) : null}
 
+          {activeTab === "audit" ? (
           <section className="section">
             <div className="section-header">
               <div>
@@ -311,9 +421,127 @@ export default async function CaseDetailPage({ params, searchParams }: PageProps
               </div>
             )}
           </section>
+          ) : null}
+
+          {activeTab === "sourcing" ? (
+            <section className="section">
+              <div className="section-header">
+                <div>
+                  <div className="eyebrow">阶段 2–3</div>
+                  <h2>供应商报价与人工定标</h2>
+                  <p>报价、打样与定标属于实证动作；完成人工定标后才解锁内容与视觉。</p>
+                </div>
+                <RecommendationBadge value={workflow.tradeGate} />
+              </div>
+
+              <div className="metric-pairs">
+                <div className="metric-pair"><small>真实报价</small><strong>{quoteCount} 家</strong></div>
+                <div className="metric-pair"><small>有效报价</small><strong>{validQuoteCount} 家</strong></div>
+                <div className="metric-pair"><small>人工定标</small><strong>{hasSupplierSelection ? "已完成" : "未完成"}</strong></div>
+                <div className="metric-pair"><small>当前卡点</small><strong style={{ fontSize: 13 }}>{workflow.blocker ?? "无卡点"}</strong></div>
+              </div>
+
+              <div className="case-next-action-row" style={{ marginTop: 18 }}>
+                <div>
+                  <strong>{workflow.facts.hasSupplierSelection ? "定标已完成" : "下一步：完成真实报价与定标"}</strong>
+                  <p>报价页包含供应商录入、对比、打样记录与人工定标；所有动作会写入审计。</p>
+                </div>
+                <div className="button-row">
+                  <Link href={`/cases/${productCase.id}/sourcing`} className="button secondary">
+                    打开寻源工作台
+                  </Link>
+                  <WorkflowActionButton action={workflow.primaryAction} className="button primary" />
+                </div>
+              </div>
+
+              {workflow.tradeGate === "NO-GO" ? (
+                <div className="notice warn" style={{ marginTop: 16 }}>
+                  <span className="badge recommendation-no-go">NO-GO</span>
+                  <span><strong>门禁已拦截普通寻源：</strong> 如需战略推进，请在右侧提交例外审批；审批前不会录入普通报价或定标。</span>
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+
+          {activeTab === "content" ? (
+            <>
+              <section className="section">
+                <div className="section-header">
+                  <div>
+                    <div className="eyebrow">阶段 4–5</div>
+                    <h2>文案、视觉与交付资料</h2>
+                    <p>系统只跟踪内容终审与交付资料导出；到卖家后台正式发布仍是外部动作。</p>
+                  </div>
+                  <span className={`badge ${workflow.deliveryState === "complete" ? "badge-success" : "badge-neutral"}`}>
+                    {workflow.deliveryLabel}
+                  </span>
+                </div>
+
+                <div className="metric-pairs">
+                  <div className="metric-pair"><small>人工定标</small><strong>{hasSupplierSelection ? "已完成" : "未完成"}</strong></div>
+                  <div className="metric-pair"><small>已审主图</small><strong>{approvedMainImageCount} 张</strong></div>
+                  <div className="metric-pair"><small>内容终审</small><strong>{hasApprovedContent ? "已通过" : "未通过"}</strong></div>
+                  <div className="metric-pair"><small>交付资料</small><strong style={{ fontSize: 13 }}>{workflow.deliveryLabel}</strong></div>
+                </div>
+
+                <div className="case-next-action-row" style={{ marginTop: 18 }}>
+                  <div>
+                    <strong>{workflow.primaryAction.label}</strong>
+                    <p>
+                      {hasSupplierSelection
+                        ? "在内容工作台完成商品定义、主图审核、Listing 终审与交付预检。"
+                        : "需先完成人工定标，内容与视觉阶段才会解锁。"}
+                    </p>
+                  </div>
+                  <WorkflowActionButton action={workflow.primaryAction} className="button primary" />
+                </div>
+              </section>
+
+              <section className="section">
+                <div className="section-header">
+                  <div>
+                    <h3>交付清单</h3>
+                    <p>两项资料都导出后，才显示“交付资料已齐”。</p>
+                  </div>
+                </div>
+                <div className="breakdown">
+                  <div className="breakdown-row"><span>内容终审</span><strong>{hasApprovedContent ? "已通过" : "未通过"}</strong></div>
+                  <div className="breakdown-row"><span>Flat File (TSV)</span><strong>{hasFlatFileExported ? "已导出" : "待导出"}</strong></div>
+                  <div className="breakdown-row"><span>上架素材包 (ZIP)</span><strong>{hasMediaPackExported ? "已导出" : "待导出"}</strong></div>
+                </div>
+
+                <div className="button-row" style={{ marginTop: 16 }}>
+                  <Link href={`/cases/${productCase.id}/content`} className="button secondary">
+                    打开内容工作台
+                  </Link>
+                  <Link href={`/studio?tab=image&caseId=${encodeURIComponent(productCase.id)}`} className="button secondary">
+                    去视觉工坊
+                  </Link>
+                  {workflow.permissions.canExportDeliveryPack ? (
+                    <>
+                      <a href={`/api/cases/${productCase.id}/flatfile`} className="button secondary" download>
+                        导出 Flat File
+                      </a>
+                      <a href={`/api/cases/${productCase.id}/media-pack`} className="button secondary" download>
+                        导出素材包
+                      </a>
+                    </>
+                  ) : null}
+                </div>
+
+                {workflow.deliveryState === "complete" ? (
+                  <div className="notice" style={{ marginTop: 16 }}>
+                    <span className="badge badge-success">DELIVERY READY</span>
+                    <span>交付资料已齐，请前往卖家后台完成外部上架；系统不会自动发布商品。</span>
+                  </div>
+                ) : null}
+              </section>
+            </>
+          ) : null}
         </div>
 
         <aside className="stack">
+          {activeTab === "overview" ? (
           <section className="section" aria-label="当前阶段上下文">
             <div className="section-header">
               <div>
@@ -359,8 +587,9 @@ export default async function CaseDetailPage({ params, searchParams }: PageProps
               </div>
             ) : null}
           </section>
+          ) : null}
 
-          {workflow.tradeGate === "NO-GO" ? (
+          {activeTab === "sourcing" && workflow.tradeGate === "NO-GO" ? (
             <section id="gate-exception" className="section">
               <div className="section-header">
                 <div>
@@ -370,7 +599,7 @@ export default async function CaseDetailPage({ params, searchParams }: PageProps
               </div>
               <form action={approveNoGoExceptionAction} className="stack">
                 <input type="hidden" name="caseId" value={productCase.id} />
-                <input type="hidden" name="returnPath" value={`/cases/${productCase.id}`} />
+                <input type="hidden" name="returnPath" value={`/cases/${productCase.id}?tab=sourcing#gate-exception`} />
                 <div className="field">
                   <label htmlFor="exceptionReason">例外原因 *</label>
                   <input id="exceptionReason" name="reason" type="text" placeholder="例：老厂可降本 25%，先拿样核价" required />
@@ -388,6 +617,8 @@ export default async function CaseDetailPage({ params, searchParams }: PageProps
             </section>
           ) : null}
 
+          {activeTab === "audit" ? (
+            <>
           <section className="section">
             <div className="section-header">
               <div>
@@ -413,6 +644,8 @@ export default async function CaseDetailPage({ params, searchParams }: PageProps
             <p className="muted" style={{ fontSize: 12 }}>净收入 =（售价 − Coupon）×（1 − 退货率）。采购、FBA、佣金、广告、退货损失、仓储和其他成本均按订单单位计入。</p>
             <p className="muted" style={{ fontSize: 12 }}>压力情景：售价 −10%、采购成本 +20%、广告 +20%、退货率 +2 个百分点。</p>
           </section>
+            </>
+          ) : null}
         </aside>
       </div>
     </div>
@@ -433,4 +666,14 @@ function auditLabel(action: string) {
     "case.rejected": "已归档历史商品记录",
   };
   return labels[action] ?? action;
+}
+
+function WorkflowActionButton({ action, className }: { action: CaseWorkflowAction; className: string }) {
+  if (action.kind === "download") {
+    return <a href={action.href} className={className} download>{action.label}</a>;
+  }
+  if (action.kind === "none") {
+    return <span className={className}>{action.label}</span>;
+  }
+  return <Link href={action.href} className={className}>{action.label}</Link>;
 }

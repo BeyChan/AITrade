@@ -3,230 +3,140 @@
 import Link from "next/link";
 import { useState } from "react";
 import type { CompetitorComparisonReport } from "@/lib/competitor-compare/types";
-import type { EnrichedCase, SourcingCaseSummary } from "@/lib/types";
-import { money, percent } from "@/lib/format";
-import { deriveCaseWorkflowSnapshot } from "@/lib/case-stage";
-
-export type AttentionTask = {
-  label: string;
-  value: number;
-  detail: string;
-  href: string;
-  action: string;
-  stage?: "stage1" | "stage2" | "stage3" | "stage4" | "stage5";
-};
+import { money } from "@/lib/format";
+import {
+  groupCaseActionQueue,
+  type CaseActionQueueItem,
+  type CaseActionQueueStage,
+} from "@/lib/case-stage";
 
 type Props = {
   marketCode: string;
   platformCode: string;
   currency: string;
   competitorReports: CompetitorComparisonReport[];
-  cases: EnrichedCase[];
-  sourcingCases: SourcingCaseSummary[];
-  attentionTasks?: AttentionTask[];
-  proposalsTotal?: number;
+  actionQueue: CaseActionQueueItem[];
 };
+
+type ColumnMeta = {
+  id: CaseActionQueueStage;
+  stepNum: string;
+  title: string;
+  subtitle: string;
+  badgeColor: string;
+  badgeBg: string;
+  viewAllHref: string;
+  emptyText: string;
+};
+
+const COLUMN_META: ColumnMeta[] = [
+  {
+    id: "stage1",
+    stepNum: "1",
+    title: "选品与利润",
+    subtitle: "竞品研报 · 成本模型 · NO-GO 门禁",
+    badgeColor: "var(--blue)",
+    badgeBg: "var(--blue-soft)",
+    viewAllHref: "/competitors",
+    emptyText: "暂无待补门禁的案卷或未立项研报",
+  },
+  {
+    id: "stage2",
+    stepNum: "2",
+    title: "供应商报价与打样",
+    subtitle: "录入真实报价 · 拿样验收",
+    badgeColor: "var(--amber)",
+    badgeBg: "var(--amber-soft)",
+    viewAllHref: "/sourcing",
+    emptyText: "所有商品均已录入工厂报价",
+  },
+  {
+    id: "stage3",
+    stepNum: "3",
+    title: "人工定标",
+    subtitle: "多厂对比 · 人工确认中标",
+    badgeColor: "#a855f7",
+    badgeBg: "rgba(168, 85, 247, 0.14)",
+    viewAllHref: "/sourcing",
+    emptyText: "无待人工定标商品",
+  },
+  {
+    id: "stage4",
+    stepNum: "4",
+    title: "文案与视觉",
+    subtitle: "视觉工坊 · 人工终审",
+    badgeColor: "var(--green)",
+    badgeBg: "var(--green-soft)",
+    viewAllHref: "/content",
+    emptyText: "暂无进行中的内容任务",
+  },
+  {
+    id: "stage5",
+    stepNum: "5",
+    title: "上架交付",
+    subtitle: "Flat File · 素材包完整度",
+    badgeColor: "var(--ink)",
+    badgeBg: "var(--surface-subtle)",
+    viewAllHref: "/cases",
+    emptyText: "暂无待导出交付资料的案卷",
+  },
+];
+
+function gateClass(tradeGate: CaseActionQueueItem["tradeGate"]) {
+  if (tradeGate === "GO") return "is-go";
+  if (tradeGate === "NO-GO") return "is-no-go";
+  return "is-hold";
+}
+
+function gateLabel(tradeGate: CaseActionQueueItem["tradeGate"]) {
+  if (tradeGate === "NO-GO_EXCEPTION") return "NO-GO 例外放行";
+  return tradeGate;
+}
+
+function WorkflowAction({ item }: { item: CaseActionQueueItem }) {
+  if (item.actionKind === "download") {
+    return (
+      <a href={item.href} download className="kanban-action-primary">
+        {item.actionLabel}
+      </a>
+    );
+  }
+  if (item.actionKind === "none") {
+    return <span className="kanban-action-primary">{item.actionLabel}</span>;
+  }
+  return (
+    <Link href={item.href} className="kanban-action-primary">
+      {item.actionLabel}
+    </Link>
+  );
+}
 
 export function DashboardPipelineKanban({
   marketCode,
   platformCode,
   currency,
   competitorReports,
-  cases,
-  sourcingCases,
-  attentionTasks = [],
-  proposalsTotal = 0,
+  actionQueue,
 }: Props) {
   const [activeTab, setActiveTab] = useState<"kanban" | "list">("kanban");
-
-  const sourcingMap = new Map(sourcingCases.map((s) => [s.productCase.id, s]));
-
-  // 1. 竞品初筛阶段：只保留当前站点且「尚未正式立项转化」的活跃研报，立项后自动推进至后续阶段
-  const stage1Items = competitorReports.filter(
-    (r) => r.marketCode === marketCode && r.platformCode === platformCode && !r.promotedCaseId,
+  const groupedTasks = new Map(groupCaseActionQueue(actionQueue).map((task) => [task.stage, task]));
+  const queuedByStage = new Map(
+    COLUMN_META.map((column) => [
+      column.id,
+      actionQueue.filter((item) => item.stage === column.id),
+    ]),
   );
 
-  // 严格互斥状态机：过滤已否决/已归档案卷，通过单一真源 deriveCaseWorkflowSnapshot 归类至唯一阶段
-  const activeCases = cases.filter((c) => c.status !== "rejected" && c.status !== "archived");
-
-  const stageMap = new Map(
-    activeCases.map((c) => {
-      const s = sourcingMap.get(c.id);
-      const stage = deriveCaseWorkflowSnapshot({
-        caseId: c.id,
-        status: c.status,
-        recommendation: c.recommendation,
-        hasNoGoException: Boolean(c.hasNoGoException),
-        hasCostModel: Boolean(c.costModel),
-        quoteCount: s?.quoteCount ?? c.quoteCount ?? 0,
-        hasSelection: Boolean(s?.selection ?? c.hasSupplierSelection),
-        approvedMainImageCount: c.approvedMainImageCount,
-        hasApprovedContent: Boolean(c.hasApprovedContent),
-        hasFlatFileExported: Boolean(c.hasFlatFileExported),
-        hasMediaPackExported: Boolean(c.hasMediaPackExported),
-      });
-      return [c.id, stage];
-    }),
+  // 竞品研报是案卷创建前的输入，不冒充案卷待办；仅在阶段 1 同时展示。
+  const stage1Reports = competitorReports.filter(
+    (report) =>
+      report.marketCode === marketCode &&
+      report.platformCode === platformCode &&
+      !report.promotedCaseId,
   );
-
-  // 2. 寻源询价阶段
-  const stage2Items = activeCases.filter((c) => stageMap.get(c.id)?.key === "stage2_sourcing");
-
-  // 3. 财务核准阶段
-  const stage3Items = activeCases.filter((c) => stageMap.get(c.id)?.key === "stage3_financial");
-
-  // 4. 内容打磨阶段
-  const stage4Items = activeCases.filter((c) => stageMap.get(c.id)?.key === "stage4_content");
-
-  // 5. 渠道就绪阶段
-  const stage5Items = activeCases.filter((c) => stageMap.get(c.id)?.key === "stage5_channels");
-
-  // 将外层待办精准映射到各业务阶段列头（纯强类型 stage 匹配，杜绝字符串 fallback 漂移）
-  const stage1Task = attentionTasks.find((t) => t.stage === "stage1");
-  const stage2Task = attentionTasks.find((t) => t.stage === "stage2");
-  const stage3Task = attentionTasks.find((t) => t.stage === "stage3");
-  const stage4Task = attentionTasks.find((t) => t.stage === "stage4");
-  const stage5Task = stage5Items.length > 0
-    ? {
-        label: "可导出上架素材与 Flat File",
-        value: stage5Items.length,
-        detail: "已通过终审，可导出 Flat File 表格与上架素材 ZIP",
-        href: `/cases/${stage5Items[0].id}/content`,
-        action: "去导出",
-        stage: "stage5" as const,
-      }
-    : undefined;
-
-  const stage1Limit = stage1Task ? 3 : 4;
-  const stage2Limit = stage2Task ? 3 : 4;
-  const stage3Limit = stage3Task ? 3 : 4;
-  const stage4Limit = stage4Task ? 3 : 4;
-  const stage5Limit = stage5Task ? 3 : 4;
-
-  const columns = [
-    {
-      id: "stage1",
-      stepNum: "1",
-      title: "竞品初筛",
-      subtitle: "链接采集 · 指数测算",
-      count: stage1Items.length,
-      focusTask: stage1Task,
-      badgeColor: "var(--blue)",
-      badgeBg: "var(--blue-soft)",
-      viewAllHref: `/competitors?market=${encodeURIComponent(marketCode)}&platform=${encodeURIComponent(platformCode)}`,
-      items: stage1Items.slice(0, stage1Limit).map((r) => ({
-        id: r.id,
-        title: r.title,
-        tag: `${r.competitors.length} 款竞品`,
-        metricLabel: "价格中位",
-        metricVal: r.priceStats.p50 ? `${(r.priceStats.p50 / 100).toFixed(1)} ${r.currency}` : "待采集",
-        href: `/competitors?reportId=${r.id}`,
-        actionText: "竞品 PK 研报",
-      })),
-      emptyText: "暂无初筛研报，可在侧边栏「竞品研报」录入链接",
-    },
-    {
-      id: "stage2",
-      stepNum: "2",
-      title: "供应商报价与打样",
-      subtitle: "录入报价 · 拿样验收",
-      count: stage2Items.length,
-      focusTask: stage2Task,
-      badgeColor: "var(--amber)",
-      badgeBg: "var(--amber-soft)",
-      viewAllHref: "/sourcing",
-      items: stage2Items.slice(0, stage2Limit).map((c) => {
-        const snap = stageMap.get(c.id);
-        return {
-          id: c.id,
-          title: c.title,
-          tag: snap?.subName || c.category || "待录入报价",
-          metricLabel: "预估售价",
-          metricVal: money(c.competitor_price_cents),
-          href: snap?.primaryAction.href || `/cases/${c.id}/sourcing?openQuote=1#quote-entry`,
-          actionText: snap?.primaryAction.label || "录入第一家工厂报价",
-        };
-      }),
-      emptyText: "所有商品均已录入供应商报价",
-    },
-    {
-      id: "stage3",
-      stepNum: "3",
-      title: "人工定标",
-      subtitle: "多厂对比 · 确认中标",
-      count: stage3Items.length,
-      focusTask: stage3Task,
-      badgeColor: "#a855f7",
-      badgeBg: "rgba(168, 85, 247, 0.14)",
-      viewAllHref: "/sourcing",
-      items: stage3Items.slice(0, stage3Limit).map((c) => {
-        const res = c.costModel?.results;
-        const snap = stageMap.get(c.id);
-        return {
-          id: c.id,
-          title: c.title,
-          tag: snap?.subName || `机会分 ${c.opportunityScore}`,
-          metricLabel: "测算净利",
-          metricVal: res ? money(res.netProfitCents) : "—",
-          href: snap?.primaryAction.href || `/cases/${c.id}/sourcing#supplier-award`,
-          actionText: snap?.primaryAction.label || "对比并定标",
-        };
-      }),
-      emptyText: "无待人工定标商品",
-    },
-    {
-      id: "stage4",
-      stepNum: "4",
-      title: "文案与视觉",
-      subtitle: "视觉工坊 · 人工终审",
-      count: stage4Items.length,
-      focusTask: stage4Task,
-      badgeColor: "var(--green)",
-      badgeBg: "var(--green-soft)",
-      viewAllHref: "/content",
-      items: stage4Items.slice(0, stage4Limit).map((c) => {
-        const snap = stageMap.get(c.id);
-        return {
-          id: c.id,
-          title: c.title,
-          tag: snap?.subName || `待终审 · ${c.asin}`,
-          metricLabel: "选品分",
-          metricVal: `${c.opportunityScore} 分`,
-          href: snap?.primaryAction.href || `/cases/${c.id}/content`,
-          actionText: snap?.primaryAction.label || "前往人工终审",
-        };
-      }),
-      emptyText: "暂无进行中的内容任务",
-    },
-    {
-      id: "stage5",
-      stepNum: "5",
-      title: "上架交付",
-      subtitle: "Flat File · 素材包完整度",
-      count: stage5Items.length,
-      focusTask: stage5Task,
-      badgeColor: "var(--ink)",
-      badgeBg: "var(--surface-subtle)",
-      viewAllHref: "/cases",
-      items: stage5Items.slice(0, stage5Limit).map((c) => {
-        const snap = stageMap.get(c.id);
-        return {
-          id: c.id,
-          title: c.title,
-          tag: snap?.deliveryLabel || "待导出交付包",
-          metricLabel: "交付状态",
-          metricVal: snap?.deliveryState === "complete" ? "已齐" : "待补导出",
-          href: `/cases/${c.id}/content#launch-ready`,
-          actionText: snap?.primaryAction.label || "导出 Flat File",
-        };
-      }),
-      emptyText: "暂无内容已终审的商品",
-    },
-  ];
 
   return (
     <section className="panel" style={{ padding: "24px" }}>
-      {/* 头部标题与视图切换 */}
       <div
         style={{
           display: "flex",
@@ -238,14 +148,15 @@ export function DashboardPipelineKanban({
         }}
       >
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
-            <span className="eyebrow" style={{ color: "var(--green)", margin: 0, lineHeight: 1 }}>
-              操盘手业务大盘
-            </span>
-          </div>
-          <h2 style={{ margin: "2px 0 0 0", fontSize: "18px", color: "var(--ink)", fontWeight: 800 }}>
+          <span className="eyebrow" style={{ color: "var(--green)", margin: 0, lineHeight: 1 }}>
+            操盘手业务大盘
+          </span>
+          <h2 style={{ margin: "6px 0 0", fontSize: "18px", color: "var(--ink)", fontWeight: 800 }}>
             全生命周期业务推进看板 ({marketCode} 站 · {platformCode.toUpperCase()})
           </h2>
+          <p style={{ margin: "4px 0 0", fontSize: "12px", color: "var(--muted)" }}>
+            阶段数量与首页待办同源，每个在办案卷只出现一次；交付完成即移出队列。
+          </p>
         </div>
 
         <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
@@ -253,7 +164,7 @@ export function DashboardPipelineKanban({
             href={`/cases?market=${encodeURIComponent(marketCode)}&platform=${encodeURIComponent(platformCode)}`}
             className="button ghost fx-btn-sm"
           >
-            查看全部商品
+            查看全部案卷
           </Link>
           <div
             style={{
@@ -263,198 +174,152 @@ export function DashboardPipelineKanban({
               padding: "2px",
             }}
           >
-            <button
-              type="button"
-              onClick={() => setActiveTab("kanban")}
-              style={{
-                border: "none",
-                background: activeTab === "kanban" ? "var(--paper)" : "transparent",
-                color: activeTab === "kanban" ? "var(--ink)" : "var(--muted)",
-                fontWeight: activeTab === "kanban" ? 700 : 500,
-                fontSize: "12px",
-                padding: "4px 10px",
-                borderRadius: "6px",
-                boxShadow: activeTab === "kanban" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
-              }}
-            >
-              5 阶漏斗看板
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("list")}
-              style={{
-                border: "none",
-                background: activeTab === "list" ? "var(--paper)" : "transparent",
-                color: activeTab === "list" ? "var(--ink)" : "var(--muted)",
-                fontWeight: activeTab === "list" ? 700 : 500,
-                fontSize: "12px",
-                padding: "4px 10px",
-                borderRadius: "6px",
-                boxShadow: activeTab === "list" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
-              }}
-            >
-              紧凑列表
-            </button>
+            {([
+              ["kanban", "5 阶漏斗看板"],
+              ["list", "紧凑行动列表"],
+            ] as const).map(([tab, label]) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setActiveTab(tab)}
+                style={{
+                  border: "none",
+                  background: activeTab === tab ? "var(--paper)" : "transparent",
+                  color: activeTab === tab ? "var(--ink)" : "var(--muted)",
+                  fontWeight: activeTab === tab ? 700 : 500,
+                  fontSize: "12px",
+                  padding: "4px 10px",
+                  borderRadius: "6px",
+                  boxShadow: activeTab === tab ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+                  cursor: "pointer",
+                }}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         </div>
       </div>
 
       {activeTab === "kanban" ? (
-        /* 5 阶段水平看板泳道 */
-        <div className="pipeline-kanban-grid">
-          {columns.map((col) => (
-            <div
-              key={col.id}
-              style={{
-                background: "var(--surface-subtle)",
-                borderRadius: "12px",
-                border: "1px solid var(--line)",
-                display: "flex",
-                flexDirection: "column",
-                overflow: "hidden",
-              }}
-            >
-              {/* 列头部 */}
-              <div
-                style={{
-                  padding: "12px 14px",
-                  borderBottom: "1px solid var(--line)",
-                  background: "var(--paper)",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                }}
-              >
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                    <span
-                      style={{
-                        width: "18px",
-                        height: "18px",
-                        borderRadius: "50%",
-                        background: col.badgeBg,
-                        color: col.badgeColor,
-                        fontSize: "12px",
-                        fontWeight: 800,
-                        display: "inline-grid",
-                        placeItems: "center",
-                      }}
-                    >
-                      {col.stepNum}
-                    </span>
-                    <strong style={{ fontSize: "13px", color: "var(--ink)" }}>{col.title}</strong>
-                  </div>
-                  <div style={{ fontSize: "12px", color: "var(--muted)", marginTop: "2px" }}>
-                    {col.subtitle}
-                  </div>
-                </div>
-                <span
-                  style={{
-                    padding: "2px 8px",
-                    borderRadius: "10px",
-                    background: col.badgeBg,
-                    color: col.badgeColor,
-                    fontSize: "12px",
-                    fontWeight: 700,
-                  }}
-                >
-                  {col.count}
-                </span>
-              </div>
+        <div className="dashboard-kanban-grid">
+          {COLUMN_META.map((column) => {
+            const focusTask = groupedTasks.get(column.id);
+            const items = queuedByStage.get(column.id) ?? [];
+            const reportItems = column.id === "stage1" ? stage1Reports.slice(0, 3) : [];
+            const hasItems = items.length > 0 || reportItems.length > 0;
 
-              {/* 卡片流 */}
+            return (
               <div
+                key={column.id}
                 style={{
-                  padding: "10px",
+                  background: "var(--surface-subtle)",
+                  borderRadius: "10px",
+                  border: "1px solid var(--line)",
                   display: "flex",
                   flexDirection: "column",
-                  gap: "10px",
-                  flex: 1,
-                  minHeight: "140px",
+                  overflow: "hidden",
                 }}
               >
-                {/* 方案 A: Linear 风格置顶待办行动卡 (与下方卡片完全同宽同构，自然融入) */}
-                {col.focusTask && (
-                  <Link
-                    href={col.focusTask.href}
+                <div
+                  style={{
+                    padding: "12px 14px",
+                    borderBottom: "1px solid var(--line)",
+                    background: "var(--paper)",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <span
+                        style={{
+                          width: "18px",
+                          height: "18px",
+                          borderRadius: "50%",
+                          background: column.badgeBg,
+                          color: column.badgeColor,
+                          fontSize: "12px",
+                          fontWeight: 800,
+                          display: "inline-grid",
+                          placeItems: "center",
+                        }}
+                      >
+                        {column.stepNum}
+                      </span>
+                      <strong style={{ fontSize: "13px", color: "var(--ink)" }}>{column.title}</strong>
+                    </div>
+                    <div style={{ fontSize: "12px", color: "var(--muted)", marginTop: "2px" }}>
+                      {column.subtitle}
+                    </div>
+                  </div>
+                  <span
+                    title="该阶段统一行动队列中的案卷数"
                     style={{
-                      background: "var(--green-soft)",
-                      border: "1px solid var(--line-strong)",
-                      borderRadius: "8px",
-                      padding: "10px 12px",
-                      textDecoration: "none",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "6px",
-                      boxShadow: "0 1px 3px rgba(22, 101, 52, 0.04)",
+                      padding: "2px 8px",
+                      borderRadius: "10px",
+                      background: column.badgeBg,
+                      color: column.badgeColor,
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      whiteSpace: "nowrap",
                     }}
                   >
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span
-                        style={{
-                          fontSize: "12px",
-                          fontWeight: 800,
-                          color: "var(--green)",
-                          background: "var(--green-soft)",
-                          padding: "1px 6px",
-                          borderRadius: "4px",
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "3px",
-                        }}
-                      >
-                        ⚡ 待办行动
-                      </span>
-                      <span
-                        style={{
-                          fontSize: "12px",
-                          fontWeight: 800,
-                          color: "#fff",
-                          background: "var(--green)",
-                          borderRadius: "10px",
-                          padding: "0 6px",
-                          lineHeight: "16px",
-                        }}
-                      >
-                        {col.focusTask.value} 项
-                      </span>
-                    </div>
+                    {items.length} 卷
+                  </span>
+                </div>
 
-                    <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--ink)", lineHeight: 1.35 }}>
-                      {col.focusTask.label}
-                    </div>
-
-                    <div style={{ fontSize: "12px", color: "var(--muted)", lineHeight: 1.3 }}>
-                      {col.focusTask.detail}
-                    </div>
-
-                    <div
+                <div
+                  style={{
+                    padding: "10px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "10px",
+                    flex: 1,
+                    minHeight: "140px",
+                  }}
+                >
+                  {focusTask ? (
+                    <Link
+                      href={focusTask.href}
                       style={{
+                        background: "var(--green-soft)",
+                        border: "1px solid var(--line-strong)",
+                        borderRadius: "8px",
+                        padding: "10px 12px",
+                        textDecoration: "none",
                         display: "flex",
-                        alignItems: "center",
-                        justifyContent: "flex-end",
-                        fontSize: "12px",
-                        fontWeight: 700,
-                        color: "var(--green)",
-                        borderTop: "1px dashed var(--line)",
-                        paddingTop: "4px",
-                        marginTop: "2px",
+                        flexDirection: "column",
+                        gap: "6px",
                       }}
                     >
-                      {col.focusTask.action}
-                    </div>
-                  </Link>
-                )}
-                {col.items.length > 0 ? (
-                  col.items.map((item) => (
-                    <div
-                      key={item.id}
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: "12px", fontWeight: 800, color: "var(--green)" }}>
+                          ⚡ {focusTask.label}
+                        </span>
+                        <span className="badge-num" style={{ fontSize: "12px", color: "var(--green)" }}>
+                          {focusTask.value} 卷
+                        </span>
+                      </div>
+                      <div style={{ fontSize: "12px", color: "var(--muted)", lineHeight: 1.35 }}>
+                        {focusTask.detail}
+                      </div>
+                      <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--green)", textAlign: "right" }}>
+                        {focusTask.action} →
+                      </div>
+                    </Link>
+                  ) : null}
+
+                  {items.slice(0, 4).map((item) => (
+                    <article
+                      key={item.caseId}
                       style={{
                         background: "var(--paper)",
                         padding: "10px 12px",
                         borderRadius: "8px",
                         border: "1px solid var(--line)",
-                        boxShadow: "0 1px 3px rgba(0,0,0,0.02)",
                         display: "flex",
                         flexDirection: "column",
                         gap: "6px",
@@ -474,87 +339,98 @@ export function DashboardPipelineKanban({
                       >
                         {item.title}
                       </div>
-
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                         <span style={{ color: "var(--muted)", background: "var(--surface-subtle)", padding: "1px 6px", borderRadius: "4px" }}>
-                          {item.tag}
+                          {item.stageSubName}
                         </span>
-                        <div style={{ textAlign: "right" }}>
-                          <span style={{ color: "var(--muted)", fontSize: "12px" }}>{item.metricLabel}: </span>
-                          <strong style={{ color: "var(--green)" }}>{item.metricVal}</strong>
-                        </div>
+                        <span className={`verdict-pill ${gateClass(item.tradeGate)}`}>
+                          {gateLabel(item.tradeGate)}
+                        </span>
                       </div>
-
-                      <div style={{ borderTop: "1px dashed var(--line)", paddingTop: "6px", marginTop: "2px" }}>
-                        <Link
-                          href={item.href}
-                          style={{
-                            fontSize: "12px",
-                            fontWeight: 700,
-                            color: col.badgeColor,
-                            display: "inline-block",
-                          }}
-                        >
-                          {item.actionText}
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, borderTop: "1px dashed var(--line)", paddingTop: 6 }}>
+                        <WorkflowAction item={item} />
+                        <Link href={`/cases/${item.caseId}?tab=overview`} className="kanban-action-secondary">
+                          查看案卷
                         </Link>
                       </div>
-                    </div>
-                  ))
-                ) : (
-                  <div
-                    style={{
-                      textAlign: "center",
-                      color: "var(--muted)",
-                      fontSize: "12px",
-                      padding: "24px 8px",
-                      lineHeight: "1.4",
-                    }}
-                  >
-                    {col.emptyText}
-                  </div>
-                )}
+                    </article>
+                  ))}
 
-                {/* 数量超过展示上限时提供全部项目直达 */}
-                {col.count > col.items.length && (
-                  <Link
-                    href={col.viewAllHref}
-                    style={{
-                      display: "block",
-                      textAlign: "center",
-                      padding: "8px 10px",
-                      borderRadius: "6px",
-                      background: "var(--green-soft)",
-                      color: "var(--green)",
-                      fontSize: "12px",
-                      fontWeight: 700,
-                      textDecoration: "none",
-                      border: "1px dashed #c0dcce",
-                      transition: "all 0.15s ease",
-                      marginTop: "2px",
-                    }}
-                  >
-                    查看全部 {col.count} 个项目
-                  </Link>
-                )}
+                  {reportItems.map((report) => (
+                    <article
+                      key={report.id}
+                      style={{
+                        background: "var(--paper)",
+                        padding: "10px 12px",
+                        borderRadius: "8px",
+                        border: "1px dashed var(--line-strong)",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "6px",
+                      }}
+                    >
+                      <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--ink)" }}>{report.title}</div>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", color: "var(--muted)" }}>
+                        <span>竞品研报 · {report.competitors.length} 款样本</span>
+                        <span>
+                          P50 {report.priceStats.p50 ? `${money(report.priceStats.p50)} ${report.currency || currency}` : "待采集"}
+                        </span>
+                      </div>
+                      <Link
+                        href={`/competitors?reportId=${report.id}`}
+                        className="kanban-action-primary"
+                        style={{ alignSelf: "flex-start" }}
+                      >
+                        查看竞品 PK →
+                      </Link>
+                    </article>
+                  ))}
+
+                  {!hasItems ? (
+                    <div
+                      style={{
+                        textAlign: "center",
+                        color: "var(--muted)",
+                        fontSize: "12px",
+                        padding: "24px 8px",
+                        lineHeight: "1.4",
+                      }}
+                    >
+                      {column.emptyText}
+                    </div>
+                  ) : null}
+
+                  {items.length > 4 || (column.id === "stage1" && stage1Reports.length > 3) ? (
+                    <Link
+                      href={column.id === "stage1" ? `/competitors?market=${marketCode}&platform=${platformCode}` : column.viewAllHref}
+                      style={{
+                        display: "block",
+                        textAlign: "center",
+                        padding: "8px 10px",
+                        borderRadius: "6px",
+                        background: "var(--green-soft)",
+                        color: "var(--green)",
+                        fontSize: "12px",
+                        fontWeight: 700,
+                        textDecoration: "none",
+                        border: "1px dashed #c0dcce",
+                      }}
+                    >
+                      查看全部 {items.length} 个案卷
+                      {column.id === "stage1" && stage1Reports.length > 0 ? ` · ${stage1Reports.length} 份研报` : ""}
+                    </Link>
+                  ) : null}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
-        /* 紧凑汇总列表 */
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-          {cases.slice(0, 8).map((c) => {
-            const res = c.costModel?.results;
-            const s = sourcingMap.get(c.id);
-            const statusLabel =
-              c.status === "approved"
-                ? "已立项通过"
-                : c.status === "review_pending"
-                ? "待财务核准"
-                : "调研中";
-            return (
+          {actionQueue.length > 0 ? (
+            actionQueue.slice(0, 12).map((item) => (
               <div
-                key={c.id}
+                key={item.caseId}
                 style={{
                   background: "var(--paper)",
                   padding: "10px 14px",
@@ -563,37 +439,38 @@ export function DashboardPipelineKanban({
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "center",
+                  gap: 12,
                   fontSize: "12px",
+                  flexWrap: "wrap",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
                   <span className="badge badge-neutral" style={{ fontSize: "12px" }}>
-                    {c.asin}
+                    {item.asin || "待补 ASIN"}
                   </span>
-                  <strong style={{ color: "var(--ink)" }}>{c.title}</strong>
-                  <span style={{ color: "var(--muted)" }}>({c.category})</span>
+                  <strong style={{ color: "var(--ink)" }}>{item.title}</strong>
+                  <span style={{ color: "var(--muted)" }}>
+                    {item.stageNumber}. {item.stageName} · {item.stageSubName}
+                  </span>
                 </div>
-
-                <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-                  <div>
-                    <span style={{ color: "var(--muted)" }}>机会分: </span>
-                    <strong style={{ color: "var(--green)" }}>{c.opportunityScore}</strong>
-                  </div>
-                  <div>
-                    <span style={{ color: "var(--muted)" }}>单件净利: </span>
-                    <strong>{res ? money(res.netProfitCents) : "—"}</strong>
-                  </div>
-                  <span className="badge badge-success">{statusLabel}</span>
-                  <Link href={`/cases/${c.id}/report`} className="button secondary" style={{ fontSize: "12px", padding: "4px 8px", height: "auto" }}>
-                    🖨️ 打印报告
-                  </Link>
-                  <Link href={`/cases/${c.id}`} className="button secondary" style={{ fontSize: "12px", padding: "4px 10px", height: "auto" }}>
-                    进入案卷 &rarr;
+                <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                  <span className={`verdict-pill ${gateClass(item.tradeGate)}`}>{gateLabel(item.tradeGate)}</span>
+                  <span style={{ color: "var(--muted)" }}>
+                    {item.blocker || `交付：${item.deliveryState === "complete" ? "资料已齐" : item.stageSubName}`}
+                  </span>
+                  <WorkflowAction item={item} />
+                  <Link href={`/cases/${item.caseId}?tab=overview`} className="button secondary" style={{ fontSize: "12px", padding: "4px 10px", height: "auto" }}>
+                    查看案卷 →
                   </Link>
                 </div>
               </div>
-            );
-          })}
+            ))
+          ) : (
+            <div className="empty-state" style={{ padding: "28px 16px" }}>
+              <h3>当前没有待推进案卷</h3>
+              <p>可继续处理未立项竞品研报，或从选品入口开启下一轮验证。</p>
+            </div>
+          )}
         </div>
       )}
     </section>

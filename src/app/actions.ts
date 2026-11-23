@@ -60,8 +60,9 @@ function safeReturnPath(value: FormDataEntryValue | null): string {
 }
 
 function withQuery(path: string, key: "notice" | "error", message: string): string {
-  const sep = path.includes("?") ? "&" : "?";
-  return `${path}${sep}${key}=${encodeURIComponent(message)}`;
+  const [base, hash] = path.split("#", 2);
+  const sep = base.includes("?") ? "&" : "?";
+  return `${base}${sep}${key}=${encodeURIComponent(message)}${hash ? `#${hash}` : ""}`;
 }
 
 export async function archiveCaseAction(formData: FormData) {
@@ -116,7 +117,7 @@ export async function approveNoGoExceptionAction(formData: FormData) {
   revalidatePath("/cases");
   revalidatePath(`/cases/${caseId}`);
   revalidatePath(`/cases/${caseId}/sourcing`);
-  redirect(withQuery(`/cases/${caseId}`, "notice", "NO-GO 例外审批已记录并留存审计，现在可继续寻源与打样"));
+  redirect(withQuery(returnPath, "notice", "NO-GO 例外审批已记录并留存审计，现在可继续寻源与打样"));
 }
 
 export async function createAISourcingBatchAction(formData: FormData) {
@@ -719,7 +720,11 @@ function positiveIntegerOrNull(value: FormDataEntryValue | null) {
 }
 
 export async function updateCostModelAction(formData: FormData) {
-  const caseId = String(formData.get("caseId") || "");
+  const caseId = String(formData.get("caseId") || "").trim();
+  const fallback = `/cases/${encodeURIComponent(caseId)}?tab=economics#cost-assumptions`;
+  const returnPath = formData.get("returnPath") ? safeReturnPath(formData.get("returnPath")) : fallback;
+  if (!caseId) redirect(withQuery(returnPath, "error", "缺少商品标识"));
+
   const assumptions: EconomicsAssumptions = {
     salePriceCents: dollarsToCents(formData.get("salePrice")),
     landedCostCents: dollarsToCents(formData.get("landedCost")),
@@ -733,11 +738,19 @@ export async function updateCostModelAction(formData: FormData) {
     storageCents: dollarsToCents(formData.get("storageCost")),
     otherCostCents: dollarsToCents(formData.get("otherCost")),
   };
-  if (assumptions.salePriceCents <= 0) throw new Error("售价必须大于 0");
-  await createCostModelVersion(caseId, assumptions, String(formData.get("actor") || "运营人员"));
+  if (assumptions.salePriceCents <= 0) {
+    redirect(withQuery(returnPath, "error", "售价必须大于 0"));
+  }
+
+  try {
+    await createCostModelVersion(caseId, assumptions, String(formData.get("actor") || "运营人员"));
+  } catch (error) {
+    redirect(withQuery(returnPath, "error", errorMessage(error)));
+  }
   revalidatePath("/");
+  revalidatePath("/cases");
   revalidatePath(`/cases/${caseId}`);
-  redirect(`/cases/${caseId}`);
+  redirect(withQuery(returnPath, "notice", "成本模型已更新并生成新版本"));
 }
 
 function dollarsToCents(value: FormDataEntryValue | null) {

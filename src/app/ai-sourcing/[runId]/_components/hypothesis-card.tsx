@@ -210,7 +210,7 @@ export function HypothesisCard({
                 ) : null}
 
                 {hypothesis.competitors.length > 0 ? (
-                  <section className="ai-record-block">
+                  <section className="ai-record-block ai-competitor-snapshot">
                     <div className="ai-validation-summary-head">
                       <div>
                         <span className="eyebrow">竞品快照</span>

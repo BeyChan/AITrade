@@ -29,7 +29,7 @@ export function CaseStepper(props: CaseStepperProps) {
         : stage.stepProgress.financialReview
           ? (stage.tradeGate === "NO-GO_EXCEPTION" ? "例外通过 · 模型已建" : "成本模型已建")
           : "待测算利润",
-      href: `/cases/${caseId}`,
+      href: `/cases/${caseId}?tab=overview`,
       isCompleted: stage.stepProgress.financialReview,
       isActive: pathname === `/cases/${caseId}`,
       isLocked: false,

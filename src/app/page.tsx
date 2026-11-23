@@ -14,6 +14,10 @@ import { getFxRatesSnapshot } from "@/lib/fx-rates";
 import { getMarketIntelSnapshot } from "@/lib/market-intel";
 import { listOperationsBatches } from "@/lib/operations-repository";
 import { resolvePersistedSiteScope } from "@/lib/site-scope";
+import {
+  caseStageInputFromCase,
+  deriveCaseActionQueue,
+} from "@/lib/case-stage";
 
 export const dynamic = "force-dynamic";
 
@@ -78,31 +82,46 @@ export default async function DashboardPage({ searchParams }: PageProps) {
 
   const siteLabel = `${selectedMarket.name}站 · ${selectedPlatform.name}`;
   const siteQuery = `market=${encodeURIComponent(selectedMarket.code)}&platform=${encodeURIComponent(selectedPlatform.code)}`;
-  const newResearchHref = `/discover?${siteQuery}&entry=ai`;
-  const approvedCases = cases.filter((item) => item.status === "approved");
-  const approvedCaseIds = new Set(approvedCases.map((item) => item.id));
-  const siteSourcingCases = sourcingCases.filter((item) => approvedCaseIds.has(item.productCase.id));
+  const newResearchHref = `/discover?${siteQuery}`;
+  const activeCases = cases.filter((item) => item.status !== "archived" && item.status !== "rejected");
+  const activeCaseIds = new Set(activeCases.map((item) => item.id));
+  const siteSourcingCases = sourcingCases.filter((item) => activeCaseIds.has(item.productCase.id));
+  const sourcingByCaseId = new Map(siteSourcingCases.map((item) => [item.productCase.id, item]));
 
+  // 首页与看板共用同一行动队列：每个在办案卷只出现一次，阶段口径由工作流快照决定。
+  const actionQueue = deriveCaseActionQueue(
+    activeCases.map((item) => {
+      const sourcing = sourcingByCaseId.get(item.id);
+      return {
+        ...caseStageInputFromCase(item),
+        title: item.title,
+        asin: item.asin,
+        category: item.category,
+        quoteCount: sourcing?.quoteCount ?? item.quoteCount ?? 0,
+        hasSupplierSelection: Boolean(sourcing?.selection ?? item.hasSupplierSelection),
+      };
+    }),
+  );
   const batchSelectedCount = batches.reduce((sum, batch) => sum + batch.selectedCount, 0);
   const batchGoCount = batches.reduce((sum, batch) => sum + batch.goCount, 0);
   const pendingVerificationCount = Math.max(batchSelectedCount - batchGoCount, 0);
-  const pendingQuoteCases = siteSourcingCases.filter((item) => item.quoteCount === 0 && !item.selection);
-  const pendingAwardCases = siteSourcingCases.filter((item) => item.quoteCount > 0 && !item.selection);
-  const contentReadyCases = siteSourcingCases.filter((item) => item.selection);
   const activeBatch = batches.find((batch) => batch.selectedCount > batch.goCount) ?? batches[0];
-  const demoCount = approvedCases.filter((item) => item.is_demo).length;
+  const demoCount = activeCases.filter((item) => item.is_demo).length;
   const siteTerminatedCases = terminatedCases.filter(
     (entry) => entry.caseItem.marketplace.toUpperCase() === selectedMarket.code.toUpperCase(),
   );
   const dashboardReturnPath = `/?${siteQuery}`;
 
   // 宏观商业经营指标计算
-  const casesWithMargin = approvedCases.filter((item) => item.costModel?.results?.marginRate != null);
-  const avgMarginRate = casesWithMargin.length
-    ? casesWithMargin.reduce((sum, item) => sum + (item.costModel?.results?.marginRate ?? 0), 0) / casesWithMargin.length
+  const casesWithMargin = activeCases.filter((item) => item.costModel?.results?.marginRate != null);
+  const marginEligibleCases = casesWithMargin.filter((item) => item.recommendation !== "NO-GO");
+  const avgMarginRate = marginEligibleCases.length
+    ? marginEligibleCases.reduce((sum, item) => sum + (item.costModel?.results?.marginRate ?? 0), 0) / marginEligibleCases.length
     : 0;
 
-  const totalMonthlyMarginCents = approvedCases.reduce((sum, item) => {
+  const profitEligibleCases = marginEligibleCases;
+  const noGoCaseCount = activeCases.filter((item) => item.recommendation === "NO-GO").length;
+  const totalMonthlyMarginCents = profitEligibleCases.reduce((sum, item) => {
     const profit = item.costModel?.results?.netProfitCents ?? 0;
     const sales = item.monthly_sales_estimate || 0;
     return sum + profit * sales;
@@ -112,7 +131,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const internalAlerts: InternalAlertItem[] = [];
 
   // 1. 利润低于 18% 门禁线的在办商品
-  const lowMarginCases = casesWithMargin
+  const lowMarginCases = marginEligibleCases
     .filter((item) => (item.costModel?.results?.marginRate ?? 1) < 0.18)
     .sort((a, b) => (a.costModel?.results?.marginRate ?? 0) - (b.costModel?.results?.marginRate ?? 0));
   for (const item of lowMarginCases.slice(0, 2)) {
@@ -123,7 +142,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       tone: rate < 0.1 ? "danger" : "warn",
       title: item.title,
       detail: `当前测算净利率 ${percent(rate)}，低于 18% GO 门禁线`,
-      href: `/cases/${item.id}`,
+      href: `/cases/${item.id}?tab=economics#cost-assumptions`,
       actionLabel: "调成本",
     });
   }
@@ -195,77 +214,25 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     }
   }
 
-  const attentionTasks = [
-    ...(proposals.total > 0 ? [{
-      label: "待确认 AI 提案",
-      value: proposals.total,
-      detail: proposals.groups[0]?.reason ?? "模型产出等待人工确认，确认前不会写入业务表",
-      href:
-        proposals.groups[0]?.href && !proposals.groups[0].href.startsWith("/ai-inbox")
+  const firstQueuedCase = actionQueue[0];
+  const aiProposalTask = proposals.total > 0
+    ? {
+        label: "待确认 AI 提案",
+        value: proposals.total,
+        detail: proposals.byKind.supplier_draft > 0
+          ? `模型产出等待人工确认，其中 ${proposals.byKind.supplier_draft} 条为内部 RFQ 草稿`
+          : proposals.groups[0]?.reason ?? "模型产出等待人工确认，确认前不会写入业务表",
+        href: proposals.groups[0]?.href && !proposals.groups[0].href.startsWith("/ai-inbox")
           ? proposals.groups[0].href
           : "/discover",
-      action: "去确认",
-      stage: "stage1" as const,
-    }] : []),
-    ...(proposals.byKind.supplier_draft > 0 ? [{
-      label: "待审 RFQ 草稿",
-      value: proposals.byKind.supplier_draft,
-      detail: "内部草稿仅供人工复制，系统不会发送给供应商",
-      href: activeBatch ? `/ai-sourcing/${activeBatch.id}?tab=quotes` : "/ai-sourcing",
-      action: "审阅草稿",
-      stage: "stage2" as const,
-    }] : []),
-    ...(batchGoCount > 0 ? [{
-      label: "待决策门禁",
-      value: batchGoCount,
-      detail: "已有方向通过确定性门禁，等待人工决定是否立项",
-      href: activeBatch ? `/ai-sourcing/${activeBatch.id}?tab=decision` : "/ai-sourcing",
-      action: "查看结论",
-      stage: "stage3" as const,
-    }] : []),
-    {
-      label: "待补证据",
-      value: pendingVerificationCount,
-      detail: activeBatch ? `「${activeBatch.category}」还有方向未完成验证` : "从研究批次继续验证机会",
-      href: activeBatch ? `/ai-sourcing/${activeBatch.id}?tab=hypotheses` : newResearchHref,
-      action: "继续验证",
-      stage: "stage1" as const,
-    },
-    {
-      label: "待录入报价",
-      value: pendingQuoteCases.length,
-      detail: pendingQuoteCases[0]?.productCase.title ?? "已立项商品需要供应商报价",
-      href: pendingQuoteCases[0]
-        ? `/cases/${pendingQuoteCases[0].productCase.id}/sourcing`
-        : "/sourcing",
-      action: "录入报价",
-      stage: "stage2" as const,
-    },
-    {
-      label: "待对比定标",
-      value: pendingAwardCases.length,
-      detail: pendingAwardCases[0]?.productCase.title ?? "已有报价商品等待人工选择供应商",
-      href: pendingAwardCases[0]
-        ? `/cases/${pendingAwardCases[0].productCase.id}/sourcing`
-        : "/sourcing",
-      action: "对比定标",
-      stage: "stage3" as const,
-    },
-    {
-      label: "待制作内容",
-      value: contentReadyCases.length,
-      detail: contentReadyCases[0]?.productCase.title ?? "已定标商品可以开始制作内容",
-      href: contentReadyCases[0]
-        ? `/cases/${contentReadyCases[0].productCase.id}/content`
-        : "/content",
-      action: "制作内容",
-      stage: "stage4" as const,
-    },
-  ].filter((task) => task.value > 0);
+        action: "去确认",
+      }
+    : null;
 
   const nowIso = new Date().toISOString();
-  const totalAttentionCount = attentionTasks.reduce((sum, task) => sum + task.value, 0);
-  const topTaskLabel = attentionTasks[0]?.label;
+  // 今日待办只汇总两类互不重复的对象：在办案卷（每卷一次）与待确认 AI 提案。
+  const totalAttentionCount = actionQueue.length + proposals.total;
+  const topTaskLabel = firstQueuedCase?.title ?? aiProposalTask?.label;
   const focusReport = !activeBatch ? (siteReports[0] ?? competitorReports[0] ?? null) : null;
 
   return (
@@ -305,9 +272,9 @@ export default async function DashboardPage({ searchParams }: PageProps) {
               >
                 导入竞品表
               </Link>
-              {attentionTasks[0] ? (
-                <Link href={attentionTasks[0].href} className="button secondary">
-                  去{attentionTasks[0].action}
+              {firstQueuedCase ? (
+                <Link href={firstQueuedCase.href} className="button secondary">
+                  去{firstQueuedCase.shortAction}
                 </Link>
               ) : null}
             </div>
@@ -316,11 +283,11 @@ export default async function DashboardPage({ searchParams }: PageProps) {
               <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginTop: "12px", fontSize: "12px", color: "var(--muted)" }}>
                 {casesWithMargin.slice(0, 3).map((item) => {
                   const rate = item.costModel?.results?.marginRate ?? 0;
-                  const tag = rate >= 0.18 ? "GO 候选" : rate > 0 ? "HOLD" : "NO-GO";
+                  const tag = item.recommendation;
                   return (
                     <Link
                       key={item.id}
-                      href={`/cases/${item.id}/report`}
+                      href={`/cases/${item.id}?tab=economics`}
                       className="badge badge-neutral"
                       style={{ textDecoration: "none" }}
                     >
@@ -446,21 +413,23 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             <span className="kpi-label">推进中商品</span>
           </div>
           <div className="kpi-value-row">
-            <strong className="kpi-value">{approvedCases.length}</strong>
+            <strong className="kpi-value">{activeCases.length}</strong>
             <span className="kpi-unit">款</span>
           </div>
           <div className="kpi-sub">
-            {batchGoCount > 0 ? (
+            {noGoCaseCount > 0 ? (
+              <span><strong>{noGoCaseCount}</strong> 款待处理 NO-GO 门禁</span>
+            ) : batchGoCount > 0 ? (
               <span><strong>{batchGoCount}</strong> 款待立项决策</span>
             ) : (
-              <span>全部正常流转中</span>
+              <span>每款均有唯一下一步</span>
             )}
           </div>
         </Link>
 
         <Link href={`/cases?${siteQuery}`} className="dashboard-kpi-card" title="点击查看商品测算详情与成本模型">
           <div className="kpi-meta">
-            <span className="kpi-label">测算预期月毛利</span>
+            <span className="kpi-label">测算月毛利（非承诺）</span>
           </div>
           <div className="kpi-value-row">
             <strong className={`kpi-value ${totalMonthlyMarginCents < 0 ? "negative" : ""}`}>
@@ -468,33 +437,37 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             </strong>
           </div>
           <div className="kpi-sub">
-            <span>{approvedCases.length} 款在办品确定性测算汇总</span>
+            <span>
+              {profitEligibleCases.length} 款参与测算
+              {noGoCaseCount > 0 ? ` · 已排除 ${noGoCaseCount} 款 NO-GO` : " · 基于当前成本模型测算"}
+            </span>
           </div>
         </Link>
 
         <Link
           href={`/cases?${siteQuery}`}
-          className={`dashboard-kpi-card ${casesWithMargin.length && avgMarginRate < 0.18 ? "is-alert" : ""}`}
+          className={`dashboard-kpi-card ${marginEligibleCases.length && avgMarginRate < 0.18 ? "is-alert" : ""}`}
           title="点击核对低于 18% 门禁的薄利商品"
         >
           <div className="kpi-meta">
             <span className="kpi-label">平均测算净利率</span>
-            {casesWithMargin.length && avgMarginRate < 0.18 ? (
+            {marginEligibleCases.length && avgMarginRate < 0.18 ? (
               <span className="badge badge-warn">低于 18%</span>
             ) : null}
           </div>
           <div className="kpi-value-row">
-            <strong className={`kpi-value ${casesWithMargin.length && avgMarginRate < 0.18 ? "warn" : ""}`}>
-              {casesWithMargin.length ? percent(avgMarginRate) : "—"}
+            <strong className={`kpi-value ${marginEligibleCases.length && avgMarginRate < 0.18 ? "warn" : ""}`}>
+              {marginEligibleCases.length ? percent(avgMarginRate) : "—"}
             </strong>
           </div>
           <div className="kpi-sub">
             <span>
-              {casesWithMargin.length
+              {marginEligibleCases.length
                 ? avgMarginRate >= 0.18
                   ? "达到 18% GO 门禁"
                   : `${lowMarginCases.length} 款低于 18% 门禁线`
                 : "待建成本模型"}
+              {noGoCaseCount > 0 ? ` · 已排除 ${noGoCaseCount} 款 NO-GO` : ""}
             </span>
           </div>
         </Link>
@@ -520,10 +493,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           platformCode={selectedPlatform.code}
           currency={selectedMarket.currency}
           competitorReports={competitorReports}
-          cases={cases}
-          sourcingCases={sourcingCases}
-          attentionTasks={attentionTasks}
-          proposalsTotal={proposals.total}
+          actionQueue={actionQueue}
         />
       </div>
 

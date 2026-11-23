@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { deriveCaseWorkflowSnapshot, isContentApprovedStatus } from "./case-stage.ts";
+import {
+  deriveCaseActionQueue,
+  deriveCaseWorkflowSnapshot,
+  groupCaseActionQueue,
+  isContentApprovedStatus,
+} from "./case-stage.ts";
 
 test("无成本模型时停留在阶段 1 并引导完成选品与利润", () => {
   const snap = deriveCaseWorkflowSnapshot({
@@ -142,4 +147,128 @@ test("内容终审同时兼容 content_approved 与 published，第五阶段按�
   assert.equal(step5c.deliveryLabel, "交付资料已齐");
   assert.equal(step5c.subName, "交付资料已齐");
   assert.equal(step5c.deliveryLabel.includes("已发布"), false);
+});
+
+test("行动队列按唯一工作流阶段归类，NO-GO 优先且不会被算作待报价", () => {
+  const queue = deriveCaseActionQueue([
+    {
+      caseId: "nogo",
+      title: "被门禁拦截的宠物饮水机",
+      status: "approved",
+      recommendation: "NO-GO",
+      hasCostModel: true,
+      quoteCount: 0,
+    },
+    {
+      caseId: "quote",
+      title: "待录入报价的宠物梳",
+      status: "approved",
+      recommendation: "GO",
+      hasCostModel: true,
+      quoteCount: 0,
+    },
+    {
+      caseId: "award",
+      title: "已有报价待定标的猫砂盆",
+      status: "approved",
+      recommendation: "GO",
+      hasCostModel: true,
+      quoteCount: 2,
+    },
+    {
+      caseId: "content",
+      title: "已定标待终审的猫抓板",
+      status: "approved",
+      recommendation: "GO",
+      hasCostModel: true,
+      quoteCount: 2,
+      hasSupplierSelection: true,
+      approvedMainImageCount: 1,
+    },
+  ]);
+
+  assert.deepEqual(queue.map((item) => item.caseId), ["nogo", "quote", "award", "content"]);
+  assert.equal(queue[0].stage, "stage1");
+  assert.equal(queue[0].actionLabel, "查看原因 / 申请例外");
+  assert.equal(queue[1].stage, "stage2");
+  assert.equal(queue[2].stage, "stage3");
+  assert.equal(queue[3].stage, "stage4");
+  assert.equal(queue.some((item) => item.caseId === "nogo" && item.stage === "stage2"), false);
+});
+
+test("行动队列排除已归档与交付完成案卷，阶段任务计数和明细同源", () => {
+  const queue = deriveCaseActionQueue([
+    {
+      caseId: "archived",
+      title: "已归档案卷",
+      status: "archived",
+      recommendation: "GO",
+      hasCostModel: true,
+    },
+    {
+      caseId: "complete",
+      title: "交付完成案卷",
+      status: "approved",
+      recommendation: "GO",
+      hasCostModel: true,
+      quoteCount: 2,
+      hasSupplierSelection: true,
+      hasApprovedContent: true,
+      hasFlatFileExported: true,
+      hasMediaPackExported: true,
+    },
+    {
+      caseId: "delivery-a",
+      title: "待导出 Flat File A",
+      status: "approved",
+      recommendation: "GO",
+      hasCostModel: true,
+      quoteCount: 2,
+      hasSupplierSelection: true,
+      hasApprovedContent: true,
+    },
+    {
+      caseId: "delivery-b",
+      title: "待导出素材包 B",
+      status: "approved",
+      recommendation: "GO",
+      hasCostModel: true,
+      quoteCount: 2,
+      hasSupplierSelection: true,
+      hasApprovedContent: true,
+      hasFlatFileExported: true,
+    },
+  ]);
+
+  assert.deepEqual(queue.map((item) => item.caseId), ["delivery-a", "delivery-b"]);
+  assert.equal(queue.every((item) => item.stage === "stage5"), true);
+
+  const tasks = groupCaseActionQueue(queue);
+  assert.equal(tasks.length, 1);
+  assert.equal(tasks[0].stage, "stage5");
+  assert.equal(tasks[0].value, queue.length);
+  assert.match(tasks[0].detail, /2 款/);
+});
+
+test("review_pending 的可推进案卷进入行动队列，已否决案卷不进入", () => {
+  const queue = deriveCaseActionQueue([
+    {
+      caseId: "review",
+      title: "待验证但可询价",
+      status: "review_pending",
+      recommendation: "HOLD",
+      hasCostModel: true,
+      quoteCount: 0,
+    },
+    {
+      caseId: "rejected",
+      title: "已否决",
+      status: "rejected",
+      recommendation: "NO-GO",
+      hasCostModel: true,
+    },
+  ]);
+
+  assert.deepEqual(queue.map((item) => item.caseId), ["review"]);
+  assert.equal(queue[0].stage, "stage2");
 });

@@ -259,7 +259,7 @@ export function groupValidationTasks(
           current: hypothesis.counts.suppliers,
           progressText: task.status === "done" ? "已完成" : `${hypothesis.counts.suppliers}/${task.targetCount}`,
           actionLabel: "找供应商",
-          actionHref: `${baseHref}?tab=suppliers&hypothesisId=${encodeURIComponent(hypothesis.id)}#supplier-discovery-${hypothesis.id}`,
+          actionHref: `${baseHref}?tab=suppliers&hypothesisId=${encodeURIComponent(hypothesis.id)}#supplier-step-capture-${hypothesis.id}`,
         };
       case "rfq_draft":
         return {
