@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { recordAuditLog } from "@/lib/audit-logs";
+import { evaluateMediaPackExportGate } from "@/lib/export-gates";
 import { getContentDetail } from "@/lib/repository";
 import { emptyListingContent, normalizeListingContent } from "@/lib/listing";
 import { listStandaloneStudioAssets } from "@/lib/standalone-image-studio";
@@ -61,7 +62,29 @@ export async function GET(
       return NextResponse.json({ error: "未找到对应商品案卷" }, { status: 404 });
     }
 
-    const { productCase, costModel, profile, assets, listing } = detail;
+    const { productCase, costModel, selection, profile, assets, listing } = detail;
+    const [studioImages, studioVideos] = await Promise.all([
+      listStandaloneStudioAssets().catch(() => []),
+      listStandaloneVideoAssets().catch(() => []),
+    ]);
+    const approvedMainImageCount = assets.filter(
+      (asset) => asset.asset_type === "main_image" && asset.status === "approved",
+    ).length;
+    const boundStudioImages = studioImages.filter((img) => img.boundCases?.some((c) => c.caseId === productCase.id));
+    const boundStudioVideos = studioVideos.filter((vid) => vid.boundCases?.some((c) => c.caseId === productCase.id));
+
+    const gate = evaluateMediaPackExportGate({
+      caseStatus: productCase.status,
+      hasSelection: Boolean(selection),
+      hasListing: Boolean(listing),
+      listingStatus: listing?.status ?? null,
+      approvedMainImageCount,
+      boundMediaCount: boundStudioImages.length + boundStudioVideos.length,
+    });
+    if (!gate.allowed) {
+      return NextResponse.json({ error: gate.error, code: gate.code }, { status: gate.status });
+    }
+
     const content = listing ? normalizeListingContent(listing.content) : emptyListingContent();
     const salePriceUsd = costModel
       ? (costModel.assumptions.salePriceCents / 100).toFixed(2)
@@ -134,14 +157,8 @@ export async function GET(
       });
     }
 
-    const [studioImages, studioVideos] = await Promise.all([
-      listStandaloneStudioAssets().catch(() => []),
-      listStandaloneVideoAssets().catch(() => []),
-    ]);
-
-    for (const img of studioImages) {
-      const isBound = img.boundCases?.some((c) => c.caseId === productCase.id);
-      if (!isBound || addedKeys.has(img.storageKey)) continue;
+    for (const img of boundStudioImages) {
+      if (addedKeys.has(img.storageKey)) continue;
       const loaded = await readStoredImage(img.storageKey).catch(() => null);
       if (!loaded) continue;
       addedKeys.add(img.storageKey);
@@ -152,9 +169,8 @@ export async function GET(
       });
     }
 
-    for (const vid of studioVideos) {
-      const isBound = vid.boundCases?.some((c) => c.caseId === productCase.id);
-      if (!isBound || addedKeys.has(vid.storageKey)) continue;
+    for (const vid of boundStudioVideos) {
+      if (addedKeys.has(vid.storageKey)) continue;
       const loaded = await readStoredImage(vid.storageKey).catch(() => null);
       if (!loaded) continue;
       addedKeys.add(vid.storageKey);

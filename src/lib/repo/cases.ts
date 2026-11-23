@@ -12,6 +12,7 @@ import type {
   EnrichedCase,
   EvidenceRow,
   MarketRow,
+  NoGoExceptionRecord,
   PlatformRow,
   ProductCaseRow,
   ProductRow,
@@ -113,6 +114,126 @@ export async function resolveCurrentMode(explicitMode?: AppMode): Promise<AppMod
   }
 }
 
+function parseNoGoException(row: { details: Record<string, unknown> | null; actor: string; created_at: string } | undefined): NoGoExceptionRecord | null {
+  if (!row) return null;
+  const details = row.details ?? {};
+  return {
+    reason: String(details.reason ?? "").trim() || "已记录例外原因",
+    riskNote: String(details.riskNote ?? details.risk_note ?? "").trim() || "已确认风险",
+    approver: String(details.approver ?? row.actor ?? "").trim() || "审批人",
+    createdAt: row.created_at,
+  };
+}
+
+export async function recordCaseNoGoException(input: {
+  caseId: string;
+  reason: string;
+  riskNote: string;
+  approver: string;
+}): Promise<NoGoExceptionRecord> {
+  const reason = input.reason.trim();
+  const riskNote = input.riskNote.trim();
+  const approver = input.approver.trim();
+  if (!reason) throw new Error("申请 NO-GO 例外必须填写例外原因");
+  if (!riskNote) throw new Error("申请 NO-GO 例外必须填写风险说明");
+  if (!approver) throw new Error("申请 NO-GO 例外必须填写审批人");
+
+  const db = await getDb();
+  const existing = await db.query<ProductCaseRow>("SELECT * FROM product_cases WHERE id = $1 LIMIT 1", [input.caseId]);
+  const productCase = existing.rows[0];
+  if (!productCase) throw new Error("商品案卷不存在");
+  if (productCase.status === "archived" || productCase.status === "rejected") {
+    throw new Error("已归档或已否决的商品不能申请例外，请先恢复状态");
+  }
+
+  const createdAt = new Date().toISOString();
+  await db.transaction(async (tx) => {
+    await tx.query(
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
+       VALUES ($1, $2, 'case.exception_created', 'product_case', $3, $4::jsonb)`,
+      [
+        randomUUID(),
+        approver,
+        input.caseId,
+        JSON.stringify({
+          reason,
+          riskNote,
+          approver,
+          gateRecommendation: "NO-GO",
+          previousStatus: productCase.status,
+        }),
+      ],
+    );
+    await tx.query("UPDATE product_cases SET updated_at = NOW() WHERE id = $1", [input.caseId]);
+  });
+
+  return { reason, riskNote, approver, createdAt };
+}
+
+export async function getCaseWorkflowFacts(caseId: string): Promise<{
+  quoteCount: number;
+  validQuoteCount: number;
+  hasApprovedContent: boolean;
+  approvedMainImageCount: number;
+  hasFlatFileExported: boolean;
+  hasMediaPackExported: boolean;
+  hasNoGoException: boolean;
+  noGoException: NoGoExceptionRecord | null;
+}> {
+  const db = await getDb();
+  const [quotes, approvedListings, mainImages, exportLogs, exceptionLogs] = await Promise.all([
+    db.query<{ total: string; valid: string }>(
+      `SELECT
+         COUNT(*)::text AS total,
+         COUNT(*) FILTER (WHERE q.unit_price_cents > 0)::text AS valid
+       FROM quotes q
+       JOIN rfqs r ON r.id = q.rfq_id
+       WHERE r.case_id = $1`,
+      [caseId],
+    ),
+    db.query<{ id: string }>(
+      "SELECT id FROM listings WHERE case_id = $1 AND (status = 'content_approved' OR status = 'published') LIMIT 1",
+      [caseId],
+    ),
+    db.query<{ count: string }>(
+      "SELECT COUNT(*)::text AS count FROM assets WHERE case_id = $1 AND asset_type = 'main_image' AND status = 'approved'",
+      [caseId],
+    ),
+    db.query<{ action: string }>(
+      `SELECT DISTINCT action
+       FROM audit_logs
+       WHERE entity_type = 'product_case'
+         AND entity_id = $1
+         AND action IN ('case.flat_file_exported', 'case.flatfile_exported', 'case.media_pack_exported')`,
+      [caseId],
+    ),
+    db.query<{ actor: string; details: Record<string, unknown> | null; created_at: string }>(
+      `SELECT actor, details, created_at
+       FROM audit_logs
+       WHERE entity_type = 'product_case'
+         AND entity_id = $1
+         AND action = 'case.exception_created'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [caseId],
+    ),
+  ]);
+
+  const exportedActions = new Set(exportLogs.rows.map((r) => r.action));
+  const noGoException = parseNoGoException(exceptionLogs.rows[0]);
+
+  return {
+    quoteCount: Number(quotes.rows[0]?.total ?? 0),
+    validQuoteCount: Number(quotes.rows[0]?.valid ?? 0),
+    hasApprovedContent: Boolean(approvedListings.rows[0]),
+    approvedMainImageCount: Number(mainImages.rows[0]?.count ?? 0),
+    hasFlatFileExported: exportedActions.has("case.flat_file_exported") || exportedActions.has("case.flatfile_exported"),
+    hasMediaPackExported: exportedActions.has("case.media_pack_exported"),
+    hasNoGoException: Boolean(noGoException),
+    noGoException,
+  };
+}
+
 export async function listCases(options?: { mode?: AppMode }): Promise<EnrichedCase[]> {
   const db = await getDb();
   const mode = await resolveCurrentMode(options?.mode);
@@ -120,15 +241,52 @@ export async function listCases(options?: { mode?: AppMode }): Promise<EnrichedC
     ? "SELECT * FROM product_cases WHERE is_demo = FALSE ORDER BY created_at DESC"
     : "SELECT * FROM product_cases ORDER BY created_at DESC";
 
-  const [cases, costs, approvedListings] = await Promise.all([
+  const [cases, costs, approvedListings, quoteCounts, selections, mainImages, exportLogs, exceptionLogs] = await Promise.all([
     db.query<ProductCaseRow>(casesQuery),
     db.query<CostModelRow>("SELECT DISTINCT ON (case_id) * FROM cost_models ORDER BY case_id, version DESC"),
     db.query<{ case_id: string }>(
       "SELECT DISTINCT case_id FROM listings WHERE status = 'content_approved' OR status = 'published'",
     ),
+    db.query<{ case_id: string; count: string }>(
+      `SELECT r.case_id, COUNT(q.id)::text AS count
+       FROM quotes q
+       JOIN rfqs r ON r.id = q.rfq_id
+       GROUP BY r.case_id`,
+    ),
+    db.query<{ case_id: string }>("SELECT DISTINCT case_id FROM supplier_selections"),
+    db.query<{ case_id: string; count: string }>(
+      `SELECT case_id, COUNT(*)::text AS count
+       FROM assets
+       WHERE asset_type = 'main_image' AND status = 'approved'
+       GROUP BY case_id`,
+    ),
+    db.query<{ entity_id: string; action: string }>(
+      `SELECT DISTINCT entity_id, action
+       FROM audit_logs
+       WHERE entity_type = 'product_case'
+         AND action IN ('case.flat_file_exported', 'case.flatfile_exported', 'case.media_pack_exported')`,
+    ),
+    db.query<{ entity_id: string }>(
+      `SELECT DISTINCT entity_id
+       FROM audit_logs
+       WHERE entity_type = 'product_case' AND action = 'case.exception_created'`,
+    ),
   ]);
   const costByCase = new Map(costs.rows.map((cost) => [cost.case_id, cost]));
   const approvedContentCaseIds = new Set(approvedListings.rows.map((r) => r.case_id));
+  const quoteCountByCase = new Map(quoteCounts.rows.map((r) => [r.case_id, Number(r.count ?? 0)]));
+  const selectedCaseIds = new Set(selections.rows.map((r) => r.case_id));
+  const mainImageCountByCase = new Map(mainImages.rows.map((r) => [r.case_id, Number(r.count ?? 0)]));
+  const flatFileExportedIds = new Set<string>();
+  const mediaPackExportedIds = new Set<string>();
+  for (const row of exportLogs.rows) {
+    if (row.action === "case.flat_file_exported" || row.action === "case.flatfile_exported") {
+      flatFileExportedIds.add(row.entity_id);
+    } else if (row.action === "case.media_pack_exported") {
+      mediaPackExportedIds.add(row.entity_id);
+    }
+  }
+  const exceptionCaseIds = new Set(exceptionLogs.rows.map((r) => r.entity_id));
 
   return cases.rows
     .map((productCase) => {
@@ -142,7 +300,13 @@ export async function listCases(options?: { mode?: AppMode }): Promise<EnrichedC
         costModel,
         opportunityScore: score,
         recommendation: results ? recommendationFor(results, score) : ("HOLD" as const),
+        quoteCount: quoteCountByCase.get(productCase.id) ?? 0,
+        hasSupplierSelection: selectedCaseIds.has(productCase.id),
         hasApprovedContent: approvedContentCaseIds.has(productCase.id),
+        approvedMainImageCount: mainImageCountByCase.get(productCase.id) ?? 0,
+        hasFlatFileExported: flatFileExportedIds.has(productCase.id),
+        hasMediaPackExported: mediaPackExportedIds.has(productCase.id),
+        hasNoGoException: exceptionCaseIds.has(productCase.id),
       };
     })
     .sort((a, b) => b.opportunityScore - a.opportunityScore);
@@ -195,29 +359,28 @@ export async function getCaseDetail(caseId: string): Promise<CaseDetail | null> 
   const productCase = productCases.rows[0];
   if (!productCase) return null;
 
-  const [costs, evidence, selections, audits, quotes, approvedListings] = await Promise.all([
+  const [costs, evidence, selections, audits, workflowFacts] = await Promise.all([
     db.query<CostModelRow>("SELECT * FROM cost_models WHERE case_id = $1 ORDER BY version DESC LIMIT 1", [caseId]),
     db.query<EvidenceRow>("SELECT * FROM case_evidence WHERE case_id = $1 ORDER BY captured_at DESC", [caseId]),
     db.query<{ id: string }>("SELECT id FROM supplier_selections WHERE case_id = $1 LIMIT 1", [caseId]),
     db.query<AuditRow>("SELECT * FROM audit_logs WHERE entity_type = 'product_case' AND entity_id = $1 ORDER BY created_at DESC LIMIT 12", [
       caseId,
     ]),
-    db.query<{ count: string }>(
-      "SELECT COUNT(*)::text as count FROM quotes q JOIN rfqs r ON r.id = q.rfq_id WHERE r.case_id = $1",
-      [caseId],
-    ),
-    db.query<{ id: string }>(
-      "SELECT id FROM listings WHERE case_id = $1 AND (status = 'content_approved' OR status = 'published') LIMIT 1",
-      [caseId],
-    ),
+    getCaseWorkflowFacts(caseId),
   ]);
 
   return {
     productCase,
     costModel: costs.rows[0] ?? null,
     hasSupplierSelection: Boolean(selections.rows[0]),
-    quoteCount: Number(quotes.rows[0]?.count ?? 0),
-    hasApprovedContent: Boolean(approvedListings.rows[0]),
+    quoteCount: workflowFacts.quoteCount,
+    validQuoteCount: workflowFacts.validQuoteCount,
+    hasApprovedContent: workflowFacts.hasApprovedContent,
+    approvedMainImageCount: workflowFacts.approvedMainImageCount,
+    hasFlatFileExported: workflowFacts.hasFlatFileExported,
+    hasMediaPackExported: workflowFacts.hasMediaPackExported,
+    hasNoGoException: workflowFacts.hasNoGoException,
+    noGoException: workflowFacts.noGoException,
     evidence: evidence.rows,
     auditLogs: audits.rows,
   };

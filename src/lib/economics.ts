@@ -282,7 +282,8 @@ export type DecisionGateEvaluation = {
 /**
  * 两段式门禁判定：
  * - 估算快筛态（Provisional）：允许无真实工厂报价时先算盈亏与 18% 砍价天花板，但严禁签发正式 GO；
- * - 实证终审态（Verified）：具备真实竞品证据与真实供应商定标后，才放行正式 GO 结论。
+ * - 实证终审态（Verified）：具备真实竞品证据与至少一条真实有效工厂报价后，才进入实证态；
+ *   注意“有真实报价”与“已完成人工定标”是两个独立事实，不互相替代。
  */
 export function evaluateDecisionStage(input: {
   assumptions: EconomicsAssumptions;
@@ -315,7 +316,7 @@ export function evaluateDecisionStage(input: {
     blockedReasons.push("缺少真实竞品价格证据（仅靠估算或 AI 假设，不能签发正式 GO）");
   }
   if (!input.hasVerifiedSupplierQuote) {
-    blockedReasons.push("尚未定标真实 1688/工厂报价（当前为估算到岸成本，请先拿样比价并定标）");
+    blockedReasons.push("尚无真实有效工厂报价（当前仅基于估算到岸成本，请先录入工厂报价）");
   }
 
   const stage: DecisionStage = blockedReasons.length === 0 ? "verified" : "provisional";

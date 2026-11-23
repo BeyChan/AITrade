@@ -45,6 +45,7 @@ type Props = {
   scoredQuotes: ScoredQuote[];
   selectedQuoteId: string | null;
   canSource: boolean;
+  initialOpenAddForm?: boolean;
   onSelectAction: (formData: FormData) => void;
   onCreate1688Action: (formData: FormData) => void;
 };
@@ -57,10 +58,11 @@ export function SupplierMatrixPk({
   scoredQuotes,
   selectedQuoteId,
   canSource,
+  initialOpenAddForm = false,
   onSelectAction,
   onCreate1688Action,
 }: Props) {
-  const [showAddForm, setShowAddForm] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(initialOpenAddForm);
   const [priceRmb, setPriceRmb] = useState<number>(24);
   const [freightRmb, setFreightRmb] = useState<number>(5);
 
@@ -80,7 +82,8 @@ export function SupplierMatrixPk({
   const convFreight = (freightRmb / fx).toFixed(2);
 
   return (
-    <section className="section" style={{ marginBottom: "28px" }}>
+    <section id="quote-entry" className="section" style={{ marginBottom: "28px" }}>
+      <div id="supplier-award" />
       <div
         style={{
           display: "flex",

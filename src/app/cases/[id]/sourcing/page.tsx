@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createSupplierQuoteAction, selectSupplierQuoteAction } from "@/app/actions";
-import { StatusBadge } from "@/components/badges";
+import { RecommendationBadge, StatusBadge } from "@/components/badges";
 import { CaseStepper } from "@/components/case-stepper";
+import { deriveCaseWorkflowSnapshot } from "@/lib/case-stage";
+import { opportunityScore, recommendationFor } from "@/lib/economics";
 import { money, shortDate } from "@/lib/format";
 import { getSourcingDetail, listSupplierDirectory } from "@/lib/repository";
 import { SupplierMatrixPk } from "@/components/supplier-matrix-pk";
@@ -17,7 +19,7 @@ export const dynamic = "force-dynamic";
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string; notice?: string }>;
+  searchParams: Promise<{ error?: string; notice?: string; openQuote?: string }>;
 };
 
 export default async function SourcingDetailPage({ params, searchParams }: PageProps) {
@@ -58,12 +60,59 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
     .catch(() => []);
 
   const directorySuppliers = directoryData.suppliers || [];
-  const { productCase, costModel, quotes, scoredQuotes, selection, auditLogs } = detail;
+  const {
+    productCase,
+    costModel,
+    quotes,
+    scoredQuotes,
+    selection,
+    auditLogs,
+    hasApprovedContent,
+    approvedMainImageCount,
+    hasFlatFileExported,
+    hasMediaPackExported,
+    hasNoGoException,
+  } = detail;
   const selectedQuote = quotes.find((quote) => quote.id === selection?.quote_id) ?? null;
   const selectedScore = scoredQuotes.find((quote) => quote.id === selection?.quote_id) ?? null;
   const preferred = scoredQuotes.find((quote) => quote.isPreferred) ?? null;
-  const canSource = productCase.status !== "archived" && productCase.status !== "rejected";
+  const score = costModel?.results
+    ? opportunityScore(costModel.results, productCase.monthly_sales_estimate, productCase.review_count, productCase.evidence_score)
+    : 0;
+  const recommendation = costModel?.results ? recommendationFor(costModel.results, score) : "HOLD";
+  const workflow = deriveCaseWorkflowSnapshot({
+    caseId: productCase.id,
+    status: productCase.status,
+    recommendation,
+    hasNoGoException,
+    hasCostModel: Boolean(costModel),
+    quoteCount: quotes.length,
+    validQuoteCount: quotes.filter((q) => q.unit_price_cents > 0).length,
+    hasSupplierSelection: Boolean(selection),
+    approvedMainImageCount,
+    hasApprovedContent,
+    hasFlatFileExported,
+    hasMediaPackExported,
+  });
+
+  const isNoGoBlocked = workflow.tradeGate === "NO-GO";
+  const canSource = workflow.caseLifecycle !== "archived" && !isNoGoBlocked;
   const eligibleCount = scoredQuotes.filter((quote) => quote.isEligible).length;
+
+  const passedSampleCount = initialSamples.filter((s) => s.status === "passed").length;
+  const sampleStatusLabel = initialSamples.length === 0
+    ? "尚未拿样"
+    : passedSampleCount > 0
+      ? `验收通过 (${passedSampleCount}/${initialSamples.length})`
+      : `跟进中 (${initialSamples.length} 份)`;
+
+  const sourcingPrimaryAction = isNoGoBlocked
+    ? { label: "查看原因 / 申请例外", href: `/cases/${productCase.id}#gate-exception` }
+    : selection
+      ? { label: "进入内容与视觉", href: `/cases/${productCase.id}/content` }
+      : quotes.length === 0
+        ? { label: "录入第一家工厂报价", href: `/cases/${productCase.id}/sourcing?openQuote=1#quote-entry` }
+        : { label: "对比并定标", href: "#supplier-award" };
 
   return (
     <div className="page">
@@ -72,13 +121,14 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
           { label: "工作台", href: "/" },
           { label: "商品案卷", href: "/cases" },
           { label: productCase.asin, href: `/cases/${productCase.id}` },
-          { label: "供应商询价" },
+          { label: "供应商报价与打样" },
         ]}
-        eyebrow="供应商询价与定标"
+        eyebrow="阶段 2–3 · 供应商报价、拿样与人工定标"
         title={productCase.title}
         meta={
           <>
             <StatusBadge status={productCase.status} />
+            <RecommendationBadge value={workflow.tradeGate} />
             <span className="badge badge-neutral">{productCase.marketplace}</span>
             <span className="badge badge-neutral">{productCase.category}</span>
             <span className="muted">到岸成本 = 采购价 + 单件运费 + 关税</span>
@@ -86,6 +136,9 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
         }
         actions={
           <>
+            <Link href={sourcingPrimaryAction.href} className="button primary">
+              {sourcingPrimaryAction.label}
+            </Link>
             <Link href={`/cases/${productCase.id}`} className="button secondary">商品与成本详情</Link>
             <Link href="/sourcing" className="button ghost">返回询价看板</Link>
           </>
@@ -94,39 +147,75 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
 
       <CaseStepper
         caseId={productCase.id}
-        hasCostModel={Boolean(costModel)}
-        hasSupplierSelection={Boolean(selection)}
-        hasApprovedContent={Boolean(selection)}
-        selectedSupplierName={selectedQuote?.supplier.name ?? null}
         status={productCase.status}
+        recommendation={recommendation}
+        hasNoGoException={hasNoGoException}
+        hasCostModel={Boolean(costModel)}
+        quoteCount={quotes.length}
+        validQuoteCount={quotes.filter((q) => q.unit_price_cents > 0).length}
+        hasSupplierSelection={Boolean(selection)}
+        approvedMainImageCount={approvedMainImageCount}
+        hasApprovedContent={hasApprovedContent}
+        hasFlatFileExported={hasFlatFileExported}
+        hasMediaPackExported={hasMediaPackExported}
+        selectedSupplierName={selectedQuote?.supplier.name ?? null}
         allowDemoBypass={appMode === "sandbox" || productCase.is_demo}
       />
 
       <QueryNotices notice={query.notice} error={query.error} />
-      {!canSource ? (
+      {workflow.caseLifecycle === "archived" ? (
         <div className="notice warn"><span className="badge status-review_pending">ARCHIVED</span><span>当前商品已归档或终止，如需继续询价请先恢复状态。</span></div>
+      ) : isNoGoBlocked ? (
+        <div className="notice warn">
+          <span className="badge recommendation-no-go">NO-GO</span>
+          <span>当前案卷贸易门禁为 NO-GO，禁止普通报价与定标。请先返回案卷详情页调整成本模型或申请 NO-GO 例外审批。</span>
+        </div>
       ) : null}
 
-      <section className="metrics-grid sourcing-summary-grid">
+      <section className="section" style={{ padding: "14px 18px" }} aria-label="供应商推进三步指引">
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", fontSize: "13px" }}>
+            <span className={`badge ${quotes.length > 0 ? "badge-success" : "status-review_pending"}`}>1. 录入工厂报价</span>
+            <span className="muted">→</span>
+            <span className={`badge ${passedSampleCount > 0 ? "badge-success" : "badge-neutral"}`}>2. 拿样验收</span>
+            <span className="muted">→</span>
+            <span className={`badge ${selection ? "badge-success" : quotes.length > 0 ? "status-review_pending" : "badge-neutral"}`}>3. 人工定标</span>
+          </div>
+          <span className="muted" style={{ fontSize: "12px" }}>
+            报价数量与人工定标独立判定；完成人工定标后解锁文案与视觉阶段。
+          </span>
+        </div>
+      </section>
+
+      <section className="metrics-grid sourcing-summary-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))" }}>
         <article className="metric-card">
-          <div className="metric-label">当前到岸成本</div>
+          <div className="metric-label">估算到岸成本</div>
           <div className="metric-value">{costModel ? money(costModel.assumptions.landedCostCents) : "—"}</div>
           <div className="metric-note">{costModel ? `成本模型 v${costModel.version}` : "缺少成本模型"}</div>
         </article>
         <article className="metric-card">
-          <div className="metric-label">有效报价</div>
+          <div className="metric-label">真实报价到岸成本</div>
+          <div className="metric-value">
+            {selectedScore ? money(selectedScore.landedCostCents) : preferred ? money(preferred.landedCostCents) : "—"}
+          </div>
+          <div className="metric-note">
+            {selectedScore ? "已定标实报到岸" : preferred ? `当前最优报价 · 综合分 ${preferred.score}` : "待录入真实工厂报价"}
+          </div>
+        </article>
+        <article className="metric-card">
+          <div className="metric-label">有效报价数量</div>
           <div className="metric-value">{eligibleCount} / {quotes.length}</div>
           <div className="metric-note">压力盈利且质量分 ≥ 50</div>
         </article>
         <article className="metric-card">
-          <div className="metric-label">当前推荐到岸</div>
-          <div className="metric-value">{preferred ? money(preferred.landedCostCents) : "—"}</div>
-          <div className="metric-note">{preferred ? `综合分 ${preferred.score}` : "等待有效报价"}</div>
+          <div className="metric-label">拿样状态</div>
+          <div className="metric-value" style={{ fontSize: 20 }}>{sampleStatusLabel}</div>
+          <div className="metric-note">{initialSamples.length > 0 ? "可在下方更新质检记录" : "建议下单核验实物做工"}</div>
         </article>
         <article className="metric-card">
-          <div className="metric-label">定标状态</div>
-          <div className="metric-value" style={{ fontSize: 22 }}>{selection ? "已人工选定" : "待人工决定"}</div>
-          <div className="metric-note">{selection ? `成本已更新至 v${costModel?.version}` : "系统不会自动定标"}</div>
+          <div className="metric-label">人工定标状态</div>
+          <div className="metric-value" style={{ fontSize: 20 }}>{selection ? "已人工定标" : "待人工定标"}</div>
+          <div className="metric-note">{selection ? `已选定 ${selectedQuote?.supplier.name ?? "合作工厂"}` : "系统不会自动定标"}</div>
         </article>
       </section>
 
@@ -141,14 +230,6 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
               压力情景净利 {costModel ? money(costModel.results.stressProfitCents) : "—"}。
             </p>
             {selection.exception_reason ? <p><strong>定标说明：</strong>{selection.exception_reason}</p> : null}
-            <div className="button-row" style={{ marginTop: 12 }}>
-              <Link href={`/cases/${productCase.id}/content`} className="button primary">
-                下一步：进入文案与视觉制作 →
-              </Link>
-              <Link href={`/studio?tab=image&caseId=${encodeURIComponent(productCase.id)}`} className="button secondary">
-                去视觉工坊生图
-              </Link>
-            </div>
           </div>
           <div className="selection-result-meta">
             <span>定标人</span><strong>{selection.selected_by}</strong>
@@ -167,6 +248,7 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
         scoredQuotes={scoredQuotes}
         selectedQuoteId={selection?.quote_id ?? null}
         canSource={canSource}
+        initialOpenAddForm={canSource && !selection && (query.openQuote === "1" || quotes.length === 0)}
         onSelectAction={selectSupplierQuoteAction}
         onCreate1688Action={createSupplierQuoteAction}
       />

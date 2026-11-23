@@ -7,6 +7,7 @@ import {
   ensureChannelFoundation,
   saveChannelVersionWithExecutor,
 } from "./channel-helpers.ts";
+import { getCaseWorkflowFacts } from "./cases.ts";
 import { getSourcingDetail } from "./sourcing.ts";
 import type {
   AssetRow,
@@ -69,7 +70,7 @@ export async function getContentDetail(caseId: string): Promise<ContentDetail | 
   const productCase = product.rows[0];
   if (!productCase) return null;
 
-  const [costs, selections, profiles, assets, listings, audits] = await Promise.all([
+  const [costs, selections, profiles, assets, listings, audits, workflowFacts] = await Promise.all([
     db.query<CostModelRow>("SELECT * FROM cost_models WHERE case_id = $1 ORDER BY version DESC LIMIT 1", [caseId]),
     db.query<SupplierSelectionRow & { supplier_name: string }>(
       `SELECT ss.*, s.name AS supplier_name
@@ -98,6 +99,7 @@ export async function getContentDetail(caseId: string): Promise<ContentDetail | 
       "SELECT * FROM audit_logs WHERE entity_type = 'product_case' AND entity_id = $1 ORDER BY created_at DESC LIMIT 40",
       [caseId],
     ),
+    getCaseWorkflowFacts(caseId),
   ]);
   const listing = listings.rows[0] ?? null;
   const reviews = listing
@@ -114,6 +116,10 @@ export async function getContentDetail(caseId: string): Promise<ContentDetail | 
     listing,
     listingReviews: reviews.rows,
     auditLogs: audits.rows,
+    quoteCount: workflowFacts.quoteCount,
+    hasFlatFileExported: workflowFacts.hasFlatFileExported,
+    hasMediaPackExported: workflowFacts.hasMediaPackExported,
+    hasNoGoException: workflowFacts.hasNoGoException,
   };
 }
 

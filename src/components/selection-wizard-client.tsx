@@ -87,10 +87,14 @@ export function SelectionWizardClient({
   const [adRatePct, setAdRatePct] = useState(12);
   const [monthlySalesEst, setMonthlySalesEst] = useState(600);
 
-  // 第 3 步：合规红线与立项
+  // 第 3 步：合规红线与立项（含 NO-GO 例外审批）
   const [complianceAttrs, setComplianceAttrs] = useState<ProductComplianceAttribute[]>([]);
   const [patentConfirmed, setPatentConfirmed] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [exceptionReason, setExceptionReason] = useState("");
+  const [exceptionRiskNote, setExceptionRiskNote] = useState("");
+  const [exceptionApprover, setExceptionApprover] = useState("");
+  const [requiresException, setRequiresException] = useState(false);
 
   // 阶段 4：结构化选品约束 + 实时淘汰避坑匹配
   const [briefText, setBriefText] = useState(initialConstraints.customNote || "");
@@ -204,11 +208,19 @@ export function SelectionWizardClient({
     return convertForeignCentsToRmb(maxPurchaseForeign, currency);
   }, [target18, freightCents, currency]);
 
+  const estimatedEvidenceScore = useMemo(() => {
+    const compCount = activeReport?.competitors?.length ?? 0;
+    return compCount > 0 ? Math.min(80, 40 + Math.min(compCount, 8) * 5) : 30;
+  }, [activeReport]);
+
+  const effectiveReviewCount = activeReport?.competitors[0]?.reviewCount ?? 0;
+
   const score = useMemo(
-    () => opportunityScore(economics, monthlySalesEst, activeReport?.competitors[0]?.reviewCount ?? 400, 65),
-    [economics, monthlySalesEst, activeReport],
+    () => opportunityScore(economics, monthlySalesEst, effectiveReviewCount, estimatedEvidenceScore),
+    [economics, monthlySalesEst, effectiveReviewCount, estimatedEvidenceScore],
   );
   const verdict = useMemo(() => recommendationFor(economics, score), [economics, score]);
+  const needsNoGoException = verdict === "NO-GO" || requiresException;
 
   const compliance = useMemo(
     () => evaluatePrelaunchCompliance(marketCode, complianceAttrs, `${category} ${productTitle}`),
@@ -247,10 +259,14 @@ export function SelectionWizardClient({
 
   async function handlePromoteCase() {
     setStepError(null);
+    if (needsNoGoException && (!exceptionReason.trim() || !exceptionRiskNote.trim() || !exceptionApprover.trim())) {
+      setStepError("当前估算快筛结论为 NO-GO，如需例外创建案卷，必须填写例外原因、风险说明与审批人。");
+      return;
+    }
     setIsCreating(true);
     try {
       const res = await quickCreateCaseFromWizardAction({
-        title: productTitle.trim() || activeReport?.title || `${category} 新品立项`,
+        title: productTitle.trim() || activeReport?.title || `${category} 新品`,
         category,
         asin: activeReport?.competitors[0]?.asin,
         marketCode,
@@ -263,15 +279,20 @@ export function SelectionWizardClient({
         adRate: Math.max(0, Math.min(0.6, (Number(adRatePct) || 0) / 100)),
         returnRate: defaults.returnRate,
         monthlySalesEstimate: monthlySalesEst,
+        reviewCount: effectiveReviewCount,
         sourceReportId: activeReport?.id ?? null,
         complianceSummary:
           compliance.certifications.length > 0
             ? `识别 ${compliance.certifications.length} 项认证 (${compliance.certifications.map((c) => c.code).join(", ")})，预估 $${compliance.totalEstimatedCostUsd}`
             : "低合规风险，待完成常规专利检索",
+        exceptionReason: needsNoGoException ? exceptionReason.trim() : undefined,
+        exceptionRiskNote: needsNoGoException ? exceptionRiskNote.trim() : undefined,
+        exceptionApprover: needsNoGoException ? exceptionApprover.trim() : undefined,
       });
 
       if (!res.success || !res.caseId) {
-        setStepError(res.error || "立项失败，请检查必填项");
+        if (res.requiresException) setRequiresException(true);
+        setStepError(res.error || "创建案卷失败，请检查必填项");
         return;
       }
       router.push(`/cases/${res.caseId}`);
@@ -924,12 +945,53 @@ export function SelectionWizardClient({
                     </strong>
                   </div>
                   <div>
-                    <span>测算净利率 / 门禁结论</span>
+                    <span>估算快筛净利率 / 门禁建议</span>
                     <strong className="mono">
-                      {percent(economics.marginRate)} · {verdict}
+                      {percent(economics.marginRate)} · {verdict}（估算快筛）
                     </strong>
                   </div>
                 </div>
+
+                {needsNoGoException ? (
+                  <div className="notice warn" style={{ marginTop: 12, display: "block" }}>
+                    <div style={{ marginBottom: 8 }}>
+                      <span className="badge recommendation-no-go">NO-GO 拦截</span>{" "}
+                      <strong>当前利润或压测不达标，普通路径已停止。</strong>
+                      如确需例外创建待验证案卷，请完整填写例外原因、风险说明与审批人（将写入独立审计 `case.exception_created`）：
+                    </div>
+                    <div className="form-grid" style={{ marginTop: 8 }}>
+                      <div className="field">
+                        <label htmlFor="wizardExceptionReason">例外原因 *</label>
+                        <input
+                          id="wizardExceptionReason"
+                          type="text"
+                          value={exceptionReason}
+                          onChange={(e) => setExceptionReason(e.target.value)}
+                          placeholder="说明为何在 NO-GO 下继续验证"
+                        />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="wizardExceptionApprover">审批人 *</label>
+                        <input
+                          id="wizardExceptionApprover"
+                          type="text"
+                          value={exceptionApprover}
+                          onChange={(e) => setExceptionApprover(e.target.value)}
+                          placeholder="审批负责人姓名"
+                        />
+                      </div>
+                      <div className="field full">
+                        <label htmlFor="wizardExceptionRisk">风险说明与止损条件 *</label>
+                        <textarea
+                          id="wizardExceptionRisk"
+                          value={exceptionRiskNote}
+                          onChange={(e) => setExceptionRiskNote(e.target.value)}
+                          placeholder="说明最大亏损边界与拿样后的退出条件"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
 
                 <label className="compliance-check-label" style={{ marginTop: 12 }}>
                   <input
@@ -937,17 +999,27 @@ export function SelectionWizardClient({
                     checked={patentConfirmed}
                     onChange={(e) => setPatentConfirmed(e.target.checked)}
                   />
-                  <span>我已确认上述数字为初步核验基准，立项后将在案卷内补齐工厂正式报价与专利核查</span>
+                  <span>我已知晓当前为「估算快筛」，服务端将按门禁自动分流为待验证或正式推进案卷</span>
                 </label>
 
                 <div className="wizard-actions-row" style={{ marginTop: 16, justifyContent: "flex-end" }}>
                   <button
                     type="button"
                     className="button primary"
-                    disabled={isCreating || !patentConfirmed}
+                    disabled={
+                      isCreating ||
+                      !patentConfirmed ||
+                      (needsNoGoException && (!exceptionReason.trim() || !exceptionRiskNote.trim() || !exceptionApprover.trim()))
+                    }
                     onClick={handlePromoteCase}
                   >
-                    {isCreating ? "正在生成正式案卷…" : "正式立项，生成商品案卷"}
+                    {isCreating
+                      ? "正在服务端重算并创建案卷…"
+                      : needsNoGoException
+                        ? "提交 NO-GO 例外审批并创建待验证案卷"
+                        : verdict === "GO" && Boolean(activeReport?.competitors?.length)
+                          ? "创建正式推进案卷"
+                          : "创建待验证案卷（估算快筛）"}
                   </button>
                 </div>
               </div>

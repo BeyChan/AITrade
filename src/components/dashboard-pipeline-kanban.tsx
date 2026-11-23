@@ -5,7 +5,7 @@ import { useState } from "react";
 import type { CompetitorComparisonReport } from "@/lib/competitor-compare/types";
 import type { EnrichedCase, SourcingCaseSummary } from "@/lib/types";
 import { money, percent } from "@/lib/format";
-import { deriveCaseStage } from "@/lib/case-stage";
+import { deriveCaseWorkflowSnapshot } from "@/lib/case-stage";
 
 export type AttentionTask = {
   label: string;
@@ -46,18 +46,24 @@ export function DashboardPipelineKanban({
     (r) => r.marketCode === marketCode && r.platformCode === platformCode && !r.promotedCaseId,
   );
 
-  // 严格互斥状态机：过滤已否决案卷，通过单一真源 deriveCaseStage 归类至唯一阶段
-  const activeCases = cases.filter((c) => c.status !== "rejected");
+  // 严格互斥状态机：过滤已否决/已归档案卷，通过单一真源 deriveCaseWorkflowSnapshot 归类至唯一阶段
+  const activeCases = cases.filter((c) => c.status !== "rejected" && c.status !== "archived");
 
   const stageMap = new Map(
     activeCases.map((c) => {
       const s = sourcingMap.get(c.id);
-      const stage = deriveCaseStage({
+      const stage = deriveCaseWorkflowSnapshot({
         caseId: c.id,
         status: c.status,
-        quoteCount: s?.quoteCount ?? 0,
-        hasSelection: Boolean(s?.selection),
+        recommendation: c.recommendation,
+        hasNoGoException: Boolean(c.hasNoGoException),
+        hasCostModel: Boolean(c.costModel),
+        quoteCount: s?.quoteCount ?? c.quoteCount ?? 0,
+        hasSelection: Boolean(s?.selection ?? c.hasSupplierSelection),
+        approvedMainImageCount: c.approvedMainImageCount,
         hasApprovedContent: Boolean(c.hasApprovedContent),
+        hasFlatFileExported: Boolean(c.hasFlatFileExported),
+        hasMediaPackExported: Boolean(c.hasMediaPackExported),
       });
       return [c.id, stage];
     }),
@@ -122,29 +128,32 @@ export function DashboardPipelineKanban({
     {
       id: "stage2",
       stepNum: "2",
-      title: "寻源询价",
-      subtitle: "1688 RFQ · 样品询价",
+      title: "供应商报价与打样",
+      subtitle: "录入报价 · 拿样验收",
       count: stage2Items.length,
       focusTask: stage2Task,
       badgeColor: "var(--amber)",
       badgeBg: "var(--amber-soft)",
       viewAllHref: "/sourcing",
-      items: stage2Items.slice(0, stage2Limit).map((c) => ({
-        id: c.id,
-        title: c.title,
-        tag: c.category || "待分类",
-        metricLabel: "预估售价",
-        metricVal: money(c.competitor_price_cents),
-        href: `/cases/${c.id}/sourcing`,
-        actionText: "录入工厂报价",
-      })),
+      items: stage2Items.slice(0, stage2Limit).map((c) => {
+        const snap = stageMap.get(c.id);
+        return {
+          id: c.id,
+          title: c.title,
+          tag: snap?.subName || c.category || "待录入报价",
+          metricLabel: "预估售价",
+          metricVal: money(c.competitor_price_cents),
+          href: snap?.primaryAction.href || `/cases/${c.id}/sourcing?openQuote=1#quote-entry`,
+          actionText: snap?.primaryAction.label || "录入第一家工厂报价",
+        };
+      }),
       emptyText: "所有商品均已录入供应商报价",
     },
     {
       id: "stage3",
       stepNum: "3",
-      title: "财务核准",
-      subtitle: "压力测试 · 机会分保本",
+      title: "人工定标",
+      subtitle: "多厂对比 · 确认中标",
       count: stage3Items.length,
       focusTask: stage3Task,
       badgeColor: "#a855f7",
@@ -152,59 +161,66 @@ export function DashboardPipelineKanban({
       viewAllHref: "/sourcing",
       items: stage3Items.slice(0, stage3Limit).map((c) => {
         const res = c.costModel?.results;
+        const snap = stageMap.get(c.id);
         return {
           id: c.id,
           title: c.title,
-          tag: `机会分 ${c.opportunityScore}`,
+          tag: snap?.subName || `机会分 ${c.opportunityScore}`,
           metricLabel: "测算净利",
           metricVal: res ? money(res.netProfitCents) : "—",
-          href: `/cases/${c.id}/sourcing`,
-          actionText: "定标审批",
+          href: snap?.primaryAction.href || `/cases/${c.id}/sourcing#supplier-award`,
+          actionText: snap?.primaryAction.label || "对比并定标",
         };
       }),
-      emptyText: "无待审批商品",
+      emptyText: "无待人工定标商品",
     },
     {
       id: "stage4",
       stepNum: "4",
-      title: "内容打磨",
-      subtitle: "反制五点 · A+ 视觉",
+      title: "文案与视觉",
+      subtitle: "视觉工坊 · 人工终审",
       count: stage4Items.length,
       focusTask: stage4Task,
       badgeColor: "var(--green)",
       badgeBg: "var(--green-soft)",
       viewAllHref: "/content",
-      items: stage4Items.slice(0, stage4Limit).map((c) => ({
-        id: c.id,
-        title: c.title,
-        tag: `已立项 · ${c.asin}`,
-        metricLabel: "选品分",
-        metricVal: `${c.opportunityScore} 分`,
-        href: `/cases/${c.id}/content`,
-        actionText: "打磨 Listing",
-      })),
+      items: stage4Items.slice(0, stage4Limit).map((c) => {
+        const snap = stageMap.get(c.id);
+        return {
+          id: c.id,
+          title: c.title,
+          tag: snap?.subName || `待终审 · ${c.asin}`,
+          metricLabel: "选品分",
+          metricVal: `${c.opportunityScore} 分`,
+          href: snap?.primaryAction.href || `/cases/${c.id}/content`,
+          actionText: snap?.primaryAction.label || "前往人工终审",
+        };
+      }),
       emptyText: "暂无进行中的内容任务",
     },
     {
       id: "stage5",
       stepNum: "5",
-      title: "上架就绪",
-      subtitle: "Flat File · 素材打包",
+      title: "上架交付",
+      subtitle: "Flat File · 素材包完整度",
       count: stage5Items.length,
       focusTask: stage5Task,
       badgeColor: "var(--ink)",
       badgeBg: "var(--surface-subtle)",
       viewAllHref: "/cases",
-      items: stage5Items.slice(0, stage5Limit).map((c) => ({
-        id: c.id,
-        title: c.title,
-        tag: "Flat File 就绪",
-        metricLabel: "置信度",
-        metricVal: `${c.evidence_score}%`,
-        href: `/cases/${c.id}/content`,
-        actionText: "导出 Flat File / ZIP",
-      })),
-      emptyText: "暂无已完成准备的商品",
+      items: stage5Items.slice(0, stage5Limit).map((c) => {
+        const snap = stageMap.get(c.id);
+        return {
+          id: c.id,
+          title: c.title,
+          tag: snap?.deliveryLabel || "待导出交付包",
+          metricLabel: "交付状态",
+          metricVal: snap?.deliveryState === "complete" ? "已齐" : "待补导出",
+          href: `/cases/${c.id}/content#launch-ready`,
+          actionText: snap?.primaryAction.label || "导出 Flat File",
+        };
+      }),
+      emptyText: "暂无内容已终审的商品",
     },
   ];
 

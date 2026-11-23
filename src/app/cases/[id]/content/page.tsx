@@ -8,10 +8,12 @@ import {
   uploadMainImageAction,
 } from "@/app/actions";
 import { ProposalMeta } from "@/components/ai-proposal-card";
-import { StatusBadge } from "@/components/badges";
+import { RecommendationBadge, StatusBadge } from "@/components/badges";
 import { CaseStepper } from "@/components/case-stepper";
 import { CopyDraftButton } from "@/components/copy-draft-button";
 import { PageHeader, QueryNotices } from "@/components/ui";
+import { deriveCaseWorkflowSnapshot, isContentApprovedStatus } from "@/lib/case-stage";
+import { opportunityScore, recommendationFor } from "@/lib/economics";
 import { generateStructuredJSON } from "@/lib/ai-provider";
 import {
   loadCaseCompetitorBenchmark,
@@ -58,7 +60,21 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
   ]);
   if (!detail) notFound();
 
-  const { productCase, costModel, selection, selectedSupplierName, profile, assets, listing, listingReviews, auditLogs } = detail;
+  const {
+    productCase,
+    costModel,
+    selection,
+    selectedSupplierName,
+    profile,
+    assets,
+    listing,
+    listingReviews,
+    auditLogs,
+    quoteCount,
+    hasFlatFileExported,
+    hasMediaPackExported,
+    hasNoGoException,
+  } = detail;
   const content = listing ? normalizeListingContent(listing.content) : emptyListingContent();
   const benchmark = benchmarkLookup.status === "ok" ? benchmarkLookup.benchmark : null;
   const profileForBenchmark = profile
@@ -85,10 +101,41 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
   const approvedImages = mainImages.filter((asset) => asset.status === "approved");
   const latestMainImage = mainImages[0] ?? null;
   const latestHumanReview = listingReviews.find((review) => review.review_type === "human_content_review") ?? null;
-  const contentApproved = listing?.status === "content_approved";
+  const contentApproved = isContentApprovedStatus(listing?.status);
   const canDemoBypass = appMode === "sandbox" || productCase.is_demo;
   const isDemoPreview = !selection && canDemoBypass && query.preview === "1";
   const canApprove = Boolean(selection && listing && preflight?.passed && approvedImages.length && !contentApproved);
+
+  const score = costModel?.results
+    ? opportunityScore(costModel.results, productCase.monthly_sales_estimate, productCase.review_count, productCase.evidence_score)
+    : 0;
+  const recommendation = costModel?.results ? recommendationFor(costModel.results, score) : "HOLD";
+  const workflow = deriveCaseWorkflowSnapshot({
+    caseId: productCase.id,
+    status: productCase.status,
+    recommendation,
+    hasNoGoException,
+    hasCostModel: Boolean(costModel),
+    quoteCount,
+    hasSupplierSelection: Boolean(selection),
+    approvedMainImageCount: approvedImages.length,
+    hasApprovedContent: contentApproved,
+    listingStatus: listing?.status ?? null,
+    hasFlatFileExported,
+    hasMediaPackExported,
+  });
+
+  const contentPrimaryAction = !selection
+    ? { label: "前往供应商定标", href: `/cases/${productCase.id}/sourcing#supplier-award`, kind: "link" as const }
+    : !contentApproved
+      ? approvedImages.length === 0
+        ? { label: "去视觉工坊", href: `/studio?tab=image&caseId=${encodeURIComponent(productCase.id)}`, kind: "link" as const }
+        : { label: "前往人工终审", href: "#human-content-review", kind: "link" as const }
+      : !hasFlatFileExported
+        ? { label: "导出 Flat File", href: `/api/cases/${productCase.id}/flatfile`, kind: "download" as const }
+        : !hasMediaPackExported
+          ? { label: "导出素材包", href: `/api/cases/${productCase.id}/media-pack`, kind: "download" as const }
+          : { label: "查看交付资料", href: "#launch-ready", kind: "link" as const };
 
   const complianceRadar = scanListingCompliance({
     brand: content.brand,
@@ -107,11 +154,13 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
           { label: productCase.asin, href: `/cases/${productCase.id}` },
           { label: "文案与合规" },
         ]}
-        eyebrow="文案、合规与货架测试"
+        eyebrow={contentApproved ? "阶段 5 · 上架交付" : "阶段 4 · 文案与视觉"}
         title={productCase.title}
         meta={
           <>
             <StatusBadge status={productCase.status} />
+            <RecommendationBadge value={workflow.tradeGate} />
+            <span className={`badge ${workflow.badge.className}`}>{workflow.deliveryLabel}</span>
             <span className="badge badge-neutral">{productCase.marketplace}</span>
             <span className="badge badge-neutral">{productCase.category}</span>
             {listing ? <span className="badge status-researching">Listing v{listing.version}</span> : <span className="badge badge-neutral">尚无 Listing 草稿</span>}
@@ -120,39 +169,47 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
         }
         actions={
           <>
-            {!selection ? (
-              <Link href={`/cases/${productCase.id}/sourcing#supplier-award`} className="button primary">前往供应商定标</Link>
-            ) : contentApproved ? (
-              <a href={`/api/cases/${productCase.id}/flatfile`} className="button primary" download>导出 Amazon Flat File (TSV)</a>
-            ) : approvedImages.length === 0 ? (
-              <Link href={`/studio?tab=image&caseId=${encodeURIComponent(productCase.id)}`} className="button primary">去视觉工坊生图</Link>
+            {contentPrimaryAction.kind === "download" ? (
+              <a href={contentPrimaryAction.href} className="button primary" download>
+                {contentPrimaryAction.label}
+              </a>
             ) : (
-              <a href="#human-content-review" className="button primary">前往人工终审</a>
+              <Link href={contentPrimaryAction.href} className="button primary">
+                {contentPrimaryAction.label}
+              </Link>
             )}
-            {selection && !contentApproved ? (
-              <a href={`/api/cases/${productCase.id}/flatfile`} className="button secondary" download>导出 Flat File (TSV)</a>
-            ) : null}
-            {selection ? (
-              <a href={`/api/cases/${productCase.id}/media-pack`} className="button secondary" download>打包上架素材 (ZIP)</a>
-            ) : null}
-            {selection && approvedImages.length > 0 ? (
-              <Link href={`/studio?tab=image&caseId=${encodeURIComponent(productCase.id)}`} className="button secondary">去视觉工坊生图</Link>
-            ) : !selection ? (
-              <Link href={`/studio?tab=image&caseId=${encodeURIComponent(productCase.id)}`} className="button secondary">去视觉工坊生图</Link>
-            ) : null}
-            <Link href={`/cases/${productCase.id}/report`} className="button secondary">立项战报 PDF</Link>
-            <Link href={`/cases/${productCase.id}`} className="button ghost">返回商品详情</Link>
+            <Link href={`/cases/${productCase.id}`} className="button secondary">返回商品详情</Link>
+            <details className="header-export-menu">
+              <summary className="button secondary">更多 ▾</summary>
+              <div className="header-export-popover">
+                <Link href={`/studio?tab=image&caseId=${encodeURIComponent(productCase.id)}`}>去视觉工坊</Link>
+                {workflow.permissions.canExportDeliveryPack ? (
+                  <>
+                    <a href={`/api/cases/${productCase.id}/flatfile`} download>导出 Flat File (TSV)</a>
+                    <a href={`/api/cases/${productCase.id}/media-pack`} download>打包上架素材 (ZIP)</a>
+                  </>
+                ) : null}
+                <Link href={`/cases/${productCase.id}/report`}>决策战报 PDF</Link>
+              </div>
+            </details>
           </>
         }
       />
 
       <CaseStepper
         caseId={productCase.id}
-        hasCostModel={Boolean(costModel)}
-        hasSupplierSelection={Boolean(selection)}
-        hasApprovedContent={Boolean(contentApproved)}
-        selectedSupplierName={selectedSupplierName ?? null}
         status={productCase.status}
+        recommendation={recommendation}
+        hasNoGoException={hasNoGoException}
+        hasCostModel={Boolean(costModel)}
+        quoteCount={quoteCount}
+        hasSupplierSelection={Boolean(selection)}
+        approvedMainImageCount={approvedImages.length}
+        hasApprovedContent={contentApproved}
+        listingStatus={listing?.status ?? null}
+        hasFlatFileExported={hasFlatFileExported}
+        hasMediaPackExported={hasMediaPackExported}
+        selectedSupplierName={selectedSupplierName ?? null}
         allowDemoBypass={canDemoBypass}
       />
 
@@ -234,7 +291,7 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
                     </svg>
                   </span>
                   <div className="content-gate-check-body">
-                    <strong>寻源与财务定标 · 人工核准</strong>
+                    <strong>供应商报价与人工定标</strong>
                     <span>录入工厂报价与打样记录，并确认最终合作供应商</span>
                   </div>
                   <span className="content-gate-state is-blocking">待定标</span>
@@ -479,15 +536,29 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
               <section className="section" id="launch-ready">
                 <div className="section-header">
                   <div>
-                    <h2>4. 发布预检结果</h2>
-                    <p>确定性规则检查长度、完整性、搜索词字节和可能的高风险声明。</p>
+                    <h2>4. 上架交付与预检</h2>
+                    <p>确定性规则检查长度、完整性、搜索词字节和可能的高风险声明；内容终审通过后解锁正式交付包导出（平台发布为外部动作，系统仅记录导出状态）。</p>
                   </div>
-                  {preflight ? (
-                    <span className={`badge ${preflight.passed ? "badge-success" : "badge-danger"}`}>
-                      {preflight.passed ? "预检通过" : "预检未通过"} · {preflight.score}
+                  <div className="pill-list">
+                    <span className={`badge ${workflow.deliveryState === "complete" ? "badge-success" : contentApproved ? "status-review_pending" : "badge-neutral"}`}>
+                      {workflow.deliveryLabel}
                     </span>
-                  ) : null}
+                    {preflight ? (
+                      <span className={`badge ${preflight.passed ? "badge-success" : "badge-danger"}`}>
+                        {preflight.passed ? "预检通过" : "预检未通过"} · {preflight.score}
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
+                {workflow.permissions.canExportDeliveryPack ? (
+                  <div className="notice" style={{ marginBottom: 14 }}>
+                    <span className="badge badge-success">交付就绪</span>
+                    <span>
+                      Flat File：{hasFlatFileExported ? "已导出" : "待导出"} · 上架素材包：{hasMediaPackExported ? "已导出" : "待导出"}。
+                      {workflow.deliveryState === "complete" ? " 两项交付资料已齐，请前往卖家后台完成外部上架。" : ""}
+                    </span>
+                  </div>
+                ) : null}
                 {preflight ? (
                   <>
                     <div className="preflight-metrics">

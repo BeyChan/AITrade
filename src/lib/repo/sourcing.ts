@@ -3,7 +3,7 @@ import type { AppMode } from "../app-mode.ts";
 import { getDb } from "../db.ts";
 import { calculateEconomics, opportunityScore, recommendationFor, type EconomicsAssumptions } from "../economics.ts";
 import { analyzeSupplierQuotes } from "../sourcing.ts";
-import { getCaseDetail, listCases, resolveCurrentMode } from "./cases.ts";
+import { getCaseDetail, getCaseWorkflowFacts, listCases, resolveCurrentMode } from "./cases.ts";
 import type {
   AuditRow,
   CostModelRow,
@@ -214,13 +214,14 @@ export async function getSourcingDetail(caseId: string): Promise<SourcingDetail 
   const productCase = product.rows[0];
   if (!productCase) return null;
 
-  const [costs, quoteRows, selections, audits] = await Promise.all([
+  const [costs, quoteRows, selections, audits, workflowFacts] = await Promise.all([
     db.query<CostModelRow>("SELECT * FROM cost_models WHERE case_id = $1 ORDER BY version DESC LIMIT 1", [caseId]),
     db.query<SourcingQuoteJoinRow>(`${sourcingQuoteSelect} WHERE r.case_id = $1 ORDER BY q.created_at DESC`, [caseId]),
     db.query<SupplierSelectionRow>("SELECT * FROM supplier_selections WHERE case_id = $1 LIMIT 1", [caseId]),
     db.query<AuditRow>("SELECT * FROM audit_logs WHERE entity_type = 'product_case' AND entity_id = $1 ORDER BY created_at DESC LIMIT 30", [
       caseId,
     ]),
+    getCaseWorkflowFacts(caseId),
   ]);
   const summary = buildSourcingSummary(
     productCase,
@@ -229,7 +230,60 @@ export async function getSourcingDetail(caseId: string): Promise<SourcingDetail 
     selections.rows[0] ?? null,
   );
 
-  return { ...summary, auditLogs: audits.rows };
+  return {
+    ...summary,
+    auditLogs: audits.rows,
+    hasApprovedContent: workflowFacts.hasApprovedContent,
+    approvedMainImageCount: workflowFacts.approvedMainImageCount,
+    hasFlatFileExported: workflowFacts.hasFlatFileExported,
+    hasMediaPackExported: workflowFacts.hasMediaPackExported,
+    hasNoGoException: workflowFacts.hasNoGoException,
+    noGoException: workflowFacts.noGoException,
+  };
+}
+
+/**
+ * 统一的寻源与定标服务端贸易门禁检查：
+ * - GO：允许报价、拿样、定标
+ * - HOLD / 待验证（review_pending）：允许继续询价、拿样与人工定标，不会自动转正式 GO
+ * - NO-GO（无例外审批）：禁止普通报价与定标
+ * - NO-GO 例外已审批：允许继续，并保留审批依据
+ */
+export function assertSourcingGateAllowed(input: {
+  productCase: ProductCaseRow;
+  costModel: CostModelRow | null;
+  hasNoGoException: boolean;
+  action: "quote" | "select";
+}): { recommendation: "GO" | "HOLD" | "NO-GO" } {
+  const { productCase, costModel, hasNoGoException, action } = input;
+  if (productCase.status === "archived" || productCase.status === "rejected") {
+    throw new Error(
+      action === "quote"
+        ? "当前商品已归档或终止，不能录入供应商报价"
+        : "当前商品已归档或终止，不能完成供应商定标",
+    );
+  }
+  if (productCase.status !== "approved" && productCase.status !== "review_pending") {
+    throw new Error(
+      action === "quote"
+        ? "只有待验证或正式推进的商品可以录入供应商报价"
+        : "只有待验证或正式推进的商品可以完成供应商定标",
+    );
+  }
+  const results = costModel?.results ?? null;
+  const score = results
+    ? opportunityScore(results, productCase.monthly_sales_estimate, productCase.review_count, productCase.evidence_score)
+    : 0;
+  const recommendation = results ? recommendationFor(results, score) : "HOLD";
+
+  if (recommendation === "NO-GO" && !hasNoGoException) {
+    throw new Error(
+      action === "quote"
+        ? "当前案卷贸易门禁为 NO-GO，禁止普通报价；请先在案卷详情页调整成本模型或申请 NO-GO 例外审批"
+        : "当前案卷贸易门禁为 NO-GO，禁止普通定标；请先在案卷详情页申请 NO-GO 例外审批并留审计",
+    );
+  }
+  return { recommendation };
 }
 
 export async function createSupplierAndQuote(caseId: string, input: SupplierQuoteInput, actor = "采购人员") {
@@ -241,10 +295,19 @@ export async function createSupplierAndQuote(caseId: string, input: SupplierQuot
   if (input.dutyRate < 0 || input.dutyRate > 1) throw new Error("关税率必须在 0–100% 之间");
 
   const db = await getDb();
-  const product = await db.query<ProductCaseRow>("SELECT * FROM product_cases WHERE id = $1", [caseId]);
+  const [product, costs, selection, workflowFacts] = await Promise.all([
+    db.query<ProductCaseRow>("SELECT * FROM product_cases WHERE id = $1", [caseId]),
+    db.query<CostModelRow>("SELECT * FROM cost_models WHERE case_id = $1 ORDER BY version DESC LIMIT 1", [caseId]),
+    db.query<{ id: string }>("SELECT id FROM supplier_selections WHERE case_id = $1 LIMIT 1", [caseId]),
+    getCaseWorkflowFacts(caseId),
+  ]);
   if (!product.rows[0]) throw new Error("商品机会不存在");
-  if (product.rows[0].status !== "approved") throw new Error("只有已立项商品可以录入供应商报价");
-  const selection = await db.query<{ id: string }>("SELECT id FROM supplier_selections WHERE case_id = $1 LIMIT 1", [caseId]);
+  assertSourcingGateAllowed({
+    productCase: product.rows[0],
+    costModel: costs.rows[0] ?? null,
+    hasNoGoException: workflowFacts.hasNoGoException,
+    action: "quote",
+  });
   if (selection.rows[0]) throw new Error("该商品已经完成供应商定标，不能继续新增报价");
 
   const supplierId = randomUUID();
@@ -326,14 +389,20 @@ export async function selectSupplierQuote(
   if (!reviewer.trim()) throw new Error("请输入定标人");
 
   const db = await getDb();
-  const [product, costs, quoteRows, existingSelections] = await Promise.all([
+  const [product, costs, quoteRows, existingSelections, workflowFacts] = await Promise.all([
     db.query<ProductCaseRow>("SELECT * FROM product_cases WHERE id = $1", [caseId]),
     db.query<CostModelRow>("SELECT * FROM cost_models WHERE case_id = $1 ORDER BY version DESC LIMIT 1", [caseId]),
     db.query<SourcingQuoteJoinRow>(`${sourcingQuoteSelect} WHERE r.case_id = $1 ORDER BY q.created_at DESC`, [caseId]),
     db.query<SupplierSelectionRow>("SELECT * FROM supplier_selections WHERE case_id = $1 LIMIT 1", [caseId]),
+    getCaseWorkflowFacts(caseId),
   ]);
   if (!product.rows[0]) throw new Error("商品机会不存在");
-  if (product.rows[0].status !== "approved") throw new Error("只有已立项商品可以完成供应商定标");
+  assertSourcingGateAllowed({
+    productCase: product.rows[0],
+    costModel: costs.rows[0] ?? null,
+    hasNoGoException: workflowFacts.hasNoGoException,
+    action: "select",
+  });
   if (!costs.rows[0]) throw new Error("缺少成本模型，不能回写报价");
   if (existingSelections.rows[0]) throw new Error("该商品已经完成供应商定标");
 
@@ -385,7 +454,7 @@ export async function selectSupplierQuote(
       [modelId, caseId, nextVersion, JSON.stringify(nextAssumptions), JSON.stringify(nextResults), reviewer.trim()],
     );
     await tx.query(
-      "UPDATE product_cases SET updated_at = NOW() WHERE id = $1",
+      "UPDATE product_cases SET status = CASE WHEN status = 'review_pending' THEN 'approved' ELSE status END, updated_at = NOW() WHERE id = $1",
       [caseId],
     );
     await tx.query(

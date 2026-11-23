@@ -97,7 +97,7 @@ const statusCopy: Record<LaunchReadinessStatus, { label: string; description: st
 export function evaluateLaunchReadiness(input: LaunchReadinessInput): LaunchReadinessResult {
   const { latestVersion } = input;
   const localPreflightPassed = Boolean(latestVersion?.preflightPassed);
-  const contentApproved = latestVersion?.status === "content_approved";
+  const contentApproved = latestVersion?.status === "content_approved" || latestVersion?.status === "published";
   const mainImageApproved = input.approvedMainImageCount > 0;
   const productionAccountReady = input.account.status === "connected" && !input.account.isDemo;
   const currentVersionApproved = Boolean(

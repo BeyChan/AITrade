@@ -44,6 +44,7 @@ import {
   createListingDraft,
   createSupplierAndQuote,
   createSupplierDirectoryEntry,
+  recordCaseNoGoException,
   reviewMainImageAsset,
   selectSupplierQuote,
   setCaseLifecycle,
@@ -96,6 +97,26 @@ export async function restoreCaseAction(formData: FormData) {
   revalidatePath("/content");
   revalidatePath(`/cases/${caseId}`);
   redirect(withQuery(returnPath, "notice", "商品已恢复为已立项，重新出现在进度与内容工作台"));
+}
+
+export async function approveNoGoExceptionAction(formData: FormData) {
+  const caseId = String(formData.get("caseId") || "").trim();
+  const reason = String(formData.get("reason") || "").trim();
+  const riskNote = String(formData.get("riskNote") || "").trim();
+  const approver = String(formData.get("approver") || "").trim();
+  const returnPath = safeReturnPath(formData.get("returnPath")) || `/cases/${caseId}`;
+  if (!caseId) redirect(withQuery(returnPath, "error", "缺少商品标识"));
+
+  try {
+    await recordCaseNoGoException({ caseId, reason, riskNote, approver });
+  } catch (error) {
+    redirect(withQuery(returnPath, "error", errorMessage(error)));
+  }
+  revalidatePath("/");
+  revalidatePath("/cases");
+  revalidatePath(`/cases/${caseId}`);
+  revalidatePath(`/cases/${caseId}/sourcing`);
+  redirect(withQuery(`/cases/${caseId}`, "notice", "NO-GO 例外审批已记录并留存审计，现在可继续寻源与打样"));
 }
 
 export async function createAISourcingBatchAction(formData: FormData) {

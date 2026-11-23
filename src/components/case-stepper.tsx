@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { deriveCaseStage, type CaseStageInput } from "@/lib/case-stage";
+import { deriveCaseWorkflowSnapshot, type CaseStageInput } from "@/lib/case-stage";
 
 type CaseStepperProps = CaseStageInput & {
   reportId?: string | null;
@@ -12,17 +12,23 @@ type CaseStepperProps = CaseStageInput & {
 
 export function CaseStepper(props: CaseStepperProps) {
   const pathname = usePathname();
-  const stage = deriveCaseStage(props);
-  const { caseId, selectedSupplierName, status, allowDemoBypass = false } = props;
-  const isTerminated = status === "archived" || status === "rejected";
-  const previewSuffix = allowDemoBypass && !stage.stepProgress.supplierAwarded ? "?preview=1" : "";
+  const stage = deriveCaseWorkflowSnapshot(props);
+  const { caseId, selectedSupplierName, allowDemoBypass = false } = props;
+  const isTerminated = stage.caseLifecycle === "archived";
+  const isNoGoBlocked = stage.tradeGate === "NO-GO";
+  const lockDownstream = isTerminated || isNoGoBlocked;
+  const previewSuffix = allowDemoBypass && !stage.stepProgress.supplierAwarded && !lockDownstream ? "?preview=1" : "";
 
   const steps = [
     {
       key: "stage1",
       number: "1",
-      name: "利润与合规",
-      subText: stage.stepProgress.financialReview ? "成本模型已建" : "待测算利润",
+      name: "选品与利润",
+      subText: isNoGoBlocked
+        ? "NO-GO 已拦截"
+        : stage.stepProgress.financialReview
+          ? (stage.tradeGate === "NO-GO_EXCEPTION" ? "例外通过 · 模型已建" : "成本模型已建")
+          : "待测算利润",
       href: `/cases/${caseId}`,
       isCompleted: stage.stepProgress.financialReview,
       isActive: pathname === `/cases/${caseId}`,
@@ -31,24 +37,28 @@ export function CaseStepper(props: CaseStepperProps) {
     {
       key: "stage2",
       number: "2",
-      name: "寻源与打样",
-      subText: stage.stepProgress.sourcingQuotes ? `已有 ${props.quoteCount ?? 0} 份报价` : "录入报价与打样",
+      name: "供应商报价与打样",
+      subText: stage.stepProgress.sourcingQuotes
+        ? `已有 ${stage.facts.quoteCount} 份报价`
+        : "待录入报价",
       href: `/cases/${caseId}/sourcing`,
       isCompleted: stage.stepProgress.sourcingQuotes,
       isActive: pathname.startsWith(`/cases/${caseId}/sourcing`) && !stage.stepProgress.supplierAwarded,
-      isLocked: isTerminated,
+      isLocked: lockDownstream,
     },
     {
       key: "stage3",
       number: "3",
-      name: "财务定标",
+      name: "人工定标",
       subText: stage.stepProgress.supplierAwarded
-        ? (selectedSupplierName ? `已定标: ${selectedSupplierName}` : "已核准定标")
-        : "多厂对比定标",
+        ? (selectedSupplierName ? `已定标: ${selectedSupplierName}` : "已人工定标")
+        : stage.stepProgress.sourcingQuotes
+          ? "对比并定标"
+          : "待录入报价",
       href: `/cases/${caseId}/sourcing#supplier-award`,
       isCompleted: stage.stepProgress.supplierAwarded,
       isActive: pathname.startsWith(`/cases/${caseId}/sourcing`) && stage.stepProgress.supplierAwarded,
-      isLocked: isTerminated,
+      isLocked: lockDownstream,
     },
     {
       key: "stage4",
@@ -58,25 +68,23 @@ export function CaseStepper(props: CaseStepperProps) {
         ? "内容已终审"
         : previewSuffix
           ? "演示可跳过预览"
-          : "五点 / 货架 / 生图",
+          : stage.stepProgress.supplierAwarded
+            ? (stage.facts.approvedMainImageCount === 0 ? "缺主图 · 去视觉工坊" : "待人工终审")
+            : "定标后解锁",
       href: `/cases/${caseId}/content${previewSuffix}`,
       isCompleted: stage.stepProgress.contentApproved,
-      isActive: pathname.startsWith(`/cases/${caseId}/content`),
-      isLocked: isTerminated,
+      isActive: pathname.startsWith(`/cases/${caseId}/content`) && !stage.stepProgress.contentApproved,
+      isLocked: lockDownstream,
     },
     {
       key: "stage5",
       number: "5",
-      name: "上架就绪",
-      subText: stage.stepProgress.contentApproved
-        ? "Flat File / ZIP 导出"
-        : previewSuffix
-          ? "演示可跳过预览"
-          : "待完成文案与主图",
+      name: "上架交付",
+      subText: stage.deliveryLabel,
       href: `/cases/${caseId}/content${previewSuffix}#launch-ready`,
-      isCompleted: stage.key === "stage5_channels",
+      isCompleted: stage.deliveryState === "complete",
       isActive: stage.key === "stage5_channels" && pathname.startsWith(`/cases/${caseId}/content`),
-      isLocked: isTerminated,
+      isLocked: lockDownstream || (!stage.stepProgress.contentApproved && !previewSuffix),
     },
   ];
 
@@ -112,7 +120,10 @@ export function CaseStepper(props: CaseStepperProps) {
           return (
             <div key={step.key} className={className}>
               {step.isLocked ? (
-                <div className="case-step-link disabled" title="需先完成前置阶段">
+                <div
+                  className="case-step-link disabled"
+                  title={isNoGoBlocked ? "NO-GO 门禁已拦截，请先申请例外审批" : "需先完成前置阶段"}
+                >
                   {content}
                 </div>
               ) : (

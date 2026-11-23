@@ -4,6 +4,7 @@ import { getCaseDetail, getContentDetail } from "@/lib/repository";
 import { CaseStepper } from "@/components/case-stepper";
 import { StatusBadge } from "@/components/badges";
 import { PageHeader } from "@/components/ui";
+import { deriveCaseWorkflowSnapshot } from "@/lib/case-stage";
 import { emptyListingContent, normalizeListingContent } from "@/lib/listing";
 import { evaluateDecisionStage, opportunityScore, recommendationFor } from "@/lib/economics";
 import { money, percent } from "@/lib/format";
@@ -48,11 +49,26 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
           assumptions,
           results: result,
           score,
-          hasVerifiedSupplierQuote: detail.hasSupplierSelection,
+          hasVerifiedSupplierQuote: detail.validQuoteCount > 0,
           hasRealCompetitorEvidence,
         })
       : null;
   const recommendation = gate ? gate.recommendation : result ? recommendationFor(result, score) : "HOLD";
+  const workflow = deriveCaseWorkflowSnapshot({
+    caseId: productCase.id,
+    status: productCase.status,
+    recommendation: result ? recommendationFor(result, score) : "HOLD",
+    hasNoGoException: detail.hasNoGoException,
+    hasCostModel: Boolean(costModel),
+    quoteCount: detail.quoteCount,
+    validQuoteCount: detail.validQuoteCount,
+    hasSupplierSelection: detail.hasSupplierSelection,
+    approvedMainImageCount: detail.approvedMainImageCount,
+    hasApprovedContent: detail.hasApprovedContent,
+    listingStatus: contentDetail?.listing?.status ?? null,
+    hasFlatFileExported: detail.hasFlatFileExported,
+    hasMediaPackExported: detail.hasMediaPackExported,
+  });
 
   // 提取 1688 RFQ 证据
   const rfqEvidence = evidence.find((e) => e.evidence_type === "supplier_rfq");
@@ -91,13 +107,15 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
             <Link href={`/cases/${id}`} className="button secondary">
               返回商品案卷
             </Link>
-            <a
-              href={`/api/cases/${id}/flatfile`}
-              className="button secondary"
-              download
-            >
-              📥 下载 Flat File
-            </a>
+            {workflow.permissions.canExportDeliveryPack ? (
+              <a
+                href={`/api/cases/${id}/flatfile`}
+                className="button secondary"
+                download
+              >
+                📥 下载 Flat File
+              </a>
+            ) : null}
             <PrintButton />
           </>
         }
@@ -106,10 +124,18 @@ export default async function CaseExecutiveReportPage({ params }: PageProps) {
       <div className="no-print" style={{ marginBottom: "20px" }}>
         <CaseStepper
           caseId={productCase.id}
-          hasCostModel={Boolean(costModel)}
-          hasSupplierSelection={detail.hasSupplierSelection}
-          hasApprovedContent={Boolean(contentDetail?.listing)}
           status={productCase.status}
+          recommendation={result ? recommendationFor(result, score) : "HOLD"}
+          hasNoGoException={detail.hasNoGoException}
+          hasCostModel={Boolean(costModel)}
+          quoteCount={detail.quoteCount}
+          validQuoteCount={detail.validQuoteCount}
+          hasSupplierSelection={detail.hasSupplierSelection}
+          approvedMainImageCount={detail.approvedMainImageCount}
+          hasApprovedContent={detail.hasApprovedContent}
+          listingStatus={contentDetail?.listing?.status ?? null}
+          hasFlatFileExported={detail.hasFlatFileExported}
+          hasMediaPackExported={detail.hasMediaPackExported}
           allowDemoBypass={appMode === "sandbox" || productCase.is_demo}
         />
       </div>

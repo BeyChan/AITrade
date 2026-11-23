@@ -15,6 +15,8 @@ export type AuditLedgerRow = {
   category: string;
   status: CaseStatus;
   recommendation: "GO" | "HOLD" | "NO-GO";
+  stageLabel?: string;
+  canExportFlatFile?: boolean;
   opportunityScore: number;
   isVerified: boolean;
   isDemo: boolean;
@@ -52,8 +54,10 @@ export function CasesAuditLedger({ rows }: { rows: AuditLedgerRow[] }) {
     );
   }
 
+  const exportableSelectedRows = selectedRows.filter((row) => row.canExportFlatFile);
+
   function handleBatchFlatFileExport() {
-    selectedRows.forEach((row, idx) => {
+    exportableSelectedRows.forEach((row, idx) => {
       window.setTimeout(() => {
         const link = document.createElement("a");
         link.href = `/api/cases/${row.id}/flatfile`;
@@ -94,10 +98,14 @@ export function CasesAuditLedger({ rows }: { rows: AuditLedgerRow[] }) {
           </div>
 
           <div className="audit-bulk-actions">
-            <button type="button" className="button secondary" onClick={handleBatchFlatFileExport}>
-              <IconDownload size={14} />
-              <span>批量导出 Flat File</span>
-            </button>
+            {exportableSelectedRows.length > 0 ? (
+              <button type="button" className="button secondary" onClick={handleBatchFlatFileExport}>
+                <IconDownload size={14} />
+                <span>批量导出 Flat File ({exportableSelectedRows.length})</span>
+              </button>
+            ) : (
+              <span className="muted" style={{ fontSize: 12 }}>仅内容已终审案卷可导出 Flat File</span>
+            )}
             <button type="button" className="button secondary" onClick={handleCopyAsins}>
               {copiedAsins ? <IconCheck size={14} /> : <IconClipboard size={14} />}
               <span>{copiedAsins ? "已复制" : "复制 ASIN"}</span>
@@ -169,6 +177,9 @@ export function CasesAuditLedger({ rows }: { rows: AuditLedgerRow[] }) {
                       <span className="ledger-asin-chip">{row.asin}</span>
                       <span>{row.category}</span>
                       <StatusBadge status={row.status} />
+                      {row.stageLabel ? (
+                        <span className="ledger-evidence-chip">{row.stageLabel}</span>
+                      ) : null}
                       <span
                         className={`ledger-evidence-chip ${row.isVerified ? "is-verified" : "is-pending"}`}
                         title={`证据完整度 ${row.evidenceScore}%`}
@@ -253,21 +264,25 @@ export function CasesAuditLedger({ rows }: { rows: AuditLedgerRow[] }) {
                       <Link href={`/cases/${row.id}`} className="ledger-action-link">
                         总览
                       </Link>
-                      <Link href={`/cases/${row.id}/sourcing`} className="ledger-action-link">
-                        报价
-                      </Link>
+                      {row.recommendation !== "NO-GO" ? (
+                        <Link href={`/cases/${row.id}/sourcing`} className="ledger-action-link">
+                          报价
+                        </Link>
+                      ) : null}
                       <Link href={`/cases/${row.id}/content`} className="ledger-action-link">
                         文案
                       </Link>
-                      <a
-                        href={`/api/cases/${row.id}/flatfile`}
-                        download
-                        className="ledger-action-link"
-                        title="直接下载亚马逊官方批量上传模板 (.tsv)"
-                      >
-                        <IconDownload size={13} />
-                        <span>Flat File</span>
-                      </a>
+                      {row.canExportFlatFile ? (
+                        <a
+                          href={`/api/cases/${row.id}/flatfile`}
+                          download
+                          className="ledger-action-link"
+                          title="直接下载亚马逊官方批量上传模板 (.tsv)"
+                        >
+                          <IconDownload size={13} />
+                          <span>Flat File</span>
+                        </a>
+                      ) : null}
                       <Link
                         href={`/cases/${row.id}/report`}
                         className="ledger-action-link is-report"

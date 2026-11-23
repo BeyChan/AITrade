@@ -1,11 +1,12 @@
 import type { CaseStatus } from "@/lib/types";
+import type { TradeGateVerdict } from "@/lib/case-stage";
 
 const statusLabels: Record<CaseStatus, string> = {
-  draft: "草稿",
-  researching: "调研中",
-  review_pending: "待立项",
-  approved: "已立项",
-  rejected: "已否决",
+  draft: "候选",
+  researching: "候选",
+  review_pending: "待验证",
+  approved: "正式推进",
+  rejected: "已归档",
   archived: "已归档",
 };
 
@@ -13,7 +14,10 @@ export function StatusBadge({ status }: { status: CaseStatus }) {
   return <span className={`badge status-${status}`}>{statusLabels[status] ?? status}</span>;
 }
 
-export function RecommendationBadge({ value }: { value: "GO" | "HOLD" | "NO-GO" }) {
+export function RecommendationBadge({ value }: { value: "GO" | "HOLD" | "NO-GO" | TradeGateVerdict }) {
+  if (value === "NO-GO_EXCEPTION") {
+    return <span className="badge status-review_pending">NO-GO 例外通过</span>;
+  }
   return <span className={`badge recommendation-${value.toLowerCase()}`}>{value}</span>;
 }
 

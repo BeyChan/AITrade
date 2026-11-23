@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { updateCostModelAction } from "@/app/actions";
+import { approveNoGoExceptionAction, updateCostModelAction } from "@/app/actions";
 import { RecommendationBadge, StatusBadge } from "@/components/badges";
 import { CaseCalibrationPanel } from "@/components/case-calibration-panel";
 import { CaseStepper } from "@/components/case-stepper";
@@ -8,8 +8,9 @@ import { EconomicsSandbox } from "@/components/economics-sandbox";
 import { LogisticsCashflowPanel } from "@/components/logistics-cashflow-panel";
 import { OpportunityScoreHelp } from "@/components/opportunity-score-help";
 import { PrelaunchCompliancePanel } from "@/components/prelaunch-compliance-panel";
-import { PageHeader } from "@/components/ui";
+import { PageHeader, QueryNotices } from "@/components/ui";
 import { getCalibrationForCase } from "@/lib/calibration-repository";
+import { deriveCaseWorkflowSnapshot } from "@/lib/case-stage";
 import { getAppMode } from "@/lib/app-mode";
 import { money, percent, shortDate } from "@/lib/format";
 import { opportunityScore, recommendationFor } from "@/lib/economics";
@@ -17,10 +18,13 @@ import { getCaseDetail } from "@/lib/repository";
 
 export const dynamic = "force-dynamic";
 
-type PageProps = { params: Promise<{ id: string }> };
+type PageProps = {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ notice?: string; error?: string }>;
+};
 
-export default async function CaseDetailPage({ params }: PageProps) {
-  const { id } = await params;
+export default async function CaseDetailPage({ params, searchParams }: PageProps) {
+  const [{ id }, query] = await Promise.all([params, searchParams]);
   const [detail, calibrationCtx, appMode] = await Promise.all([
     getCaseDetail(id),
     getCalibrationForCase(id).catch(() => null),
@@ -28,12 +32,41 @@ export default async function CaseDetailPage({ params }: PageProps) {
   ]);
   if (!detail) notFound();
 
-  const { productCase, costModel, hasSupplierSelection, evidence, auditLogs } = detail;
+  const {
+    productCase,
+    costModel,
+    hasSupplierSelection,
+    quoteCount,
+    validQuoteCount,
+    hasApprovedContent,
+    approvedMainImageCount,
+    hasFlatFileExported,
+    hasMediaPackExported,
+    hasNoGoException,
+    noGoException,
+    evidence,
+    auditLogs,
+  } = detail;
   const result = costModel?.results;
   const score = result
     ? opportunityScore(result, productCase.monthly_sales_estimate, productCase.review_count, productCase.evidence_score)
     : 0;
   const recommendation = result ? recommendationFor(result, score) : "HOLD";
+  const workflow = deriveCaseWorkflowSnapshot({
+    caseId: productCase.id,
+    status: productCase.status,
+    recommendation,
+    hasNoGoException,
+    hasCostModel: Boolean(costModel),
+    quoteCount,
+    validQuoteCount,
+    hasSupplierSelection,
+    approvedMainImageCount,
+    hasApprovedContent,
+    hasFlatFileExported,
+    hasMediaPackExported,
+  });
+
   const assumptions = costModel?.assumptions;
   const calibrationStatus = assumptions?.calibrationMeta?.status ?? "uncalibrated";
   const calibrationLabel =
@@ -57,16 +90,17 @@ export default async function CaseDetailPage({ params }: PageProps) {
           { label: "商品案卷", href: "/cases" },
           { label: productCase.asin },
         ]}
-        eyebrow="商品案卷详情"
+        eyebrow={`商品案卷 · 阶段 ${workflow.stepNumber}：${workflow.name}`}
         title={productCase.title}
         meta={
           <>
+            <span className="badge badge-neutral">{productCase.marketplace}</span>
             <StatusBadge status={productCase.status} />
-            <RecommendationBadge value={recommendation} />
+            <span className={`badge ${workflow.badge.className}`}>{workflow.name} · {workflow.subName}</span>
+            <RecommendationBadge value={workflow.tradeGate} />
             <span className={`badge ${calibrationStatus === "calibrated" ? "badge-success" : calibrationStatus === "partial" ? "status-review_pending" : "badge-neutral"}`}>
               {calibrationLabel}
             </span>
-            <span className="badge badge-neutral">{productCase.marketplace}</span>
             <span className="badge badge-neutral">{productCase.category}</span>
             <span className="muted">机会分 {score} · 负责人 {productCase.owner}</span>
             <OpportunityScoreHelp />
@@ -74,19 +108,27 @@ export default async function CaseDetailPage({ params }: PageProps) {
         }
         actions={
           <>
-            <Link href={`/cases/${productCase.id}/sourcing`} className={`button ${hasSupplierSelection ? "secondary" : "primary"}`}>
-              {hasSupplierSelection ? "1688 寻源与打样" : "去 1688 比价定标"}
-            </Link>
-            <Link href={`/cases/${productCase.id}/content`} className={`button ${hasSupplierSelection ? "primary" : "secondary"}`}>
-              文案与视觉
-            </Link>
-            <Link href={`/studio?tab=image&caseId=${encodeURIComponent(productCase.id)}`} className="button secondary">去视觉工坊</Link>
+            {workflow.primaryAction.kind === "download" ? (
+              <a href={workflow.primaryAction.href} className="button primary" download>
+                {workflow.primaryAction.label}
+              </a>
+            ) : (
+              <Link href={workflow.primaryAction.href} className="button primary">
+                {workflow.primaryAction.label}
+              </Link>
+            )}
+            <Link href={`/cases/${productCase.id}/report`} className="button secondary">决策战报</Link>
+            <Link href="/ai-sourcing" className="button secondary">查看选品证据</Link>
             <details className="header-export-menu">
-              <summary className="button secondary">导出与战报 ▾</summary>
+              <summary className="button secondary">更多 ▾</summary>
               <div className="header-export-popover">
-                <a href={`/api/cases/${productCase.id}/media-pack`} download>打包素材 ZIP</a>
-                <a href={`/api/cases/${productCase.id}/flatfile`} download>导出 Flat File (TSV)</a>
-                <Link href={`/cases/${productCase.id}/report`}>立项战报 PDF</Link>
+                <Link href={`/studio?tab=image&caseId=${encodeURIComponent(productCase.id)}`}>去视觉工坊</Link>
+                {workflow.permissions.canExportDeliveryPack ? (
+                  <>
+                    <a href={`/api/cases/${productCase.id}/flatfile`} download>导出 Flat File (TSV)</a>
+                    <a href={`/api/cases/${productCase.id}/media-pack`} download>打包素材 ZIP</a>
+                  </>
+                ) : null}
                 {productCase.url ? <a href={productCase.url} target="_blank" rel="noreferrer">打开原商品页 ↗</a> : null}
               </div>
             </details>
@@ -96,22 +138,36 @@ export default async function CaseDetailPage({ params }: PageProps) {
 
       <CaseStepper
         caseId={productCase.id}
-        hasCostModel={Boolean(costModel)}
-        hasSupplierSelection={hasSupplierSelection}
-        hasApprovedContent={detail.productCase.status === "approved" && hasSupplierSelection}
         status={productCase.status}
+        recommendation={recommendation}
+        hasNoGoException={hasNoGoException}
+        hasCostModel={Boolean(costModel)}
+        quoteCount={quoteCount}
+        validQuoteCount={validQuoteCount}
+        hasSupplierSelection={hasSupplierSelection}
+        approvedMainImageCount={approvedMainImageCount}
+        hasApprovedContent={hasApprovedContent}
+        hasFlatFileExported={hasFlatFileExported}
+        hasMediaPackExported={hasMediaPackExported}
         allowDemoBypass={appMode === "sandbox" || productCase.is_demo}
       />
 
-      {riskMessages.length ? (
+      <QueryNotices notice={query.notice} error={query.error} />
+
+      {workflow.tradeGate === "NO-GO" ? (
+        <div className="notice warn">
+          <span className="badge recommendation-no-go">NO-GO</span>
+          <span><strong>贸易门禁已拦截：</strong> {workflow.blocker}</span>
+        </div>
+      ) : riskMessages.length ? (
         <div className="notice warn">
           <span className="badge status-review_pending">RISK</span>
-          <span><strong>立项前需要关注：</strong> {riskMessages.join("；")}。</span>
+          <span><strong>需要关注：</strong> {riskMessages.join("；")}。</span>
         </div>
       ) : (
         <div className="notice">
           <span className="badge badge-success">CHECK</span>
-          <span><strong>基础门槛通过：</strong> 基准与压力情景均为正，仍需人工核验证据和供应商真实报价。</span>
+          <span><strong>基础门槛通过：</strong> 基准与压力情景均为正，请按当前阶段推进实证报价与定标。</span>
         </div>
       )}
 
@@ -196,11 +252,11 @@ export default async function CaseDetailPage({ params }: PageProps) {
             category={productCase.category}
           />
 
-          <section className="section">
+          <section id="cost-assumptions" className="section">
             <div className="section-header">
               <div>
                 <h2>成本假设</h2>
-                <p>修改参数会生成新版本，不会覆盖历史记录。金额单位为 USD，比率为百分比。</p>
+                <p>修改参数会生成新版本，不会覆盖历史记录。金额单位为 {productCase.currency || "USD"}，比率为百分比。</p>
               </div>
             </div>
             <form action={updateCostModelAction} className="form-grid">
@@ -258,21 +314,85 @@ export default async function CaseDetailPage({ params }: PageProps) {
         </div>
 
         <aside className="stack">
-          <section className="action-card">
-            <div className="eyebrow">下一步</div>
-            <h2>下一步</h2>
-            <p>候选品已直接进入立项，不再经过人工确认。先补齐真实证据和供应商报价，再根据确定性门禁决定是否继续备货。</p>
-            <div className="button-row">
-              <Link href={`/cases/${productCase.id}/sourcing`} className="button primary">进入供应商询价</Link>
-              <Link href="/ai-sourcing" className="button secondary">查看选品证据</Link>
+          <section className="section" aria-label="当前阶段上下文">
+            <div className="section-header">
+              <div>
+                <div className="eyebrow">当前阶段上下文</div>
+                <h2>阶段 {workflow.stepNumber} · {workflow.name}</h2>
+              </div>
+              <RecommendationBadge value={workflow.tradeGate} />
             </div>
+
+            <div className="breakdown">
+              <div className="breakdown-row">
+                <span>案卷状态</span>
+                <strong>{workflow.caseLifecycleLabel}</strong>
+              </div>
+              <div className="breakdown-row">
+                <span>当前卡点</span>
+                <strong style={{ textAlign: "right", maxWidth: "65%" }}>{workflow.blocker ?? "无卡点"}</strong>
+              </div>
+              <div className="breakdown-row">
+                <span>真实报价数</span>
+                <strong>{quoteCount > 0 ? `${quoteCount} 家（有效 ${validQuoteCount} 家）` : "0 家"}</strong>
+              </div>
+              <div className="breakdown-row">
+                <span>人工定标</span>
+                <strong>{hasSupplierSelection ? "已定标" : "未定标"}</strong>
+              </div>
+              <div className="breakdown-row">
+                <span>内容终审</span>
+                <strong>{hasApprovedContent ? "已通过终审" : "未终审"}</strong>
+              </div>
+              <div className="breakdown-row">
+                <span>交付资料</span>
+                <strong>{workflow.deliveryLabel}</strong>
+              </div>
+            </div>
+
+            {noGoException ? (
+              <div className="notice" style={{ marginTop: 12 }}>
+                <span className="badge status-review_pending">例外依据</span>
+                <span>
+                  审批人：{noGoException.approver}；原因：{noGoException.reason}；风险：{noGoException.riskNote}
+                </span>
+              </div>
+            ) : null}
           </section>
+
+          {workflow.tradeGate === "NO-GO" ? (
+            <section id="gate-exception" className="section">
+              <div className="section-header">
+                <div>
+                  <h2>NO-GO 例外审批</h2>
+                  <p>当前门禁为 NO-GO，普通报价与定标已停止。如因战略或渠道原因需例外推进，请填写风险说明并留存审计。</p>
+                </div>
+              </div>
+              <form action={approveNoGoExceptionAction} className="stack">
+                <input type="hidden" name="caseId" value={productCase.id} />
+                <input type="hidden" name="returnPath" value={`/cases/${productCase.id}`} />
+                <div className="field">
+                  <label htmlFor="exceptionReason">例外原因 *</label>
+                  <input id="exceptionReason" name="reason" type="text" placeholder="例：老厂可降本 25%，先拿样核价" required />
+                </div>
+                <div className="field">
+                  <label htmlFor="exceptionRiskNote">风险说明与应对 *</label>
+                  <textarea id="exceptionRiskNote" name="riskNote" placeholder="说明亏损边界与止损条件" required />
+                </div>
+                <div className="field">
+                  <label htmlFor="exceptionApprover">审批人 *</label>
+                  <input id="exceptionApprover" name="approver" type="text" placeholder="输入审批负责人姓名" required />
+                </div>
+                <button className="button secondary" type="submit">记录 NO-GO 例外审批并放行</button>
+              </form>
+            </section>
+          ) : null}
 
           <section className="section">
             <div className="section-header">
               <div>
                 <h2>审计时间线</h2>
-                <p>只记录关键状态和成本变化。</p>
+                <p>只记录关键状态、例外审批、成本变化与交付导出。</p>
               </div>
             </div>
             <div className="timeline">
@@ -303,11 +423,13 @@ function auditLabel(action: string) {
   const labels: Record<string, string> = {
     "case.seeded": "创建演示商品",
     "case.imported": "导入候选品并生成成本模型",
-    "case.created_from_wizard": "通过选品向导立项",
+    "case.created_from_wizard": "通过选品向导创建案卷",
+    "case.exception_created": "记录 NO-GO 例外审批",
     "case.media_pack_exported": "导出上架素材包 (ZIP)",
+    "case.flat_file_exported": "导出 Flat File (TSV)",
     "case.flatfile_exported": "导出 Flat File (TSV)",
     "cost_model.created": "保存新的成本模型版本",
-    "case.approved": "已进入商品立项（历史记录）",
+    "case.approved": "已进入正式推进（历史记录）",
     "case.rejected": "已归档历史商品记录",
   };
   return labels[action] ?? action;

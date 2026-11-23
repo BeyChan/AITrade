@@ -2,17 +2,20 @@ export {
   createCostModelVersion,
   createProductCaseFromCompetitors,
   getCaseDetail,
+  getCaseWorkflowFacts,
   getSiteOptions,
   importCandidates,
   listCases,
   listCasesForSite,
   listTerminatedCases,
+  recordCaseNoGoException,
   setCaseLifecycle,
   type CreateCaseFromCompetitorInput,
   type TerminatedCase,
 } from "./repo/cases.ts";
 
 export {
+  assertSourcingGateAllowed,
   createSupplierAndQuote,
   createSupplierDirectoryEntry,
   getSourcingDetail,

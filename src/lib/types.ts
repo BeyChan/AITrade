@@ -69,20 +69,45 @@ export type AuditRow = {
   created_at: string;
 };
 
+export type NoGoExceptionRecord = {
+  reason: string;
+  riskNote: string;
+  approver: string;
+  createdAt: string;
+};
+
 export type EnrichedCase = ProductCaseRow & {
   costModel: CostModelRow | null;
   opportunityScore: number;
   recommendation: "GO" | "HOLD" | "NO-GO";
-  /** 真实内容终审状态：Listing 已被人工审核通过，可进入渠道发布 */
+  /** 真实报价数量 */
+  quoteCount?: number;
+  /** 是否已完成供应商人工定标 */
+  hasSupplierSelection?: boolean;
+  /** 真实内容终审状态：Listing 已被人工审核通过（兼容 published） */
   hasApprovedContent?: boolean;
+  /** 已通过审核的主图数量 */
+  approvedMainImageCount?: number;
+  /** 是否已导出正式 Flat File */
+  hasFlatFileExported?: boolean;
+  /** 是否已导出正式素材包 ZIP */
+  hasMediaPackExported?: boolean;
+  /** 是否已通过 NO-GO 例外审批 */
+  hasNoGoException?: boolean;
 };
 
 export type CaseDetail = {
   productCase: ProductCaseRow;
   costModel: CostModelRow | null;
   hasSupplierSelection: boolean;
-  quoteCount?: number;
-  hasApprovedContent?: boolean;
+  quoteCount: number;
+  validQuoteCount: number;
+  hasApprovedContent: boolean;
+  approvedMainImageCount: number;
+  hasFlatFileExported: boolean;
+  hasMediaPackExported: boolean;
+  hasNoGoException: boolean;
+  noGoException: NoGoExceptionRecord | null;
   evidence: EvidenceRow[];
   auditLogs: AuditRow[];
 };
@@ -179,6 +204,12 @@ export type SourcingCaseSummary = {
 
 export type SourcingDetail = SourcingCaseSummary & {
   auditLogs: AuditRow[];
+  hasApprovedContent: boolean;
+  approvedMainImageCount: number;
+  hasFlatFileExported: boolean;
+  hasMediaPackExported: boolean;
+  hasNoGoException: boolean;
+  noGoException: NoGoExceptionRecord | null;
 };
 
 export type ContentProfileRow = {
@@ -245,6 +276,10 @@ export type ContentDetail = {
   listing: ListingRow | null;
   listingReviews: ListingReviewRow[];
   auditLogs: AuditRow[];
+  quoteCount: number;
+  hasFlatFileExported: boolean;
+  hasMediaPackExported: boolean;
+  hasNoGoException: boolean;
 };
 
 export type PlatformRow = {

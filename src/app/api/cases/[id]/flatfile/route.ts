@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCaseDetail, getContentDetail } from "@/lib/repository";
+import { evaluateFlatFileExportGate } from "@/lib/export-gates";
 import { emptyListingContent, normalizeListingContent } from "@/lib/listing";
 import { recordAuditLog } from "@/lib/audit-logs";
 
@@ -10,10 +11,20 @@ export async function GET(
   const { id } = await params;
   const detail = await getCaseDetail(id);
   if (!detail) {
-    return new NextResponse("商品案卷不存在", { status: 404 });
+    return NextResponse.json({ error: "商品案卷不存在" }, { status: 404 });
   }
 
   const contentDetail = await getContentDetail(id);
+  const gate = evaluateFlatFileExportGate({
+    caseStatus: detail.productCase.status,
+    hasSelection: Boolean(contentDetail?.selection ?? detail.hasSupplierSelection),
+    hasListing: Boolean(contentDetail?.listing),
+    listingStatus: contentDetail?.listing?.status ?? null,
+  });
+  if (!gate.allowed) {
+    return NextResponse.json({ error: gate.error, code: gate.code }, { status: gate.status });
+  }
+
   const currentListing = contentDetail?.listing
     ? normalizeListingContent(contentDetail.listing.content)
     : emptyListingContent();

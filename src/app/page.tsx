@@ -401,8 +401,8 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                     >
                       查看研报 →
                     </Link>
-                    <Link href={newResearchHref} className="hero-focus-ghost-link">
-                      新建 AI 研究
+                    <Link href={newResearchHref} className="button primary fx-btn-sm">
+                      新建AI选品
                     </Link>
                   </div>
                 </>

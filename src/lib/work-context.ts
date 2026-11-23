@@ -1,13 +1,21 @@
-import { listAISourcingBatches } from "@/lib/ai-sourcing-repository";
-import { listSourcingCases } from "@/lib/repository";
-import type { WorkContextItem } from "@/lib/work-context-types";
+import { listAISourcingBatches } from "./ai-sourcing-repository.ts";
+import { deriveCaseWorkflowSnapshot } from "./case-stage.ts";
+import { listCasesForSite } from "./repository.ts";
+import type { EnrichedCase } from "./types.ts";
+import type { WorkContextItem } from "./work-context-types.ts";
 
-export type { WorkContextItem } from "@/lib/work-context-types";
-export { findWorkContextItem } from "@/lib/work-context-types";
+export type { WorkContextItem } from "./work-context-types.ts";
+export { findWorkContextItem } from "./work-context-types.ts";
+
+export type WorkContextScope = {
+  marketCode: string;
+  platformCode: string;
+};
 
 /**
- * 全局对象条的数据。只做轻量映射，不参与业务判断；
- * 任何来源失败都降级为空，绝不阻塞页面渲染。
+ * 全局对象条的数据映射：
+ * - 严格按当前解析后的站点 (marketCode + platformCode) 隔离，杜绝 AU / US 跨站点串数据；
+ * - 案卷阶段与下一步统一消费 deriveCaseWorkflowSnapshot()，不再手写“待定标 / 内容与上架”。
  */
 function batchStage(batch: {
   promotedCount: number;
@@ -25,13 +33,56 @@ function batchNextHref(batch: { id: string; goCount: number }) {
   return `/ai-sourcing/${encodeURIComponent(batch.id)}?tab=${tab}`;
 }
 
-export async function loadWorkContext(): Promise<WorkContextItem[]> {
+export function buildWorkContextCaseItem(item: EnrichedCase): WorkContextItem {
+  const snapshot = deriveCaseWorkflowSnapshot({
+    caseId: item.id,
+    status: item.status,
+    recommendation: item.recommendation,
+    hasNoGoException: Boolean(item.hasNoGoException),
+    hasCostModel: Boolean(item.costModel),
+    quoteCount: item.quoteCount ?? 0,
+    hasSupplierSelection: Boolean(item.hasSupplierSelection),
+    approvedMainImageCount: item.approvedMainImageCount,
+    hasApprovedContent: Boolean(item.hasApprovedContent),
+    hasFlatFileExported: Boolean(item.hasFlatFileExported),
+    hasMediaPackExported: Boolean(item.hasMediaPackExported),
+  });
+  const id = encodeURIComponent(item.id);
+  return {
+    id: item.id,
+    kind: "case",
+    label: item.title,
+    stage: `${snapshot.name} · ${snapshot.subName}`,
+    href: `/cases/${id}`,
+    nextLabel: snapshot.primaryAction.label,
+    nextHref: snapshot.primaryAction.href,
+  };
+}
+
+export function filterCasesForWorkContextScope(
+  cases: EnrichedCase[],
+  scope: WorkContextScope,
+): EnrichedCase[] {
+  const targetMarket = scope.marketCode.toUpperCase();
+  return cases.filter(
+    (item) =>
+      item.status !== "archived" &&
+      item.status !== "rejected" &&
+      item.marketplace.toUpperCase() === targetMarket,
+  );
+}
+
+export async function loadWorkContext(scope: WorkContextScope): Promise<WorkContextItem[]> {
+  const marketCode = scope.marketCode.toUpperCase();
+  const platformCode = scope.platformCode.toLowerCase();
+
   const [batches, cases] = await Promise.allSettled([
-    listAISourcingBatches(),
-    listSourcingCases(),
+    listAISourcingBatches(marketCode, platformCode),
+    listCasesForSite(marketCode, platformCode),
   ]);
 
   const batchItems: WorkContextItem[] = (batches.status === "fulfilled" ? batches.value : [])
+    .filter((b) => b.marketCode.toUpperCase() === marketCode && b.platformCode.toLowerCase() === platformCode)
     .slice(0, 6)
     .map((batch) => ({
       id: batch.id,
@@ -43,21 +94,14 @@ export async function loadWorkContext(): Promise<WorkContextItem[]> {
       nextHref: batchNextHref(batch),
     }));
 
-  const caseItems: WorkContextItem[] = (cases.status === "fulfilled" ? cases.value : [])
+  const scopedCases = filterCasesForWorkContextScope(
+    cases.status === "fulfilled" ? cases.value : [],
+    { marketCode, platformCode },
+  );
+
+  const caseItems: WorkContextItem[] = scopedCases
     .slice(0, 6)
-    .map((item) => {
-      const hasSelection = Boolean(item.selection);
-      const id = encodeURIComponent(item.productCase.id);
-      return {
-        id: item.productCase.id,
-        kind: "case",
-        label: item.productCase.title,
-        stage: hasSelection ? "内容与上架" : "待定标",
-        href: `/cases/${id}`,
-        nextLabel: hasSelection ? "制作内容" : "去定标",
-        nextHref: hasSelection ? `/cases/${id}/content` : `/cases/${id}/sourcing`,
-      };
-    });
+    .map(buildWorkContextCaseItem);
 
   return [...batchItems, ...caseItems];
 }

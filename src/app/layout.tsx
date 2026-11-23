@@ -23,14 +23,18 @@ export const metadata: Metadata = {
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   // PGlite is process-local and must not be opened by parallel build workers.
   await connection();
-  const [options, workContext, mode, persistedScope, cookieStore, fxSnapshot] = await Promise.all([
+  // 先解析持久化站点 scope，再按站点加载顶部对象条，避免跨站点串数据
+  const [options, mode, persistedScope, cookieStore, fxSnapshot] = await Promise.all([
     getSiteOptions(),
-    loadWorkContext().catch(() => []),
     getAppMode(),
     resolvePersistedSiteScope(),
     cookies(),
     getFxRatesSnapshot(),
   ]);
+  const workContext = await loadWorkContext({
+    marketCode: persistedScope.marketCode,
+    platformCode: persistedScope.platformCode,
+  }).catch(() => []);
   const initialTheme: AppTheme = cookieStore.get("aitrade_theme")?.value === "dark" ? "dark" : "light";
   const markets = options.markets.map(({ code, name, currency }) => ({ code, name, currency }));
   const platforms = options.platforms.map(({ code, name }) => ({ code, name }));

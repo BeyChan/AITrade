@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { deriveCaseWorkflowSnapshot } from "@/lib/case-stage";
 import { listCases } from "@/lib/repository";
 import { money, percent } from "@/lib/format";
 import { CasesAuditLedger, type AuditLedgerRow } from "@/components/cases-audit-ledger";
@@ -43,6 +44,19 @@ export default async function ProductCasesPage({ searchParams }: PageProps) {
     const res = cost?.results;
     const asm = cost?.assumptions;
     const monthlyProfitCents = res ? res.netProfitCents * (c.monthly_sales_estimate || 0) : null;
+    const workflow = deriveCaseWorkflowSnapshot({
+      caseId: c.id,
+      status: c.status,
+      recommendation: c.recommendation,
+      hasNoGoException: Boolean(c.hasNoGoException),
+      hasCostModel: Boolean(cost),
+      quoteCount: c.quoteCount ?? 0,
+      hasSupplierSelection: Boolean(c.hasSupplierSelection),
+      approvedMainImageCount: c.approvedMainImageCount,
+      hasApprovedContent: Boolean(c.hasApprovedContent),
+      hasFlatFileExported: Boolean(c.hasFlatFileExported),
+      hasMediaPackExported: Boolean(c.hasMediaPackExported),
+    });
     return {
       id: c.id,
       title: c.title,
@@ -51,6 +65,8 @@ export default async function ProductCasesPage({ searchParams }: PageProps) {
       category: c.category,
       status: c.status,
       recommendation: c.recommendation,
+      stageLabel: `${workflow.name} · ${workflow.subName}`,
+      canExportFlatFile: workflow.permissions.canExportDeliveryPack,
       opportunityScore: c.opportunityScore,
       isVerified: !c.is_demo && c.evidence_score >= 50,
       isDemo: c.is_demo,
@@ -92,7 +108,7 @@ export default async function ProductCasesPage({ searchParams }: PageProps) {
         ariaLabel="我的商品核心指标"
         items={[
           { label: "活跃商品", value: activeCases.length, note: "正在推进中的已立项商品" },
-          { label: "达标 GO 商品", value: goCases, note: "净利率 ≥ 18%、压测为正且机会分 ≥ 70", tone: "success" },
+          { label: "达标 GO 商品", value: goCases, note: "净利率 ≥ 18%、压测为正且机会分 ≥ 65", tone: "success" },
           { label: "已归档", value: archivedCases.length, note: "已终止或归档复盘" },
           { label: "预估月度利润贡献", value: money(totalMonthlyProfitCents), note: "按测算单件净利 × 月销估计", tone: "success" },
         ]}
