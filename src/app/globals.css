@@ -16165,9 +16165,25 @@ html[data-theme="dark"] .hero-eyebrow-demo {
   }
 }
 
-/* What-If 沙盘：瀑布图与 5 列 ACoS 热力矩阵纵向全宽排版，避免列与行标题被裁切 */
+/* What-If 沙盘：瀑布图与 5 列 ACoS 热力矩阵纵向全宽排版，严格限制在容器宽度内对齐 */
 .sandbox-visual-grid {
-  grid-template-columns: 1fr !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.sandbox-panel {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.heatmap-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.heatmap-table {
+  width: 100%;
+  table-layout: fixed;
 }
 
 /* 手机端实时预览：防止「手机端」换行及竞品标题纵向裁切 */
