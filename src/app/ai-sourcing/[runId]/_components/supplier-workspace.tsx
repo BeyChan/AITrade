@@ -136,7 +136,7 @@ export function SupplierDiscoveryWorkspace({
         <SupplierCaptureTools runId={runId} hypothesisId={hypothesis.id} query={defaultQuery} />
 
         <div className="ai-manual-capture-head">
-          <div><strong>方式三：手动粘贴或读取剪贴板</strong><span>书签自动复制后会优先尝试读取；浏览器询问剪贴板权限时请允许。</span></div>
+          <div><strong>手动粘贴或读取剪贴板</strong><span>书签自动复制后会优先尝试读取；浏览器询问剪贴板权限时请允许。</span></div>
         </div>
 
         <SupplierCandidateImportForm
