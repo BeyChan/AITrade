@@ -4967,12 +4967,8 @@ tbody tr:last-child td {
 .ai-candidate-capture-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 14px;
-  padding: 13px;
-  border: 1px solid #e1e9e4;
-  border-radius: 12px;
-  background: var(--paper);
+  gap: 12px;
+  margin-top: 12px;
 }
 
 .ai-candidate-capture-form .full,
@@ -5000,17 +4996,16 @@ tbody tr:last-child td {
 
 .ai-capture-format {
   margin-top: 10px;
-  border: 1px solid #dfe7e2;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--surface-subtle);
 }
 
 .ai-capture-format summary {
   padding: 10px 12px;
-  color: #385846;
+  color: var(--muted);
   cursor: pointer;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .ai-capture-format > div {
