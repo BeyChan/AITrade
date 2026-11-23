@@ -78,8 +78,8 @@ export default async function ProductCasesPage({ searchParams }: PageProps) {
         description="集中管理所有已立项商品案卷。追踪从竞品研报、工厂询价、财务核准、内容打磨到批量发布模板 (Flat File) 的完整进度。"
         actions={
           <>
-            <Link href="/competitors" className="button primary">
-              竞品横评并立项
+            <Link href="/discover" className="button primary">
+              + 新建选品
             </Link>
             <Link href="/import" className="button secondary">
               批量导入商品
@@ -92,7 +92,7 @@ export default async function ProductCasesPage({ searchParams }: PageProps) {
         ariaLabel="我的商品核心指标"
         items={[
           { label: "活跃商品", value: activeCases.length, note: "正在推进中的已立项商品" },
-          { label: "达标 GO 商品", value: goCases, note: "满足 18% 净利率门禁", tone: "success" },
+          { label: "达标 GO 商品", value: goCases, note: "净利率 ≥ 18%、压测为正且机会分 ≥ 70", tone: "success" },
           { label: "已归档", value: archivedCases.length, note: "已终止或归档复盘" },
           { label: "预估月度利润贡献", value: money(totalMonthlyProfitCents), note: "按测算单件净利 × 月销估计", tone: "success" },
         ]}

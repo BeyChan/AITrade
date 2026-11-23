@@ -94,10 +94,10 @@ export function CaseAssetLibraryPanel({ caseId, assets, uploadAction, reviewActi
         </div>
         <div className="asset-library-actions">
           <div className="asset-library-actions-row">
-            <Link href={`/image-studio?caseId=${encodeURIComponent(caseId)}`} className="button primary">
+            <Link href={`/studio?tab=image&caseId=${encodeURIComponent(caseId)}`} className="button primary">
               去 AI 生图工坊
             </Link>
-            <Link href={`/video-studio?caseId=${encodeURIComponent(caseId)}`} className="button secondary">
+            <Link href={`/studio?tab=video&caseId=${encodeURIComponent(caseId)}`} className="button secondary">
               去 AI 视频工坊
             </Link>
           </div>

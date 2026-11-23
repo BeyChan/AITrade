@@ -77,12 +77,19 @@ export default async function CaseDetailPage({ params }: PageProps) {
             <Link href={`/cases/${productCase.id}/sourcing`} className={`button ${hasSupplierSelection ? "secondary" : "primary"}`}>
               {hasSupplierSelection ? "1688 寻源与打样" : "去 1688 比价定标"}
             </Link>
-            <Link href={`/cases/${productCase.id}/content`} className="button secondary">文案与合规</Link>
+            <Link href={`/cases/${productCase.id}/content`} className={`button ${hasSupplierSelection ? "primary" : "secondary"}`}>
+              文案与视觉
+            </Link>
             <Link href={`/studio?tab=image&caseId=${encodeURIComponent(productCase.id)}`} className="button secondary">去视觉工坊</Link>
-            <a href={`/api/cases/${productCase.id}/media-pack`} className="button secondary" download>打包素材 ZIP</a>
-            <a href={`/api/cases/${productCase.id}/flatfile`} className="button secondary" download>导出 Flat File</a>
-            <Link href={`/cases/${productCase.id}/report`} className="button secondary">立项战报 PDF</Link>
-            {productCase.url ? <a className="button ghost" href={productCase.url} target="_blank" rel="noreferrer">打开商品页</a> : null}
+            <details className="header-export-menu">
+              <summary className="button secondary">导出与战报 ▾</summary>
+              <div className="header-export-popover">
+                <a href={`/api/cases/${productCase.id}/media-pack`} download>打包素材 ZIP</a>
+                <a href={`/api/cases/${productCase.id}/flatfile`} download>导出 Flat File (TSV)</a>
+                <Link href={`/cases/${productCase.id}/report`}>立项战报 PDF</Link>
+                {productCase.url ? <a href={productCase.url} target="_blank" rel="noreferrer">打开原商品页 ↗</a> : null}
+              </div>
+            </details>
           </>
         }
       />
@@ -238,9 +245,13 @@ export default async function CaseDetailPage({ params }: PageProps) {
                 ))}
               </div>
             ) : (
-              <div className="empty-state" style={{ padding: "35px 15px" }}>
-                <h3>尚未采集证据</h3>
-                <p>下一阶段接入评论分析、关键词和竞品调研 Worker，每条结论会绑定来源和抓取时间。</p>
+              <div className="empty-state" style={{ padding: "28px 16px" }}>
+                <h3>暂无明细证据条目</h3>
+                <p>
+                  {productCase.evidence_score > 0
+                    ? `当前 ${productCase.evidence_score}% 为立项导入时的基础完整度评分；如需进一步提升可信度，可通过 Chrome 扩展补采竞品评论与真实售价。`
+                    : "可通过 Chrome 扩展补采竞品评论、关键词与真实售价，每条结论会绑定来源和抓取时间。"}
+                </p>
               </div>
             )}
           </section>
@@ -248,7 +259,7 @@ export default async function CaseDetailPage({ params }: PageProps) {
 
         <aside className="stack">
           <section className="action-card">
-            <div className="eyebrow" style={{ color: "var(--lime)" }}>下一步</div>
+            <div className="eyebrow">下一步</div>
             <h2>下一步</h2>
             <p>候选品已直接进入立项，不再经过人工确认。先补齐真实证据和供应商报价，再根据确定性门禁决定是否继续备货。</p>
             <div className="button-row">

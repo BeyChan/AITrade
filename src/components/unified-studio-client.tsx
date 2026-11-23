@@ -139,12 +139,15 @@ export function UnifiedStudioClient({
             style={{
               minWidth: "220px",
               maxWidth: "320px",
-              padding: "7px 10px",
+              padding: "7px 32px 7px 10px",
               borderRadius: "8px",
               border: "1px solid var(--line)",
               background: "var(--paper)",
               color: "var(--ink)",
               fontSize: "13px",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
             }}
           >
             <option value="">自由创作（暂不绑定商品）</option>
@@ -157,8 +160,8 @@ export function UnifiedStudioClient({
 
           {selectedCase ? (
             <>
-              <Link href={`/cases/${encodeURIComponent(selectedCase.id)}/content`} className="button ghost">
-                返回文案页
+              <Link href={`/cases/${encodeURIComponent(selectedCase.id)}/content`} className="button secondary">
+                ← 返回文案页
               </Link>
               <a
                 href={`/api/cases/${encodeURIComponent(selectedCase.id)}/media-pack`}

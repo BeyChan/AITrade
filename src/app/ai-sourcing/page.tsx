@@ -73,7 +73,7 @@ export default async function AISourcingBatchListPage({ searchParams }: PageProp
         ]}
         eyebrow="单一漏斗 · 先淘汰后取证"
         title="选品看板"
-        description="所有选品方向汇总在此按真实进度推进；可按发散批次筛选，每张卡片只给一个「下一步」和「淘汰」入口。"
+        description="所有选品方向汇总在此按真实进度推进；可按选品批次筛选，每张卡片只给一个「下一步」和「淘汰」入口。"
         actions={
           <Link href="/discover" className="button primary">+ 新建选品</Link>
         }

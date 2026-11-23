@@ -285,14 +285,7 @@ export function DashboardPipelineKanban({
 
       {activeTab === "kanban" ? (
         /* 5 阶段水平看板泳道 */
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
-            gap: "14px",
-            alignItems: "stretch",
-          }}
-        >
+        <div className="pipeline-kanban-grid">
           {columns.map((col) => (
             <div
               key={col.id}

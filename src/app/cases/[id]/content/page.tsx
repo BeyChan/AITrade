@@ -120,12 +120,28 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
         }
         actions={
           <>
-            <a href={`/api/cases/${productCase.id}/flatfile`} className="button primary" download>导出 Amazon Flat File (TSV)</a>
-            <a href={`/api/cases/${productCase.id}/media-pack`} className="button secondary" download>打包下载上架素材 (ZIP)</a>
-            <Link href={`/studio?tab=image&caseId=${encodeURIComponent(productCase.id)}`} className="button secondary">去视觉工坊生图</Link>
+            {!selection ? (
+              <Link href={`/cases/${productCase.id}/sourcing#supplier-award`} className="button primary">前往供应商定标</Link>
+            ) : contentApproved ? (
+              <a href={`/api/cases/${productCase.id}/flatfile`} className="button primary" download>导出 Amazon Flat File (TSV)</a>
+            ) : approvedImages.length === 0 ? (
+              <Link href={`/studio?tab=image&caseId=${encodeURIComponent(productCase.id)}`} className="button primary">去视觉工坊生图</Link>
+            ) : (
+              <a href="#human-content-review" className="button primary">前往人工终审</a>
+            )}
+            {selection && !contentApproved ? (
+              <a href={`/api/cases/${productCase.id}/flatfile`} className="button secondary" download>导出 Flat File (TSV)</a>
+            ) : null}
+            {selection ? (
+              <a href={`/api/cases/${productCase.id}/media-pack`} className="button secondary" download>打包上架素材 (ZIP)</a>
+            ) : null}
+            {selection && approvedImages.length > 0 ? (
+              <Link href={`/studio?tab=image&caseId=${encodeURIComponent(productCase.id)}`} className="button secondary">去视觉工坊生图</Link>
+            ) : !selection ? (
+              <Link href={`/studio?tab=image&caseId=${encodeURIComponent(productCase.id)}`} className="button secondary">去视觉工坊生图</Link>
+            ) : null}
             <Link href={`/cases/${productCase.id}/report`} className="button secondary">立项战报 PDF</Link>
             <Link href={`/cases/${productCase.id}`} className="button ghost">返回商品详情</Link>
-            <Link href={`/cases/${productCase.id}/sourcing`} className="button ghost">供应商定标</Link>
           </>
         }
       />
@@ -134,7 +150,7 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
         caseId={productCase.id}
         hasCostModel={Boolean(costModel)}
         hasSupplierSelection={Boolean(selection)}
-        hasApprovedContent={Boolean(preflight?.passed)}
+        hasApprovedContent={Boolean(contentApproved)}
         selectedSupplierName={selectedSupplierName ?? null}
         status={productCase.status}
         allowDemoBypass={canDemoBypass}
@@ -307,19 +323,30 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
             </article>
           </section>
 
+          <nav className="content-section-nav" aria-label="详情制作快捷跳转">
+            <a href="#section-benchmark">0. 竞品对标</a>
+            <a href="#section-definition">1. 商品定义 {profile ? "✓" : ""}</a>
+            <a href="#asset-library">2. 视觉素材 ({approvedImages.length})</a>
+            <a href="#section-listing">3. Listing 草稿 {listing ? `v${listing.version}` : ""}</a>
+            <a href="#launch-ready">4. 发布预检 {preflight?.passed ? "✓" : ""}</a>
+            <a href="#human-content-review">人工终审 {contentApproved ? "✓" : ""}</a>
+          </nav>
+
           <div className="detail-grid">
             <div className="stack">
-              <ContentBenchmarkCard
-                caseId={productCase.id}
-                salePriceCents={costModel?.assumptions.salePriceCents ?? productCase.competitor_price_cents}
-                benchmarkLookup={benchmarkLookup}
-                profile={profile}
-                draftText={[content.title, ...content.bullets, content.description].join(" ")}
-              />
+              <div id="section-benchmark">
+                <ContentBenchmarkCard
+                  caseId={productCase.id}
+                  salePriceCents={costModel?.assumptions.salePriceCents ?? productCase.competitor_price_cents}
+                  benchmarkLookup={benchmarkLookup}
+                  profile={profile}
+                  draftText={[content.title, ...content.bullets, content.description].join(" ")}
+                />
+              </div>
 
               <ComplianceRadarCard radar={complianceRadar} />
 
-              <section className="section">
+              <section className="section" id="section-definition">
                 <div className="section-header">
                   <div>
                     <h2>1. 商品定义</h2>
@@ -383,7 +410,7 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
                 reviewAction={reviewMainImageAction}
               />
 
-              <section className="section">
+              <section className="section" id="section-listing">
                 <div className="section-header">
                   <div>
                     <h2>3. Listing 草稿</h2>
@@ -506,27 +533,30 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
                 )}
               </section>
 
-              <section className="section">
-                <div className="section-header">
+              <details className="section">
+                <summary className="section-header" style={{ cursor: "pointer", marginBottom: 0 }}>
                   <div>
-                    <h2>审计时间线</h2>
-                    <p>商品定义、图片检查、Listing 版本和内容确认均写入审计日志。</p>
+                    <h2>审计时间线（{auditLogs.length} 条记录）</h2>
+                    <p>商品定义、图片检查、Listing 版本和内容确认均写入审计日志，点击展开查看。</p>
                   </div>
-                </div>
-                {auditLogs.length ? (
-                  <div className="timeline">
-                    {auditLogs.map((entry) => (
-                      <div className="timeline-item" key={entry.id}>
-                        <span className="timeline-dot" />
-                        <div>
-                          <div className="timeline-title">{auditLabel(entry.action)}</div>
-                          <div className="timeline-meta">{entry.actor} · {shortDate(entry.created_at)}{auditSummary(entry.action, entry.details)}</div>
+                  <span className="badge badge-neutral">展开 / 收起</span>
+                </summary>
+                <div style={{ marginTop: 14 }}>
+                  {auditLogs.length ? (
+                    <div className="timeline">
+                      {auditLogs.map((entry) => (
+                        <div className="timeline-item" key={entry.id}>
+                          <span className="timeline-dot" />
+                          <div>
+                            <div className="timeline-title">{auditLabel(entry.action)}</div>
+                            <div className="timeline-meta">{entry.actor} · {shortDate(entry.created_at)}{auditSummary(entry.action, entry.details)}</div>
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : <p className="muted">暂无审计记录。</p>}
-              </section>
+                      ))}
+                    </div>
+                  ) : <p className="muted">暂无审计记录。</p>}
+                </div>
+              </details>
             </div>
 
             <aside className="stack content-sticky-aside">
@@ -542,8 +572,8 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
                 searchTerms={content.searchTerms}
               />
 
-              <section className="action-card">
-                <div className="eyebrow" style={{ color: "var(--lime)" }}>人工内容审核</div>
+              <section className="action-card" id="human-content-review">
+                <div className="eyebrow">人工内容审核</div>
                 <h2>{contentApproved ? "内容已人工确认" : "人工内容确认"}</h2>
                 {contentApproved ? (
                   <>

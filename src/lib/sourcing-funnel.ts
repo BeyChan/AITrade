@@ -551,7 +551,7 @@ export type KanbanStageKey =
 
 export const KANBAN_COLUMNS: Array<{ key: KanbanStageKey; label: string; hint: string }> = [
   { key: "candidate", label: "候选", hint: "待扫搜索页" },
-  { key: "scanned", label: "已扫市场", hint: "待填 1688 参考价" },
+  { key: "scanned", label: "已扫市场", hint: "补齐竞品并核 1688 参考价" },
   { key: "profit_ok", label: "利润通过", hint: "待找厂录报价" },
   { key: "sampling", label: "拿样中", hint: "待打样与终审" },
   { key: "promoted", label: "已立项", hint: "已转商品案卷" },

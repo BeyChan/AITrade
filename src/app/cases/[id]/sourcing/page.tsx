@@ -107,8 +107,6 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
         <div className="notice warn"><span className="badge status-review_pending">ARCHIVED</span><span>当前商品已归档或终止，如需继续询价请先恢复状态。</span></div>
       ) : null}
 
-      <SourcingPracticalTools caseId={productCase.id} initialSamples={initialSamples} />
-
       <section className="metrics-grid sourcing-summary-grid">
         <article className="metric-card">
           <div className="metric-label">当前到岸成本</div>
@@ -135,7 +133,7 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
       {selection && selectedQuote ? (
         <section className="selection-result">
           <div>
-            <div className="eyebrow" style={{ color: "var(--lime)" }}>已记录定标</div>
+            <div className="eyebrow">已记录定标</div>
             <h2>{selectedQuote.supplier.name}</h2>
             <p>
               人工定标完成。报价到岸成本 {money(selectedScore?.landedCostCents ?? 0)} 已写入新的成本模型，
@@ -143,6 +141,14 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
               压力情景净利 {costModel ? money(costModel.results.stressProfitCents) : "—"}。
             </p>
             {selection.exception_reason ? <p><strong>定标说明：</strong>{selection.exception_reason}</p> : null}
+            <div className="button-row" style={{ marginTop: 12 }}>
+              <Link href={`/cases/${productCase.id}/content`} className="button primary">
+                下一步：进入文案与视觉制作 →
+              </Link>
+              <Link href={`/studio?tab=image&caseId=${encodeURIComponent(productCase.id)}`} className="button secondary">
+                去视觉工坊生图
+              </Link>
+            </div>
           </div>
           <div className="selection-result-meta">
             <span>定标人</span><strong>{selection.selected_by}</strong>
@@ -164,6 +170,8 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
         onSelectAction={selectSupplierQuoteAction}
         onCreate1688Action={createSupplierQuoteAction}
       />
+
+      <SourcingPracticalTools caseId={productCase.id} initialSamples={initialSamples} />
 
       <div className="sourcing-bottom-grid">
         <div className="stack">
@@ -254,7 +262,7 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
 
         <aside className="stack">
           <section className="action-card" id="supplier-award">
-            <div className="eyebrow" style={{ color: "var(--lime)" }}>人工决策</div>
+            <div className="eyebrow">人工决策</div>
             <h2>{selection ? "定标已完成" : "人工选定供应商"}</h2>
             {selection && selectedQuote ? (
               <>

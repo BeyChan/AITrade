@@ -58,10 +58,11 @@ export default async function DiscoverPage({ searchParams }: PageProps) {
       <PageHeader
         breadcrumbs={[
           { label: "工作台", href: "/" },
-          { label: "选品中心" },
+          { label: "选品看板", href: "/ai-sourcing" },
+          { label: "新建选品" },
         ]}
         eyebrow="3 步极简选品向导"
-        title="选品中心"
+        title="新建选品"
         description="按你手里现有的线索直接开干：看市场（竞品与痛点）→ 核成本（18% 硬门禁倒推）→ 拍板立项（合规红线与一键生成案卷）。"
       />
 

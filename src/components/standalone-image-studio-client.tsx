@@ -923,7 +923,7 @@ export function StandaloneImageStudioClient({
               <span className="badge badge-neutral">{activeMarketName} · {marketplace}</span>
               <h3>选择左侧规范与商品名，即可开始出图</h3>
               <p>
-                支持上传供应商实拍图走图生图，也支持纯文生图探索构图；点击「生成提示词预览」后可先微调再确认调用模型。
+                支持上传供应商实拍图走图生图，也支持纯文生图探索构图；点击「AI 生成提示词」或「模板预览」后可先微调再确认调用模型。
               </p>
             </div>
           </section>

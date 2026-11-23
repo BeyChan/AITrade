@@ -197,6 +197,7 @@ function SidebarItem({
 }) {
   const isMatch = matchParentNav(item, pathname);
   const [isExpanded, setIsExpanded] = useState(isMatch);
+  const [currentHash, setCurrentHash] = useState("");
 
   // 当路由变动匹配到本组时，自动展开
   useEffect(() => {
@@ -205,16 +206,28 @@ function SidebarItem({
     }
   }, [isMatch]);
 
+  useEffect(() => {
+    const syncHash = () => setCurrentHash(window.location.hash || "");
+    syncHash();
+    window.addEventListener("hashchange", syncHash);
+    return () => window.removeEventListener("hashchange", syncHash);
+  }, [pathname]);
+
   const activeCaseId = item.href === "/cases" ? extractActiveCaseId(pathname) : null;
   const caseStageItems: SubItem[] = activeCaseId
     ? [
         { href: `/cases/${activeCaseId}`, label: "1. 利润与合规" },
-        { href: `/cases/${activeCaseId}/sourcing`, label: "2. 寻源与定标" },
+        { href: `/cases/${activeCaseId}/sourcing`, label: "2. 寻源与打样" },
+        { href: `/cases/${activeCaseId}/sourcing#supplier-award`, label: "3. 财务定标" },
         {
           href: `/cases/${activeCaseId}/content${mode === "sandbox" ? "?preview=1" : ""}`,
-          label: "3. 文案与视觉",
+          label: "4. 文案与视觉",
         },
-        { href: `/cases/${activeCaseId}/report`, label: "4. 立项决策战报" },
+        {
+          href: `/cases/${activeCaseId}/content${mode === "sandbox" ? "?preview=1" : ""}#launch-ready`,
+          label: "5. 上架就绪",
+        },
+        { href: `/cases/${activeCaseId}/report`, label: "立项决策战报" },
       ]
     : [];
 
@@ -314,16 +327,32 @@ function SidebarItem({
                 <span>当前商品阶段</span>
               </li>
               {caseStageItems.map((stageItem) => {
-                const stagePath = stageItem.href.split("?")[0];
-                const isStageActive =
+                const [withoutHash, rawHash] = stageItem.href.split("#");
+                const stagePath = withoutHash.split("?")[0];
+                const stageHash = rawHash ? `#${rawHash}` : "";
+                const siblingHashes = caseStageItems
+                  .map((s) => {
+                    const [p, h] = s.href.split("#");
+                    return p.split("?")[0] === stagePath && h ? `#${h}` : "";
+                  })
+                  .filter(Boolean);
+
+                const isPathMatch =
                   stagePath === `/cases/${activeCaseId}`
                     ? pathname === stagePath
-                    : pathname.startsWith(stagePath);
+                    : pathname === stagePath || pathname.startsWith(`${stagePath}/`);
+
+                const isStageActive = isPathMatch
+                  ? stageHash
+                    ? currentHash === stageHash
+                    : !siblingHashes.includes(currentHash)
+                  : false;
 
                 return (
                   <li key={stageItem.href}>
                     <Link
                       href={stageItem.href}
+                      onClick={() => setCurrentHash(stageHash)}
                       className={`sidebar-sublink sidebar-stage-link${isStageActive ? " active" : ""}`}
                     >
                       <span>{stageItem.label}</span>

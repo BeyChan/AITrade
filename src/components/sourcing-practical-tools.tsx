@@ -15,8 +15,8 @@ const STATUS_META: Record<SampleLogStatus, { label: string; cls: string }> = {
 };
 
 const SHIPPING_MODES = [
-  { label: "美森快船 (¥22/kg)", rateCnyPerKg: 22 },
-  { label: "普船海派 (¥14/kg)", rateCnyPerKg: 14 },
+  { label: "美森快船 (¥18/kg)", rateCnyPerKg: 18 },
+  { label: "普船海派 (¥11/kg)", rateCnyPerKg: 11 },
   { label: "空派专线 (¥48/kg)", rateCnyPerKg: 48 },
 ];
 
@@ -46,9 +46,27 @@ export function SourcingPracticalTools({
   }, [fxTouched]);
   const [weightKg, setWeightKg] = useState("0.45");
   const [lengthCm, setLengthCm] = useState("22");
-  const [widthCm, setWidthCm] = useState("16");
-  const [heightCm, setHeightCm] = useState("9");
-  const [freightRateCny, setFreightRateCny] = useState("22");
+  const [widthCm, setWidthCm] = useState("18");
+  const [heightCm, setHeightCm] = useState("12");
+  const [freightRateCny, setFreightRateCny] = useState("18");
+  const [fillNotice, setFillNotice] = useState<string | null>(null);
+
+  function handleFillQuoteForm() {
+    const unitInput = document.getElementById("unitPrice") as HTMLInputElement | null;
+    const freightInput = document.getElementById("freightPerUnit") as HTMLInputElement | null;
+    if (!unitInput || !freightInput) {
+      setFillNotice("当前已定标或未展开高级报价表，请直接使用上方比价矩阵。");
+      return;
+    }
+    const detailsEl = unitInput.closest("details");
+    if (detailsEl) detailsEl.open = true;
+    unitInput.value = unitUsd.toFixed(2);
+    freightInput.value = freightUsd.toFixed(2);
+    unitInput.dispatchEvent(new Event("input", { bubbles: true }));
+    freightInput.dispatchEvent(new Event("input", { bubbles: true }));
+    unitInput.scrollIntoView({ behavior: "smooth", block: "center" });
+    setFillNotice(`已回填单件采购价 $${unitUsd.toFixed(2)} 与单件头程 $${freightUsd.toFixed(2)} 到下方报价表。`);
+  }
 
   const cny = Math.max(0, Number(unitPriceCny) || 0);
   const fx = Math.max(0.1, Number(fxRate) || 7.25);
@@ -249,6 +267,13 @@ export function SourcingPracticalTools({
               ${estimatedLandedUsd.toFixed(2)}
             </strong>
           </div>
+        </div>
+
+        <div className="button-row" style={{ marginTop: "10px", justifyContent: "space-between", alignItems: "center" }}>
+          <button type="button" className="button secondary" onClick={handleFillQuoteForm}>
+            一键填入下方报价表
+          </button>
+          {fillNotice ? <span className="help" style={{ color: "var(--green)" }}>{fillNotice}</span> : null}
         </div>
 
         {fbaSizeTip ? (

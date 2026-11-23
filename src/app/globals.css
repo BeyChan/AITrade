@@ -66,7 +66,7 @@ button {
 .topbar {
   position: sticky;
   top: 0;
-  z-index: 20;
+  z-index: 45;
   backdrop-filter: blur(18px);
   background: var(--paper);
   border-bottom: 1px solid var(--line);
@@ -1005,49 +1005,16 @@ tbody tr:last-child td {
 .action-card {
   padding: 20px;
   border-radius: var(--radius);
-  background: var(--deep);
-  color: #fff;
-  box-shadow: 0 14px 35px rgba(16, 37, 28, 0.22);
 }
 
 .action-card p {
-  color: rgba(255, 255, 255, 0.67);
   font-size: 13px;
   line-height: 1.6;
 }
 
-.action-card .field label {
-  color: rgba(255, 255, 255, 0.72);
-}
-
-.action-card .field input,
-.action-card .field textarea {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.16);
-}
-
-.action-card .field input::placeholder,
-.action-card .field textarea::placeholder {
-  color: rgba(255, 255, 255, 0.36);
-}
-
-.action-card .button.primary {
-  width: 100%;
-  background: var(--paper);
-  color: var(--deep);
-  border-color: #ffffff;
-}
-
-.action-card .button.primary:hover {
-  background: var(--surface-subtle);
-  border-color: #eef4ef;
-  color: var(--deep);
-}
-
 .action-card .button.danger {
-  color: #ffd2cc;
-  background: rgba(255, 111, 99, 0.14);
+  color: var(--red, #dc2626);
+  background: rgba(220, 38, 38, 0.1);
 }
 
 .pill-list {
@@ -7624,12 +7591,11 @@ tbody tr:last-child td {
   outline-offset: 2px;
 }
 
-/* 表单提交是整页刷新：把结果条固定在视口顶部，避免用户在页面底部提交后看不到反馈而重复提交 */
+/* 提示条随页面文档流展示，避免吸顶时遮挡顶部上下文与汇率导航栏 */
 .notice {
-  position: sticky;
-  top: 10px;
-  z-index: 30;
-  box-shadow: 0 6px 18px rgba(24, 44, 32, 0.09);
+  position: relative;
+  z-index: 1;
+  box-shadow: 0 2px 8px rgba(24, 44, 32, 0.05);
 }
 
 label {
@@ -11601,6 +11567,85 @@ html[data-theme="light"] .mode-segmented-control {
   border-radius: 10px;
   box-shadow: var(--shadow) !important;
   color: var(--ink);
+}
+
+/* 修复 .action-card 在浅色/深色极简主题下的文字、表单标签与按钮对比度 */
+.action-card .eyebrow {
+  color: var(--green) !important;
+}
+
+.action-card h2,
+.action-card h3,
+.action-card strong {
+  color: var(--ink);
+}
+
+.action-card p {
+  color: var(--muted);
+}
+
+.action-card .field label {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.action-card .field input::placeholder,
+.action-card .field textarea::placeholder {
+  color: var(--muted);
+  opacity: 0.72;
+}
+
+.action-card .button.primary {
+  width: 100%;
+  background: #111111;
+  color: #ffffff;
+  border: 1px solid #111111;
+}
+
+.action-card .button.primary:hover:not(:disabled) {
+  background: #27272a;
+  border-color: #27272a;
+  color: #ffffff;
+}
+
+html[data-theme="dark"] .action-card .button.primary {
+  background: #f8fafc;
+  color: #0b0d11;
+  border: 1px solid #f8fafc;
+}
+
+html[data-theme="dark"] .action-card .button.primary:hover:not(:disabled) {
+  background: #e2e8f0;
+  border-color: #e2e8f0;
+  color: #0b0d11;
+}
+
+.action-card .button:disabled,
+.action-card .button.primary:disabled {
+  background: var(--surface-subtle);
+  color: var(--muted);
+  border: 1px solid var(--line-strong);
+  opacity: 0.78;
+  cursor: not-allowed;
+}
+
+.action-card .action-warning {
+  background: var(--amber-soft);
+  color: var(--amber);
+  border: 1px solid rgba(180, 83, 9, 0.28);
+}
+
+.action-card .selection-side-meta span {
+  color: var(--muted);
+}
+
+.action-card .selection-side-meta strong {
+  color: var(--ink);
+}
+
+/* 页面底部预留安全间距，避免右下角悬浮 ⌘K 按钮遮挡末行操作按钮 */
+.page {
+  padding-bottom: 92px;
 }
 
 /* 首页 Hero 瘦身：去蓝顶边、去绿底药丸、紧凑留白 */
@@ -16093,4 +16138,129 @@ html[data-theme="dark"] .hero-eyebrow-demo {
   gap: 4px;
   font-size: 12px;
   color: var(--muted);
+}
+
+/* ============================================================================
+   UX 全链路体验优化：5 列看板、锚点导航、沙盘全宽、货架预览与导出菜单
+   ============================================================================ */
+
+/* 首页 5 阶漏斗看板：桌面宽屏保持 5 列等宽不折行 */
+.pipeline-kanban-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  align-items: stretch;
+}
+
+@media (max-width: 1180px) {
+  .pipeline-kanban-grid {
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  }
+}
+
+/* What-If 沙盘：瀑布图与 5 列 ACoS 热力矩阵纵向全宽排版，避免列与行标题被裁切 */
+.sandbox-visual-grid {
+  grid-template-columns: 1fr !important;
+}
+
+/* 手机端实时预览：防止「手机端」换行及竞品标题纵向裁切 */
+.shelf-search-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.shelf-search-bar .mono {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.shelf-title {
+  line-height: 1.38;
+  min-height: 2.76em;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+/* 商品详情页 0→4 快捷锚点导航条 */
+.content-section-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  border-radius: 10px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+}
+
+.content-section-nav a {
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+}
+
+.content-section-nav a:hover {
+  color: var(--ink);
+  border-color: var(--line-strong);
+  background: var(--paper);
+}
+
+/* 案卷页 Header 导出与战报下拉菜单 */
+.header-export-menu {
+  position: relative;
+}
+
+.header-export-menu > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.header-export-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.header-export-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 190px;
+  z-index: 60;
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 10px;
+  background: var(--paper);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-lg, 0 12px 32px rgba(0, 0, 0, 0.14));
+}
+
+.header-export-popover a {
+  display: block;
+  padding: 8px 10px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.header-export-popover a:hover {
+  background: var(--surface-subtle);
+}
+
+/* 选品向导 01/02/03 入口卡选中态强化 */
+.wizard-entry-card.is-active {
+  border-color: var(--ink) !important;
+  box-shadow: 0 0 0 2px var(--accent-soft) !important;
 }
