@@ -303,6 +303,9 @@ function auditLabel(action: string) {
   const labels: Record<string, string> = {
     "case.seeded": "创建演示商品",
     "case.imported": "导入候选品并生成成本模型",
+    "case.created_from_wizard": "通过选品向导立项",
+    "case.media_pack_exported": "导出上架素材包 (ZIP)",
+    "case.flatfile_exported": "导出 Flat File (TSV)",
     "cost_model.created": "保存新的成本模型版本",
     "case.approved": "已进入商品立项（历史记录）",
     "case.rejected": "已归档历史商品记录",
