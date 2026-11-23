@@ -262,14 +262,29 @@ export function CostBackCalculator({
         <div className="ai-cost-price-shortcut">
           <span>售价口径</span>
           <div>
-            {usableRecommendedPriceCents ? (
-              <button type="button" onClick={() => setPriceInput(String(usableRecommendedPriceCents / 100))}>AI 建议价</button>
-            ) : null}
             {confirmedPriceCents !== null ? (
-              <button type="button" onClick={() => setPriceInput(String(confirmedPriceCents / 100))}>已确认价</button>
+              <button
+                type="button"
+                className={usingConfirmedPrice ? "is-active" : undefined}
+                onClick={() => setPriceInput(String(confirmedPriceCents / 100))}
+              >
+                已确认价 ({moneyIn(currency, confirmedPriceCents)})
+              </button>
+            ) : (
+              <a href={priceEntryHref} className="button primary" style={{ minHeight: 38 }}>
+                去确认真实售价 ↓
+              </a>
+            )}
+            {usableRecommendedPriceCents && salePriceCents !== usableRecommendedPriceCents ? (
+              <button
+                type="button"
+                onClick={() => setPriceInput(String(usableRecommendedPriceCents / 100))}
+              >
+                恢复 AI 建议价
+              </button>
             ) : null}
           </div>
-          <small>AI 建议价不参与正式门禁</small>
+          <small>{confirmedPriceCents !== null ? "可切换口径做对比测算" : "当前为假设价，确认后才参与正式门禁"}</small>
         </div>
       </div>
 
