@@ -4523,7 +4523,7 @@ tbody tr:last-child td {
 
 .ai-discovery-progress {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 7px;
   margin-top: 16px;
   padding: 7px;
@@ -16286,4 +16286,64 @@ html[data-theme="dark"] .hero-eyebrow-demo {
 .wizard-entry-card.is-active {
   border-color: var(--ink) !important;
   box-shadow: 0 0 0 2px var(--accent-soft) !important;
+}
+
+/* 供应商发现：单主词紧凑搜索卡 + 可折叠扩展搜索词 */
+.ai-supplier-lead-primary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.ai-supplier-more-leads {
+  margin-top: 10px;
+}
+
+.ai-supplier-more-leads > summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+  list-style: none;
+  user-select: none;
+}
+
+.ai-supplier-more-leads > summary::-webkit-details-marker {
+  display: none;
+}
+
+.ai-supplier-more-leads > summary:hover {
+  color: var(--ink);
+}
+
+.ai-supplier-more-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.ai-supplier-more-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 9px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--surface-subtle);
+}
+
+.ai-supplier-more-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ai-supplier-more-meta strong {
+  font-size: 13px;
+  color: var(--ink);
 }

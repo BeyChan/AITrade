@@ -84,23 +84,24 @@ export function SupplierDiscoveryWorkspace({
   const shortlistedCount = hypothesis.supplierCandidates.filter((candidate) => candidate.status === "shortlisted").length;
   const hasRfqDraft = supplierDrafts.some((draft) => draft.draftType === "rfq");
   const discoverySteps = [
-    { label: "选择方向", detail: hypothesis.concept, state: "done" },
     {
-      label: "采集 1688",
+      label: "搜索并采集 1688",
       detail: latestRun ? `最近采集 ${shortDate(latestRun.capturedAt)}` : "打开搜索结果页后点击采集",
       state: latestRun ? "done" : "active",
     },
     {
-      label: "人工核验",
+      label: "对比与人工核验",
       detail: shortlistedCount > 0 ? `已入短名单 ${shortlistedCount} 个` : "对比后核验供应商和产品",
       state: shortlistedCount > 0 ? "done" : latestRun ? "active" : "todo",
     },
     {
-      label: "生成 RFQ",
+      label: "生成 RFQ 询价",
       detail: hasRfqDraft ? "已有内部草稿，待人工复制" : "短名单供应商可一键生成",
       state: hasRfqDraft ? "done" : shortlistedCount > 0 ? "active" : "todo",
     },
   ];
+  const primaryLead = supplierLeads[0] ?? null;
+  const extraLeads = supplierLeads.slice(1);
 
   return (
     <>
@@ -113,31 +114,49 @@ export function SupplierDiscoveryWorkspace({
         ))}
       </div>
 
-      <section className="ai-supplier-discovery" id={`supplier-discovery-${hypothesis.id}`}>
-        <div className="ai-supplier-discovery-head">
-          <div>
-            <strong>① 选择搜索方向</strong>
-            <span>先从一种搜索思路开始。搜索命中只是候选，后续仍需核对主体、产品匹配和报价。</span>
+      {primaryLead ? (
+        <section className="ai-supplier-discovery" id={`supplier-discovery-${hypothesis.id}`}>
+          <div className="ai-supplier-discovery-head">
+            <div>
+              <strong>① 快速找货源</strong>
+              <span>默认用核心品名直达 1688 / Alibaba / Google；如需按结构、场景或工厂词细分，可展开下方扩展词。</span>
+            </div>
           </div>
-          <span className="badge badge-neutral">{supplierLeads.length} 组线索</span>
-        </div>
-        <div className="ai-supplier-lead-grid">
-          {supplierLeads.map((lead) => (
-            <article className="ai-supplier-lead" key={lead.role}>
-              <div className="ai-supplier-lead-copy">
-                <span>{lead.role}</span>
-                <strong>{lead.query}</strong>
-                <p>{lead.note}</p>
+
+          <article className="ai-supplier-lead ai-supplier-lead-primary">
+            <div className="ai-supplier-lead-copy">
+              <span>{primaryLead.role}</span>
+              <strong>{primaryLead.query}</strong>
+            </div>
+            <div className="ai-supplier-lead-links">
+              <a href={supplier1688SearchUrl(primaryLead.query)} target="_blank" rel="noreferrer">打开 1688</a>
+              <a href={supplierAlibabaSearchUrl(primaryLead.query)} target="_blank" rel="noreferrer">Alibaba</a>
+              <a href={supplierGoogleSearchUrl(primaryLead.query)} target="_blank" rel="noreferrer">Google 查工厂</a>
+            </div>
+          </article>
+
+          {extraLeads.length > 0 ? (
+            <details className="ai-supplier-more-leads">
+              <summary>展开更多扩展搜索词（{extraLeads.length} 组）▾</summary>
+              <div className="ai-supplier-more-list">
+                {extraLeads.map((lead) => (
+                  <div className="ai-supplier-more-row" key={lead.role}>
+                    <div className="ai-supplier-more-meta">
+                      <span className="badge badge-neutral">{lead.role}</span>
+                      <strong>{lead.query}</strong>
+                    </div>
+                    <div className="ai-supplier-lead-links">
+                      <a href={supplier1688SearchUrl(lead.query)} target="_blank" rel="noreferrer">1688</a>
+                      <a href={supplierAlibabaSearchUrl(lead.query)} target="_blank" rel="noreferrer">Alibaba</a>
+                      <a href={supplierGoogleSearchUrl(lead.query)} target="_blank" rel="noreferrer">Google</a>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div className="ai-supplier-lead-links">
-                <a href={supplier1688SearchUrl(lead.query)} target="_blank" rel="noreferrer">打开 1688</a>
-                <a href={supplierAlibabaSearchUrl(lead.query)} target="_blank" rel="noreferrer">Alibaba</a>
-                <a href={supplierGoogleSearchUrl(lead.query)} target="_blank" rel="noreferrer">Google 查工厂</a>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
+            </details>
+          ) : null}
+        </section>
+      ) : null}
 
       <section className="ai-candidate-capture">
         <div className="ai-candidate-capture-head">
