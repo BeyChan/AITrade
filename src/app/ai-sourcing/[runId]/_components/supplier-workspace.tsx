@@ -24,13 +24,9 @@ import {
 } from "@/lib/ai-supplier-assistant/schema";
 import type { SupplierDraft } from "@/lib/ai-supplier-assistant/repository";
 import { moneyIn, percent, shortDate } from "@/lib/format";
-import {
-  buildSupplierLeads,
-  supplier1688SearchUrl,
-  supplierAlibabaSearchUrl,
-  supplierGoogleSearchUrl,
-} from "@/lib/supplier-discovery";
+import { buildSupplierLeads } from "@/lib/supplier-discovery";
 import { type BatchType, dateInputValue } from "./helpers";
+import { SupplierLeadQuickSearch } from "./supplier-lead-quick-search";
 
 export function SupplierDiscoveryWorkspace({
   runId,
@@ -100,9 +96,6 @@ export function SupplierDiscoveryWorkspace({
       state: hasRfqDraft ? "done" : shortlistedCount > 0 ? "active" : "todo",
     },
   ];
-  const primaryLead = supplierLeads[0] ?? null;
-  const extraLeads = supplierLeads.slice(1);
-
   return (
     <>
       <div className="ai-discovery-progress" aria-label="供应商发现流程">
@@ -114,47 +107,15 @@ export function SupplierDiscoveryWorkspace({
         ))}
       </div>
 
-      {primaryLead ? (
+      {supplierLeads.length > 0 ? (
         <section className="ai-supplier-discovery" id={`supplier-discovery-${hypothesis.id}`}>
           <div className="ai-supplier-discovery-head">
             <div>
               <strong>① 快速找货源</strong>
-              <span>默认用核心品名直达 1688 / Alibaba / Google；如需按结构、场景或工厂词细分，可展开下方扩展词。</span>
+              <span>默认选中核心品名，可切换上方标签按结构、场景或源头工厂词直达搜索。</span>
             </div>
           </div>
-
-          <article className="ai-supplier-lead ai-supplier-lead-primary">
-            <div className="ai-supplier-lead-copy">
-              <span>{primaryLead.role}</span>
-              <strong>{primaryLead.query}</strong>
-            </div>
-            <div className="ai-supplier-lead-links">
-              <a href={supplier1688SearchUrl(primaryLead.query)} target="_blank" rel="noreferrer">打开 1688</a>
-              <a href={supplierAlibabaSearchUrl(primaryLead.query)} target="_blank" rel="noreferrer">Alibaba</a>
-              <a href={supplierGoogleSearchUrl(primaryLead.query)} target="_blank" rel="noreferrer">Google 查工厂</a>
-            </div>
-          </article>
-
-          {extraLeads.length > 0 ? (
-            <details className="ai-supplier-more-leads">
-              <summary>展开更多扩展搜索词（{extraLeads.length} 组）▾</summary>
-              <div className="ai-supplier-more-list">
-                {extraLeads.map((lead) => (
-                  <div className="ai-supplier-more-row" key={lead.role}>
-                    <div className="ai-supplier-more-meta">
-                      <span className="badge badge-neutral">{lead.role}</span>
-                      <strong>{lead.query}</strong>
-                    </div>
-                    <div className="ai-supplier-lead-links">
-                      <a href={supplier1688SearchUrl(lead.query)} target="_blank" rel="noreferrer">1688</a>
-                      <a href={supplierAlibabaSearchUrl(lead.query)} target="_blank" rel="noreferrer">Alibaba</a>
-                      <a href={supplierGoogleSearchUrl(lead.query)} target="_blank" rel="noreferrer">Google</a>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </details>
-          ) : null}
+          <SupplierLeadQuickSearch leads={supplierLeads} />
         </section>
       ) : null}
 

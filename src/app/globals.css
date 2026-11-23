@@ -16263,53 +16263,36 @@ html[data-theme="dark"] .hero-eyebrow-demo {
   box-shadow: 0 0 0 2px var(--accent-soft) !important;
 }
 
-/* 供应商发现：可折叠扩展搜索词 */
-.ai-supplier-more-leads {
-  margin-top: 10px;
+/* 供应商发现：单选切换关键词标签 + 唯一搜索栏 */
+.ai-supplier-quick-search {
+  margin-top: 12px;
 }
 
-.ai-supplier-more-leads > summary {
-  cursor: pointer;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--muted);
-  list-style: none;
-  user-select: none;
-}
-
-.ai-supplier-more-leads > summary::-webkit-details-marker {
-  display: none;
-}
-
-.ai-supplier-more-leads > summary:hover {
-  color: var(--ink);
-}
-
-.ai-supplier-more-list {
-  display: grid;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.ai-supplier-more-row {
+.ai-supplier-lead-tabs {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
   flex-wrap: wrap;
-  padding: 9px 12px;
-  border-radius: 9px;
-  background: var(--surface-subtle);
+  gap: 6px;
 }
 
-.ai-supplier-more-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
+.ai-supplier-lead-tab {
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
 }
 
-.ai-supplier-more-meta strong {
-  font-size: 13px;
+.ai-supplier-lead-tab:hover {
   color: var(--ink);
+  border-color: var(--line-strong);
+}
+
+.ai-supplier-lead-tab.is-active {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
 }
