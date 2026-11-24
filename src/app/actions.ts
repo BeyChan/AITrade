@@ -3,10 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { recordAuditLog } from "@/lib/audit-logs";
+import { getAppMode } from "@/lib/app-mode";
 import type { EconomicsAssumptions } from "@/lib/economics";
 import { getFxRatesSnapshot } from "@/lib/fx-rates";
 import { getSiteOptions } from "@/lib/repository";
-import { getComparisonReportById } from "@/lib/competitor-compare/storage";
+import { confirmComparisonReport, getComparisonReportById } from "@/lib/competitor-compare/storage";
 import { isSupportedImageSlot } from "@/lib/image-skills";
 import {
   createSupplierDraft,
@@ -450,19 +451,45 @@ export async function attachComparisonReportAction(formData: FormData) {
   const hypothesisId = String(formData.get("hypothesisId") || "").trim();
   const reportId = String(formData.get("reportId") || "").trim();
   const actor = String(formData.get("actor") || "运营人员").trim();
+  const returnTabRaw = String(formData.get("returnTab") || "hypotheses").trim();
+  const returnTab =
+    returnTabRaw === "profit" || returnTabRaw === "suppliers" || returnTabRaw === "decision"
+      ? returnTabRaw
+      : "hypotheses";
+  const returnPath = `/ai-sourcing/${encodeURIComponent(runId)}?tab=${returnTab}&hypothesisId=${encodeURIComponent(hypothesisId)}#hypothesis-${encodeURIComponent(hypothesisId)}`;
 
   let res: Awaited<ReturnType<typeof attachComparisonReportToHypothesis>>;
+  let demoMode = false;
+  let autoConfirmedTitle = "";
   try {
+    demoMode = (await getAppMode()) === "sandbox";
+    if (demoMode) {
+      const report = await getComparisonReportById(reportId);
+      if (report && report.reviewStatus !== "confirmed") {
+        await confirmComparisonReport(reportId, { allowUnverified: true });
+        autoConfirmedTitle = report.title;
+      }
+    }
     res = await attachComparisonReportToHypothesis({ hypothesisId, reportId, actor });
+    if (autoConfirmedTitle) {
+      await recordAuditLog({
+        actor,
+        action: "competitor.report_confirmed",
+        entityType: "competitor_report",
+        entityId: reportId,
+        details: { title: autoConfirmedTitle, demoBypass: true, source: "candidate_bind" },
+      }).catch(() => {});
+    }
   } catch (error) {
-    redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
+    redirect(withQuery(returnPath, "error", errorMessage(error)));
   }
 
   revalidateAISourcing(runId);
   const parts = [`已从扫描导入 ${res.addedCompetitors} 条真实竞品`];
   if (res.addedReviewSamples > 0) parts.push(`${res.addedReviewSamples} 条真实差评`);
   if (res.p50PriceCents) parts.push("并带入参考售价");
-  redirect(`/ai-sourcing/${encodeURIComponent(runId)}?tab=hypotheses&hypothesisId=${encodeURIComponent(hypothesisId)}&notice=${encodeURIComponent(parts.join("，"))}#hypothesis-${encodeURIComponent(hypothesisId)}`);
+  if (demoMode) parts.push("演示模式已自动确认研报");
+  redirect(withQuery(returnPath, "notice", parts.join("，")));
 }
 
 export async function saveHypothesisComplianceAttrsAction(formData: FormData) {

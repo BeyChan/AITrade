@@ -561,6 +561,13 @@ export async function attachComparisonReportToHypothesis(input: {
   if (report.reviewStatus !== "confirmed") {
     throw new Error("研报尚未人工确认，不能建立正式候选");
   }
+  if (
+    report.marketCode.toUpperCase() !== context.batch.marketCode.toUpperCase()
+    || report.platformCode.toLowerCase() !== context.batch.platformCode.toLowerCase()
+    || report.currency.toUpperCase() !== context.batch.currency.toUpperCase()
+  ) {
+    throw new Error("研报站点、平台或币种与候选不一致，不能绑定");
+  }
 
   const actor = (input.actor ?? "").trim() || "运营人员";
   if (!context.hypothesis.selectedForValidation) {

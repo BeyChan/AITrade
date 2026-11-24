@@ -306,7 +306,11 @@ export async function createCostSheetVersion(
   return (await getCostSheet(id))!;
 }
 
-export async function confirmCostSheet(id: string, actorInput: string): Promise<CostSheet> {
+export async function confirmCostSheet(
+  id: string,
+  actorInput: string,
+  options?: { demoBypass?: boolean },
+): Promise<CostSheet> {
   const db = await getDb();
   const actor = actorOrThrow(actorInput);
   const sheet = await getCostSheet(id);
@@ -326,7 +330,12 @@ export async function confirmCostSheet(id: string, actorInput: string): Promise<
         randomUUID(),
         actor,
         id,
-        JSON.stringify({ version: sheet.version, marginRate: sheet.results.marginRate, netProfitCents: sheet.results.netProfitCents }),
+        JSON.stringify({
+          version: sheet.version,
+          marginRate: sheet.results.marginRate,
+          netProfitCents: sheet.results.netProfitCents,
+          demoBypass: Boolean(options?.demoBypass),
+        }),
       ],
     );
   });

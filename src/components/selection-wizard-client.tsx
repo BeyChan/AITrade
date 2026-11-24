@@ -193,7 +193,7 @@ export function SelectionWizardClient({
             </svg>
           </span>
           <span className="wizard-entry-body">
-            <strong>从已确认研报建立候选</strong>
+            <strong>用研报建立候选</strong>
             <span className="wizard-entry-description">只选用人工核对过的竞品研报，P50 仅作为参考售价</span>
           </span>
         </button>
@@ -212,7 +212,7 @@ export function SelectionWizardClient({
             </svg>
           </span>
           <span className="wizard-entry-body">
-            <strong>从已确认核算单建立候选</strong>
+            <strong>用核算单建立候选</strong>
             <span className="wizard-entry-description">只选用已确认且为最新版本的核算单，直接复用其成本模型</span>
           </span>
         </button>
@@ -474,11 +474,11 @@ export function SelectionWizardClient({
         <section className="section wizard-panel-anchor" id="competitor-entry-panel">
           <div className="section-header">
             <div>
-              <h2>从已确认竞品研报建立候选（{marketName}站 · {platformName}）</h2>
+              <h2>选择一份已确认研报（{marketName}站 · {platformName}）</h2>
               <p>仅可选择已人工核对的研报。P50 仅作竞品参考，不进入正式利润门禁。</p>
             </div>
             <Link href="/competitors" className="button ghost compact-button">
-              去竞品研报库
+              查看全部研报
             </Link>
           </div>
 
@@ -512,7 +512,7 @@ export function SelectionWizardClient({
             <div className="form-actions">
               <span className="help">建立后会挂接真实竞品与差评证据；正式 GO 需另行确认同范围成本核算单。</span>
               <button type="submit" className="button primary" disabled={isConverting || !selectedReportId}>
-                {isConverting ? "正在建立候选..." : "从已确认研报建立候选 →"}
+                {isConverting ? "正在建立候选..." : "用此研报建立候选 →"}
               </button>
             </div>
             </form>
@@ -525,10 +525,10 @@ export function SelectionWizardClient({
         <section className="section wizard-panel-anchor" id="sourcing-entry-panel">
           <div className="section-header">
             <div>
-              <h2>从已确认核算单建立候选（{marketName}站 · {platformName}）</h2>
+              <h2>选择一张已确认核算单（{marketName}站 · {platformName}）</h2>
               <p>只展示人工确认且为同组最新版本的核算单；后续 GO 与正式立项会直接复用其假设和结果。</p>
             </div>
-            <Link href="/costing" className="button ghost compact-button">去成本核算</Link>
+            <Link href="/costing" className="button ghost compact-button">查看全部核算单</Link>
           </div>
 
           {confirmedCostSheets.length === 0 ? (
@@ -567,7 +567,7 @@ export function SelectionWizardClient({
             <div className="form-actions">
               <span className="help">候选会绑定所选核算单；未确认、旧版本或净利率低于 18% 的核算单不能支持正式 GO。</span>
               <button type="submit" className="button primary" disabled={!selectedCostSheetId}>
-                从已确认核算单建立候选 →
+                用此核算单建立候选 →
               </button>
             </div>
             </form>

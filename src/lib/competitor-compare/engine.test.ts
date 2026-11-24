@@ -11,7 +11,11 @@ process.env.PGLITE_DATA_DIR = dataDir;
 const { extractAsinFromUrl, parseCompetitorInputs } = await import("./parser.ts");
 const { analyzeCompetitors, computeEffectivePriceCents, reanalyzeExistingReport } = await import("./engine.ts");
 const { calculateProductIndex } = await import("./competitiveness.ts");
-const { saveComparisonReport, getComparisonReportById } = await import("./storage.ts");
+const {
+  confirmComparisonReport,
+  getComparisonReportById,
+  saveComparisonReport,
+} = await import("./storage.ts");
 const { getDb } = await import("../db.ts");
 
 after(async () => {
@@ -185,6 +189,29 @@ test("saveComparisonReport computes snapshotDiff when a newer snapshot shows pri
   assert.equal(saved!.snapshotDiff!.reviewSurges[0]?.asin, "B0DIFF0001");
   assert.equal(saved!.snapshotDiff!.reviewSurges[0]?.deltaReviews, 160);
   assert.ok(saved!.snapshotDiff!.alerts.some((a) => a.includes("价格战")));
+});
+
+test("demo confirmation bypasses missing verified samples while regular confirmation still rejects", async () => {
+  const report = await analyzeCompetitors({
+    rawInputs: "https://www.amazon.com/dp/B0DEMOCONF01",
+    marketCode: "US",
+    platformCode: "amazon",
+    currency: "USD",
+    skipModel: true,
+  });
+  report.id = "comp_demo_confirm_test";
+  report.provenance = "ai_generated";
+  await saveComparisonReport(report);
+
+  await assert.rejects(
+    () => confirmComparisonReport(report.id),
+    /真实抓取\/人工校验的价格样本/,
+  );
+  assert.equal((await getComparisonReportById(report.id, { mode: "sandbox" }))?.reviewStatus, "pending");
+
+  const confirmed = await confirmComparisonReport(report.id, { allowUnverified: true });
+  assert.equal(confirmed?.reviewStatus, "confirmed");
+  assert.equal((await getComparisonReportById(report.id, { mode: "sandbox" }))?.reviewStatus, "confirmed");
 });
 
 test("reanalyzeExistingReport preserves captured data and supports removing an outlier ASIN in place", async () => {

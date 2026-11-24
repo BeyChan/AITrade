@@ -7,6 +7,7 @@ import {
   confirmCostSheetAction,
   createCostSheetVersionAction,
   createHypothesisFromCostSheetAction,
+  saveAndConfirmCostSheetAction,
   saveCostSheetAction,
 } from "./actions";
 import {
@@ -18,6 +19,16 @@ import type { CostSheet, CostSheetAssumptions } from "@/lib/cost-sheets-reposito
 import { moneyIn, percent, shortDate } from "@/lib/format";
 
 type SiteOption = { code: string; name: string; currency?: string };
+export type CostingCandidateContext = {
+  id: string;
+  concept: string;
+  runId: string;
+  marketCode: string;
+  platformCode: string;
+  currency: string;
+  costSheetId: string | null;
+};
+
 type CostFormState = {
   title: string;
   productTitle: string;
@@ -43,13 +54,14 @@ type CostFormState = {
 
 type Props = {
   sheet: CostSheet | null;
-  hypothesis: { id: string; concept: string; runId: string } | null;
+  hypothesis: CostingCandidateContext | null;
   markets: SiteOption[];
   platforms: SiteOption[];
   initialForm: CostFormState;
   sheets: CostSheet[];
   confirmedSheets: CostSheet[];
   actor: string;
+  demoMode: boolean;
 };
 
 function cents(value: string) {
@@ -141,7 +153,7 @@ function Field({
   return (
     <div className="field">
       <label htmlFor={id}>{label}{required ? " *" : ""}</label>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div className={`field-control${suffix ? " has-suffix" : ""}`}>
         <input
           id={id}
           name={id}
@@ -151,9 +163,8 @@ function Field({
           required={required}
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          style={{ flex: 1 }}
         />
-        {suffix ? <span className="muted" style={{ whiteSpace: "nowrap", fontSize: 12 }}>{suffix}</span> : null}
+        {suffix ? <span className="field-suffix">{suffix}</span> : null}
       </div>
       {hint ? <span className="help">{hint}</span> : null}
     </div>
@@ -188,6 +199,7 @@ export function CostingClient({
   sheets,
   confirmedSheets,
   actor,
+  demoMode,
 }: Props) {
   const [form, setForm] = useState<CostFormState>(() => (sheet ? toForm(sheet) : initialForm));
   const set = (key: keyof CostFormState) => (value: string) => setForm((current) => ({ ...current, [key]: value }));
@@ -204,15 +216,40 @@ export function CostingClient({
   const isConfirmed = sheet?.status === "confirmed";
   const latestForGroup = sheet ? sheets.filter((item) => item.groupId === sheet.groupId).sort((a, b) => b.version - a.version)[0] : null;
   const isLatest = !sheet || latestForGroup?.id === sheet.id;
+  const isBound = Boolean(sheet && hypothesis?.costSheetId === sheet.id);
   const passesGate = economics.marginRate >= 0.18 && economics.stressProfitCents > 0;
   const marketCurrency = markets.find((item) => item.code === form.marketCode)?.currency;
+  const bindableSheets = useMemo(() => {
+    if (!demoMode) return confirmedSheets;
+    const latestByGroup = new Map<string, CostSheet>();
+    for (const item of sheets) {
+      const current = latestByGroup.get(item.groupId);
+      if (!current || item.version > current.version) latestByGroup.set(item.groupId, item);
+    }
+    return [...latestByGroup.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }, [confirmedSheets, demoMode, sheets]);
+  const newCandidateSheetHref = hypothesis
+    ? `/costing?${new URLSearchParams({
+        hypothesisId: hypothesis.id,
+        market: hypothesis.marketCode,
+        platform: hypothesis.platformCode,
+      }).toString()}`
+    : "/costing";
 
   return (
     <div className="stack" style={{ gap: 18 }}>
       {hypothesis ? (
         <div className="notice info">
           <strong>正在为候选「{hypothesis.concept}」核算成本</strong>
-          <span>保存与生成版本不会自动改变候选绑定；请在核算单人工确认后，用“绑定到当前候选”明确建立关联。</span>
+          <span>{isBound
+            ? `当前核算单 V${sheet?.version} 已绑定此候选。`
+            : hypothesis.costSheetId
+              ? demoMode
+                ? "当前候选已绑定其他核算单；演示模式保存或选择新单后会自动确认并替换原关联。"
+                : "当前候选已绑定其他核算单；这里的新单在人工确认后会自动绑定并替换原关联。"
+              : demoMode
+                ? "站点、平台和币种已按候选锁定。演示模式可保存后一键确认并绑定，无需分两步操作。"
+                : "站点、平台和币种已按候选锁定。保存草稿不会建立绑定；人工确认后会自动绑定到当前候选。"}</span>
         </div>
       ) : null}
 
@@ -235,17 +272,21 @@ export function CostingClient({
             <form action={saveCostSheetAction} className="stack">
               <input type="hidden" name="sheetId" value={sheet?.id ?? ""} />
               <input type="hidden" name="hypothesisId" value={hypothesis?.id ?? ""} />
+              <input type="hidden" name="runId" value={hypothesis?.runId ?? ""} />
               <input type="hidden" name="actor" value={actor} />
               <input type="hidden" name="title" value={form.title} />
               <input type="hidden" name="productTitle" value={form.productTitle} />
 
               <div className="form-grid">
+                <input type="hidden" name="marketCode" value={form.marketCode} />
+                <input type="hidden" name="platformCode" value={form.platformCode} />
+                <input type="hidden" name="currency" value={form.currency} />
                 <div className="field">
                   <label htmlFor="marketCode">站点</label>
                   <select
                     id="marketCode"
-                    name="marketCode"
                     value={form.marketCode}
+                    disabled={Boolean(hypothesis)}
                     onChange={(event) => {
                       const next = event.target.value;
                       const currency = markets.find((item) => item.code === next)?.currency || form.currency;
@@ -257,14 +298,19 @@ export function CostingClient({
                 </div>
                 <div className="field">
                   <label htmlFor="platformCode">平台</label>
-                  <select id="platformCode" name="platformCode" value={form.platformCode} onChange={(event) => set("platformCode")(event.target.value)}>
+                  <select
+                    id="platformCode"
+                    value={form.platformCode}
+                    disabled={Boolean(hypothesis)}
+                    onChange={(event) => set("platformCode")(event.target.value)}
+                  >
                     {platforms.map((platform) => <option key={platform.code} value={platform.code}>{platform.name}</option>)}
                   </select>
                 </div>
                 <div className="field">
                   <label htmlFor="currency">币种</label>
-                  <input id="currency" name="currency" value={form.currency} readOnly />
-                  <span className="help">随站点自动带出，所有金额均按该币种录入。</span>
+                  <input id="currency" value={form.currency} readOnly />
+                  <span className="help">{hypothesis ? "沿用候选站点，避免绑定口径不一致。" : "随站点自动带出，所有金额均按该币种录入。"}</span>
                 </div>
                 <div className="field">
                   <label htmlFor="productTitleInput">商品名称 / 标题 *</label>
@@ -313,14 +359,41 @@ export function CostingClient({
                     </button>
                   ) : null}
                   {sheet && !isConfirmed ? (
-                    <button type="submit" formAction={confirmCostSheetAction} className="button secondary">
-                      确认核算单
+                    demoMode ? (
+                      <button
+                        type="submit"
+                        formAction={confirmCostSheetAction}
+                        className="button secondary"
+                        title="演示模式：保存当前参数、确认核算单，并自动绑定当前候选"
+                      >
+                        {hypothesis ? "保存、确认并绑定" : "保存并确认"}
+                      </button>
+                    ) : (
+                      <button type="submit" formAction={confirmCostSheetAction} className="button secondary">
+                        确认核算单
+                      </button>
+                    )
+                  ) : null}
+                  {demoMode && !sheet ? (
+                    <button
+                      type="submit"
+                      formAction={saveAndConfirmCostSheetAction}
+                      className="button secondary"
+                      title={hypothesis ? "演示模式：保存核算单、完成确认并直接绑定当前候选" : "演示模式：保存并确认核算单"}
+                    >
+                      {hypothesis ? "保存、确认并绑定" : "保存并确认"}
                     </button>
                   ) : null}
                 </div>
-                <Link href="/costing" className="button ghost">新建另一张核算单</Link>
+                <Link
+                  href={newCandidateSheetHref}
+                  className="button ghost"
+                >
+                  {hypothesis ? "新建另一张并绑定" : "新建另一张核算单"}
+                </Link>
               </div>
               {isConfirmed ? <p className="help" style={{ margin: 0 }}>已确认版本不可覆盖；调整参数请生成新版本，旧版会保留审计记录。</p> : null}
+              {demoMode && !isConfirmed ? <p className="help" style={{ margin: 0 }}>演示模式会跳过人工确认与二次绑定；正式模式仍要求人工确认。</p> : null}
             </form>
           </div>
 
@@ -347,7 +420,7 @@ export function CostingClient({
         </div>
       </section>
 
-      {sheet && isConfirmed && isLatest ? (
+      {!hypothesis && sheet && isConfirmed && isLatest ? (
         <section className="section">
           <div className="section-header">
             <div>
@@ -376,12 +449,45 @@ export function CostingClient({
         <div className="notice warn">该核算单已有更新版本，不能用于正式 GO。请打开最新版本或重新生成版本。</div>
       ) : null}
 
+      {hypothesis && sheet && isConfirmed && isLatest ? (
+        <section className="section">
+          <div className="section-header">
+            <div>
+              <span className="eyebrow">候选绑定</span>
+              <h2>{isBound ? "当前候选已使用这张核算单" : "把这张核算单绑定到当前候选"}</h2>
+              <p>{isBound
+                ? "候选会直接读取本单的售价、成本与门禁结果。修改参数时请生成新版本，再重新绑定。"
+                : "绑定后返回候选成本步骤，后续 GO 判定将使用本单的已确认版本。"}</p>
+            </div>
+          </div>
+          {isBound ? (
+            <div className="notice notice-success">
+              <strong>已绑定当前候选</strong>
+              <span>V{sheet.version} · {sheet.title} · 净利率 {percent(sheet.results.marginRate)}</span>
+            </div>
+          ) : (
+            <form action={attachCostSheetAction} className="button-row">
+              <input type="hidden" name="hypothesisId" value={hypothesis.id} />
+              <input type="hidden" name="runId" value={hypothesis.runId} />
+              <input type="hidden" name="costSheetId" value={sheet.id} />
+              <input type="hidden" name="actor" value={actor} />
+              <button type="submit" className="button primary">绑定到当前候选 →</button>
+            </form>
+          )}
+        </section>
+      ) : null}
+
       {!sheet && hypothesis ? (
         <section className="card" style={{ padding: 18 }}>
           <div className="button-row" style={{ justifyContent: "space-between" }}>
             <div>
               <strong>已有核算单？</strong>
-              <p className="muted" style={{ margin: "4px 0 0" }}>选择一张已确认且为最新版本的核算单，直接绑定到当前候选。</p>
+              <p className="muted" style={{ margin: "4px 0 0" }}>
+                {demoMode
+                  ? "演示模式可选择最新核算单，草稿也会在绑定时自动确认。"
+                  : "选择一张已确认且为最新版本的核算单，直接绑定到当前候选。"}
+                {hypothesis.costSheetId ? " 绑定新单后会替换当前关联。" : ""}
+              </p>
             </div>
             <form action={attachCostSheetAction} className="button-row">
               <input type="hidden" name="hypothesisId" value={hypothesis.id} />
@@ -389,8 +495,10 @@ export function CostingClient({
               <input type="hidden" name="actor" value={actor} />
               <select name="costSheetId" required defaultValue="">
                 <option value="" disabled>选择核算单</option>
-                {confirmedSheets.map((item) => (
-                  <option key={item.id} value={item.id}>V{item.version} · {item.title} · {percent(item.results.marginRate)}</option>
+                {bindableSheets.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    V{item.version} · {item.title} · {percent(item.results.marginRate)} · {item.status === "confirmed" ? "已确认" : "草稿"}
+                  </option>
                 ))}
               </select>
               <button type="submit" className="button secondary">绑定</button>
@@ -412,7 +520,19 @@ export function CostingClient({
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 12 }}>
             {sheets.slice(0, 12).map((item) => (
-              <Link href={`/costing?id=${encodeURIComponent(item.id)}`} className="card" key={item.id} style={{ padding: 16, textDecoration: "none" }}>
+              <Link
+                href={`/costing?${new URLSearchParams({
+                  id: item.id,
+                  ...(hypothesis ? {
+                    hypothesisId: hypothesis.id,
+                    market: hypothesis.marketCode,
+                    platform: hypothesis.platformCode,
+                  } : {}),
+                }).toString()}`}
+                className="card"
+                key={item.id}
+                style={{ padding: 16, textDecoration: "none" }}
+              >
                 <div className="button-row" style={{ justifyContent: "space-between" }}>
                   <span className="badge badge-neutral">V{item.version}</span>
                   <span className={`badge ${item.status === "confirmed" ? "badge-success" : "badge-neutral"}`}>{item.status === "confirmed" ? "已确认" : "草稿"}</span>

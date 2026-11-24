@@ -424,6 +424,13 @@ h3 {
   color: #5d7263;
 }
 
+.topbar-scope-lock-icon {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  color: var(--green);
+}
+
 .topbar-scope-control select {
   position: absolute;
   inset: 0;
@@ -447,6 +454,15 @@ h3 {
 
 .topbar-scope-control select:disabled {
   cursor: wait;
+}
+
+.topbar-scope-field.is-locked .topbar-scope-control {
+  border-color: color-mix(in srgb, var(--green) 28%, var(--line));
+  background: color-mix(in srgb, var(--green) 6%, var(--paper));
+}
+
+.topbar-scope-field.is-locked .topbar-scope-control select:disabled {
+  cursor: not-allowed;
 }
 
 .button {
@@ -933,12 +949,42 @@ tbody tr:last-child td {
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
   gap: 13px;
 }
 
 .field {
   display: grid;
+  align-content: start;
   gap: 6px;
+}
+
+.field-control {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.field-control input {
+  width: 100%;
+  min-width: 0;
+}
+
+.field-control.has-suffix input {
+  padding-right: 50px;
+}
+
+.field-suffix {
+  position: absolute;
+  top: 50%;
+  right: 11px;
+  transform: translateY(-50%);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 .field.full {

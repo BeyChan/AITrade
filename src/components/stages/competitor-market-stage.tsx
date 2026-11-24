@@ -21,6 +21,8 @@ function statusLabel(status: "pass" | "hold" | "fail" | "pending") {
 
 export function CompetitorMarketStage({
   runId,
+  marketCode,
+  platformCode,
   platformName,
   currency,
   searchUrl,
@@ -31,6 +33,8 @@ export function CompetitorMarketStage({
   eliminationAlerts,
 }: {
   runId: string;
+  marketCode: string;
+  platformCode: string;
   platformName: string;
   currency: string;
   searchUrl: string;
@@ -40,6 +44,15 @@ export function CompetitorMarketStage({
   evalResult: FastScreenEvaluation;
   eliminationAlerts: EliminationMatchAlert[];
 }) {
+  const competitorParams = new URLSearchParams({
+    market: marketCode,
+    platform: platformCode,
+    returnRunId: runId,
+    returnHypothesisId: hypothesis.id,
+    returnTab: "hypotheses",
+  });
+  if (attachedReport) competitorParams.set("id", attachedReport.id);
+
   return (
     <section className="funnel-fast-screen" aria-label="第 1 步 竞品研报">
       {eliminationAlerts.length > 0 ? (
@@ -92,8 +105,11 @@ export function CompetitorMarketStage({
           >
             去 {platformName} 抓 Top 20 ↗
           </a>
-          <Link href="/competitors" className="button ghost compact-button">
-            打开独立竞品研报库
+          <Link
+            href={`/competitors?${competitorParams.toString()}`}
+            className={`button ${attachedReport ? "ghost" : "primary"} compact-button`}
+          >
+            {attachedReport ? "查看已绑定研报" : "为当前候选补研报"}
           </Link>
         </div>
 

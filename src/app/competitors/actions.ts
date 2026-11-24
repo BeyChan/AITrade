@@ -20,6 +20,7 @@ import { createListingDraft, getContentDetail, listCasesForSite, listSupplierDir
 import { getDb } from "@/lib/db";
 import { generateStructuredJSON } from "@/lib/ai-provider";
 import { loadAIProviderConfig } from "@/lib/app-settings";
+import { getAppMode } from "@/lib/app-mode";
 import { platformEconomicDefaults } from "@/lib/ai-sourcing";
 import { convertRmbToForeignCents, getFxRate } from "@/lib/currency";
 import type { ListingDraftContent } from "@/lib/listing";
@@ -349,14 +350,15 @@ export async function confirmComparisonReportAction(
   if (!actor.trim()) return { success: false, error: "请填写核对人" };
   const report = await getComparisonReportById(reportId);
   if (!report) return { success: false, error: "未找到对应的竞品对比报告" };
-  const updated = await confirmComparisonReport(reportId);
+  const demoMode = (await getAppMode()) === "sandbox";
+  const updated = await confirmComparisonReport(reportId, { allowUnverified: demoMode });
   if (!updated) return { success: false, error: "确认失败，请刷新后重试" };
   await recordAuditLog({
     actor: actor.trim(),
     action: "competitor.report_confirmed",
     entityType: "competitor_report",
     entityId: reportId,
-    details: { title: report.title, provenance: updated.provenance },
+    details: { title: report.title, provenance: updated.provenance, demoBypass: demoMode },
   }).catch(() => {});
   revalidatePath("/competitors");
   return { success: true, provenance: updated.provenance };
@@ -364,12 +366,21 @@ export async function confirmComparisonReportAction(
 
 export async function convertReportToHypothesisAction(reportId: string) {
   try {
-    const report = await getComparisonReportById(reportId);
+    let report = await getComparisonReportById(reportId);
     if (!report) {
       return { success: false, error: "未找到对应的竞品对比报告" };
     }
+    let demoConfirmed = false;
     if (report.reviewStatus !== "confirmed") {
-      return { success: false, error: "请先在研报中点击「我已核对，确认可用」，再转入选品池" };
+      const demoMode = (await getAppMode()) === "sandbox";
+      if (!demoMode) {
+        return { success: false, error: "请先在研报中点击「我已核对，确认可用」，再转入选品池" };
+      }
+      report = await confirmComparisonReport(reportId, { allowUnverified: true });
+      if (!report) {
+        return { success: false, error: "演示模式自动确认失败，请刷新后重试" };
+      }
+      demoConfirmed = true;
     }
 
     const bridge = report.hypothesisBridge;
@@ -394,6 +405,15 @@ export async function convertReportToHypothesisAction(reportId: string) {
       reportId: report.id,
       actor: "竞品对比",
     });
+    if (demoConfirmed) {
+      await recordAuditLog({
+        actor: "竞品对比",
+        action: "competitor.report_confirmed",
+        entityType: "competitor_report",
+        entityId: report.id,
+        details: { title: report.title, demoBypass: true, source: "report_to_candidate" },
+      }).catch(() => {});
+    }
 
     revalidatePath("/ai-sourcing");
     revalidatePath("/discover");

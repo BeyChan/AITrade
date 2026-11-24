@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { SiteScopeSwitcher } from "@/components/site-scope-switcher";
 import { TopbarFxWidget } from "@/components/topbar-fx-widget";
 import type { FxRatesSnapshot } from "@/lib/fx-rates";
@@ -36,7 +36,13 @@ export function TopbarSiteScope({
   fxSnapshot,
   initialNowIso,
 }: TopbarSiteScopeProps) {
+  const pathname = usePathname();
   const searchParams = useSearchParams();
+  const normalizedPathname = pathname.replace(/\/+$/, "") || "/";
+  const hasCandidateContext =
+    (normalizedPathname === "/competitors"
+      && Boolean(searchParams.get("returnRunId") && searchParams.get("returnHypothesisId")))
+    || (normalizedPathname === "/costing" && Boolean(searchParams.get("hypothesisId")));
 
   const requestedMarket = searchParams.get("market")?.trim().toUpperCase();
   const requestedPlatform = searchParams.get("platform")?.trim().toLowerCase();
@@ -73,6 +79,8 @@ export function TopbarSiteScope({
             selectedMarket={selectedMarket}
             selectedPlatform={selectedPlatform}
             variant="topbar"
+            locked={hasCandidateContext}
+            lockReason="当前页面正在补齐候选证据，站点、平台与币种按候选锁定"
           />
         ) : null}
       </div>

@@ -14,6 +14,7 @@ import { shortDate } from "@/lib/format";
 import { calculateEconomics, type EconomicsAssumptions } from "@/lib/economics";
 import { platformEconomicDefaults } from "@/lib/ai-sourcing";
 import { convertRmbToForeignCents, OFFICIAL_FX_CONFIG } from "@/lib/currency";
+import { attachComparisonReportAction } from "@/app/actions";
 import {
   applyAntiListingToCaseAction,
   confirmComparisonReportAction,
@@ -42,21 +43,34 @@ import { MarketOverviewSection } from "./_components/market-overview-section";
 import { CompetitorPkMatrix } from "./_components/competitor-pk-matrix";
 import { AiConclusionSection } from "./_components/ai-conclusion-section";
 
+export type CandidateContext = {
+  runId: string;
+  hypothesisId: string;
+  concept: string;
+  marketCode: string;
+  platformCode: string;
+  currency: string;
+  tab: "hypotheses" | "profit" | "suppliers" | "decision";
+  comparisonReportId: string | null;
+};
+
 type Props = {
   initialReports: CompetitorComparisonReport[];
   initialReportId?: string;
   currentMarket: string;
   currentPlatform: string;
+  candidateContext?: CandidateContext | null;
+  demoMode: boolean;
 };
 
-export function CompetitorClient({ initialReports, initialReportId, currentMarket, currentPlatform }: Props) {
+export function CompetitorClient({ initialReports, initialReportId, currentMarket, currentPlatform, candidateContext, demoMode }: Props) {
   const [reports, setReports] = useState<CompetitorComparisonReport[]>(initialReports);
   const siteReports = reports.filter((report) =>
     report.marketCode.toUpperCase() === currentMarket.toUpperCase()
     && report.platformCode.toLowerCase() === currentPlatform.toLowerCase(),
   );
   const [selectedReportId, setSelectedReportId] = useState<string | null>(
-    initialReportId || siteReports[0]?.id || null,
+    initialReportId || candidateContext?.comparisonReportId || siteReports[0]?.id || null,
   );
 
   const [rawInputs, setRawInputs] = useState("");
@@ -108,7 +122,11 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
     || siteReports[0]
     || null;
   const isConfirmed = currentReport?.reviewStatus === "confirmed";
+  const isReadyToBind = isConfirmed || demoMode;
   const isEstimated = (currentReport?.priceStats.verifiedSampleCount ?? 0) === 0;
+  const isAttachedToCandidate = Boolean(
+    candidateContext && currentReport && candidateContext.comparisonReportId === currentReport.id,
+  );
 
   const handleRunAnalysis = (e: React.FormEvent) => {
     e.preventDefault();
@@ -149,7 +167,11 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
 
   const handleConfirmReport = async (reportId: string) => {
     const actor = reviewer.trim()
-      || (typeof window !== "undefined" ? window.prompt("请填写核对人（用于留痕）", "")?.trim() || "" : "");
+      || (demoMode
+        ? "演示模式"
+        : typeof window !== "undefined"
+          ? window.prompt("请填写核对人（用于留痕）", "")?.trim() || ""
+          : "");
     if (!actor) {
       setStatusMsg({ type: "error", text: "请填写核对人后再确认" });
       return;
@@ -165,7 +187,9 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
         )));
         setStatusMsg({
           type: "success",
-          text: "已记录人工核对。AI / 模板推断的数值仍属待核实，请在选品验证中补录真实证据。",
+          text: demoMode
+            ? "演示模式已确认研报；缺少真实价格样本不会阻止后续绑定。"
+            : "已记录人工核对。AI / 模板推断的数值仍属待核实，请在选品验证中补录真实证据。",
         });
       } else {
         setStatusMsg({ type: "error", text: res.error || "确认失败" });
@@ -799,7 +823,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                   {PROVENANCE_LABELS[currentReport.provenance]}
                 </span>
                 <span className={`badge ${isConfirmed ? "badge-success" : "badge-warn"}`} style={{ fontSize: "12px" }}>
-                  {isConfirmed ? "已人工核对" : "待人工核对"}
+                  {isConfirmed ? "已人工核对" : demoMode ? "演示可绑定" : "待人工核对"}
                 </span>
                 <span style={{ fontSize: "12px", color: "var(--muted)" }}>
                   {shortDate(currentReport.createdAt)}
@@ -808,7 +832,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
               <div style={{ fontSize: "12px", color: "var(--muted)", marginTop: "6px" }}>
                 真实采集价格样本 {currentReport.priceStats.verifiedSampleCount} 条 / 共 {currentReport.competitors.length} 款
                 {isEstimated ? "；当前无真实价格样本，分位仅为示意值" : "；分位仅使用真实采集价格"}
-                {isConfirmed ? "" : "。请核对后再转入选品池或写入商品草稿"}
+                {isConfirmed ? "" : demoMode ? "。演示模式可直接绑定，正式模式仍需人工核对" : "。请核对后再转入选品池或写入商品草稿"}
               </div>
             </div>
 
@@ -820,9 +844,9 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                   disabled={isConfirming}
                   onClick={() => handleConfirmReport(currentReport.id)}
                   style={{ fontSize: "12px", padding: "6px 14px", height: "34px", borderRadius: "10px" }}
-                  title="记录核对人后，才允许把研报转入选品池或写入商品草稿"
+                  title={demoMode ? "演示模式免真实样本门禁；如填写核对人会一并留痕" : "记录核对人后，才允许把研报转入选品池或写入商品草稿"}
                 >
-                  {isConfirming ? "记录中..." : "我已核对，确认可用"}
+                  {isConfirming ? "记录中..." : demoMode ? "演示确认（跳过样本门禁）" : "我已核对，确认可用"}
                 </button>
               )}
               <button
@@ -865,16 +889,47 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                 {copied ? "已复制 Markdown" : "复制研报"}
               </button>
 
-              <button
-                type="button"
-                className="button primary"
-                disabled={isPending || !isConfirmed}
-                title={isConfirmed ? "从已确认研报建立候选并绑定核算单" : "请先点击「我已核对，确认可用」"}
-                onClick={() => handleConvertToHypothesis(currentReport.id)}
-                style={{ fontSize: "12px", padding: "6px 14px", height: "34px", borderRadius: "10px" }}
-              >
-                从已确认研报建立候选 →
-              </button>
+              {candidateContext ? (
+                isAttachedToCandidate ? (
+                  <span className="badge badge-success">已绑定当前候选</span>
+                ) : (
+                  <form action={attachComparisonReportAction} style={{ margin: 0 }}>
+                    <input type="hidden" name="runId" value={candidateContext.runId} />
+                    <input type="hidden" name="hypothesisId" value={candidateContext.hypothesisId} />
+                    <input type="hidden" name="reportId" value={currentReport.id} />
+                    <input type="hidden" name="returnTab" value={candidateContext.tab} />
+                    <input type="hidden" name="actor" value="选品负责人" />
+                    <button
+                      type="submit"
+                      className="button primary"
+                      disabled={!isReadyToBind}
+                      title={isConfirmed
+                        ? "把本研报的真实竞品与差评证据绑定到当前候选"
+                        : demoMode
+                          ? "演示模式将自动确认研报并绑定当前候选"
+                          : "请先点击「我已核对，确认可用」"}
+                      style={{ fontSize: "12px", padding: "6px 14px", height: "34px", borderRadius: "10px" }}
+                    >
+                      绑定到当前候选 →
+                    </button>
+                  </form>
+                )
+              ) : (
+                <button
+                  type="button"
+                  className="button primary"
+                  disabled={isPending || !isReadyToBind}
+                  title={isConfirmed
+                    ? "从已确认研报建立候选并绑定核算单"
+                    : demoMode
+                      ? "演示模式将自动确认研报并建立候选"
+                      : "请先点击「我已核对，确认可用」"}
+                  onClick={() => handleConvertToHypothesis(currentReport.id)}
+                  style={{ fontSize: "12px", padding: "6px 14px", height: "34px", borderRadius: "10px" }}
+                >
+                  {demoMode && !isConfirmed ? "用此研报建立候选 →" : "从已确认研报建立候选 →"}
+                </button>
+              )}
             </div>
           </section>
 

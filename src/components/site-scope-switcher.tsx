@@ -20,6 +20,8 @@ type SiteScopeSwitcherProps = {
   selectedMarket: string;
   selectedPlatform: string;
   variant?: "default" | "topbar";
+  locked?: boolean;
+  lockReason?: string;
 };
 
 export function SiteScopeSwitcher({
@@ -28,6 +30,8 @@ export function SiteScopeSwitcher({
   selectedMarket,
   selectedPlatform,
   variant = "default",
+  locked = false,
+  lockReason = "当前页面已按候选口径锁定站点",
 }: SiteScopeSwitcherProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -35,6 +39,7 @@ export function SiteScopeSwitcher({
   const [platform, setPlatform] = useState(selectedPlatform);
   const [isPending, startTransition] = useTransition();
   const isTopbar = variant === "topbar";
+  const isDisabled = isPending || locked;
 
   useEffect(() => {
     setMarket(selectedMarket);
@@ -66,16 +71,17 @@ export function SiteScopeSwitcher({
       className={`site-scope-switcher ${isTopbar ? "topbar-site-switcher" : ""}`}
       aria-label="国家与平台站点"
       aria-busy={isPending}
+      title={locked ? lockReason : undefined}
     >
       {isTopbar ? null : <span className="site-switcher-kicker">当前站点</span>}
       <div className="site-switcher-fields">
         {isTopbar ? (
           <>
             <TopbarScopeSelect
-              id="marketCode"
+              id="topbar-market-code"
               ariaLabel="国家与市场"
               value={market}
-              disabled={isPending}
+              disabled={isDisabled}
               options={markets.map((item) => ({ value: item.code, label: `${item.name} · ${item.code}` }))}
               onChange={(next) => {
                 setMarket(next);
@@ -83,10 +89,10 @@ export function SiteScopeSwitcher({
               }}
             />
             <TopbarScopeSelect
-              id="platformCode"
+              id="topbar-platform-code"
               ariaLabel="平台与站点"
               value={platform}
-              disabled={isPending}
+              disabled={isDisabled}
               options={platforms.map((item) => ({ value: item.code, label: item.name }))}
               onChange={(next) => {
                 setPlatform(next);
@@ -102,7 +108,7 @@ export function SiteScopeSwitcher({
                 id="marketCode"
                 aria-label="国家与市场"
                 value={market}
-                disabled={isPending}
+                disabled={isDisabled}
                 onChange={(event) => {
                   const nextMarket = event.target.value;
                   setMarket(nextMarket);
@@ -122,7 +128,7 @@ export function SiteScopeSwitcher({
                 id="platformCode"
                 aria-label="平台与站点"
                 value={platform}
-                disabled={isPending}
+                disabled={isDisabled}
                 onChange={(event) => {
                   const nextPlatform = event.target.value;
                   setPlatform(nextPlatform);
@@ -140,7 +146,9 @@ export function SiteScopeSwitcher({
         )}
       </div>
       {isTopbar ? null : (
-        <span className="site-switcher-status">{isPending ? "切换中…" : "选择后自动更新"}</span>
+        <span className="site-switcher-status">
+          {locked ? "已按候选口径锁定" : isPending ? "切换中…" : "选择后自动更新"}
+        </span>
       )}
     </div>
   );
@@ -159,19 +167,25 @@ type TopbarScopeSelectProps = {
 function TopbarScopeSelect({ id, ariaLabel, value, disabled, options, onChange }: TopbarScopeSelectProps) {
   const selectedLabel = options.find((option) => option.value === value)?.label ?? value;
   return (
-    <label className="site-switcher-field topbar-scope-field" htmlFor={id}>
+    <label className={`site-switcher-field topbar-scope-field${disabled ? " is-locked" : ""}`} htmlFor={id}>
       <span className="topbar-scope-control">
         <span className="topbar-scope-value" aria-hidden="true">{selectedLabel}</span>
-        <svg className="topbar-scope-chevron" viewBox="0 0 12 12" aria-hidden="true" focusable="false">
-          <path
-            d="M2.5 4.5 6 8l3.5-3.5"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
+        {disabled ? (
+          <svg className="topbar-scope-lock-icon" viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+            <path d="M3.5 5V3.8a2.5 2.5 0 0 1 5 0V5M3 5h6v5H3z" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        ) : (
+          <svg className="topbar-scope-chevron" viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+            <path
+              d="M2.5 4.5 6 8l3.5-3.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        )}
         <select
           id={id}
           aria-label={ariaLabel}

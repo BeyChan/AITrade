@@ -191,6 +191,8 @@ export function HypothesisCard({
           <>
             <CompetitorMarketStage
               runId={batch.id}
+              marketCode={batch.marketCode}
+              platformCode={batch.platformCode}
               platformName={batch.platformName}
               currency={batch.currency}
               searchUrl={searchUrl}
@@ -323,13 +325,22 @@ export function HypothesisCard({
               <div className="funnel-step-footer" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
                 <div className="button-row">
                   <Link
-                    href={`/costing?id=${encodeURIComponent(costSheet.id)}&hypothesisId=${encodeURIComponent(hypothesis.id)}`}
+                    href={`/costing?${new URLSearchParams({
+                      id: costSheet.id,
+                      hypothesisId: hypothesis.id,
+                      market: batch.marketCode,
+                      platform: batch.platformCode,
+                    }).toString()}`}
                     className="button primary compact-button"
                   >
                     查看核算单
                   </Link>
                   <Link
-                    href={`/costing?hypothesisId=${encodeURIComponent(hypothesis.id)}`}
+                    href={`/costing?${new URLSearchParams({
+                      hypothesisId: hypothesis.id,
+                      market: batch.marketCode,
+                      platform: batch.platformCode,
+                    }).toString()}`}
                     className="button secondary compact-button"
                   >
                     更换核算单
@@ -361,7 +372,14 @@ export function HypothesisCard({
               </div>
               <p className="funnel-fast-summary">售价、采购、物流、平台费率和压测统一在成本核算功能里维护。工作台只读取已确认的最新增值版本，避免出现第二套成本口径。</p>
               <div className="funnel-step-footer" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-                <Link href={`/costing?hypothesisId=${encodeURIComponent(hypothesis.id)}`} className="button primary compact-button">
+                <Link
+                  href={`/costing?${new URLSearchParams({
+                    hypothesisId: hypothesis.id,
+                    market: batch.marketCode,
+                    platform: batch.platformCode,
+                  }).toString()}`}
+                  className="button primary compact-button"
+                >
                   建立或绑定核算单 →
                 </Link>
                 {nextTabHref && nextTabLabel ? (

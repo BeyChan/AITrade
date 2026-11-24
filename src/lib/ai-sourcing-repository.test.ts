@@ -11,6 +11,7 @@ process.env.AI_PROVIDER = "template";
 
 const { getDb } = await import("./db.ts");
 const {
+  attachComparisonReportToHypothesis,
   autoImportSiteCompetitors,
   createAISourcingBatch,
   deleteAISourcingBatch,
@@ -24,6 +25,14 @@ const {
   selectHypothesisForValidation,
   shortlistSupplierCandidate,
 } = await import("./ai-sourcing-repository.ts");
+const { analyzeCompetitors } = await import("./competitor-compare/engine.ts");
+const { confirmComparisonReport, saveComparisonReport } = await import("./competitor-compare/storage.ts");
+const {
+  attachCostSheetToHypothesis,
+  confirmCostSheet,
+  createCostSheet,
+  createCostSheetVersion,
+} = await import("./cost-sheets-repository.ts");
 
 after(async () => {
   const db = await getDb();
@@ -444,4 +453,155 @@ test("autoImportSiteCompetitors imports batch competitors and review insights ba
   });
   assert.equal(second.insertedCompetitors, 0);
   assert.equal(second.skippedDuplicateCompetitors, 20);
+});
+
+test("comparison reports can only be attached within the candidate site scope", async () => {
+  const created = await createAISourcingBatch({
+    marketCode: "US",
+    platformCode: "amazon",
+    category: "宠物清洁",
+    brief: "验证跨站点研报不会污染候选证据",
+    actor: "测试运营",
+  });
+  const initialBatch = await getAISourcingBatch(created.runId);
+  const hypothesisId = initialBatch?.hypotheses[0]?.id;
+  assert.ok(hypothesisId);
+  const initialHypothesis = initialBatch?.hypotheses.find((item) => item.id === hypothesisId);
+
+  const crossScopeReport = await analyzeCompetitors({
+    rawInputs: "https://www.amazon.de/dp/B0SCOPED01",
+    marketCode: "DE",
+    platformCode: "amazon",
+    currency: "EUR",
+    skipModel: true,
+  });
+  crossScopeReport.id = `cross-scope-${randomUUID()}`;
+  crossScopeReport.provenance = "ai_generated";
+  await saveComparisonReport(crossScopeReport);
+  await confirmComparisonReport(crossScopeReport.id, { allowUnverified: true });
+
+  await assert.rejects(
+    () => attachComparisonReportToHypothesis({
+      hypothesisId,
+      reportId: crossScopeReport.id,
+      actor: "测试运营",
+    }),
+    /研报站点、平台或币种与候选不一致/,
+  );
+
+  const afterRejectedBinding = await getAISourcingBatch(created.runId);
+  const rejectedHypothesis = afterRejectedBinding?.hypotheses.find((item) => item.id === hypothesisId);
+  assert.equal(rejectedHypothesis?.comparisonReportId, null);
+  assert.equal(rejectedHypothesis?.selectedForValidation, initialHypothesis?.selectedForValidation);
+  assert.equal(rejectedHypothesis?.counts.competitors, 0);
+
+  const matchingReport = await analyzeCompetitors({
+    rawInputs: "https://www.amazon.com/dp/B0SCOPED02",
+    marketCode: "US",
+    platformCode: "amazon",
+    currency: "USD",
+    skipModel: true,
+    capturedInputs: [
+      {
+        raw: "https://www.amazon.com/dp/B0SCOPED02",
+        asin: "B0SCOPED02",
+        captured: { priceCents: 4599, rating: 4.5, reviewCount: 260, currency: "USD" },
+      },
+    ],
+  });
+  matchingReport.id = `matching-scope-${randomUUID()}`;
+  matchingReport.reviewStatus = "confirmed";
+  await saveComparisonReport(matchingReport);
+
+  const attached = await attachComparisonReportToHypothesis({
+    hypothesisId,
+    reportId: matchingReport.id,
+    actor: "测试运营",
+  });
+  assert.equal(attached.addedCompetitors, 1);
+
+  const afterBinding = await getAISourcingBatch(created.runId);
+  const boundHypothesis = afterBinding?.hypotheses.find((item) => item.id === hypothesisId);
+  assert.equal(boundHypothesis?.comparisonReportId, matchingReport.id);
+  assert.equal(boundHypothesis?.selectedForValidation, true);
+  assert.equal(boundHypothesis?.counts.competitors, 1);
+});
+
+
+test("demo cost confirmation can bind a matching latest sheet but never bypasses scope or version gates", async () => {
+  const created = await createAISourcingBatch({
+    marketCode: "US",
+    platformCode: "amazon",
+    category: "宠物清洁",
+    brief: "验证演示确认绑定核算单的范围和版本门禁",
+    actor: "测试运营",
+  });
+  const batch = await getAISourcingBatch(created.runId);
+  const hypothesisId = batch?.hypotheses[0]?.id;
+  assert.ok(hypothesisId);
+
+  const assumptions = (marketCode: string, currency: string) => ({
+    productTitle: "演示核算产品",
+    marketCode,
+    platformCode: "amazon",
+    currency,
+    salePriceCents: 3999,
+    purchasePriceCents: 1000,
+    freightPerUnitCents: 200,
+    dutyRate: 0,
+    landedCostCents: 0,
+    fbaFeeCents: 500,
+    referralRate: 0.15,
+    adRate: 0.1,
+    returnRate: 0.05,
+    returnProcessingCents: 0,
+    returnRecoveryRate: 0.5,
+    couponCents: 0,
+    storageCents: 0,
+    otherCostCents: 0,
+    oneTimeFixedCostCents: 0,
+    initialOrderUnits: 500,
+  });
+
+  const crossScope = await createCostSheet({
+    title: "跨站点核算单",
+    marketCode: "DE",
+    platformCode: "amazon",
+    currency: "EUR",
+    assumptions: assumptions("DE", "EUR"),
+    actor: "测试运营",
+  });
+  await confirmCostSheet(crossScope.id, "测试运营", { demoBypass: true });
+  await assert.rejects(
+    () => attachCostSheetToHypothesis({ hypothesisId, costSheetId: crossScope.id, actor: "测试运营" }),
+    /核算单站点、平台或币种与候选不一致/,
+  );
+
+  const matching = await createCostSheet({
+    title: "匹配核算单",
+    marketCode: "US",
+    platformCode: "amazon",
+    currency: "USD",
+    assumptions: assumptions("US", "USD"),
+    actor: "测试运营",
+  });
+  await assert.rejects(
+    () => attachCostSheetToHypothesis({ hypothesisId, costSheetId: matching.id, actor: "测试运营" }),
+    /只有已人工确认的核算单可以绑定候选/,
+  );
+  await confirmCostSheet(matching.id, "测试运营", { demoBypass: true });
+  await attachCostSheetToHypothesis({ hypothesisId, costSheetId: matching.id, actor: "测试运营" });
+
+  await createCostSheetVersion(matching.id, {
+    title: "匹配核算单新版本",
+    marketCode: "US",
+    platformCode: "amazon",
+    currency: "USD",
+    assumptions: assumptions("US", "USD"),
+    actor: "测试运营",
+  });
+  await assert.rejects(
+    () => attachCostSheetToHypothesis({ hypothesisId, costSheetId: matching.id, actor: "测试运营" }),
+    /该核算单已有新版本，不能绑定旧版本/,
+  );
 });

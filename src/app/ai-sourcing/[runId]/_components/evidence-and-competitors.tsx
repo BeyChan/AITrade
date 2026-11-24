@@ -217,7 +217,14 @@ export function CompetitorBenchmarkPanel({
                 </span>
               </div>
               {price ? (
-                <a href={`/costing?hypothesisId=${encodeURIComponent(hypothesis.id)}`} className="button ghost">
+                <a
+                  href={`/costing?${new URLSearchParams({
+                    hypothesisId: hypothesis.id,
+                    market: batch.marketCode,
+                    platform: batch.platformCode,
+                  }).toString()}`}
+                  className="button ghost"
+                >
                   去独立成本核算 →
                 </a>
               ) : null}

@@ -331,8 +331,11 @@ export async function deleteComparisonReport(id: string): Promise<void> {
   await db.query(`DELETE FROM competitor_comparison_reports WHERE id = $1`, [id]);
 }
 
-/** 人工确认后才允许把研报内容写入商品草稿或转入选品池 */
-export async function confirmComparisonReport(id: string): Promise<CompetitorComparisonReport | null> {
+/** 人工确认后才允许把研报内容写入商品草稿或转入选品池；演示模式可显式放宽样本门禁。 */
+export async function confirmComparisonReport(
+  id: string,
+  options?: { allowUnverified?: boolean },
+): Promise<CompetitorComparisonReport | null> {
   const target = await getComparisonReportById(id, { mode: "sandbox" });
   if (!target) return null;
 
@@ -340,7 +343,7 @@ export async function confirmComparisonReport(id: string): Promise<CompetitorCom
   const hasManualField = target.competitors?.some((c) =>
     Object.values(c.fieldProvenance || {}).some((p) => p === "captured" || p === "manual"),
   );
-  if (verifiedCount === 0 && !hasManualField && target.provenance === "ai_generated") {
+  if (!options?.allowUnverified && verifiedCount === 0 && !hasManualField && target.provenance === "ai_generated") {
     throw new Error("研报缺少至少 1 条真实抓取/人工校验的价格样本，无法确认！请先输入真实价格数据。");
   }
 
