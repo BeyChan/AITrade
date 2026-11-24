@@ -1,7 +1,6 @@
 import type { CSSProperties } from "react";
 import {
   autoImportCompetitorsAction,
-  confirmHypothesisPriceAction,
   recordAISupplierQuoteAction,
   recordCompetitorAction,
   recordOpportunityEvidenceAction,
@@ -213,15 +212,13 @@ export function CompetitorBenchmarkPanel({
                 <strong>市场价格带分位（{batch.currency}）</strong>
                 <span>
                   {price
-                    ? hypothesis.confirmedPriceCents
-                      ? `已确认售价 ${moneyIn(batch.currency, hypothesis.confirmedPriceCents)} · 位于 ${price.hypothesisPricePosition ? priceBandLabel[price.hypothesisPricePosition] : "—"}`
-                      : `AI 建议价 ${moneyIn(batch.currency, hypothesis.recommendedPriceCents)}（未确认）· 位于 ${price.hypothesisPricePosition ? priceBandLabel[price.hypothesisPricePosition] : "—"}`
+                    ? `竞品 P50 ${moneyIn(batch.currency, price.p50)} · AI 建议价 ${moneyIn(batch.currency, hypothesis.recommendedPriceCents)}（参考，不参与 GO）· 位于 ${price.hypothesisPricePosition ? priceBandLabel[price.hypothesisPricePosition] : "—"}`
                     : "需录入有效竞品价格后计算分位"}
                 </span>
               </div>
               {price ? (
-                <a href={`#confirm-price-${hypothesis.id}`} className="button ghost">
-                  参考 P50（{moneyIn(batch.currency, price.p50)}）去确认售价
+                <a href={`/costing?hypothesisId=${encodeURIComponent(hypothesis.id)}`} className="button ghost">
+                  去独立成本核算 →
                 </a>
               ) : null}
             </div>

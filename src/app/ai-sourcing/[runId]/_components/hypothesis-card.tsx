@@ -1,11 +1,10 @@
 import Link from "next/link";
-import { CostBackCalculator } from "@/components/cost-back-calculator";
 import { CompetitorMarketStage } from "@/components/stages/competitor-market-stage";
-import { ProfitGateStage } from "@/components/stages/profit-gate-stage";
 import { RiskApproveStage } from "@/components/stages/risk-approve-stage";
-import { selectHypothesisAction } from "@/app/actions";
+import { eliminateHypothesisAction, selectHypothesisAction } from "@/app/actions";
 import type { AISourcingHypothesisDetail } from "@/lib/ai-sourcing-repository";
 import type { CompetitorComparisonReport } from "@/lib/competitor-compare/types";
+import type { CostSheet } from "@/lib/cost-sheets-repository";
 import type { SupplierDraft } from "@/lib/ai-supplier-assistant/repository";
 import type { AiInboxHypothesisTaskCounts } from "@/lib/ai-inbox/repository";
 import { isSyntheticCompetitorSource } from "@/lib/competitor-insights";
@@ -45,6 +44,8 @@ export function HypothesisCard({
   autoReadClipboard,
   tab,
   recentReports = [],
+  costSheet = null,
+  costSheetIsLatest = false,
   funnelThresholds,
   eliminatedHistory = [],
   nextTabHref,
@@ -59,6 +60,8 @@ export function HypothesisCard({
   autoReadClipboard: boolean;
   tab: DetailTab;
   recentReports?: CompetitorComparisonReport[];
+  costSheet?: CostSheet | null;
+  costSheetIsLatest?: boolean;
   funnelThresholds?: SourcingFunnelThresholds;
   eliminatedHistory?: EliminatedHistoryRecord[];
   nextTabHref?: string;
@@ -70,11 +73,8 @@ export function HypothesisCard({
     : null;
   const fastEval = evaluateFastScreen({
     marketCode: batch.marketCode,
-    platformCode: batch.platformCode,
-    currency: batch.currency,
     verifiedCompetitorCount: hypothesis.counts.verifiedCompetitors ?? hypothesis.counts.competitors,
-    p50PriceCents: hypothesis.confirmedPriceCents ?? hypothesis.benchmark.price?.p50 ?? null,
-    referenceFactoryCostRmb: hypothesis.referenceFactoryCostRmb,
+    p50PriceCents: hypothesis.benchmark.price?.p50 ?? null,
     complianceAttrs: hypothesis.complianceAttrs as ProductComplianceAttribute[],
     conceptText: `${batch.category} ${hypothesis.concept}`,
     report: attachedReport,
@@ -96,7 +96,7 @@ export function HypothesisCard({
     <div className="notice warn ai-tab-notice">
       <div>
         <strong>该历史方向尚未开启验证任务</strong>
-        <span>点击右侧按钮一键开启（导入扫描或算利润也会自动开启）。</span>
+        <span>点击右侧按钮一键开启；后续从竞品研报和成本核算单补齐确定性证据。</span>
       </div>
       <form action={selectHypothesisAction} className="button-row">
         <input type="hidden" name="runId" value={batch.id} />
@@ -131,9 +131,9 @@ export function HypothesisCard({
               <span className="badge badge-neutral">
                 证据 {decision?.evidenceCompleteness ?? 0}%
               </span>
-              {hypothesis.confirmedPriceCents ? (
-                <span className="badge badge-neutral mono">
-                  售价 {moneyIn(batch.currency, hypothesis.confirmedPriceCents)}
+              {costSheet ? (
+                <span className={`badge mono ${costSheet.status === "confirmed" && costSheetIsLatest ? "badge-success" : "badge-neutral"}`}>
+                  核算价 {moneyIn(costSheet.currency, costSheet.assumptions.salePriceCents)} · 净利 {percent(costSheet.results.marginRate)}
                 </span>
               ) : null}
               {hypothesis.productCaseId ? <span className="badge badge-success">已立项</span> : null}
@@ -164,11 +164,23 @@ export function HypothesisCard({
           </div>
           <div className="ai-hypothesis-metrics" style={{ marginTop: "10px" }}>
             <div>
-              <span>已确认售价</span>
-              <strong>{hypothesis.confirmedPriceCents ? moneyIn(batch.currency, hypothesis.confirmedPriceCents) : "未确认"}</strong>
-              <small>AI 建议 {hypothesis.recommendedPriceCents > 0 ? moneyIn(batch.currency, hypothesis.recommendedPriceCents) : "—"}</small>
+              <span>{costSheet ? "核算售价" : "竞品 P50"}</span>
+              <strong>
+                {costSheet
+                  ? moneyIn(costSheet.currency, costSheet.assumptions.salePriceCents)
+                  : hypothesis.benchmark.price?.p50
+                    ? moneyIn(batch.currency, hypothesis.benchmark.price.p50)
+                    : "待扫市场"}
+              </strong>
+              <small>{costSheet ? `核算单 V${costSheet.version}` : "参考价，不参与 GO"}</small>
             </div>
-            <div><span>AI 假设净利率</span><strong>{percent(hypothesis.expectedMarginRate)}</strong></div>
+            <div>
+              <span>核算净利率</span>
+              <strong style={{ color: costSheet && costSheet.results.marginRate < 0.18 ? "var(--danger)" : undefined }}>
+                {costSheet ? percent(costSheet.results.marginRate) : "尚未核算"}
+              </strong>
+              <small>{costSheet ? `V${costSheet.version} · ${costSheet.status === "confirmed" ? "已确认" : "草稿"}` : "请创建独立成本核算单"}</small>
+            </div>
             <div><span>AI 假设首单预算</span><strong>{moneyIn(batch.currency, hypothesis.firstOrderBudgetCents)}</strong></div>
             <div><span>证据完整度</span><strong>{decision?.evidenceCompleteness ?? 0}%</strong></div>
           </div>
@@ -268,34 +280,96 @@ export function HypothesisCard({
           </>
         ) : null}
 
-        {/* 02 利润测算：专注 18% 硬门禁与倒推拿货上限 */}
+        {/* 02 成本核算：只读取绑定核算单，不在工作台里维护第二套价格口径 */}
         {tab === "profit" ? (
-          <>
-            <ProfitGateStage
-              runId={batch.id}
-              currency={batch.currency}
-              hypothesis={hypothesis}
-              evalResult={fastEval}
-              nextTabHref={nextTabHref}
-              nextTabLabel={nextTabLabel}
-            />
+          costSheet ? (
+            <section className="funnel-fast-card" id={`stage-profit-${hypothesis.id}`} aria-label="第 2 步 成本核算">
+              <div className="funnel-fast-head">
+                <div>
+                  <span className="eyebrow">02 · 成本核算</span>
+                  <h3>{costSheet.title} · V{costSheet.version}</h3>
+                </div>
+                <div className="button-row">
+                  <span className={`badge ${costSheet.status === "confirmed" ? "badge-success" : "badge-neutral"}`}>
+                    {costSheet.status === "confirmed" ? "已人工确认" : "草稿"}
+                  </span>
+                  <span className={`badge ${costSheetIsLatest ? "badge-success" : "badge-danger"}`}>
+                    {costSheetIsLatest ? "最新版本" : "已有新版本"}
+                  </span>
+                </div>
+              </div>
 
-            <CostBackCalculator
-              platformCode={batch.platformCode}
-              platformName={batch.platformName}
-              currency={batch.currency}
-              recommendedPriceCents={hypothesis.recommendedPriceCents}
-              confirmedPriceCents={hypothesis.confirmedPriceCents}
-              suggestedMarginRate={hypothesis.expectedMarginRate}
-              quotes={hypothesis.quotes.map((quote) => ({
-                ...quote,
-                supplierName: supplierByShortlistId.get(quote.supplierShortlistId)?.supplierName,
-              }))}
-              priceEntryHref={`#stage-profit-${hypothesis.id}`}
-              quoteEntryHref={`/ai-sourcing/${encodeURIComponent(batch.id)}?tab=suppliers&hypothesisId=${encodeURIComponent(hypothesis.id)}#supplier-quote-${hypothesis.id}`}
-              fxRateToUsd={batch.fxRateToUsd}
-            />
-          </>
+              <div className="funnel-fast-kpis">
+                <span>核算售价 <strong>{moneyIn(costSheet.currency, costSheet.assumptions.salePriceCents)}</strong></span>
+                <span>到岸成本 <strong>{moneyIn(costSheet.currency, costSheet.results.landedCostCents)}</strong></span>
+                <span>净利润 <strong>{moneyIn(costSheet.currency, costSheet.results.netProfitCents)}</strong></span>
+                <span>净利率 <strong style={{ color: costSheet.results.marginRate >= 0.18 ? undefined : "var(--danger)" }}>{percent(costSheet.results.marginRate)}</strong></span>
+              </div>
+
+              <div className="quote-facts" style={{ marginTop: 14 }}>
+                <div><span>18% 门禁</span><strong style={{ color: costSheet.results.marginRate >= 0.18 ? "var(--success)" : "var(--danger)" }}>{costSheet.results.marginRate >= 0.18 ? "通过" : "未通过"}</strong></div>
+                <div><span>压测净利</span><strong style={{ color: costSheet.results.stressProfitCents > 0 ? "var(--success)" : "var(--danger)" }}>{moneyIn(costSheet.currency, costSheet.results.stressProfitCents)}</strong></div>
+                <div><span>压测净利率</span><strong>{percent(costSheet.results.stressMarginRate)}</strong></div>
+                <div><span>确认时间</span><strong>{costSheet.confirmedAt ? shortDate(costSheet.confirmedAt) : "未确认"}</strong></div>
+              </div>
+
+              {costSheet.status !== "confirmed" || !costSheetIsLatest ? (
+                <div className="notice warn" style={{ marginTop: 14 }}>
+                  <strong>该版本不能支持正式 GO。</strong>
+                  <span>{costSheet.status !== "confirmed" ? "请先人工确认核算单。" : "请切换到同组最新版本后再确认。"}</span>
+                </div>
+              ) : null}
+
+              <div className="funnel-step-footer" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                <div className="button-row">
+                  <Link
+                    href={`/costing?id=${encodeURIComponent(costSheet.id)}&hypothesisId=${encodeURIComponent(hypothesis.id)}`}
+                    className="button primary compact-button"
+                  >
+                    查看核算单
+                  </Link>
+                  <Link
+                    href={`/costing?hypothesisId=${encodeURIComponent(hypothesis.id)}`}
+                    className="button secondary compact-button"
+                  >
+                    更换核算单
+                  </Link>
+                  {costSheet.results.marginRate < 0.18 && !hypothesis.eliminatedAt ? (
+                    <form action={eliminateHypothesisAction}>
+                      <input type="hidden" name="runId" value={batch.id} />
+                      <input type="hidden" name="hypothesisId" value={hypothesis.id} />
+                      <input type="hidden" name="reason" value="利润不足" />
+                      <input type="hidden" name="note" value={`核算单 V${costSheet.version} 净利率 ${percent(costSheet.results.marginRate)}，低于 18% 门禁`} />
+                      <button type="submit" className="button secondary compact-button">利润红灯 · 淘汰</button>
+                    </form>
+                  ) : null}
+                </div>
+                {nextTabHref && nextTabLabel ? (
+                  <Link href={nextTabHref} className="button secondary compact-button">{nextTabLabel}</Link>
+                ) : null}
+              </div>
+              <p className="help" style={{ marginBottom: 0 }}>正式 GO 还会校验竞品研报人工确认、报价、样品、专利、物流、MOQ 与现金占用。</p>
+            </section>
+          ) : (
+            <section className="funnel-fast-card" id={`stage-profit-${hypothesis.id}`} aria-label="第 2 步 成本核算">
+              <div className="funnel-fast-head">
+                <div>
+                  <span className="eyebrow">02 · 成本核算</span>
+                  <h3>先绑定一张可追溯的核算单</h3>
+                </div>
+                <span className="badge badge-neutral">未绑定</span>
+              </div>
+              <p className="funnel-fast-summary">售价、采购、物流、平台费率和压测统一在成本核算功能里维护。工作台只读取已确认的最新增值版本，避免出现第二套成本口径。</p>
+              <div className="funnel-step-footer" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                <Link href={`/costing?hypothesisId=${encodeURIComponent(hypothesis.id)}`} className="button primary compact-button">
+                  建立或绑定核算单 →
+                </Link>
+                {nextTabHref && nextTabLabel ? (
+                  <Link href={nextTabHref} className="button secondary compact-button">{nextTabLabel}</Link>
+                ) : null}
+              </div>
+            </section>
+          )
         ) : null}
 
         {/* 03 找厂与打样：1688 选厂 + RFQ + 真实报价录入 + 样品分，一页打通 */}

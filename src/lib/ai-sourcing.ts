@@ -1,4 +1,3 @@
-import { calculateEconomics } from "./economics.ts";
 import type { CompetitorCoverage } from "./competitor-insights.ts";
 
 export type AISourcingContext = {
@@ -83,8 +82,24 @@ export type QuoteForDecision = {
 
 export type DecisionEvidenceInput = {
   opportunityScore: number;
-  // Only a price the operator confirmed against real evidence may drive the profit gates; the AI's suggested price is never used here.
-  confirmedPriceCents: number | null;
+  /** 竞品研报必须经过人工确认，且已绑定到当前候选。 */
+  comparisonReportConfirmed?: boolean;
+  /** 正式 GO 只接受已人工确认且仍为最新版本的成本核算单。 */
+  costSheetConfirmed?: boolean;
+  costSheetMarginRate?: number | null;
+  costSheetVersion?: number | null;
+  costSheetIsLatest?: boolean;
+  /** 成本核算单必须与候选的站点、平台、币种一致。 */
+  costSheetScopeMatches?: boolean;
+  /** 直接复用已确认核算单的结果，禁止在立项时重新估算。 */
+  costSheetEconomics?: {
+    netProfitCents: number;
+    marginRate: number;
+    stressMarginRate: number;
+    stressProfitCents: number;
+    salePriceCents: number;
+    landedCostCents: number;
+  } | null;
   context: AISourcingContext;
   competitorCount: number;
   reviewSampleCount: number;
@@ -454,35 +469,17 @@ export function evaluateSourcingDecision(input: DecisionEvidenceInput): Decision
     .filter((quote) => quote.currency === input.context.currency)
     .sort((a, b) => a.landedCostCents - b.landedCostCents || a.moq - b.moq)[0] ?? null;
   const fxRate = normalizeFxRate(input.context.currency, input.context.fxRateToUsd);
-  const landedCostUsdCents = bestQuote && fxRate
-    ? Math.round(bestQuote.landedCostCents / fxRate)
-    : null;
   const cashCents = bestQuote ? bestQuote.landedCostCents * bestQuote.moq + bestQuote.sampleFeeCents : null;
   const cashUsdCents = cashCents !== null && fxRate ? Math.round(cashCents / fxRate) : null;
 
-  const confirmedPrice = input.confirmedPriceCents && input.confirmedPriceCents > 0 ? input.confirmedPriceCents : null;
-  const baseDefaults = confirmedPrice ? platformEconomicDefaults(input.context.platformCode, confirmedPrice) : null;
   const cal = input.calibratedDefaults;
   const calibrationStatus: "uncalibrated" | "partial" | "calibrated" = cal?.status ?? "uncalibrated";
-  const mergedDefaults = baseDefaults
-    ? {
-        ...baseDefaults,
-        ...(typeof cal?.referralRate === "number" ? { referralRate: cal.referralRate } : {}),
-        ...(typeof cal?.returnRate === "number" ? { returnRate: cal.returnRate } : {}),
-        ...(typeof cal?.adRate === "number" ? { adRate: cal.adRate } : {}),
-        ...(typeof cal?.fbaFeeCents === "number" ? { fbaFeeCents: cal.fbaFeeCents } : {}),
-        ...(typeof cal?.storageCents === "number" ? { storageCents: cal.storageCents } : {}),
-      }
+  const economics = input.costSheetEconomics ?? null;
+  const missingEconomicsReason = "缺已确认且最新的成本核算单";
+  const decisionLandedCostCents = economics?.landedCostCents ?? bestQuote?.landedCostCents ?? null;
+  const decisionLandedCostUsdCents = decisionLandedCostCents !== null && fxRate
+    ? Math.round(decisionLandedCostCents / fxRate)
     : null;
-  const economics = bestQuote && confirmedPrice && mergedDefaults
-    ? calculateEconomics({
-        currency: input.context.currency,
-        salePriceCents: confirmedPrice,
-        landedCostCents: bestQuote.landedCostCents,
-        ...mergedDefaults,
-      })
-    : null;
-  const missingEconomicsReason = !confirmedPrice ? "缺已确认售价" : "缺成本模型";
 
   const patentFound = input.latestPatentRisk === "found";
   const logisticsBlocked = input.latestLogisticsRisk === "found";
@@ -528,16 +525,60 @@ export function evaluateSourcingDecision(input: DecisionEvidenceInput): Decision
       "evidence",
     ),
     gate(
+      "comparison_report",
+      "竞品研报人工确认",
+      "需绑定并人工确认",
+      input.comparisonReportConfirmed ? "已确认" : "未确认或未绑定",
+      Boolean(input.comparisonReportConfirmed),
+      "evidence",
+    ),
+    gate(
+      "cost_sheet",
+      "成本核算单人工确认",
+      "需绑定并人工确认",
+      input.costSheetConfirmed ? "已确认" : "未确认或未绑定",
+      Boolean(input.costSheetConfirmed),
+      "economic",
+    ),
+    gate(
+      "cost_sheet_margin",
+      "核算单净利率",
+      "≥ 18.0%",
+      input.costSheetMarginRate == null ? "缺核算单净利率" : pct(input.costSheetMarginRate),
+      input.costSheetMarginRate != null && input.costSheetMarginRate >= thresholds.minMarginRate,
+      "economic",
+    ),
+    gate(
+      "cost_sheet_latest",
+      "核算单版本",
+      "必须为同组最新版本",
+      input.costSheetVersion == null
+        ? "未绑定核算单"
+        : input.costSheetIsLatest
+          ? `V${input.costSheetVersion} · 最新`
+          : `V${input.costSheetVersion} · 已有新版本`,
+      input.costSheetVersion != null && Boolean(input.costSheetIsLatest),
+      "evidence",
+    ),
+    gate(
+      "cost_sheet_scope",
+      "核算单适用范围",
+      "站点/平台/币种必须一致",
+      input.costSheetScopeMatches ? "与候选一致" : "未绑定或不一致",
+      Boolean(input.costSheetScopeMatches),
+      "evidence",
+    ),
+    gate(
       "landed_cost",
       "最低到岸成本",
       "≤ $4.50",
-      landedCostUsdCents === null ? "缺报价或汇率" : usd(landedCostUsdCents),
-      landedCostUsdCents !== null && landedCostUsdCents <= thresholds.maxLandedCostUsdCents,
+      decisionLandedCostUsdCents === null ? "缺核算单成本或汇率" : usd(decisionLandedCostUsdCents),
+      decisionLandedCostUsdCents !== null && decisionLandedCostUsdCents <= thresholds.maxLandedCostUsdCents,
       "economic",
     ),
     gate(
       "margin",
-      "首报价净利率",
+      "核算单净利率",
       "≥ 18.0%",
       economics ? pct(economics.marginRate) : missingEconomicsReason,
       Boolean(economics && economics.marginRate >= thresholds.minMarginRate),
@@ -619,7 +660,7 @@ export function evaluateSourcingDecision(input: DecisionEvidenceInput): Decision
 
   const blockers = gates.filter((item) => !item.passed).map((item) => `${item.label}未通过：${item.actual}`);
   const hardFailure = [
-    landedCostUsdCents !== null && landedCostUsdCents > thresholds.maxLandedCostUsdCents,
+    decisionLandedCostUsdCents !== null && decisionLandedCostUsdCents > thresholds.maxLandedCostUsdCents,
     Boolean(economics && economics.marginRate < thresholds.minMarginRate),
     Boolean(economics && economics.stressProfitCents <= 0),
     Boolean(bestQuote && bestQuote.moq > thresholds.maxMoq),
@@ -644,6 +685,10 @@ export function evaluateSourcingDecision(input: DecisionEvidenceInput): Decision
   }
   if (input.latestPatentRisk === "review") warnings.push("专利检索仍需人工复核，不能转为 GO。");
   if (input.latestLogisticsRisk === "review") warnings.push("物流或包装仍有待验证事项。");
+  if (!input.comparisonReportConfirmed) warnings.push("当前候选未绑定已人工确认的竞品研报，不能转为 GO。");
+  if (!input.costSheetConfirmed) warnings.push("当前候选未绑定已人工确认的成本核算单，不能转为 GO。");
+  if (input.costSheetVersion != null && !input.costSheetIsLatest) warnings.push("核算单已有新版本，旧版本不能支持 GO。");
+  if (!input.costSheetScopeMatches) warnings.push("成本核算单的站点、平台或币种与候选不一致。");
   if (input.quotes.length > 0) warnings.push("最佳报价按最低到岸成本选取；样品评分仍需来自真实打样记录。");
   if (economics) {
     if (calibrationStatus === "uncalibrated") {
@@ -673,8 +718,8 @@ export function evaluateSourcingDecision(input: DecisionEvidenceInput): Decision
     blockers,
     warnings,
     bestQuoteId: bestQuote?.id ?? null,
-    landedCostCents: bestQuote?.landedCostCents ?? null,
-    landedCostUsdCents,
+    landedCostCents: decisionLandedCostCents,
+    landedCostUsdCents: decisionLandedCostUsdCents,
     marginRate: economics?.marginRate ?? null,
     stressMarginRate: economics?.stressMarginRate ?? null,
     netProfitCents: economics?.netProfitCents ?? null,
@@ -685,6 +730,12 @@ export function evaluateSourcingDecision(input: DecisionEvidenceInput): Decision
       reviewSampleCount: input.reviewSampleCount,
       supplierCount: input.supplierCount,
       quoteCount: input.quotes.length,
+      comparisonReportConfirmed: Boolean(input.comparisonReportConfirmed),
+      costSheetConfirmed: Boolean(input.costSheetConfirmed),
+      costSheetMarginRate: input.costSheetMarginRate ?? null,
+      costSheetVersion: input.costSheetVersion ?? null,
+      costSheetIsLatest: Boolean(input.costSheetIsLatest),
+      costSheetScopeMatches: Boolean(input.costSheetScopeMatches),
       patentRisk: input.latestPatentRisk,
       logisticsRisk: input.latestLogisticsRisk,
       fxRateToUsd: input.context.fxRateToUsd,

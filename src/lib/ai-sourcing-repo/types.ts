@@ -31,6 +31,7 @@ export type AISourcingHypothesis = {
   productCaseId: string | null;
   sourceKind: string;
   comparisonReportId: string | null;
+  costSheetId: string | null;
   referenceFactoryCostRmb: number | null;
   complianceAttrs: string[];
   eliminatedAt: string | null;
@@ -286,6 +287,7 @@ export type HypothesisRow = {
   product_case_id: string | null;
   source_kind?: string | null;
   comparison_report_id?: string | null;
+  cost_sheet_id?: string | null;
   reference_factory_cost_rmb?: string | number | null;
   compliance_attrs?: string[] | null;
   eliminated_at?: string | null;

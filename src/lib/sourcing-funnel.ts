@@ -1,6 +1,3 @@
-import { calculateEconomics, calculateTargetLandedCost } from "./economics.ts";
-import { platformEconomicDefaults } from "./ai-sourcing.ts";
-import { convertForeignCentsToRmb, convertRmbToForeignCents } from "./currency.ts";
 import {
   evaluatePrelaunchCompliance,
   type ProductComplianceAttribute,
@@ -373,10 +370,6 @@ export type FastScreenEvaluation = {
   brandCr3Percent: number | null;
   medianReviews: number | null;
   p50PriceCents: number | null;
-  profitStatus: FunnelSignalStatus;
-  profitSummary: string;
-  marginRate: number | null;
-  maxFactoryRmb: number | null;
   complianceStatus: FunnelSignalStatus;
   complianceSummary: string;
   complianceCostUsd: number;
@@ -385,11 +378,8 @@ export type FastScreenEvaluation = {
 
 export function evaluateFastScreen(input: {
   marketCode: string;
-  platformCode: string;
-  currency: string;
   verifiedCompetitorCount: number;
   p50PriceCents: number | null;
-  referenceFactoryCostRmb: number | null;
   complianceAttrs: ProductComplianceAttribute[];
   conceptText: string;
   report?: CompetitorComparisonReport | null;
@@ -453,56 +443,11 @@ export function evaluateFastScreen(input: {
     }
   }
 
-  // ③ 算利润
   const priceCents = input.p50PriceCents && input.p50PriceCents > 0
     ? input.p50PriceCents
     : input.report?.priceStats.p50 && input.report.priceStats.p50 > 0
       ? input.report.priceStats.p50
       : null;
-
-  let profitStatus: FunnelSignalStatus = "pending";
-  let profitSummary = priceCents ? "填入 1688 参考价即可反推 18% 净利" : "需先扫市场得到价格带中位数";
-  let marginRate: number | null = null;
-  let maxFactoryRmb: number | null = null;
-
-  if (priceCents) {
-    const defaults = platformEconomicDefaults(input.platformCode, priceCents);
-    const defaultFreightCents = 220; // 保守估算单件头程 $2.20
-    const target18 = calculateTargetLandedCost({
-      currency: input.currency,
-      salePriceCents: priceCents,
-      ...defaults,
-      targetMarginRate: th.minMarginRate,
-    });
-    if (target18.achievable) {
-      const maxPurchaseForeign = Math.max(0, target18.maxLandedCostCents - defaultFreightCents);
-      maxFactoryRmb = Number(convertForeignCentsToRmb(maxPurchaseForeign, input.currency).toFixed(1));
-    } else {
-      maxFactoryRmb = 0;
-    }
-
-    if (input.referenceFactoryCostRmb && input.referenceFactoryCostRmb > 0) {
-      const purchaseForeign = convertRmbToForeignCents(input.referenceFactoryCostRmb, input.currency);
-      const econ = calculateEconomics({
-        currency: input.currency,
-        salePriceCents: priceCents,
-        landedCostCents: purchaseForeign + defaultFreightCents,
-        ...defaults,
-      });
-      marginRate = econ.marginRate;
-      const pctStr = `${(econ.marginRate * 100).toFixed(1)}%`;
-      if (econ.marginRate < th.minMarginRate || econ.stressProfitCents <= 0) {
-        profitStatus = "fail";
-        profitSummary = `净利 ${pctStr}（低于 ${Math.round(th.minMarginRate * 100)}% 门禁；拿货需压至 ¥${maxFactoryRmb} 以内）`;
-        suggestedEliminationReason ??= "利润不够";
-      } else {
-        profitStatus = "pass";
-        profitSummary = `净利 ${pctStr} · 满足 18% 门禁（采购上限 ¥${maxFactoryRmb}）`;
-      }
-    } else if (maxFactoryRmb !== null) {
-      profitSummary = `18% 净利最高允许 1688 拿货价 ¥${maxFactoryRmb}（待填参考价）`;
-    }
-  }
 
   // 合规红线
   const compliance = evaluatePrelaunchCompliance(input.marketCode, input.complianceAttrs, input.conceptText);
@@ -526,10 +471,6 @@ export function evaluateFastScreen(input: {
     brandCr3Percent,
     medianReviews,
     p50PriceCents: priceCents,
-    profitStatus,
-    profitSummary,
-    marginRate,
-    maxFactoryRmb,
     complianceStatus,
     complianceSummary,
     complianceCostUsd: compliance.totalEstimatedCostUsd,
@@ -544,15 +485,15 @@ export function evaluateFastScreen(input: {
 export type KanbanStageKey =
   | "candidate"
   | "scanned"
-  | "profit_ok"
+  | "costed"
   | "sampling"
   | "promoted"
   | "eliminated";
 
 export const KANBAN_COLUMNS: Array<{ key: KanbanStageKey; label: string; hint: string }> = [
   { key: "candidate", label: "候选", hint: "待扫搜索页" },
-  { key: "scanned", label: "已扫市场", hint: "补齐竞品并核 1688 参考价" },
-  { key: "profit_ok", label: "利润通过", hint: "待找厂录报价" },
+  { key: "scanned", label: "已扫市场", hint: "补齐竞品并做成本核算" },
+  { key: "costed", label: "已核算", hint: "18% 成本门禁通过，待找厂打样" },
   { key: "sampling", label: "拿样中", hint: "待打样与终审" },
   { key: "promoted", label: "已立项", hint: "已转商品案卷" },
   { key: "eliminated", label: "已淘汰", hint: "团队避坑清单" },
@@ -565,8 +506,13 @@ export type KanbanCandidateInput = {
   eliminatedAt: string | null;
   verifiedCompetitorCount: number;
   comparisonReportId: string | null;
-  confirmedPriceCents: number | null;
-  referenceFactoryCostRmb: number | null;
+  comparisonReportConfirmed: boolean;
+  costSheetId: string | null;
+  costSheetStatus: "draft" | "confirmed" | null;
+  costSheetMarginRate: number | null;
+  costSheetVersion: number | null;
+  costSheetIsLatest: boolean;
+  costSheetScopeMatches: boolean;
   complianceAttrs: ProductComplianceAttribute[];
   quoteCount: number;
   supplierCount: number;
@@ -605,47 +551,41 @@ export function deriveCandidateKanbanStage(c: KanbanCandidateInput): DerivedKanb
     };
   }
 
-  if (c.quoteCount > 0) {
-    return {
-      stage: "sampling",
-      nextActionLabel: c.decision === "GO" ? "去立项" : "补样品/报价",
-      nextActionHref: c.decision === "GO"
-        ? `/ai-sourcing/${encodeURIComponent(c.runId)}?tab=decision&hypothesisId=${encodeURIComponent(c.id)}#hypothesis-${c.id}`
-        : `/ai-sourcing/${encodeURIComponent(c.runId)}?tab=suppliers&hypothesisId=${encodeURIComponent(c.id)}#hypothesis-${c.id}`,
-      metricBadge: `${c.quoteCount}/3 报价 · ${c.supplierCount}/3 厂`,
-    };
-  }
-
   const hasMarketScan = Boolean(c.comparisonReportId) || c.verifiedCompetitorCount > 0;
   if (hasMarketScan) {
-    // 检查第 ② 步利润是否已通过
-    if (c.referenceFactoryCostRmb && c.referenceFactoryCostRmb > 0 && c.confirmedPriceCents && c.confirmedPriceCents > 0) {
-      const check = evaluateFastScreen({
-        marketCode: c.marketCode,
-        platformCode: c.platformCode,
-        currency: c.currency,
-        verifiedCompetitorCount: c.verifiedCompetitorCount,
-        p50PriceCents: c.confirmedPriceCents,
-        referenceFactoryCostRmb: c.referenceFactoryCostRmb,
-        complianceAttrs: c.complianceAttrs,
-        conceptText: c.concept,
-      });
-      if (check.profitStatus === "pass" && check.complianceStatus !== "fail") {
+    const costed = Boolean(
+      c.comparisonReportConfirmed &&
+        c.costSheetId &&
+        c.costSheetStatus === "confirmed" &&
+        c.costSheetIsLatest &&
+        c.costSheetScopeMatches &&
+        c.costSheetMarginRate !== null &&
+        c.costSheetMarginRate >= 0.18,
+    );
+    if (costed) {
+      if (c.quoteCount > 0) {
         return {
-          stage: "profit_ok",
-          nextActionLabel: "找厂与打样",
-          nextActionHref: `/ai-sourcing/${encodeURIComponent(c.runId)}?tab=suppliers&hypothesisId=${encodeURIComponent(c.id)}#hypothesis-${c.id}`,
-          metricBadge: check.marginRate ? `净利 ${(check.marginRate * 100).toFixed(0)}%` : "利润通过",
+          stage: "sampling",
+          nextActionLabel: c.decision === "GO" ? "去立项" : "补样品/报价",
+          nextActionHref: c.decision === "GO"
+            ? `/ai-sourcing/${encodeURIComponent(c.runId)}?tab=decision&hypothesisId=${encodeURIComponent(c.id)}#hypothesis-${c.id}`
+            : `/ai-sourcing/${encodeURIComponent(c.runId)}?tab=suppliers&hypothesisId=${encodeURIComponent(c.id)}#hypothesis-${c.id}`,
+          metricBadge: `${c.quoteCount}/3 报价 · ${c.supplierCount}/3 厂`,
         };
       }
+      return {
+        stage: "costed",
+        nextActionLabel: "找厂与打样",
+        nextActionHref: `/ai-sourcing/${encodeURIComponent(c.runId)}?tab=suppliers&hypothesisId=${encodeURIComponent(c.id)}#hypothesis-${c.id}`,
+        metricBadge: `V${c.costSheetVersion} · 净利 ${((c.costSheetMarginRate ?? 0) * 100).toFixed(0)}%`,
+      };
     }
     return {
       stage: "scanned",
-      nextActionLabel: c.verifiedCompetitorCount < 20 ? "补抓竞品" : "算 18% 毛利",
-      nextActionHref:
-        c.verifiedCompetitorCount < 20
-          ? `${detailBase}#stage-market-${c.id}`
-          : `/ai-sourcing/${encodeURIComponent(c.runId)}?tab=profit&hypothesisId=${encodeURIComponent(c.id)}#stage-profit-${c.id}`,
+      nextActionLabel: c.verifiedCompetitorCount < 20 ? "补抓竞品" : "做成本核算",
+      nextActionHref: c.verifiedCompetitorCount < 20
+        ? `${detailBase}#stage-market-${c.id}`
+        : `/costing?hypothesisId=${encodeURIComponent(c.id)}`,
       metricBadge: `${c.verifiedCompetitorCount}/20 竞品`,
     };
   }

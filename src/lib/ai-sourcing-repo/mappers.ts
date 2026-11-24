@@ -245,6 +245,7 @@ export function mapHypothesis(row: HypothesisRow): AISourcingHypothesis {
     productCaseId: row.product_case_id,
     sourceKind: row.source_kind ?? "ai",
     comparisonReportId: row.comparison_report_id ?? null,
+    costSheetId: row.cost_sheet_id ?? null,
     referenceFactoryCostRmb:
       row.reference_factory_cost_rmb === null || row.reference_factory_cost_rmb === undefined
         ? null

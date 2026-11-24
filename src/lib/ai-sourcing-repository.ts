@@ -26,7 +26,7 @@ export {
   listEliminatedHypotheses,
   listKanbanCandidates,
   restoreHypothesis,
-  saveHypothesisProfitCheck,
+  saveHypothesisComplianceAttrs,
   selectHypothesisForValidation,
   toggleValidationTaskStatus,
   type KanbanCandidateItem,
@@ -35,7 +35,6 @@ export {
 export {
   attachComparisonReportToHypothesis,
   autoImportSiteCompetitors,
-  confirmHypothesisPrice,
   loadCaseCompetitorBenchmark,
   recordCompetitorEvidence,
   recordOpportunityEvidence,

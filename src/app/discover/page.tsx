@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/ui";
 import { listEliminatedHypotheses } from "@/lib/ai-sourcing-repository";
 import { loadSourcingConstraints } from "@/lib/app-settings";
 import { getComparisonReports } from "@/lib/competitor-compare/storage";
+import { listConfirmedCostSheets } from "@/lib/cost-sheets-repository";
 import { getSiteOptions } from "@/lib/repository";
 import { resolvePersistedSiteScope } from "@/lib/site-scope";
 
@@ -15,6 +16,7 @@ type PageProps = {
     platform?: string;
     entry?: string;
     reportId?: string;
+    costSheetId?: string;
   }>;
 };
 
@@ -33,25 +35,37 @@ export default async function DiscoverPage({ searchParams }: PageProps) {
   const marketCode = market?.code ?? "US";
   const platformCode = platform?.code ?? "amazon";
 
-  const [allReports, savedConstraints, eliminatedHistory] = await Promise.all([
+  const [allReports, confirmedCostSheets, savedConstraints, eliminatedHistory] = await Promise.all([
     getComparisonReports(),
+    listConfirmedCostSheets(),
     loadSourcingConstraints(),
     listEliminatedHypotheses(),
   ]);
 
   const siteReports = allReports.filter(
     (r) =>
+      r.reviewStatus === "confirmed" &&
       r.marketCode.toUpperCase() === marketCode.toUpperCase() &&
       r.platformCode.toLowerCase() === platformCode.toLowerCase(),
   );
 
   const requestedReport = query.reportId
-    ? allReports.find((r) => r.id === query.reportId) ?? null
+    ? allReports.find((r) => r.id === query.reportId && r.reviewStatus === "confirmed") ?? null
+    : null;
+
+  const siteCostSheets = confirmedCostSheets.filter(
+    (sheet) =>
+      sheet.marketCode.toUpperCase() === marketCode.toUpperCase() &&
+      sheet.platformCode.toLowerCase() === platformCode.toLowerCase(),
+  );
+
+  const requestedCostSheet = query.costSheetId
+    ? siteCostSheets.find((sheet) => sheet.id === query.costSheetId) ?? null
     : null;
   const initialEntryMode: "ai" | "competitor" | "sourcing" =
-    query.entry === "competitor" || query.entry === "wizard" || Boolean(requestedReport)
+    query.entry === "competitor" || Boolean(requestedReport)
       ? "competitor"
-      : query.entry === "sourcing"
+      : query.entry === "sourcing" || Boolean(requestedCostSheet)
         ? "sourcing"
         : "ai";
 
@@ -65,7 +79,7 @@ export default async function DiscoverPage({ searchParams }: PageProps) {
         ]}
         eyebrow="统一选品入口"
         title="新建选品"
-        description="不论从 AI 找方向、竞品链接还是 1688 货源开始，创建后都会进入同一套 4 步选品工作台（1 竞品研报 → 2 利润测算 → 3 找厂与打样 → 4 风险与立项）。"
+        description="AI 找方向为主入口；也可从已确认竞品研报或已确认核算单建立候选，创建后进入同一套 4 步选品工作台（1 竞品研报 → 2 成本核算 → 3 找厂与打样 → 4 风险与立项）。"
       />
 
       <SelectionWizardClient
@@ -76,7 +90,9 @@ export default async function DiscoverPage({ searchParams }: PageProps) {
         currency={market?.currency ?? "USD"}
         requestKey={randomUUID()}
         siteReports={siteReports.slice(0, 12)}
+        confirmedCostSheets={siteCostSheets}
         initialReportId={requestedReport?.id ?? ""}
+        initialCostSheetId={requestedCostSheet?.id ?? ""}
         initialEntryMode={initialEntryMode}
         initialConstraints={savedConstraints}
         eliminatedHistory={eliminatedHistory}

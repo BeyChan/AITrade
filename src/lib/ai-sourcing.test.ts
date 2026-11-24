@@ -79,7 +79,20 @@ function quote(overrides: Partial<QuoteForDecision> = {}): QuoteForDecision {
 function decisionInput(overrides: Partial<DecisionEvidenceInput> = {}): DecisionEvidenceInput {
   return {
     opportunityScore: 78,
-    confirmedPriceCents: 2499,
+    comparisonReportConfirmed: true,
+    costSheetConfirmed: true,
+    costSheetMarginRate: 0.3,
+    costSheetVersion: 1,
+    costSheetIsLatest: true,
+    costSheetScopeMatches: true,
+    costSheetEconomics: {
+      netProfitCents: 749,
+      marginRate: 0.3,
+      stressMarginRate: 0.2,
+      stressProfitCents: 499,
+      salePriceCents: 2499,
+      landedCostCents: 220,
+    },
     context: context(),
     competitorCount: 20,
     reviewSampleCount: 50,
@@ -246,28 +259,47 @@ test("decision stays HOLD until all evidence and economic gates pass", () => {
   assert.ok((go.firstOrderCashUsdCents ?? Infinity) <= 300000);
 });
 
-test("without a confirmed sale price the profit gates cannot pass and the decision is never GO", () => {
+test("without a confirmed latest cost sheet the economic gates cannot pass and the decision is never GO", () => {
   const fullEvidence = { quotes: [quote(), quote({ id: "quote-2", landedCostCents: 230 }), quote({ id: "quote-3", landedCostCents: 260 })] };
-  const result = evaluateSourcingDecision(decisionInput({ ...fullEvidence, confirmedPriceCents: null }));
+  const result = evaluateSourcingDecision(decisionInput({
+    ...fullEvidence,
+    costSheetConfirmed: false,
+    costSheetEconomics: null,
+    costSheetMarginRate: null,
+    costSheetVersion: null,
+    costSheetIsLatest: false,
+    costSheetScopeMatches: false,
+  }));
 
   assert.equal(result.decision, "HOLD");
   assert.equal(result.evidenceCompleteness, 100);
   assert.equal(result.marginRate, null);
   assert.equal(result.gates.find((gate) => gate.key === "margin")?.passed, false);
-  assert.equal(result.gates.find((gate) => gate.key === "margin")?.actual, "缺已确认售价");
-  assert.equal(result.gates.find((gate) => gate.key === "stress")?.actual, "缺已确认售价");
-  assert.ok(result.blockers.some((blocker) => blocker.includes("缺已确认售价")));
+  assert.equal(result.gates.find((gate) => gate.key === "margin")?.actual, "缺已确认且最新的成本核算单");
+  assert.equal(result.gates.find((gate) => gate.key === "stress")?.actual, "缺已确认且最新的成本核算单");
+  assert.ok(result.blockers.some((blocker) => blocker.includes("成本核算单")));
 });
 
-test("a confirmed price drives the margin gate and a low confirmed price fails it", () => {
+test("the confirmed cost sheet drives margin and a sub-18% sheet fails the gate", () => {
   const fullEvidence = { quotes: [quote(), quote({ id: "quote-2", landedCostCents: 230 }), quote({ id: "quote-3", landedCostCents: 260 })] };
-  const go = evaluateSourcingDecision(decisionInput({ ...fullEvidence, confirmedPriceCents: 2499 }));
-  const lowPrice = evaluateSourcingDecision(decisionInput({ ...fullEvidence, confirmedPriceCents: 700 }));
+  const go = evaluateSourcingDecision(decisionInput({ ...fullEvidence }));
+  const lowMargin = evaluateSourcingDecision(decisionInput({
+    ...fullEvidence,
+    costSheetMarginRate: 0.12,
+    costSheetEconomics: {
+      netProfitCents: 300,
+      marginRate: 0.12,
+      stressMarginRate: 0.02,
+      stressProfitCents: 50,
+      salePriceCents: 2499,
+      landedCostCents: 900,
+    },
+  }));
 
   assert.equal(go.decision, "GO");
-  assert.notEqual(lowPrice.decision, "GO");
-  assert.ok((lowPrice.marginRate ?? 1) < (go.marginRate ?? 0));
-  assert.ok(go.warnings.some((warning) => warning.includes("平台默认比例")));
+  assert.equal(lowMargin.decision, "NO-GO");
+  assert.ok((lowMargin.marginRate ?? 1) < (go.marginRate ?? 0));
+  assert.equal(lowMargin.marginRate, 0.12);
 });
 
 test("confirmed patent risk is a hard NO-GO", () => {
@@ -281,7 +313,6 @@ test("non-USD decisions require a recorded and traceable FX rate", () => {
   const result = evaluateSourcingDecision(
     decisionInput({
       context: gbpContext,
-      confirmedPriceCents: 1999,
       quotes: [quote({ currency: "GBP", landedCostCents: 160 })],
     }),
   );

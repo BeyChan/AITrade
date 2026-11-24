@@ -213,7 +213,7 @@ export function SupplierDirectoryClient({
 
   async function handleLinkToCase(supplier: SupplierDirectoryItem) {
     if (!linkCaseId) {
-      setActionMsg({ type: "err", text: "暂无可关联的商品，请先在选品雷达立项一个商品。" });
+      setActionMsg({ type: "err", text: "暂无可关联的商品，请先在选品中立项一个商品。" });
       return;
     }
     setActionMsg(null);
@@ -808,7 +808,7 @@ export function SupplierDirectoryClient({
                           }}
                         >
                           {cases.length === 0 ? (
-                            <option value="">暂无在办商品（请先在选品雷达立项）</option>
+                            <option value="">暂无在办商品（请先在选品立项）</option>
                           ) : (
                             cases.map((c) => (
                               <option key={c.productCase.id} value={c.productCase.id}>

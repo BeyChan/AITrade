@@ -2,14 +2,16 @@
 
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { runCompetitorAnalysisAction } from "@/app/competitors/actions";
+import { useRouter } from "next/navigation";
+import { convertReportToHypothesisAction } from "@/app/competitors/actions";
+import { createHypothesisFromCostSheetAction } from "@/app/costing/actions";
 import {
   createAISourcingBatchAction,
-  createQuickCandidateAction,
   saveSourcingConstraintsAction,
 } from "@/app/actions";
 import { CategoryRecommender } from "@/components/category-recommender";
 import type { CompetitorComparisonReport } from "@/lib/competitor-compare/types";
+import type { CostSheet } from "@/lib/cost-sheets-repository";
 import { moneyIn, shortDate } from "@/lib/format";
 import {
   COMPLIANCE_ATTRIBUTE_OPTIONS,
@@ -33,7 +35,9 @@ type Props = {
   currency: string;
   requestKey: string;
   siteReports?: CompetitorComparisonReport[];
+  confirmedCostSheets?: CostSheet[];
   initialReportId?: string;
+  initialCostSheetId?: string;
   initialEntryMode?: EntryMode;
   initialConstraints?: SourcingConstraints;
   eliminatedHistory?: EliminatedHistoryRecord[];
@@ -47,11 +51,14 @@ export function SelectionWizardClient({
   currency,
   requestKey,
   siteReports = [],
+  confirmedCostSheets = [],
   initialReportId = "",
+  initialCostSheetId = "",
   initialEntryMode = "ai",
   initialConstraints = DEFAULT_SOURCING_CONSTRAINTS,
   eliminatedHistory = [],
 }: Props) {
+  const router = useRouter();
   const [entryMode, setEntryMode] = useState<EntryMode>(initialEntryMode);
 
   // 分支 1：AI 找方向约束
@@ -71,19 +78,15 @@ export function SelectionWizardClient({
   const [isEditingExclusions, setIsEditingExclusions] = useState(false);
   const [newExclusionLabel, setNewExclusionLabel] = useState("");
 
-  // 分支 2：我有竞品链接
+  // 分支 2：从已确认竞品研报建立候选
   const [selectedReportId, setSelectedReportId] = useState(initialReportId);
-  const [rawCompetitors, setRawCompetitors] = useState("");
-  const [compTitle, setCompTitle] = useState("");
-  const [compCategory, setCompCategory] = useState("跨境精品");
   const [compError, setCompError] = useState<string | null>(null);
-  const [isAnalyzing, startAnalyze] = useTransition();
+  const [isConverting, startConvert] = useTransition();
 
-  // 分支 3：我有货源成本
-  const [sourceTitle, setSourceTitle] = useState("");
-  const [sourceCategory, setSourceCategory] = useState("跨境精品");
-  const [sourceTargetPrice, setSourceTargetPrice] = useState("32.99");
-  const [sourceFactoryRmb, setSourceFactoryRmb] = useState("32");
+  // 分支 3：从已确认核算单建立候选
+  const [selectedCostSheetId, setSelectedCostSheetId] = useState(
+    initialCostSheetId || confirmedCostSheets[0]?.id || "",
+  );
 
   const persistConstraints = (next: {
     excludedAttrs?: ProductComplianceAttribute[];
@@ -127,74 +130,38 @@ export function SelectionWizardClient({
       entryMode === "ai"
         ? briefText
         : entryMode === "competitor"
-          ? `${compTitle} ${selectedReport?.title ?? ""} ${rawCompetitors}`
-          : sourceTitle;
-    const cat =
-      entryMode === "competitor"
-        ? compCategory
-        : entryMode === "sourcing"
-          ? sourceCategory
-          : "";
-    return findEliminationMatches(query, cat, eliminatedHistory);
-  }, [entryMode, briefText, compTitle, selectedReport, rawCompetitors, sourceTitle, compCategory, sourceCategory, eliminatedHistory]);
+          ? selectedReport?.title ?? ""
+          : confirmedCostSheets.find((sheet) => sheet.id === selectedCostSheetId)?.title ?? "";
+    return findEliminationMatches(query, "", eliminatedHistory);
+  }, [entryMode, briefText, selectedReport, confirmedCostSheets, selectedCostSheetId, eliminatedHistory]);
 
-  function handleAnalyzeAndCreateCandidate(e: React.FormEvent) {
+  function handleConvertReport(e: React.FormEvent) {
     e.preventDefault();
     setCompError(null);
-    if (!rawCompetitors.trim() && !selectedReportId) {
-      setCompError("请粘贴至少 1 个竞品链接/ASIN，或选择一份已有竞品研报。");
+    if (!selectedReportId) {
+      setCompError("请选择一份已人工确认的竞品研报。");
       return;
     }
 
-    startAnalyze(async () => {
-      let reportId = selectedReportId;
-      let conceptTitle = compTitle.trim();
-      let p50PriceStr = "";
-
-      if (rawCompetitors.trim()) {
-        const fd = new FormData();
-        fd.set("rawInputs", rawCompetitors);
-        fd.set("marketCode", marketCode);
-        fd.set("platformCode", platformCode);
-        fd.set("currency", currency);
-        const res = await runCompetitorAnalysisAction(fd);
-        if (!res.success || !res.report) {
-          setCompError(res.error || "竞品分析失败，请检查链接或 ASIN 格式");
-          return;
-        }
-        reportId = res.report.id;
-        if (!conceptTitle) conceptTitle = res.report.title;
-        if (res.report.priceStats.p50 > 0) {
-          p50PriceStr = (res.report.priceStats.p50 / 100).toFixed(2);
-        }
-      } else if (selectedReport) {
-        if (!conceptTitle) conceptTitle = selectedReport.title;
-        if (selectedReport.priceStats.p50 > 0) {
-          p50PriceStr = (selectedReport.priceStats.p50 / 100).toFixed(2);
-        }
+    startConvert(async () => {
+      const result = await convertReportToHypothesisAction(selectedReportId);
+      if (!result.success || !result.runId || !result.hypothesisId) {
+        setCompError(result.error || "从研报建立候选失败");
+        return;
       }
-
-      const submitFd = new FormData();
-      submitFd.set("marketCode", marketCode);
-      submitFd.set("platformCode", platformCode);
-      submitFd.set("category", compCategory.trim() || "跨境精品");
-      submitFd.set("concept", conceptTitle || "竞品对标候选");
-      submitFd.set("sourceKind", "asin_scan");
-      if (reportId) submitFd.set("comparisonReportId", reportId);
-      if (p50PriceStr) submitFd.set("confirmedPrice", p50PriceStr);
-      submitFd.set("targetTab", "profit");
-      submitFd.set("actor", "选品负责人");
-      await createQuickCandidateAction(submitFd);
+      router.push(
+        `/ai-sourcing/${encodeURIComponent(result.runId)}?tab=profit&hypothesisId=${encodeURIComponent(result.hypothesisId)}`,
+      );
     });
   }
 
   return (
     <div className="stack selection-wizard-root">
-      {/* 3 个并列起点（三选一，非顺序步骤）：全部落入同一套 4 步选品工作台 */}
+      {/* AI 是主入口；已确认研报与核算单只作为可追溯的次级建候选入口。 */}
       <section
         className="wizard-entry-grid"
         style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}
-        aria-label="选择建品起点（三选一）"
+        aria-label="选品入口"
       >
         <button
           type="button"
@@ -226,8 +193,8 @@ export function SelectionWizardClient({
             </svg>
           </span>
           <span className="wizard-entry-body">
-            <strong>我有竞品链接</strong>
-            <span className="wizard-entry-description">贴 ASIN 或选已有研报，建候选后直达第 2 步算毛利</span>
+            <strong>从已确认研报建立候选</strong>
+            <span className="wizard-entry-description">只选用人工核对过的竞品研报，P50 仅作为参考售价</span>
           </span>
         </button>
 
@@ -245,8 +212,8 @@ export function SelectionWizardClient({
             </svg>
           </span>
           <span className="wizard-entry-body">
-            <strong>我有货源成本</strong>
-            <span className="wizard-entry-description">填 1688 拿货价与售价，建候选后直达第 2 步核 18% 门禁</span>
+            <strong>从已确认核算单建立候选</strong>
+            <span className="wizard-entry-description">只选用已确认且为最新版本的核算单，直接复用其成本模型</span>
           </span>
         </button>
       </section>
@@ -272,14 +239,6 @@ export function SelectionWizardClient({
             <div>
               <h2>AI 类目机会发散（{marketName}站 · {platformName}）</h2>
               <p>输入想做的类目与硬约束，AI 生成 5 个待验证候选，全部进入统一选品工作台。</p>
-            </div>
-            <div className="button-row">
-              <Link
-                href={`/import?market=${encodeURIComponent(marketCode)}&platform=${encodeURIComponent(platformCode)}`}
-                className="button funnel-import-cta"
-              >
-                <span>批量导入 CSV</span>
-              </Link>
             </div>
           </div>
 
@@ -510,163 +469,109 @@ export function SelectionWizardClient({
         </section>
       ) : null}
 
-      {/* 入口 2：我有竞品链接 */}
+      {/* 入口 2：从已确认竞品研报建立候选 */}
       {entryMode === "competitor" ? (
         <section className="section wizard-panel-anchor" id="competitor-entry-panel">
           <div className="section-header">
             <div>
-              <h2>从竞品链接建立候选（{marketName}站 · {platformName}）</h2>
-              <p>粘贴 1–4 个竞品链接或直接选用已有竞品研报，创建候选后自动带入中位售价与差评痛点，进入第 2 步利润测算。</p>
+              <h2>从已确认竞品研报建立候选（{marketName}站 · {platformName}）</h2>
+              <p>仅可选择已人工核对的研报。P50 仅作竞品参考，不进入正式利润门禁。</p>
             </div>
             <Link href="/competitors" className="button ghost compact-button">
               去竞品研报库
             </Link>
           </div>
 
-          <form onSubmit={handleAnalyzeAndCreateCandidate} className="stack">
+          {siteReports.length === 0 ? (
+            <div className="empty-state">
+              <strong>当前站点还没有已确认研报</strong>
+              <span>请先到竞品研报库完成采集、分析并记录人工核对，再回来建立候选。</span>
+            </div>
+          ) : (
+            <form onSubmit={handleConvertReport} className="stack">
             {compError ? <div className="notice danger">{compError}</div> : null}
 
             <div className="form-grid">
-              <div className="field">
-                <label htmlFor="compTitle">候选商品名称（选填，留空自动用研报标题）</label>
-                <input
-                  id="compTitle"
-                  type="text"
-                  value={compTitle}
-                  onChange={(e) => setCompTitle(e.target.value)}
-                  placeholder="例如：双层可抽拉水槽下收纳架"
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="compCategory">类目</label>
-                <input
-                  id="compCategory"
-                  type="text"
-                  value={compCategory}
-                  onChange={(e) => setCompCategory(e.target.value)}
-                  placeholder="例如：家居收纳"
-                />
-              </div>
-
-              {siteReports.length > 0 ? (
-                <div className="field full">
-                  <label htmlFor="existingReport">或直接关联一份已有竞品研报</label>
-                  <select
-                    id="existingReport"
-                    value={selectedReportId}
-                    onChange={(e) => setSelectedReportId(e.target.value)}
-                  >
-                    <option value="">-- 新粘贴竞品链接（不选用已有研报） --</option>
-                    {siteReports.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.title}（{r.competitors.length} 款竞品 · P50 {moneyIn(r.currency, r.priceStats.p50)}）
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : null}
-
-              <div className="field full">
-                <label htmlFor="rawCompetitors">粘贴 1–4 个竞品链接或 ASIN（每行一个）</label>
-                <textarea
-                  id="rawCompetitors"
-                  rows={4}
-                  value={rawCompetitors}
-                  onChange={(e) => setRawCompetitors(e.target.value)}
-                  placeholder={"https://www.amazon.com/dp/B08CZ8K652\nhttps://www.amazon.com/dp/B09M87J11L"}
-                />
-                <span className="help">
-                  提示：也可在亚马逊搜索页点击 Chrome 扩展「AITrade 竞品采集」一键抓取 Top 20，再在上方下拉框直接选用。
-                </span>
-              </div>
+              <label className="field full">
+                <span>已确认竞品研报</span>
+                <select
+                  value={selectedReportId}
+                  onChange={(e) => setSelectedReportId(e.target.value)}
+                  required
+                >
+                  <option value="">选择已确认研报</option>
+                  {siteReports.map((report) => (
+                    <option key={report.id} value={report.id}>
+                      {report.title}（{report.competitors.length} 款竞品 · 参考 P50 {moneyIn(report.currency, report.priceStats.p50)}）
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
 
             <div className="form-actions">
-              <span className="help">创建后将自动挂接竞品数据，并跳转至工作台第 2 步算 18% 毛利。</span>
-              <button type="submit" className="button primary" disabled={isAnalyzing}>
-                {isAnalyzing ? "正在分析竞品并建候选..." : "分析竞品并进入选品工作台 →"}
+              <span className="help">建立后会挂接真实竞品与差评证据；正式 GO 需另行确认同范围成本核算单。</span>
+              <button type="submit" className="button primary" disabled={isConverting || !selectedReportId}>
+                {isConverting ? "正在建立候选..." : "从已确认研报建立候选 →"}
               </button>
             </div>
-          </form>
+            </form>
+          )}
         </section>
       ) : null}
 
-      {/* 入口 3：我有货源成本 */}
+      {/* 入口 3：从已确认核算单建立候选 */}
       {entryMode === "sourcing" ? (
         <section className="section wizard-panel-anchor" id="sourcing-entry-panel">
           <div className="section-header">
             <div>
-              <h2>从 1688 / 工厂货源建立候选（{marketName}站 · {platformName}）</h2>
-              <p>已有货源拿货价时，先录入基础成本建候选，直接跳进工作台第 2 步测算 18% 毛利硬门禁。</p>
+              <h2>从已确认核算单建立候选（{marketName}站 · {platformName}）</h2>
+              <p>只展示人工确认且为同组最新版本的核算单；后续 GO 与正式立项会直接复用其假设和结果。</p>
             </div>
+            <Link href="/costing" className="button ghost compact-button">去成本核算</Link>
           </div>
 
-          <form action={createQuickCandidateAction} className="stack">
-            <input type="hidden" name="marketCode" value={marketCode} />
-            <input type="hidden" name="platformCode" value={platformCode} />
-            <input type="hidden" name="sourceKind" value="quick_calc" />
-            <input type="hidden" name="targetTab" value="profit" />
+          {confirmedCostSheets.length === 0 ? (
+            <div className="empty-state">
+              <strong>当前站点还没有可用核算单</strong>
+              <span>请先在成本核算页建立、确认最新版本，再回来建立候选。</span>
+            </div>
+          ) : (
+            <form action={createHypothesisFromCostSheetAction} className="stack">
             <input type="hidden" name="actor" value="选品负责人" />
-
-            <div className="form-grid">
-              <div className="field">
-                <label htmlFor="sourceTitle">商品名称 *</label>
-                <input
-                  id="sourceTitle"
-                  name="concept"
-                  type="text"
-                  required
-                  value={sourceTitle}
-                  onChange={(e) => setSourceTitle(e.target.value)}
-                  placeholder="例如：静音不锈钢宠物饮水器"
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="sourceCategory">类目</label>
-                <input
-                  id="sourceCategory"
-                  name="category"
-                  type="text"
-                  value={sourceCategory}
-                  onChange={(e) => setSourceCategory(e.target.value)}
-                  placeholder="例如：宠物用品"
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="sourceTargetPrice">拟定售价 ({currency}) *</label>
-                <input
-                  id="sourceTargetPrice"
-                  name="confirmedPrice"
-                  type="number"
-                  min="1"
-                  step="0.01"
-                  required
-                  value={sourceTargetPrice}
-                  onChange={(e) => setSourceTargetPrice(e.target.value)}
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="sourceFactoryRmb">1688 参考拿货价 (RMB ¥) *</label>
-                <input
-                  id="sourceFactoryRmb"
-                  name="referenceFactoryCostRmb"
-                  type="number"
-                  min="0.1"
-                  step="0.1"
-                  required
-                  value={sourceFactoryRmb}
-                  onChange={(e) => setSourceFactoryRmb(e.target.value)}
-                />
-              </div>
+            <div className="stack">
+              {confirmedCostSheets.map((sheet) => (
+                <label
+                  key={sheet.id}
+                  className={`wizard-entry-card${selectedCostSheetId === sheet.id ? " is-active" : ""}`}
+                  style={{ cursor: "pointer" }}
+                >
+                  <input
+                    type="radio"
+                    name="sheetId"
+                    value={sheet.id}
+                    checked={selectedCostSheetId === sheet.id}
+                    onChange={() => setSelectedCostSheetId(sheet.id)}
+                    required
+                  />
+                  <span className="wizard-entry-body">
+                    <strong>{sheet.title}</strong>
+                    <span className="wizard-entry-description">
+                      V{sheet.version} · 确认人 {sheet.confirmedBy || "未记录"} · 净利率 {(sheet.results.marginRate * 100).toFixed(1)}% · 净利 {moneyIn(sheet.currency, sheet.results.netProfitCents)}
+                    </span>
+                  </span>
+                </label>
+              ))}
             </div>
 
             <div className="form-actions">
-              <span className="help">创建后直接进入第 2 步「利润测算」核 18% 硬门禁，后续随时补采竞品或打样。</span>
-              <button type="submit" className="button primary">
-                建候选并去算 18% 毛利 →
+              <span className="help">候选会绑定所选核算单；未确认、旧版本或净利率低于 18% 的核算单不能支持正式 GO。</span>
+              <button type="submit" className="button primary" disabled={!selectedCostSheetId}>
+                从已确认核算单建立候选 →
               </button>
             </div>
-          </form>
+            </form>
+          )}
         </section>
       ) : null}
     </div>

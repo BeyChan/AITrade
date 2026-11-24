@@ -243,6 +243,7 @@ export async function createAISourcingBatch(input: {
             productCaseId: null,
             sourceKind: "ai",
             comparisonReportId: null,
+            costSheetId: null,
             referenceFactoryCostRmb: null,
             complianceAttrs: [],
             eliminatedAt: null,
@@ -519,7 +520,6 @@ export async function getAISourcingBatch(runId: string): Promise<AISourcingBatch
         painPoint: mappedHyp.painPoint,
         differentiator: mappedHyp.differentiator,
         recommendedPriceCents: mappedHyp.recommendedPriceCents,
-        confirmedPriceCents: mappedHyp.confirmedPriceCents,
         expectedMarginRate: mappedHyp.expectedMarginRate,
         bestQuoteLandedCostCents: bestQuote?.landedCostCents ?? decision?.landedCostCents ?? null,
         bestQuoteId: bestQuote?.id ?? decision?.bestQuoteId ?? null,
@@ -749,11 +749,9 @@ export async function deleteHypothesis(hypothesisId: string, actor = "运营人�
   });
 }
 
-export async function saveHypothesisProfitCheck(input: {
+export async function saveHypothesisComplianceAttrs(input: {
   hypothesisId: string;
-  referenceFactoryCostRmb?: number | null;
   complianceAttrs?: string[];
-  confirmedPriceCents?: number | null;
   actor?: string;
 }) {
   const db = await getDb();
@@ -763,52 +761,25 @@ export async function saveHypothesisProfitCheck(input: {
     await selectHypothesisForValidation(input.hypothesisId, input.actor || "运营人员");
   }
 
-  const refCost =
-    input.referenceFactoryCostRmb === undefined
-      ? context.hypothesis.referenceFactoryCostRmb
-      : input.referenceFactoryCostRmb !== null &&
-          Number.isFinite(input.referenceFactoryCostRmb) &&
-          input.referenceFactoryCostRmb > 0
-        ? Number(input.referenceFactoryCostRmb.toFixed(2))
-        : null;
   const attrs =
     input.complianceAttrs === undefined
       ? context.hypothesis.complianceAttrs
       : [...new Set(input.complianceAttrs.map((a) => a.trim()).filter(Boolean))];
   const actor = (input.actor ?? "").trim() || "运营人员";
-  const nextPrice =
-    input.confirmedPriceCents && Number.isInteger(input.confirmedPriceCents) && input.confirmedPriceCents > 0
-      ? input.confirmedPriceCents
-      : null;
 
   await db.transaction(async (tx) => {
-    if (nextPrice) {
-      await tx.query(
-        `UPDATE opportunity_hypotheses
-         SET reference_factory_cost_rmb = $2,
-             compliance_attrs = $3::jsonb,
-             confirmed_price_cents = $4,
-             confirmed_price_at = COALESCE(confirmed_price_at, NOW())
-         WHERE id = $1`,
-        [input.hypothesisId, refCost, JSON.stringify(attrs), nextPrice],
-      );
-    } else {
-      await tx.query(
-        `UPDATE opportunity_hypotheses
-         SET reference_factory_cost_rmb = $2,
-             compliance_attrs = $3::jsonb
-         WHERE id = $1`,
-        [input.hypothesisId, refCost, JSON.stringify(attrs)],
-      );
-    }
+    await tx.query(
+      "UPDATE opportunity_hypotheses SET compliance_attrs = $2::jsonb WHERE id = $1",
+      [input.hypothesisId, JSON.stringify(attrs)],
+    );
     await tx.query(
       `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'ai_sourcing.profit_check_saved', 'opportunity_hypothesis', $3, $4::jsonb)`,
+       VALUES ($1, $2, 'ai_sourcing.compliance_attrs_saved', 'opportunity_hypothesis', $3, $4::jsonb)`,
       [
         randomUUID(),
         actor,
         input.hypothesisId,
-        JSON.stringify({ referenceFactoryCostRmb: refCost, complianceAttrs: attrs, confirmedPriceCents: nextPrice }),
+        JSON.stringify({ complianceAttrs: attrs }),
       ],
     );
   });
@@ -824,10 +795,10 @@ export async function createQuickCandidateBatch(input: {
   concept: string;
   sourceKind: "manual_idea" | "asin_scan" | "quick_calc";
   searchKeyword?: string;
-  confirmedPriceCents?: number | null;
-  referenceFactoryCostRmb?: number | null;
+  recommendedPriceCents?: number | null;
   complianceAttrs?: string[];
   comparisonReportId?: string | null;
+  costSheetId?: string | null;
   eliminationReason?: string | null;
   eliminationNote?: string | null;
   actor?: string;
@@ -849,14 +820,45 @@ export async function createQuickCandidateBatch(input: {
   const concept = input.concept.trim().slice(0, 140) || "未命名候选方向";
   const category = input.category.trim().slice(0, 80) || "跨境候选";
   const keyword = (input.searchKeyword ?? concept).trim().slice(0, 140);
-  const priceCents =
-    input.confirmedPriceCents && input.confirmedPriceCents > 0 ? Math.round(input.confirmedPriceCents) : 2999;
-  const confirmedCents =
-    input.confirmedPriceCents && input.confirmedPriceCents > 0 ? Math.round(input.confirmedPriceCents) : null;
-  const refCost =
-    input.referenceFactoryCostRmb && input.referenceFactoryCostRmb > 0
-      ? Number(input.referenceFactoryCostRmb.toFixed(2))
+  let priceCents =
+    input.recommendedPriceCents && Number.isFinite(input.recommendedPriceCents) && input.recommendedPriceCents > 0
+      ? Math.round(input.recommendedPriceCents)
       : null;
+  const requestedCostSheetId = input.costSheetId?.trim() || null;
+  if (requestedCostSheetId) {
+    const costSheet = await db.query<{
+      status: string;
+      market_code: string;
+      platform_code: string;
+      currency: string;
+      hypothesis_id: string | null;
+      sale_price_cents: string | number;
+      is_latest: boolean;
+    }>(
+      `SELECT cs.status, cs.market_code, cs.platform_code, cs.currency, cs.hypothesis_id,
+              cs.assumptions->>'salePriceCents' AS sale_price_cents,
+              NOT EXISTS (
+                SELECT 1 FROM cost_sheets newer
+                WHERE newer.group_id = cs.group_id AND newer.version > cs.version
+              ) AS is_latest
+       FROM cost_sheets cs WHERE cs.id = $1`,
+      [requestedCostSheetId],
+    );
+    const sheet = costSheet.rows[0];
+    if (!sheet) throw new Error("成本核算单不存在");
+    if (sheet.status !== "confirmed") throw new Error("只有已确认的成本核算单才能建立候选");
+    if (!sheet.is_latest) throw new Error("该核算单已有新版本，请使用最新版本");
+    if (sheet.hypothesis_id) throw new Error("该核算单已绑定其他候选");
+    if (
+      sheet.market_code.toUpperCase() !== input.marketCode.toUpperCase() ||
+      sheet.platform_code.toLowerCase() !== input.platformCode.toLowerCase() ||
+      sheet.currency.toUpperCase() !== row.currency.toUpperCase()
+    ) {
+      throw new Error("核算单站点、平台或币种与候选不一致");
+    }
+    priceCents = Math.round(Number(sheet.sale_price_cents));
+  }
+  if (!priceCents) throw new Error("缺少成本核算单售价或推荐售价，不能建立候选");
   const attrs = Array.isArray(input.complianceAttrs) ? input.complianceAttrs : [];
   const validReason =
     input.eliminationReason && isValidEliminationReason(input.eliminationReason)
@@ -883,25 +885,24 @@ export async function createQuickCandidateBatch(input: {
          expected_margin_rate, first_order_budget_cents,
          main_risks, supplier_keywords, competitor_queries, review_queries,
          priority_score, selected_for_validation, source_kind,
-         comparison_report_id, reference_factory_cost_rmb, compliance_attrs,
+         comparison_report_id, cost_sheet_id, reference_factory_cost_rmb, compliance_attrs,
          eliminated_at, elimination_reason, elimination_note)
        VALUES ($1, $2, 1, $3, $4, '待通过真实竞品与差评验证', '待通过竞品差异化确认',
-         $5, $6, CASE WHEN $6 IS NOT NULL THEN NOW() ELSE NULL END,
-         0.20, 150000, '[]'::jsonb, $7::jsonb, $8::jsonb, $8::jsonb,
-         70, TRUE, $9, $10, $11, $12::jsonb,
-         CASE WHEN $13::text IS NOT NULL THEN NOW() ELSE NULL END, $13, $14)`,
+         $5, NULL, NULL,
+         0.20, 150000, '[]'::jsonb, $6::jsonb, $7::jsonb, $7::jsonb,
+         70, TRUE, $8, $9, $10, NULL, $11::jsonb,
+         CASE WHEN $12::text IS NOT NULL THEN NOW() ELSE NULL END, $12, $13)`,
       [
         hypothesisId,
         runId,
         concept,
         `${row.market_name}站 · ${row.platform_name}`,
         priceCents,
-        confirmedCents,
         JSON.stringify([concept]),
         JSON.stringify([keyword]),
         input.sourceKind,
         input.comparisonReportId ?? null,
-        refCost,
+        requestedCostSheetId,
         JSON.stringify(attrs),
         validReason,
         input.eliminationNote?.trim().slice(0, 400) || null,
@@ -928,6 +929,13 @@ export type KanbanCandidateItem = {
   priorityScore: number;
   productCaseId: string | null;
   comparisonReportId: string | null;
+  comparisonReportConfirmed: boolean;
+  costSheetId: string | null;
+  costSheetStatus: "draft" | "confirmed" | null;
+  costSheetMarginRate: number | null;
+  costSheetVersion: number | null;
+  costSheetIsLatest: boolean;
+  costSheetScopeMatches: boolean;
   confirmedPriceCents: number | null;
   referenceFactoryCostRmb: number | null;
   complianceAttrs: ProductComplianceAttribute[];
@@ -971,6 +979,13 @@ export async function listKanbanCandidates(marketCode?: string, platformCode?: s
     priority_score: number;
     product_case_id: string | null;
     comparison_report_id: string | null;
+    comparison_report_confirmed: boolean;
+    cost_sheet_id: string | null;
+    cost_sheet_status: "draft" | "confirmed" | null;
+    cost_sheet_margin_rate: string | number | null;
+    cost_sheet_version: number | null;
+    cost_sheet_is_latest: boolean;
+    cost_sheet_scope_matches: boolean;
     confirmed_price_cents: number | null;
     reference_factory_cost_rmb: string | number | null;
     compliance_attrs: string[] | null;
@@ -988,6 +1003,20 @@ export async function listKanbanCandidates(marketCode?: string, platformCode?: s
        h.id, h.run_id, h.concept, b.category, b.market_code, m.name AS market_name,
        b.platform_code, p.name AS platform_name, b.currency, h.source_kind,
        h.priority_score, h.product_case_id, h.comparison_report_id,
+       COALESCE(cr.review_status = 'confirmed'
+         AND cr.market_code = b.market_code
+         AND cr.platform_code = b.platform_code
+         AND cr.payload->>'currency' = b.currency, FALSE) AS comparison_report_confirmed,
+       cs.id AS cost_sheet_id, cs.status AS cost_sheet_status,
+       cs.results->>'marginRate' AS cost_sheet_margin_rate, cs.version AS cost_sheet_version,
+       COALESCE(cs.id IS NOT NULL AND NOT EXISTS (
+         SELECT 1 FROM cost_sheets newer
+         WHERE newer.group_id = cs.group_id AND newer.version > cs.version
+       ), FALSE) AS cost_sheet_is_latest,
+       COALESCE(cs.hypothesis_id = h.id
+         AND cs.market_code = b.market_code
+         AND cs.platform_code = b.platform_code
+         AND cs.currency = b.currency, FALSE) AS cost_sheet_scope_matches,
        h.confirmed_price_cents, h.reference_factory_cost_rmb, h.compliance_attrs,
        h.eliminated_at, h.elimination_reason, h.elimination_note, h.created_at,
        d.decision,
@@ -1007,6 +1036,8 @@ export async function listKanbanCandidates(marketCode?: string, platformCode?: s
      JOIN markets m ON m.code = b.market_code
      JOIN platforms p ON p.code = b.platform_code
      LEFT JOIN selection_decisions d ON d.hypothesis_id = h.id
+     LEFT JOIN cost_sheets cs ON cs.id = h.cost_sheet_id
+     LEFT JOIN competitor_comparison_reports cr ON cr.id = h.comparison_report_id
      ${where}
      ORDER BY h.created_at DESC, h.position ASC`,
     values,
@@ -1028,8 +1059,16 @@ export async function listKanbanCandidates(marketCode?: string, platformCode?: s
       eliminatedAt: r.eliminated_at,
       verifiedCompetitorCount,
       comparisonReportId: r.comparison_report_id,
-      confirmedPriceCents: r.confirmed_price_cents === null ? null : Number(r.confirmed_price_cents),
-      referenceFactoryCostRmb: refCost,
+      comparisonReportConfirmed: Boolean(r.comparison_report_confirmed),
+      costSheetId: r.cost_sheet_id,
+      costSheetStatus: r.cost_sheet_status,
+      costSheetMarginRate:
+        r.cost_sheet_margin_rate === null || r.cost_sheet_margin_rate === undefined
+          ? null
+          : Number(r.cost_sheet_margin_rate),
+      costSheetVersion: r.cost_sheet_version === null ? null : Number(r.cost_sheet_version),
+      costSheetIsLatest: Boolean(r.cost_sheet_is_latest),
+      costSheetScopeMatches: Boolean(r.cost_sheet_scope_matches),
       complianceAttrs,
       quoteCount,
       supplierCount,
@@ -1053,6 +1092,16 @@ export async function listKanbanCandidates(marketCode?: string, platformCode?: s
       priorityScore: Number(r.priority_score),
       productCaseId: r.product_case_id,
       comparisonReportId: r.comparison_report_id,
+      comparisonReportConfirmed: Boolean(r.comparison_report_confirmed),
+      costSheetId: r.cost_sheet_id,
+      costSheetStatus: r.cost_sheet_status,
+      costSheetMarginRate:
+        r.cost_sheet_margin_rate === null || r.cost_sheet_margin_rate === undefined
+          ? null
+          : Number(r.cost_sheet_margin_rate),
+      costSheetVersion: r.cost_sheet_version === null ? null : Number(r.cost_sheet_version),
+      costSheetIsLatest: Boolean(r.cost_sheet_is_latest),
+      costSheetScopeMatches: Boolean(r.cost_sheet_scope_matches),
       confirmedPriceCents: r.confirmed_price_cents === null ? null : Number(r.confirmed_price_cents),
       referenceFactoryCostRmb: refCost,
       complianceAttrs,

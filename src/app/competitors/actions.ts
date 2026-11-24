@@ -10,7 +10,10 @@ import {
   getComparisonReportById,
   saveComparisonReport,
 } from "@/lib/competitor-compare/storage";
-import { createAISourcingBatch } from "@/lib/ai-sourcing-repository";
+import {
+  attachComparisonReportToHypothesis,
+  createQuickCandidateBatch,
+} from "@/lib/ai-sourcing-repository";
 import { countVerifyPlaceholders, generateAntiListingContent, type AntiListingResult } from "@/lib/competitor-compare/anti-listing";
 import { generateSupplierRfqFromCompetitors, type SupplierRfqDraft } from "@/lib/competitor-compare/supplier-rfq";
 import { createListingDraft, getContentDetail, listCasesForSite, listSupplierDirectory } from "@/lib/repository";
@@ -371,27 +374,33 @@ export async function convertReportToHypothesisAction(reportId: string) {
 
     const bridge = report.hypothesisBridge;
     const category = bridge?.category || report.title || "家居个护";
-    const brief = [
-      `【竞品对标改良品】${bridge?.concept || report.title}`,
-      `核心痛点：${bridge?.painPoint || report.summary.commonWeaknesses.join("；")}`,
-      `差异化切入：${bridge?.differentiator || report.summary.attackVector}`,
-      `对标竞品数：${report.competitors.length} 款，价格带 P50：${((report.priceStats.p50 || 2999) / 100).toFixed(2)} ${report.currency}`,
-      `来源：${report.provenance}；已由人工核对。其中 AI / 模板推断的价格、评分与评论数仍属待核实字段，需在选品验证中补录真实证据。`,
-      `价格分位真实样本：${report.priceStats.verifiedSampleCount} 条（其余为示意值，不作为定价依据）`,
-    ].join("\n");
+    if (!(report.priceStats.p50 > 0)) {
+      return { success: false, error: "研报缺少可用的 P50 参考售价，请补录真实价格样本" };
+    }
 
-    const result = await createAISourcingBatch({
+    const result = await createQuickCandidateBatch({
       marketCode: report.marketCode,
       platformCode: report.platformCode,
       category,
-      brief,
+      concept: bridge?.concept || report.title,
+      sourceKind: "asin_scan",
+      searchKeyword: bridge?.concept || report.title,
+      recommendedPriceCents: Math.round(report.priceStats.p50),
+      comparisonReportId: report.id,
+      actor: "竞品对比",
+    });
+    await attachComparisonReportToHypothesis({
+      hypothesisId: result.hypothesisId,
+      reportId: report.id,
       actor: "竞品对比",
     });
 
     revalidatePath("/ai-sourcing");
+    revalidatePath("/discover");
     return {
       success: true,
-      batchId: result.runId,
+      runId: result.runId,
+      hypothesisId: result.hypothesisId,
       marketCode: report.marketCode,
       platformCode: report.platformCode,
     };

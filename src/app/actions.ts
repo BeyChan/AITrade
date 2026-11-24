@@ -6,6 +6,7 @@ import { recordAuditLog } from "@/lib/audit-logs";
 import type { EconomicsAssumptions } from "@/lib/economics";
 import { getFxRatesSnapshot } from "@/lib/fx-rates";
 import { getSiteOptions } from "@/lib/repository";
+import { getComparisonReportById } from "@/lib/competitor-compare/storage";
 import { isSupportedImageSlot } from "@/lib/image-skills";
 import {
   createSupplierDraft,
@@ -15,7 +16,6 @@ import { isSupplierDraftType } from "@/lib/ai-supplier-assistant/schema";
 import {
   attachComparisonReportToHypothesis,
   autoImportSiteCompetitors,
-  confirmHypothesisPrice,
   createAISourcingBatch,
   createQuickCandidateBatch,
   deleteAISourcingBatch,
@@ -28,7 +28,7 @@ import {
   recordSupplierCandidates,
   rejectSupplierCandidate,
   restoreHypothesis,
-  saveHypothesisProfitCheck,
+  saveHypothesisComplianceAttrs,
   selectHypothesisForValidation,
   shortlistSupplierCandidate,
   toggleValidationTaskStatus,
@@ -336,26 +336,6 @@ export async function autoImportCompetitorsAction(formData: FormData) {
   redirect(`/ai-sourcing/${encodeURIComponent(runId)}?tab=hypotheses&hypothesisId=${encodeURIComponent(hypothesisId)}&notice=${encodeURIComponent(message)}#hypothesis-${encodeURIComponent(hypothesisId)}`);
 }
 
-export async function confirmHypothesisPriceAction(formData: FormData) {
-  const runId = String(formData.get("runId") || "");
-  let outcome: Awaited<ReturnType<typeof confirmHypothesisPrice>>;
-  try {
-    outcome = await confirmHypothesisPrice({
-      hypothesisId: String(formData.get("hypothesisId") || ""),
-      priceCents: dollarsToCents(formData.get("price")),
-      sourceUrl: String(formData.get("sourceUrl") || ""),
-      actor: String(formData.get("actor") || ""),
-    });
-  } catch (error) {
-    redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
-  }
-  revalidateAISourcing(runId);
-  const message = outcome.priceAdvisory
-    ? `已确认售价已记录并重新计算门禁；提示：${outcome.priceAdvisory}`
-    : "已确认售价已记录并重新计算门禁";
-  redirect(aiSourcingDetailPath(runId, "notice", message));
-}
-
 export async function recordAISupplierQuoteAction(formData: FormData) {
   const runId = String(formData.get("runId") || "");
   const hypothesisId = String(formData.get("hypothesisId") || "");
@@ -481,11 +461,11 @@ export async function attachComparisonReportAction(formData: FormData) {
   revalidateAISourcing(runId);
   const parts = [`已从扫描导入 ${res.addedCompetitors} 条真实竞品`];
   if (res.addedReviewSamples > 0) parts.push(`${res.addedReviewSamples} 条真实差评`);
-  if (res.p50PriceCents) parts.push("并自动带入中位售价");
+  if (res.p50PriceCents) parts.push("并带入参考售价");
   redirect(`/ai-sourcing/${encodeURIComponent(runId)}?tab=hypotheses&hypothesisId=${encodeURIComponent(hypothesisId)}&notice=${encodeURIComponent(parts.join("，"))}#hypothesis-${encodeURIComponent(hypothesisId)}`);
 }
 
-export async function saveHypothesisProfitCheckAction(formData: FormData) {
+export async function saveHypothesisComplianceAttrsAction(formData: FormData) {
   const runId = String(formData.get("runId") || "").trim();
   const hypothesisId = String(formData.get("hypothesisId") || "").trim();
   const returnTabRaw = String(formData.get("returnTab") || "profit").trim();
@@ -493,23 +473,16 @@ export async function saveHypothesisProfitCheckAction(formData: FormData) {
     returnTabRaw === "hypotheses" || returnTabRaw === "suppliers" || returnTabRaw === "decision"
       ? returnTabRaw
       : "profit";
-  const hasRefCost = formData.has("referenceFactoryCostRmb");
-  const refCostRmb = hasRefCost ? numberOrNull(formData.get("referenceFactoryCostRmb")) : undefined;
   const hasComplianceField = formData.has("updateCompliance");
   const complianceAttrs = hasComplianceField
     ? formData.getAll("complianceAttr").map((v) => String(v).trim()).filter(Boolean)
     : undefined;
-  const hasPriceField = formData.has("confirmedPrice");
-  const priceRaw = hasPriceField ? numberOrNull(formData.get("confirmedPrice")) : null;
-  const confirmedPriceCents = priceRaw && priceRaw > 0 ? Math.round(priceRaw * 100) : null;
   const actor = String(formData.get("actor") || "运营人员").trim();
 
   try {
-    await saveHypothesisProfitCheck({
+    await saveHypothesisComplianceAttrs({
       hypothesisId,
-      referenceFactoryCostRmb: refCostRmb,
       complianceAttrs,
-      confirmedPriceCents,
       actor,
     });
   } catch (error) {
@@ -517,9 +490,7 @@ export async function saveHypothesisProfitCheckAction(formData: FormData) {
   }
 
   revalidateAISourcing(runId);
-  const msg = hasComplianceField && !hasRefCost
-    ? "已保存商品合规属性排查"
-    : "已保存售价与 1688 参考拿货价，18% 毛利门禁已更新";
+  const msg = hasComplianceField ? "已保存商品合规属性排查" : "已保存候选信息";
   redirect(`/ai-sourcing/${encodeURIComponent(runId)}?tab=${encodeURIComponent(returnTab)}&hypothesisId=${encodeURIComponent(hypothesisId)}&notice=${encodeURIComponent(msg)}#hypothesis-${encodeURIComponent(hypothesisId)}`);
 }
 
@@ -532,9 +503,10 @@ export async function createQuickCandidateAction(formData: FormData) {
   const sourceKind =
     sourceKindRaw === "asin_scan" || sourceKindRaw === "quick_calc" ? sourceKindRaw : "manual_idea";
   const comparisonReportId = String(formData.get("comparisonReportId") || "").trim() || null;
-  const priceRaw = numberOrNull(formData.get("confirmedPrice"));
-  const confirmedPriceCents = priceRaw && priceRaw > 0 ? Math.round(priceRaw * 100) : null;
-  const referenceFactoryCostRmb = numberOrNull(formData.get("referenceFactoryCostRmb"));
+  const costSheetId = String(formData.get("costSheetId") || "").trim() || null;
+  const recommendedPriceRaw = numberOrNull(formData.get("recommendedPrice"));
+  const recommendedPriceCents =
+    recommendedPriceRaw && recommendedPriceRaw > 0 ? Math.round(recommendedPriceRaw * 100) : null;
   const complianceAttrs = formData.getAll("complianceAttr").map((v) => String(v).trim()).filter(Boolean);
   const eliminationReason = String(formData.get("eliminationReason") || "").trim() || null;
   const eliminationNote = String(formData.get("eliminationNote") || "").trim() || null;
@@ -542,6 +514,13 @@ export async function createQuickCandidateAction(formData: FormData) {
 
   let created: { runId: string; hypothesisId: string };
   try {
+    let reportReferencePriceCents: number | null = null;
+    if (comparisonReportId) {
+      const report = await getComparisonReportById(comparisonReportId);
+      if (!report) throw new Error("未找到对应的竞品研报");
+      if (report.reviewStatus !== "confirmed") throw new Error("研报尚未人工确认，不能建立正式候选");
+      reportReferencePriceCents = report.priceStats.p50 > 0 ? Math.round(report.priceStats.p50) : null;
+    }
     created = await createQuickCandidateBatch({
       marketCode,
       platformCode,
@@ -549,10 +528,10 @@ export async function createQuickCandidateAction(formData: FormData) {
       concept: concept || `${category} 候选方向`,
       sourceKind,
       searchKeyword: String(formData.get("searchKeyword") || concept).trim(),
-      confirmedPriceCents,
-      referenceFactoryCostRmb,
+      recommendedPriceCents: recommendedPriceCents ?? reportReferencePriceCents,
       complianceAttrs,
       comparisonReportId,
+      costSheetId,
       eliminationReason,
       eliminationNote,
       actor,

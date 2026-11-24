@@ -63,7 +63,7 @@ export default function ImportPage() {
       <PageHeader
         breadcrumbs={[
           { label: "工作台", href: "/" },
-          { label: "选品雷达", href: "/discover" },
+          { label: "选品", href: "/discover" },
           { label: "导入候选品" },
         ]}
         eyebrow={`CSV 导入 · ${site.market} × ${site.platform}`}

@@ -3,7 +3,6 @@ import { getDb } from "../db.ts";
 import { normalizeObservedAt, validateEvidenceUrl } from "../ai-sourcing.ts";
 import {
   buildCompetitorBenchmark,
-  evaluateConfirmedPriceAdvisory,
   isSyntheticCompetitorSource,
   type CompetitorBenchmark,
 } from "../competitor-insights.ts";
@@ -32,67 +31,6 @@ import {
   type QuoteRow,
   type ReviewInsightRow,
 } from "./types.ts";
-
-export async function confirmHypothesisPrice(input: {
-  hypothesisId: string;
-  priceCents: number;
-  sourceUrl: string;
-  actor: string;
-}) {
-  const db = await getDb();
-  await assertSelected(input.hypothesisId);
-  if (!Number.isInteger(input.priceCents) || input.priceCents <= 0) throw new Error("已确认售价必须大于 0");
-  const sourceUrl = validateEvidenceUrl(input.sourceUrl.trim());
-  const actor = input.actor.trim() || "运营人员";
-  await db.transaction(async (tx) => {
-    await tx.query(
-      `UPDATE opportunity_hypotheses
-       SET confirmed_price_cents = $2, confirmed_price_source_url = $3, confirmed_price_at = NOW()
-       WHERE id = $1`,
-      [input.hypothesisId, input.priceCents, sourceUrl],
-    );
-    await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'ai_sourcing.price_confirmed', 'opportunity_hypothesis', $3, $4::jsonb)`,
-      [randomUUID(), actor, input.hypothesisId, JSON.stringify({ priceCents: input.priceCents, sourceUrl, externalActions: "none" })],
-    );
-  });
-  const decision = await refreshAISelectionDecision(input.hypothesisId);
-  const [context, competitorRows] = await Promise.all([
-    loadHypothesisContext(input.hypothesisId),
-    db.query<CompetitorRow>(
-      `SELECT c.*, e.source_type FROM competitor_snapshots c
-       LEFT JOIN opportunity_evidence e ON e.id = c.evidence_id
-       WHERE c.hypothesis_id = $1 ORDER BY c.observed_at DESC`,
-      [input.hypothesisId],
-    ),
-  ]);
-  let priceAdvisory: string | null = null;
-  if (context && competitorRows.rows.length > 0) {
-    const benchmark = buildCompetitorBenchmark({
-      snapshots: competitorRows.rows.map(mapCompetitor),
-      insights: [],
-      scope: {
-        runId: context.hypothesis.runId,
-        hypothesisId: input.hypothesisId,
-        marketCode: context.batch.marketCode,
-        platformCode: context.batch.platformCode,
-        currency: context.batch.currency,
-      },
-      hypothesis: {
-        concept: context.hypothesis.concept,
-        targetUser: context.hypothesis.targetUser,
-        painPoint: context.hypothesis.painPoint,
-        differentiator: context.hypothesis.differentiator,
-        recommendedPriceCents: context.hypothesis.recommendedPriceCents,
-        confirmedPriceCents: input.priceCents,
-        expectedMarginRate: context.hypothesis.expectedMarginRate,
-      },
-    });
-    priceAdvisory = evaluateConfirmedPriceAdvisory(input.priceCents, benchmark.price, context.batch.currency);
-  }
-  return { ...decision, priceAdvisory };
-}
 
 export async function recordOpportunityEvidence(input: {
   hypothesisId: string;
@@ -594,7 +532,6 @@ export async function loadCaseCompetitorBenchmark(
       painPoint: mappedHyp.painPoint,
       differentiator: mappedHyp.differentiator,
       recommendedPriceCents: mappedHyp.recommendedPriceCents,
-      confirmedPriceCents: mappedHyp.confirmedPriceCents,
       expectedMarginRate: mappedHyp.expectedMarginRate,
       bestQuoteLandedCostCents: bestQuote?.landedCostCents ?? null,
       bestQuoteId: bestQuote?.id ?? null,
@@ -608,7 +545,7 @@ export async function loadCaseCompetitorBenchmark(
  * 将入口 B（浏览器扩展 / 竞品对比研报）的真实扫描结果一键写入候选批次：
  * - 自动写入去重后的真实竞品快照（补齐 brand / is_sponsored / bought_past_month）
  * - 若包含真实采集差评，同步写入 review_insights
- * - 若尚未确认售价且研报有真实 P50，自动带入 confirmed_price_cents
+ * - P50 仅作为参考售价写入 recommended_price_cents，不自动确认售价
  */
 export async function attachComparisonReportToHypothesis(input: {
   hypothesisId: string;
@@ -621,6 +558,9 @@ export async function attachComparisonReportToHypothesis(input: {
 
   const report = await getComparisonReportById(input.reportId);
   if (!report) throw new Error("未找到对应的竞品扫描研报");
+  if (report.reviewStatus !== "confirmed") {
+    throw new Error("研报尚未人工确认，不能建立正式候选");
+  }
 
   const actor = (input.actor ?? "").trim() || "运营人员";
   if (!context.hypothesis.selectedForValidation) {
@@ -758,25 +698,15 @@ export async function attachComparisonReportToHypothesis(input: {
       }
     }
 
-    // 绑定研报，并在未确认售价时自动用真实 P50 预填确认售价
-    const autoPriceCents =
-      !context.hypothesis.confirmedPriceCents && report.priceStats.p50 > 0
-        ? Math.round(report.priceStats.p50)
-        : null;
-    const priceSourceUrl =
-      report.competitors[0]?.sourceUrl && /^https?:\/\//i.test(report.competitors[0].sourceUrl)
-        ? report.competitors[0].sourceUrl
-        : "https://www.amazon.com/";
-
-    if (autoPriceCents) {
+    // P50 只作为定价参考，不得冒充人工确认售价。
+    const referencePriceCents = report.priceStats.p50 > 0 ? Math.round(report.priceStats.p50) : null;
+    if (referencePriceCents) {
       await tx.query(
         `UPDATE opportunity_hypotheses
          SET comparison_report_id = $2,
-             confirmed_price_cents = $3,
-             confirmed_price_source_url = $4,
-             confirmed_price_at = NOW()
+             recommended_price_cents = $3
          WHERE id = $1`,
-        [input.hypothesisId, report.id, autoPriceCents, priceSourceUrl],
+        [input.hypothesisId, report.id, referencePriceCents],
       );
     } else {
       await tx.query(
@@ -797,7 +727,7 @@ export async function attachComparisonReportToHypothesis(input: {
           reportTitle: report.title,
           addedCompetitors,
           addedReviewSamples,
-          autoPriceCents,
+          referencePriceCents,
         }),
       ],
     );

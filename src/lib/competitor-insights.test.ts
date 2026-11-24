@@ -5,7 +5,6 @@ import {
   buildCompetitorProfile,
   buildTemplateBenchmarkBullets,
   evaluateBenchmarkAdvisories,
-  evaluateConfirmedPriceAdvisory,
   validateBenchmarkBulletProposal,
   type CompetitorBenchmarkScope,
   type CompetitorSnapshotInput,
@@ -28,7 +27,6 @@ const BASE_HYPOTHESIS: HypothesisAnchorInput = {
   painPoint: "夜间水泵噪音大、死角难拆洗易发霉",
   differentiator: "磁吸无线快拆水泵，静音低分贝",
   recommendedPriceCents: 3299,
-  confirmedPriceCents: 3199,
   expectedMarginRate: 0.22,
   bestQuoteLandedCostCents: 650,
   bestQuoteId: "quote-1",
@@ -147,7 +145,7 @@ test("isolates marketCode / currency and preserves 180-day-old samples with fres
   assert.equal(profile.coverage.freshnessDaysP50, 180);
 });
 
-test("flags P90+ price premium and produces non-blocking price confirmation advisory", () => {
+test("flags P90+ reference price premium without producing a formal cost gate", () => {
   const prices = [1999, 2299, 2599, 2899, 3199, 3499, 3699, 3899, 4099, 4299];
   const snapshots: CompetitorSnapshotInput[] = prices.map((priceCents, idx) => ({
     id: `s-${idx}`,
@@ -168,7 +166,7 @@ test("flags P90+ price premium and produces non-blocking price confirmation advi
     scope: US_SCOPE,
     hypothesis: {
       ...BASE_HYPOTHESIS,
-      confirmedPriceCents: 5500, // above P90
+      recommendedPriceCents: 5500, // above P90, reference only
     },
     now: "2026-11-06T00:00:00Z",
   });
@@ -176,9 +174,6 @@ test("flags P90+ price premium and produces non-blocking price confirmation advi
   assert.equal(benchmark.price?.hypothesisPricePosition, "above_p90");
   const priceContradiction = benchmark.contradictions.find((item) => item.field === "price");
   assert.equal(priceContradiction?.verdict, "contradicted");
-
-  const advisory = evaluateConfirmedPriceAdvisory(5500, benchmark.price, "USD");
-  assert.ok(advisory && advisory.includes("高于竞品价格带 P90"));
 });
 
 test("evaluates benchmark advisories without altering preflightListing passed or score", () => {

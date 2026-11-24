@@ -71,35 +71,27 @@ test("groupValidationTasks collapses 8 tasks into 3 groups and highlights active
   assert.equal(flow.groups[2]?.isLocked, true);
 });
 
-test("evaluateFastScreen flags HOLD when competitors < 20 and FAIL when 18% profit or compliance fails", () => {
+test("evaluateFastScreen flags market HOLD/FAIL and compliance risk without inventing profit", () => {
   const holdResult = evaluateFastScreen({
     marketCode: "US",
-    platformCode: "amazon",
-    currency: "USD",
     verifiedCompetitorCount: 12,
     p50PriceCents: 3500,
-    referenceFactoryCostRmb: 25,
     complianceAttrs: [],
     conceptText: "corner shower caddy",
   });
   assert.equal(holdResult.marketStatus, "hold");
-  assert.equal(holdResult.profitStatus, "pass");
   assert.equal(holdResult.complianceStatus, "pass");
 
-  const failProfit = evaluateFastScreen({
+  const failCompliance = evaluateFastScreen({
     marketCode: "US",
-    platformCode: "amazon",
-    currency: "USD",
     verifiedCompetitorCount: 20,
     p50PriceCents: 1999,
-    referenceFactoryCostRmb: 65,
     complianceAttrs: ["battery"],
     conceptText: "battery lamp",
   });
-  assert.equal(failProfit.marketStatus, "pass");
-  assert.equal(failProfit.profitStatus, "fail");
-  assert.equal(failProfit.complianceStatus, "fail");
-  assert.equal(failProfit.suggestedEliminationReason, "利润不够");
+  assert.equal(failCompliance.marketStatus, "pass");
+  assert.equal(failCompliance.complianceStatus, "fail");
+  assert.equal(failCompliance.suggestedEliminationReason, "合规");
 });
 
 test("deriveCandidateKanbanStage derives all 6 columns cleanly from real evidence", () => {
@@ -110,8 +102,13 @@ test("deriveCandidateKanbanStage derives all 6 columns cleanly from real evidenc
     eliminatedAt: null,
     verifiedCompetitorCount: 0,
     comparisonReportId: null,
-    confirmedPriceCents: null,
-    referenceFactoryCostRmb: null,
+    comparisonReportConfirmed: false,
+    costSheetId: null,
+    costSheetStatus: null,
+    costSheetMarginRate: null,
+    costSheetVersion: null,
+    costSheetIsLatest: false,
+    costSheetScopeMatches: false,
     complianceAttrs: [],
     quoteCount: 0,
     supplierCount: 0,
@@ -128,12 +125,35 @@ test("deriveCandidateKanbanStage derives all 6 columns cleanly from real evidenc
     deriveCandidateKanbanStage({
       ...base,
       verifiedCompetitorCount: 20,
-      confirmedPriceCents: 3600,
-      referenceFactoryCostRmb: 22,
+      comparisonReportId: "report-1",
+      comparisonReportConfirmed: true,
+      costSheetId: "sheet-1",
+      costSheetStatus: "confirmed",
+      costSheetMarginRate: 0.22,
+      costSheetVersion: 1,
+      costSheetIsLatest: true,
+      costSheetScopeMatches: true,
     }).stage,
-    "profit_ok",
+    "costed",
   );
-  assert.equal(deriveCandidateKanbanStage({ ...base, quoteCount: 1, supplierCount: 2 }).stage, "sampling");
+  assert.equal(deriveCandidateKanbanStage({ ...base, quoteCount: 1, supplierCount: 2 }).stage, "candidate");
+  assert.equal(
+    deriveCandidateKanbanStage({
+      ...base,
+      verifiedCompetitorCount: 20,
+      comparisonReportId: "report-1",
+      comparisonReportConfirmed: true,
+      costSheetId: "sheet-1",
+      costSheetStatus: "confirmed",
+      costSheetMarginRate: 0.22,
+      costSheetVersion: 1,
+      costSheetIsLatest: true,
+      costSheetScopeMatches: true,
+      quoteCount: 1,
+      supplierCount: 2,
+    }).stage,
+    "sampling",
+  );
   assert.equal(deriveCandidateKanbanStage({ ...base, productCaseId: "case-1" }).stage, "promoted");
   assert.equal(deriveCandidateKanbanStage({ ...base, eliminatedAt: "2026-11-23T00:00:00Z" }).stage, "eliminated");
 });

@@ -12,7 +12,6 @@ process.env.AI_PROVIDER = "template";
 const { getDb } = await import("./db.ts");
 const {
   autoImportSiteCompetitors,
-  confirmHypothesisPrice,
   createAISourcingBatch,
   deleteAISourcingBatch,
   getAISourcingBatch,
@@ -348,14 +347,6 @@ test("competitor benchmark hydrates review insights, advises on >P90 price, and 
     sentiment: "negative",
     actor: "测试运营",
   });
-
-  const confirmed = await confirmHypothesisPrice({
-    hypothesisId: h1,
-    priceCents: 3999,
-    sourceUrl: "https://www.amazon.com/dp/B0BENCH05",
-    actor: "测试运营",
-  });
-  assert.ok(confirmed.priceAdvisory?.includes("P90"));
 
   const hydratedBatch = await getAISourcingBatch(created.runId);
   const hydratedH1 = hydratedBatch?.hypotheses.find((item) => item.id === h1);

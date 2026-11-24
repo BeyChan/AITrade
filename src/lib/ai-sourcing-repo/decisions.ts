@@ -3,9 +3,14 @@ import { getDb } from "../db.ts";
 import {
   DEFAULT_SOURCING_THRESHOLDS,
   evaluateSourcingDecision,
+  platformEconomicDefaults,
 } from "../ai-sourcing.ts";
-import { loadCalibratedDefaultsForScope } from "../calibration-repository.ts";
-import { calculateEconomics } from "../economics.ts";
+import { calculateEconomics, type EconomicsAssumptions } from "../economics.ts";
+import { getComparisonReportById } from "../competitor-compare/storage.ts";
+import {
+  getCostSheet,
+  isLatestCostSheetVersion,
+} from "../cost-sheets-repository.ts";
 import {
   loadHypothesisContext,
   mapDecision,
@@ -74,18 +79,47 @@ export async function refreshAISelectionDecision(hypothesisId: string): Promise<
   ]);
 
   const count = counts.rows[0];
-  const calibratedBundle = context.hypothesis.confirmedPriceCents
-    ? await loadCalibratedDefaultsForScope({
-        marketplace: context.batch.marketCode,
-        currency: context.batch.currency,
-        category: context.batch.category,
-        platformCode: context.batch.platformCode,
-        salePriceCents: context.hypothesis.confirmedPriceCents,
-      })
-    : null;
+  const [comparisonReport, costSheet] = await Promise.all([
+    context.hypothesis.comparisonReportId
+      ? getComparisonReportById(context.hypothesis.comparisonReportId)
+      : Promise.resolve(null),
+    context.hypothesis.costSheetId
+      ? getCostSheet(context.hypothesis.costSheetId)
+      : Promise.resolve(null),
+  ]);
+  const comparisonReportScopeMatches = Boolean(
+    comparisonReport &&
+      comparisonReport.marketCode.toUpperCase() === context.batch.marketCode.toUpperCase() &&
+      comparisonReport.platformCode.toLowerCase() === context.batch.platformCode.toLowerCase() &&
+      comparisonReport.currency.toUpperCase() === context.batch.currency.toUpperCase(),
+  );
+  const costSheetIsLatest = costSheet ? await isLatestCostSheetVersion(costSheet.id) : false;
+  const costSheetScopeMatches = Boolean(
+    costSheet &&
+      costSheet.hypothesisId === hypothesisId &&
+      costSheet.marketCode.toUpperCase() === context.batch.marketCode.toUpperCase() &&
+      costSheet.platformCode.toLowerCase() === context.batch.platformCode.toLowerCase() &&
+      costSheet.currency.toUpperCase() === context.batch.currency.toUpperCase(),
+  );
   const decision = evaluateSourcingDecision({
     opportunityScore: context.hypothesis.priorityScore,
-    confirmedPriceCents: context.hypothesis.confirmedPriceCents,
+    comparisonReportConfirmed:
+      comparisonReport?.reviewStatus === "confirmed" && comparisonReportScopeMatches,
+    costSheetConfirmed: costSheet?.status === "confirmed" && costSheetScopeMatches,
+    costSheetMarginRate: costSheet?.results.marginRate ?? null,
+    costSheetVersion: costSheet?.version ?? null,
+    costSheetIsLatest,
+    costSheetScopeMatches,
+    costSheetEconomics: costSheet
+      ? {
+          netProfitCents: costSheet.results.netProfitCents,
+          marginRate: costSheet.results.marginRate,
+          stressMarginRate: costSheet.results.stressMarginRate,
+          stressProfitCents: costSheet.results.stressProfitCents,
+          salePriceCents: costSheet.assumptions.salePriceCents,
+          landedCostCents: costSheet.assumptions.landedCostCents,
+        }
+      : null,
     context: context.batch,
     competitorCount: Number(count?.competitors ?? 0),
     reviewSampleCount: Number(reviews.rows[0]?.sample_count ?? 0),
@@ -93,7 +127,6 @@ export async function refreshAISelectionDecision(hypothesisId: string): Promise<
     quotes: quotes.rows.map(mapDecisionQuote),
     latestPatentRisk: riskLevel(patent.rows[0]?.risk_level, "missing"),
     latestLogisticsRisk: riskLevel(logistics.rows[0]?.risk_level, "missing"),
-    calibratedDefaults: calibratedBundle?.calibratedDefaults,
   });
 
   const decisionId = randomUUID();
@@ -216,40 +249,66 @@ export async function promoteHypothesisToProductCase(
   if (!provisional && !bestQuote) throw new Error("缺少真实报价");
   const caseId = randomUUID();
   const asin = `AI-${hypothesisId.replace(/-/g, "").slice(0, 12).toUpperCase()}`;
-  const confirmedPrice =
-    context.hypothesis.confirmedPriceCents ??
-    (provisional && context.hypothesis.recommendedPriceCents > 0
-      ? context.hypothesis.recommendedPriceCents
-      : null);
-  if (!confirmedPrice) throw new Error("请先在第 2 步「利润测算」确认拟定售价后再立项");
-
-  let landedCostCents = bestQuote?.landed_cost_cents ?? 0;
-  if (!bestQuote) {
-    const refRmb = context.hypothesis.referenceFactoryCostRmb;
-    if (refRmb && refRmb > 0) {
-      const { convertRmbToForeignCents } = await import("../currency.ts");
-      const purchaseCents = convertRmbToForeignCents(refRmb, context.batch.currency);
-      landedCostCents = purchaseCents + Math.max(120, Math.round(purchaseCents * 0.25));
-    } else {
-      landedCostCents = Math.round(confirmedPrice * 0.3);
-    }
+  const [comparisonReport, costSheet] = await Promise.all([
+    context.hypothesis.comparisonReportId
+      ? getComparisonReportById(context.hypothesis.comparisonReportId)
+      : Promise.resolve(null),
+    context.hypothesis.costSheetId ? getCostSheet(context.hypothesis.costSheetId) : Promise.resolve(null),
+  ]);
+  const comparisonReportConfirmed = Boolean(
+    comparisonReport?.reviewStatus === "confirmed" &&
+      comparisonReport.marketCode.toUpperCase() === context.batch.marketCode.toUpperCase() &&
+      comparisonReport.platformCode.toLowerCase() === context.batch.platformCode.toLowerCase() &&
+      comparisonReport.currency.toUpperCase() === context.batch.currency.toUpperCase(),
+  );
+  const costSheetEligible = Boolean(
+    costSheet &&
+      costSheet.status === "confirmed" &&
+      costSheet.hypothesisId === hypothesisId &&
+      costSheet.marketCode.toUpperCase() === context.batch.marketCode.toUpperCase() &&
+      costSheet.platformCode.toLowerCase() === context.batch.platformCode.toLowerCase() &&
+      costSheet.currency.toUpperCase() === context.batch.currency.toUpperCase() &&
+      (await isLatestCostSheetVersion(costSheet.id)),
+  );
+  if (!provisional) {
+    if (!comparisonReportConfirmed) throw new Error("正式立项要求绑定并人工确认同站点、同平台、同币种的竞品研报");
+    if (!costSheetEligible || !costSheet) throw new Error("正式立项要求绑定已人工确认、仍为最新且范围一致的成本核算单");
+    if (costSheet.results.marginRate < DEFAULT_SOURCING_THRESHOLDS.minMarginRate) throw new Error("核算单净利率未达到 18%");
+    if (costSheet.results.stressProfitCents <= 0) throw new Error("核算单压力情景未盈利");
   }
 
-  const calibratedBundle = await loadCalibratedDefaultsForScope({
-    marketplace: context.batch.marketCode,
-    currency: context.batch.currency,
-    category: context.batch.category,
-    platformCode: context.batch.platformCode,
-    salePriceCents: confirmedPrice,
-  });
-  const assumptions = {
-    currency: context.batch.currency,
-    salePriceCents: confirmedPrice,
-    landedCostCents,
-    ...calibratedBundle.defaults,
-    ...(calibratedBundle.calibrationMeta ? { calibrationMeta: calibratedBundle.calibrationMeta } : {}),
-  };
-  const economics = calculateEconomics(assumptions);
+  const reusableCostSheet = costSheet?.status === "confirmed" ? costSheet : null;
+  const salePriceCents = reusableCostSheet?.assumptions.salePriceCents ?? context.hypothesis.recommendedPriceCents;
+  if (!salePriceCents) throw new Error("缺少可使用的售价：请先完成成本核算或填写推荐售价");
+  const provisionalLandedCostCents = bestQuote?.landed_cost_cents ?? 0;
+  const assumptions: EconomicsAssumptions & { source: string; missingLandedCost?: boolean } = reusableCostSheet
+    ? { ...reusableCostSheet.assumptions, source: "confirmed_cost_sheet" }
+    : {
+        currency: context.batch.currency,
+        salePriceCents,
+        landedCostCents: provisionalLandedCostCents,
+        ...platformEconomicDefaults(context.batch.platformCode, salePriceCents),
+        source: "provisional_without_fake_cost",
+        missingLandedCost: !bestQuote,
+      };
+  const economics = reusableCostSheet
+    ? reusableCostSheet.results
+    : calculateEconomics({
+        currency: assumptions.currency,
+        salePriceCents: assumptions.salePriceCents,
+        landedCostCents: assumptions.landedCostCents,
+        fbaFeeCents: assumptions.fbaFeeCents,
+        referralRate: assumptions.referralRate,
+        adRate: assumptions.adRate,
+        returnRate: assumptions.returnRate,
+        returnProcessingCents: assumptions.returnProcessingCents,
+        returnRecoveryRate: assumptions.returnRecoveryRate,
+        couponCents: assumptions.couponCents,
+        storageCents: assumptions.storageCents,
+        otherCostCents: assumptions.otherCostCents,
+        oneTimeFixedCostCents: assumptions.oneTimeFixedCostCents,
+        initialOrderUnits: assumptions.initialOrderUnits,
+      });
   const owner = actor.trim() || "运营人员";
   const caseStatus = provisional && decision.decision !== "GO" ? "review_pending" : "approved";
   const stagePrefix = caseStatus === "review_pending" ? "[待验证立项] " : "";
@@ -283,7 +342,7 @@ export async function promoteHypothesisToProductCase(
         context.batch.marketCode,
         context.batch.category,
         context.hypothesis.concept,
-        confirmedPrice,
+        salePriceCents,
         `${stagePrefix}由统一选品工作台转入；已核实竞品 ${context.counts.competitors} 个${(context.counts.syntheticCompetitors ?? 0) > 0 ? `（另有 ${context.counts.syntheticCompetitors} 条 AI/模板合成素材，不计入证据与门禁）` : ""}，差评样本 ${context.counts.reviewSamples} 条，供应商 ${context.counts.suppliers} 家，报价 ${context.counts.quotes} 份。决策证据完整度 ${decision.evidenceCompleteness}%。`,
         owner,
         decision.evidenceCompleteness,
@@ -398,6 +457,14 @@ export async function promoteHypothesisToProductCase(
       "UPDATE opportunity_hypotheses SET product_case_id = $1 WHERE id = $2",
       [caseId, hypothesisId],
     );
+    if (reusableCostSheet) {
+      const linked = await tx.query(
+        `UPDATE cost_sheets SET case_id = $1, updated_at = NOW()
+         WHERE id = $2 AND (case_id IS NULL OR case_id = $1)`,
+        [caseId, reusableCostSheet.id],
+      );
+      if (linked.rowCount !== 1) throw new Error("成本核算单已关联其他商品案卷");
+    }
     await tx.query(
       `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
        VALUES ($1, $2, 'ai_sourcing.promoted_to_case', 'product_case', $3, $4::jsonb)`,
@@ -411,6 +478,9 @@ export async function promoteHypothesisToProductCase(
           evidenceCompleteness: decision.evidenceCompleteness,
           landedCostCents: decision.landedCostCents,
           marginRate: decision.marginRate,
+          costSheetId: reusableCostSheet?.id ?? null,
+          costSheetVersion: reusableCostSheet?.version ?? null,
+          costSheetMarginRate: reusableCostSheet?.results.marginRate ?? null,
           externalActions: "none",
         }),
       ],

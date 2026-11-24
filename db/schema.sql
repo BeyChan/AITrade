@@ -1357,3 +1357,33 @@ WHERE t.task_type = 'review_research'
     WHERE ri.hypothesis_id = t.hypothesis_id
       AND COALESCE(e.source_type, '') NOT IN ('ai_generated', 'template_generated')
   ) >= t.target_count;
+
+-- 独立成本核算单：选品、竞品研报与商品立项共用同一套 18% 利润门禁。
+-- 首版 id = group_id；后续版本沿用 group_id 并递增 version。
+CREATE TABLE IF NOT EXISTS cost_sheets (
+  id TEXT PRIMARY KEY,
+  group_id TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1,
+  title TEXT NOT NULL,
+  market_code TEXT NOT NULL DEFAULT 'US',
+  platform_code TEXT NOT NULL DEFAULT 'amazon',
+  currency TEXT NOT NULL DEFAULT 'USD',
+  status TEXT NOT NULL DEFAULT 'draft'
+    CHECK (status IN ('draft', 'confirmed')),
+  assumptions JSONB NOT NULL,
+  results JSONB NOT NULL,
+  hypothesis_id TEXT,
+  case_id TEXT,
+  created_by TEXT NOT NULL DEFAULT 'system',
+  confirmed_by TEXT,
+  confirmed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_cost_sheets_group_version
+  ON cost_sheets(group_id, version DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cost_sheets_group_version_unique
+  ON cost_sheets(group_id, version);
+
+ALTER TABLE opportunity_hypotheses ADD COLUMN IF NOT EXISTS cost_sheet_id TEXT;

@@ -63,7 +63,8 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
   const [isPending, startTransition] = useTransition();
   const [statusMsg, setStatusMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [copied, setCopied] = useState(false);
-  const [convertBatchId, setConvertBatchId] = useState<string | null>(null);
+  const [convertRunId, setConvertRunId] = useState<string | null>(null);
+  const [convertHypothesisId, setConvertHypothesisId] = useState<string | null>(null);
   const [showIndexHelp, setShowIndexHelp] = useState(false);
   const [antiListing, setAntiListing] = useState<AntiListingResult | null>(null);
   const [isGeneratingListing, setIsGeneratingListing] = useState(false);
@@ -178,11 +179,12 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
     setStatusMsg(null);
     startTransition(async () => {
       const res = await convertReportToHypothesisAction(reportId);
-      if (res.success && res.batchId) {
-        setConvertBatchId(res.batchId);
+      if (res.success && res.runId && res.hypothesisId) {
+        setConvertRunId(res.runId);
+        setConvertHypothesisId(res.hypothesisId);
         setStatusMsg({
           type: "success",
-          text: `已成功将该竞品研报转入选品池！批次 ID: ${res.batchId.slice(0, 8)}...`,
+          text: "已从已确认研报建立候选。下一步请创建独立成本核算单，并补齐供应商证据。",
         });
       } else {
         setStatusMsg({ type: "error", text: res.error || "转入选品失败" });
@@ -617,13 +619,13 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
             <strong>{statusMsg.type === "success" ? "已完成：" : "提示："}</strong>
             {statusMsg.text}
           </div>
-          {convertBatchId && (
+          {convertRunId && convertHypothesisId && (
             <Link
-              href={`/ai-sourcing/${encodeURIComponent(convertBatchId)}?tab=profit`}
+              href={`/ai-sourcing/${encodeURIComponent(convertRunId)}?tab=profit&hypothesisId=${encodeURIComponent(convertHypothesisId)}`}
               className="button secondary"
               style={{ padding: "4px 10px", fontSize: "12px", height: "auto" }}
             >
-              进入选品工作台算毛利 &rarr;
+              进入成本核算与选品工作台 &rarr;
             </Link>
           )}
         </div>
@@ -867,11 +869,11 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
                 type="button"
                 className="button primary"
                 disabled={isPending || !isConfirmed}
-                title={isConfirmed ? "加入选品看板，进入第 2 步利润测算" : "请先点击「我已核对，确认可用」"}
+                title={isConfirmed ? "从已确认研报建立候选并绑定核算单" : "请先点击「我已核对，确认可用」"}
                 onClick={() => handleConvertToHypothesis(currentReport.id)}
                 style={{ fontSize: "12px", padding: "6px 14px", height: "34px", borderRadius: "10px" }}
               >
-                加入选品看板（去算毛利）→
+                从已确认研报建立候选 →
               </button>
             </div>
           </section>

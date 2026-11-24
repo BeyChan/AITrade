@@ -27,12 +27,13 @@ const MAIN_NAV_ITEMS: NavItem[] = [
   },
   {
     href: "/ai-sourcing",
-    label: "选品雷达",
+    label: "选品",
     icon: "competitor",
     subItems: [
       { href: "/ai-sourcing", label: "选品看板" },
       { href: "/discover", label: "新建选品" },
       { href: "/competitors", label: "竞品研报" },
+      { href: "/costing", label: "成本核算" },
     ],
   },
   {
@@ -159,7 +160,7 @@ function NavIcon({ name }: { name: NavItem["icon"] }) {
 
 function matchParentNav(item: NavItem, pathname: string): boolean {
   if (item.href === "/" && pathname === "/") return true;
-  if (item.href === "/ai-sourcing" && (pathname.startsWith("/ai-sourcing") || pathname.startsWith("/discover") || pathname.startsWith("/competitors") || pathname.startsWith("/selection-records") || pathname === "/import")) return true;
+  if (item.href === "/ai-sourcing" && (pathname.startsWith("/ai-sourcing") || pathname.startsWith("/discover") || pathname.startsWith("/competitors") || pathname.startsWith("/costing") || pathname.startsWith("/selection-records") || pathname === "/import")) return true;
   if (item.href === "/cases" && pathname.startsWith("/cases")) return true;
   if (item.href === "/sourcing" && pathname.startsWith("/sourcing")) return true;
   if (

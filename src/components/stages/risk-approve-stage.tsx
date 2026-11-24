@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { promoteHypothesisAction, saveHypothesisProfitCheckAction } from "@/app/actions";
+import { promoteHypothesisAction, saveHypothesisComplianceAttrsAction } from "@/app/actions";
 import type { AISourcingHypothesisDetail } from "@/lib/ai-sourcing-repository";
 import {
   COMPLIANCE_ATTRIBUTE_OPTIONS,
@@ -20,9 +20,7 @@ export function RiskApproveStage({
 }) {
   const decision = hypothesis.decision;
   const isGo = decision?.decision === "GO";
-  const hasPrice = Boolean(
-    hypothesis.confirmedPriceCents || hypothesis.recommendedPriceCents > 0,
-  );
+  const hasPrice = hypothesis.recommendedPriceCents > 0;
 
   return (
     <div className="stack">
@@ -52,7 +50,7 @@ export function RiskApproveStage({
 
         <p className="funnel-fast-summary">{evalResult.complianceSummary}</p>
 
-        <form action={saveHypothesisProfitCheckAction} className="stack" style={{ marginTop: "10px" }}>
+        <form action={saveHypothesisComplianceAttrsAction} className="stack" style={{ marginTop: "10px" }}>
           <input type="hidden" name="runId" value={runId} />
           <input type="hidden" name="hypothesisId" value={hypothesis.id} />
           <input type="hidden" name="returnTab" value="decision" />
@@ -127,7 +125,7 @@ export function RiskApproveStage({
                   title={
                     hasPrice
                       ? "尚未完成打样或门禁未全过时，可先建「待验证案卷」提前推进"
-                      : "请先在第 2 步确认拟定售价"
+                      : "请先完成成本核算或建立带推荐售价的候选"
                   }
                 >
                   先建待验证案卷

@@ -278,9 +278,9 @@ export function calculateProductIndex(
     else if (priceAndMarginScore >= 9) priceMarginVerdict = "fair";
     else priceMarginVerdict = "poor";
 
-    const marginLabel = hasOverride ? `实算净利 ${marginPercent}%` : `客单推演毛利垫 ~${marginPercent}%`;
+    const marginLabel = hasOverride ? `参考测算净利率 ${marginPercent}%` : `客单推演毛利垫 ~${marginPercent}%`;
     priceMarginMetric = `${marginLabel} · CV ${priceCV}`;
-    priceMarginExp = `${marginLabel}（${hasOverride ? "已联动 1688 成本与 FBA 费用" : "填入 1688 试探拿货价后自动切换实算净利"}），券后有效售价变异系数 CV=${priceCV}，${
+    priceMarginExp = `${marginLabel}（${hasOverride ? "已联动当前询价与平台费用，仅供竞品研究参考" : "竞品研报不做正式利润门禁；正式核算请使用独立成本核算单"}），券后有效售价变异系数 CV=${priceCV}，${
       verifiedPrices.length < 2
         ? "当前仅 1 个真实价格样本，建议补充更多竞品观察价格带分布"
         : priceCV >= 0.2

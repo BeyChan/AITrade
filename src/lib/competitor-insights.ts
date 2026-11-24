@@ -134,7 +134,6 @@ export type HypothesisAnchorInput = {
   painPoint: string;
   differentiator: string;
   recommendedPriceCents: number;
-  confirmedPriceCents: number | null;
   expectedMarginRate: number;
   bestQuoteLandedCostCents?: number | null;
   bestQuoteId?: string | null;
@@ -366,9 +365,7 @@ export function contradictHypothesis(
   contradictions: HypothesisContradiction[];
   p50Economics: EconomicsResults | null;
 } {
-  const targetPrice = hypothesis.confirmedPriceCents && hypothesis.confirmedPriceCents > 0
-    ? hypothesis.confirmedPriceCents
-    : hypothesis.recommendedPriceCents;
+  const targetPrice = hypothesis.recommendedPriceCents;
 
   // 1. 痛点与差异化对照
   const claimText = `${hypothesis.painPoint} ${hypothesis.differentiator}`.trim();
@@ -401,7 +398,7 @@ export function contradictHypothesis(
   // 2. 定价合理性对照
   let priceVerdict: ContradictionVerdict = "unverified";
   let priceNote = "尚未录入竞品价格，无法核对定价区间。";
-  const priceLabel = hypothesis.confirmedPriceCents ? "已确认售价" : "AI 假设售价";
+  const priceLabel = "候选推荐价（参考，不参与 GO）";
 
   if (profile.price && targetPrice > 0) {
     const pos = classifyPricePosition(targetPrice, profile.price);
@@ -487,9 +484,7 @@ export function buildCompetitorBenchmark(input: {
   hypothesis: HypothesisAnchorInput;
   now?: Date | string;
 }): CompetitorBenchmark {
-  const targetPriceCents = input.hypothesis.confirmedPriceCents && input.hypothesis.confirmedPriceCents > 0
-    ? input.hypothesis.confirmedPriceCents
-    : input.hypothesis.recommendedPriceCents;
+  const targetPriceCents = input.hypothesis.recommendedPriceCents;
   // AI / 模板合成的竞品数值与差评原话都不是证据：不参与覆盖度、去重、价格分位与主题归纳
   const verifiedSnapshots = input.snapshots.filter((s) => !isSyntheticCompetitorSource(s.sourceType));
   const verifiedInsights = input.insights.filter((i) => !isSyntheticCompetitorSource(i.sourceType));
@@ -506,25 +501,6 @@ export function buildCompetitorBenchmark(input: {
     hypothesisSummary: input.hypothesis,
     excludedSyntheticCount,
   };
-}
-
-/**
- * 确认售价偏离提示（只提示，不阻断保存）。
- */
-export function evaluateConfirmedPriceAdvisory(
-  priceCents: number,
-  priceBand: CompetitorPriceSummary | null,
-  currency: string,
-): string | null {
-  if (!priceBand || !Number.isFinite(priceCents) || priceCents <= 0) return null;
-  const fmt = (cents: number) => `${(cents / 100).toFixed(2)} ${currency}`;
-  if (priceCents < priceBand.p25) {
-    return `该定价（${fmt(priceCents)}）低于竞品价格带 P25（${fmt(priceBand.p25)}），请核对依据链接与成本安全垫`;
-  }
-  if (priceCents > priceBand.p90) {
-    return `该定价（${fmt(priceCents)}）高于竞品价格带 P90（${fmt(priceBand.p90)}），偏离主流竞品价格带，请核对依据链接`;
-  }
-  return null;
 }
 
 /**

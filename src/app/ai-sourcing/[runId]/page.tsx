@@ -11,6 +11,11 @@ import {
 import { loadFunnelThresholds } from "@/lib/app-settings";
 import { getComparisonReports } from "@/lib/competitor-compare/storage";
 import {
+  getCostSheet,
+  isLatestCostSheetVersion,
+  type CostSheet,
+} from "@/lib/cost-sheets-repository";
+import {
   listSupplierDraftsByRun,
   type SupplierDraft,
 } from "@/lib/ai-supplier-assistant/repository";
@@ -25,7 +30,7 @@ export const dynamic = "force-dynamic";
 /** 统一 4 步选品验证工作台：每步只做一件事，零重复 */
 const DETAIL_TABS: Array<{ key: DetailTab; label: string; hint: string }> = [
   { key: "hypotheses", label: "竞品研报", hint: "价格带 · 差评痛点" },
-  { key: "profit", label: "利润测算", hint: "18% 硬门禁 · 拿货上限" },
+  { key: "profit", label: "成本核算", hint: "已确认核算单 · 18% 门禁" },
   { key: "suppliers", label: "找厂与打样", hint: "1688 选厂 · 报价 · 样品分" },
   { key: "decision", label: "风险与立项", hint: "合规红线 · 专利物流 · 唯一立项口" },
 ];
@@ -83,6 +88,26 @@ export default async function AISourcingDetailPage({ params, searchParams }: Pag
     batch.hypotheses.find((item) => !item.eliminatedAt && item.decision?.decision === "GO") ??
     batch.hypotheses.find((item) => !item.eliminatedAt) ??
     batch.hypotheses[0];
+
+  const costSheetIds = [
+    ...new Set(batch.hypotheses.map((item) => item.costSheetId).filter(Boolean)),
+  ] as string[];
+  const costSheetEntries = await Promise.all(
+    costSheetIds.map(async (id) => {
+      const [sheet, isLatest] = await Promise.all([
+        getCostSheet(id),
+        isLatestCostSheetVersion(id),
+      ]);
+      return [id, sheet, isLatest] as const;
+    }),
+  );
+  const costSheetsById = new Map<string, CostSheet>();
+  const costSheetLatestById = new Map<string, boolean>();
+  for (const [id, sheet, isLatest] of costSheetEntries) {
+    if (!sheet) continue;
+    costSheetsById.set(id, sheet);
+    costSheetLatestById.set(id, isLatest);
+  }
 
   const savedTab = cookieStore.get("aitrade_detail_tab")?.value;
   const activeTab = parseDetailTab(query.tab ?? savedTab);
@@ -173,6 +198,16 @@ export default async function AISourcingDetailPage({ params, searchParams }: Pag
           observedAt={observedAt}
           autoReadClipboard={query.capture === "clipboard" && query.hypothesisId === activeHypothesis.id}
           recentReports={recentReports}
+          costSheet={
+            activeHypothesis.costSheetId
+              ? costSheetsById.get(activeHypothesis.costSheetId) ?? null
+              : null
+          }
+          costSheetIsLatest={
+            activeHypothesis.costSheetId
+              ? costSheetLatestById.get(activeHypothesis.costSheetId) ?? false
+              : false
+          }
           funnelThresholds={funnelThresholds}
           eliminatedHistory={eliminatedHistory}
           nextTabHref={
@@ -186,7 +221,7 @@ export default async function AISourcingDetailPage({ params, searchParams }: Pag
           }
           nextTabLabel={
             activeTab === "hypotheses"
-              ? "下一步：02 利润测算 →"
+              ? "下一步：02 成本核算 →"
               : activeTab === "profit"
                 ? "下一步：03 找厂与打样 →"
                 : activeTab === "suppliers"

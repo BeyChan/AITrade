@@ -343,16 +343,16 @@ export async function loadCopilotContext(pathname: string, search = ""): Promise
     };
   }
 
-  // 6. 选品雷达 (/discover, /ai-sourcing)
+  // 6. 选品 (/discover, /ai-sourcing)
   if (
     cleanPath.startsWith("/discover") ||
     cleanPath.startsWith("/ai-sourcing")
   ) {
     return {
       scope: "discover",
-      label: "选品雷达与快速选品",
+      label: "选品与快速选品",
       badge: "机会挖掘",
-      summaryText: `当前页面：选品雷达（${cleanPath}，用于快速选品、CSV 导入与机会验证）。`,
+      summaryText: `当前页面：选品（${cleanPath}，用于快速选品、CSV 导入与机会验证）。`,
       quickPrompts: [
         { label: "小团队选品红线", prompt: "首单预算有限的小团队，选品时应该避开哪些类目、客单价和垄断度红线？" },
         { label: "差评挖微创新", prompt: "如何从竞品 1-3 星差评中筛选出低成本、高感知的产品微改良点？" },
