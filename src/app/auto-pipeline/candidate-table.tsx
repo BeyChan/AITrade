@@ -18,6 +18,8 @@ export function CandidateTable(props: {
   busy: boolean;
   adoptingId: string | null;
   unadoptingId: string | null;
+  flashedRowId?: string | null;
+  animateEnterKey?: number;
   blacklistMap: Map<string, EliminatedHistoryRecord>;
   onToggleAll: () => void;
   onToggleSelect: (id: string) => void;
@@ -115,7 +117,7 @@ export function CandidateTable(props: {
           </tr>
         </thead>
         <tbody>
-          {items.map((item) => {
+          {items.map((item, idx) => {
             const checked = selectedIds.includes(item.id);
             const hit = props.blacklistMap.get(item.id);
             const failReasons = item.reasons.filter((r) => r.severity === "fail");
@@ -126,15 +128,24 @@ export function CandidateTable(props: {
               item.adoptedRunId && item.adoptedHypothesisId
                 ? `/ai-sourcing/${encodeURIComponent(item.adoptedRunId)}?hypothesisId=${encodeURIComponent(item.adoptedHypothesisId)}`
                 : "";
+            const shouldStagger = Boolean(props.animateEnterKey && idx < 15);
+            const isFlashed = props.flashedRowId === item.id;
+            const rowClassName = isFlashed
+              ? "ap-row-flash"
+              : shouldStagger
+                ? "ap-row-stagger"
+                : undefined;
 
             return (
               <tr
-                key={item.id}
+                key={shouldStagger ? `${item.id}-${props.animateEnterKey}` : item.id}
+                className={rowClassName}
                 onClick={() => props.onOpenDrawer(item)}
                 style={{
                   background: checked ? "var(--accent-soft)" : "var(--paper)",
                   cursor: "pointer",
                   transition: "background 0.12s ease",
+                  ...(shouldStagger ? { animationDelay: `${idx * 25}ms` } : {}),
                 }}
               >
                 <td

@@ -6,6 +6,7 @@ import {
   listPlatformConfigs,
 } from "@/lib/auto-pipeline/repository";
 import {
+  archiveInboxCsvFiles,
   seedsFromCsv,
   seedsFromExtensionItems,
   seedsFromInboxDirectory,
@@ -133,6 +134,14 @@ export async function POST(request: Request) {
       seeds,
       actor,
     });
+
+    if (sourceType === "inbox" && typeof extraMeta.inboxDir === "string" && Array.isArray(extraMeta.filesRead)) {
+      const archivedFiles = await archiveInboxCsvFiles(
+        extraMeta.inboxDir,
+        extraMeta.filesRead as string[],
+      );
+      extraMeta = { ...extraMeta, archivedFiles };
+    }
 
     return NextResponse.json(
       {

@@ -1,4 +1,4 @@
-import { readdir, readFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename } from "node:fs/promises";
 import path from "node:path";
 import { parseCandidateCsv } from "../csv.ts";
 import type { NormalizedCandidateSeed } from "./types.ts";
@@ -146,4 +146,51 @@ export async function seedsFromInboxDirectory(input: {
   }
 
   return { seeds, filesRead };
+}
+
+function resolveSafeInboxDir(inboxDir: string): string {
+  const allowedRoot = path.resolve(process.cwd(), ".data", "inbox-csv");
+  const resolved = path.resolve(process.cwd(), inboxDir);
+  if (!resolved.startsWith(allowedRoot)) {
+    throw new Error("收件箱目录必须位于 .data/inbox-csv/ 下");
+  }
+  return resolved;
+}
+
+/** 轻量探测收件箱目录下尚未消费的 CSV 文件（不读文件内容、不写库） */
+export async function listInboxPendingCsvFiles(inboxDir: string): Promise<{
+  inboxDir: string;
+  pendingFiles: string[];
+}> {
+  const resolved = resolveSafeInboxDir(inboxDir);
+  let entries: string[];
+  try {
+    entries = await readdir(resolved);
+  } catch {
+    return { inboxDir, pendingFiles: [] };
+  }
+  const pendingFiles = entries.filter((name) => name.toLowerCase().endsWith(".csv")).sort();
+  return { inboxDir, pendingFiles };
+}
+
+/** 将已成功消费的收件箱 CSV 归档至 processed/ 子目录，防止重复跑批 */
+export async function archiveInboxCsvFiles(inboxDir: string, fileNames: string[]): Promise<string[]> {
+  if (fileNames.length === 0) return [];
+  const resolved = resolveSafeInboxDir(inboxDir);
+  const processedDir = path.join(resolved, "processed");
+  await mkdir(processedDir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const archived: string[] = [];
+  for (const name of fileNames) {
+    const safeName = path.basename(name);
+    const src = path.join(resolved, safeName);
+    const dest = path.join(processedDir, `${stamp}_${safeName}`);
+    try {
+      await rename(src, dest);
+      archived.push(safeName);
+    } catch {
+      // 忽略单文件移动异常，避免影响主流程返回
+    }
+  }
+  return archived;
 }

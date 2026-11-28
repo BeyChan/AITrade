@@ -16901,3 +16901,193 @@ html[data-theme="dark"] .hero-eyebrow-demo {
 .ai-supplier-step-anchor {
   scroll-margin-top: 88px;
 }
+
+/* 选品初筛 · 高视觉冲击自动化引擎动效（纯 CSS + SVG / 主题变量安全） */
+@property --ap-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+@keyframes ap-orbit { to { --ap-angle: 360deg; } }
+@keyframes ap-spin { to { transform: rotate(360deg); } }
+@keyframes ap-spin-rev { to { transform: rotate(-360deg); } }
+@keyframes ap-dash-flow { to { stroke-dashoffset: -24; } }
+@keyframes ap-radar-sweep {
+  0% { transform: translateX(-35%); opacity: 0; }
+  20%, 80% { opacity: 0.7; }
+  100% { transform: translateX(135%); opacity: 0; }
+}
+@keyframes ap-pulse {
+  0%, 100% { opacity: 0.75; transform: scale(0.95); }
+  50% { opacity: 1; transform: scale(1.08); }
+}
+@keyframes ap-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes ap-slide-in {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes ap-row-flash {
+  0% { background: var(--green-soft); }
+  100% { background: var(--paper); }
+}
+
+.ap-pipeline-shell {
+  position: relative;
+  overflow: hidden;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background:
+    radial-gradient(ellipse 420px 140px at 8% 0%, var(--accent-soft), transparent 70%),
+    radial-gradient(var(--line) 1px, transparent 1px) 0 0 / 16px 16px,
+    var(--surface-subtle);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* 全宽雷达扫描光幕 */
+.ap-pipeline-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 38%;
+  background: linear-gradient(90deg, transparent, var(--accent-soft), transparent);
+  pointer-events: none;
+  animation: ap-radar-sweep 4.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+.ap-pipeline-shell.is-running::before { animation-duration: 1.6s; }
+
+/* 三层涡轮引擎核心 */
+.ap-engine-core {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  color: var(--green);
+  filter: drop-shadow(0 0 8px currentColor);
+}
+.ap-engine-core.is-watching { color: var(--accent); }
+.ap-engine-core.is-running { color: var(--amber); }
+
+.ap-engine-outer { transform-origin: 20px 20px; animation: ap-spin 7s linear infinite; }
+.ap-engine-mid { transform-origin: 20px 20px; animation: ap-spin-rev 4.2s linear infinite; }
+.ap-engine-inner { transform-origin: 20px 20px; animation: ap-spin 2.4s linear infinite; }
+.ap-engine-core.is-watching .ap-engine-outer { animation-duration: 3.6s; }
+.ap-engine-core.is-watching .ap-engine-mid { animation-duration: 2.2s; }
+.ap-engine-core.is-running .ap-engine-outer { animation-duration: 1.0s; }
+.ap-engine-core.is-running .ap-engine-mid { animation-duration: 0.65s; }
+.ap-engine-core.is-running .ap-engine-inner { animation-duration: 0.45s; }
+.ap-engine-hub { transform-origin: 20px 20px; animation: ap-pulse 1.8s ease-in-out infinite; }
+
+.ap-pipeline-grid {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+.ap-pipeline-bridge {
+  width: 56px;
+  height: 28px;
+  flex-shrink: 0;
+  color: var(--accent);
+}
+.ap-pipeline-bridge.is-done { color: var(--green); }
+.ap-bridge-dash {
+  stroke-dasharray: 6 6;
+  animation: ap-dash-flow 0.9s linear infinite;
+}
+.ap-pipeline-bridge.is-running .ap-bridge-dash { animation-duration: 0.35s; }
+.ap-pipeline-bridge.is-done .ap-bridge-dash { stroke-dasharray: none; animation: none; }
+
+@media (max-width: 960px) {
+  .ap-pipeline-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .ap-pipeline-bridge { display: none; }
+}
+
+/* 旋转流光描边节点卡片 */
+.ap-node {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.ap-node::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: 12px;
+  padding: 1.5px;
+  background: conic-gradient(from var(--ap-angle), transparent 64%, var(--accent) 82%, var(--green) 94%, transparent 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0.65;
+  animation: ap-orbit 4.5s linear infinite;
+}
+.ap-node:hover { transform: translateY(-2px); box-shadow: 0 10px 24px -14px var(--accent); }
+.ap-node:hover::before { opacity: 1; animation-duration: 2.2s; }
+.ap-node.is-active {
+  transform: translateY(-2px);
+  box-shadow: 0 0 24px -8px var(--accent);
+}
+.ap-node.is-active::before {
+  opacity: 1;
+  animation-duration: 1.2s;
+  background: conic-gradient(from var(--ap-angle), transparent 45%, var(--amber) 72%, var(--accent) 90%, transparent 100%);
+}
+.ap-node.is-done {
+  border-color: var(--green);
+  background: var(--green-soft);
+}
+.ap-node.is-done::before { opacity: 0; animation: none; }
+
+.ap-node-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--surface-subtle);
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: inset 0 0 12px var(--accent-soft);
+}
+.ap-node.is-active .ap-node-icon { border-color: var(--accent); background: var(--accent-soft); }
+.ap-node.is-done .ap-node-icon { border-color: var(--green); background: var(--green); color: var(--paper); box-shadow: none; }
+
+.ap-node-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid var(--accent-soft);
+  border-top-color: var(--accent);
+  animation: ap-spin 0.6s linear infinite;
+}
+
+.ap-row-stagger { animation: ap-fade-up 240ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.ap-row-flash { animation: ap-row-flash 850ms ease-out; }
+.ap-drawer-panel { animation: ap-slide-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.ap-bulk-bar { animation: ap-fade-up 200ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ap-pipeline-shell::before, .ap-engine-outer, .ap-engine-mid, .ap-engine-inner,
+  .ap-engine-hub, .ap-bridge-dash, .ap-node::before, .ap-node-spinner,
+  .ap-row-stagger, .ap-row-flash, .ap-drawer-panel, .ap-bulk-bar {
+    animation: none !important;
+  }
+}

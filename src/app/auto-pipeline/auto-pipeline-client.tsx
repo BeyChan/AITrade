@@ -6,7 +6,6 @@ import type {
   AutoCandidateResult,
   AutoGrade,
   AutoPipelineRunSummary,
-  DeliveryMethodCode,
   PlatformPipelineConfig,
 } from "@/lib/auto-pipeline/types";
 import {
@@ -18,6 +17,7 @@ import { getSelectionActionCapabilities } from "@/lib/selection-status";
 import { CandidateCard } from "./candidate-card";
 import { CandidateDrawer } from "./candidate-drawer";
 import { CandidateTable, type SortDir, type SortField } from "./candidate-table";
+import { PipelineStatusBar, type EnginePhase } from "./pipeline-status-bar";
 import { PlatformConfigEditor } from "./platform-config-editor";
 import {
   btn,
@@ -40,13 +40,6 @@ const GRADE_TABS: Array<{ key: AutoGrade | "ALL"; label: string }> = [
 ];
 
 const GRADE_RANK: Record<AutoGrade, number> = { S: 1, A: 2, B: 3, HOLD: 4, ELIMINATED: 5 };
-
-const DELIVERY_LABELS: Record<DeliveryMethodCode, string> = {
-  flatfile_tsv: "Flat File TSV",
-  shopify_csv: "Shopify Draft CSV",
-  extension_autofill: "扩展半自动填表",
-  api_draft: "官方 API 草稿",
-};
 
 function persistSiteCookies(platformCode: string, marketCode: string) {
   if (typeof document === "undefined") return;
@@ -102,14 +95,35 @@ export function AutoPipelineClient(props: {
   );
   const [renamingRunId, setRenamingRunId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  const [enginePhase, setEnginePhase] = useState<EnginePhase>("idle");
+  const [engineStep, setEngineStep] = useState(0);
+  const [autoWatch, setAutoWatch] = useState(false);
+  const [animateEnterKey, setAnimateEnterKey] = useState(0);
+  const [flashedRowId, setFlashedRowId] = useState<string | null>(null);
 
   const csvInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem("aitrade_inbox_autowatch") === "1") {
+        setAutoWatch(true);
+      }
+    } catch {
+      // ignore storage access errors
+    }
+  }, []);
 
   useEffect(() => {
     if (!feedback) return;
     const timer = window.setTimeout(() => setFeedback(null), 5000);
     return () => window.clearTimeout(timer);
   }, [feedback]);
+
+  useEffect(() => {
+    if (!flashedRowId) return;
+    const timer = window.setTimeout(() => setFlashedRowId(null), 950);
+    return () => window.clearTimeout(timer);
+  }, [flashedRowId]);
 
   const activeConfig = useMemo(
     () => configs.find((c) => c.id === selectedConfigId) ?? configs[0],
@@ -180,23 +194,46 @@ export function AutoPipelineClient(props: {
     fallbackErr: string,
   ) => {
     if (!activeConfig) return;
+    setEnginePhase("running");
+    setEngineStep(1);
+    const stepTimer1 = window.setTimeout(() => setEngineStep(2), 160);
+    const stepTimer2 = window.setTimeout(() => setEngineStep(3), 340);
+    const stepTimer3 = window.setTimeout(() => setEngineStep(4), 520);
+
     void withBusy(async () => {
-      const res = await fetch("/api/auto-pipeline", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          platformCode: activeConfig.platformCode,
-          marketCode: activeConfig.marketCode,
-          ...payload,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || fallbackErr);
-      const newRunId: string = data.run?.id || "";
-      setSelectedRunId(newRunId);
-      setActiveGrade("ALL");
-      setFeedback({ kind: "ok", text: onOk(data) });
-      await fetchView(activeConfig.platformCode, activeConfig.marketCode, newRunId);
+      try {
+        const res = await fetch("/api/auto-pipeline", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            platformCode: activeConfig.platformCode,
+            marketCode: activeConfig.marketCode,
+            ...payload,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || fallbackErr);
+        const newRunId: string = data.run?.id || "";
+        setSelectedRunId(newRunId);
+        setActiveGrade("ALL");
+        setAnimateEnterKey((k) => k + 1);
+        setFeedback({ kind: "ok", text: onOk(data) });
+        await fetchView(activeConfig.platformCode, activeConfig.marketCode, newRunId);
+        setEngineStep(4);
+        setEnginePhase("done");
+        window.setTimeout(() => {
+          setEnginePhase("idle");
+          setEngineStep(0);
+        }, 2200);
+      } catch (err) {
+        setEnginePhase("idle");
+        setEngineStep(0);
+        throw err;
+      } finally {
+        window.clearTimeout(stepTimer1);
+        window.clearTimeout(stepTimer2);
+        window.clearTimeout(stepTimer3);
+      }
     }, fallbackErr);
   };
 
@@ -220,11 +257,54 @@ export function AutoPipelineClient(props: {
       (d) => {
         const r = d.run as AutoPipelineRunSummary;
         const files = Array.isArray(d.filesRead) ? d.filesRead.length : 0;
-        return `已扫描 ${files} 个 CSV 文件，共入池 ${r.totalSeeds} 条（S 级 ${r.sCount} / A 级 ${r.aCount}），已切换到本批次。`;
+        return `已自动消费 ${files} 个收件箱 CSV（已归档至 processed/），入池 ${r.totalSeeds} 条（S 级 ${r.sCount} / A 级 ${r.aCount}）。`;
       },
       "扫描收件箱失败",
     );
   };
+
+  const handleToggleAutoWatch = () => {
+    setAutoWatch((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem("aitrade_inbox_autowatch", next ? "1" : "0");
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
+
+  // 自动监听收件箱：每 15 秒轻量探测是否有新 CSV，有新文件则自动触发跑批并归档
+  useEffect(() => {
+    if (!autoWatch || !activeConfig) return;
+    let cancelled = false;
+    const probe = async () => {
+      if (cancelled || busy || loadingRun) return;
+      try {
+        const qs = new URLSearchParams({
+          platform: activeConfig.platformCode,
+          market: activeConfig.marketCode,
+        });
+        const res = await fetch(`/api/auto-pipeline/inbox-status?${qs.toString()}`, { cache: "no-store" });
+        if (!res.ok) return;
+        const data = (await res.json()) as { pendingCount?: number };
+        if (!cancelled && (data.pendingCount ?? 0) > 0) {
+          handleScanInbox();
+        }
+      } catch {
+        // 静默忽略单次轮询网络抖动
+      }
+    };
+    const timer = window.setInterval(() => {
+      void probe();
+    }, 15_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoWatch, activeConfig?.platformCode, activeConfig?.marketCode, busy, loadingRun]);
 
   const handleSaveConfig = (nextConfig: PlatformPipelineConfig) =>
     withBusy(async () => {
@@ -285,6 +365,7 @@ export function AutoPipelineClient(props: {
             ? `已采纳 ${added} 条候选进入「选品看板」（4 步验证漏斗）${reused > 0 ? `，另有 ${reused} 条已在看板中` : ""}。`
             : `选中的 ${reused} 条候选已在选品看板中，可直接点击「查看看板 →」继续验证。`,
       });
+      if (candidateIds.length === 1) setFlashedRowId(candidateIds[0]);
       await fetchView(activeConfig.platformCode, activeConfig.marketCode, selectedRunId);
     } catch (err) {
       setFeedback({ kind: "err", text: err instanceof Error ? err.message : "采纳进看板失败" });
@@ -311,6 +392,7 @@ export function AutoPipelineClient(props: {
           ? `已取消采纳 ${item.externalId}，并同步从选品看板移除了空白候选。`
           : `已解除 ${item.externalId} 的初筛关联（选品看板中已有调研数据，已为你保留）。`,
       });
+      setFlashedRowId(item.id);
       await fetchView(activeConfig.platformCode, activeConfig.marketCode, selectedRunId);
     } catch (err) {
       setFeedback({ kind: "err", text: err instanceof Error ? err.message : "取消采纳失败" });
@@ -615,30 +697,15 @@ export function AutoPipelineClient(props: {
         </div>
 
         {activeConfig && (
-          <div
-            style={{
-              ...rowStyle,
-              gap: 10,
-              padding: 12,
-              borderRadius: 10,
-              background: "var(--surface-subtle)",
-              border: "1px solid var(--line)",
-            }}
-          >
-            <button
-              type="button"
-              disabled={busy}
-              onClick={handleScanInbox}
-              style={{ ...btn.secondary, padding: "7px 13px", fontSize: 13 }}
-            >
-              扫描收件箱 ({activeConfig.inboxDir || `.data/inbox-csv/${activeConfig.platformCode}-${activeConfig.marketCode}`})
-            </button>
-            <div style={{ fontSize: 12, color: "var(--muted)", marginLeft: "auto" }}>
-              当前规则（{activeConfig.label}）：净利率门禁 <strong>{(activeConfig.economicsDefaults.targetMarginRate * 100).toFixed(0)}%</strong> · S 级线
-              <strong> ≥{(activeConfig.thresholds.sGradeMinMargin * 100).toFixed(0)}%</strong> · 交付：
-              {activeConfig.deliveryMethods.map((m) => DELIVERY_LABELS[m] || m).join(" / ")}
-            </div>
-          </div>
+          <PipelineStatusBar
+            config={activeConfig}
+            phase={enginePhase}
+            activeStep={engineStep}
+            autoWatch={autoWatch}
+            busy={busy}
+            onToggleAutoWatch={handleToggleAutoWatch}
+            onScanInbox={handleScanInbox}
+          />
         )}
 
         {feedback && (
@@ -765,23 +832,6 @@ export function AutoPipelineClient(props: {
               ))}
           </div>
         </div>
-
-        {platformRuns.length > 0 && (
-          <div style={rowStyle}>
-            {platformRuns.slice(0, 6).map((r, idx) => (
-              <button
-                key={r.id}
-                type="button"
-                disabled={loadingRun}
-                onClick={() => void handleSelectRun(r.id)}
-                style={{ ...pillStyle(selectedRunId === r.id), borderRadius: 8, padding: "5px 10px" }}
-              >
-                {idx === 0 ? "最新 · " : ""}
-                {r.sourceLabel} <span style={{ opacity: 0.75 }}>({r.totalSeeds})</span>
-              </button>
-            ))}
-          </div>
-        )}
       </section>
 
       {/* 分级过滤 + 搜索 + 视图切换 */}
@@ -893,6 +943,8 @@ export function AutoPipelineClient(props: {
             busy={busy}
             adoptingId={adoptingId}
             unadoptingId={unadoptingId}
+            flashedRowId={flashedRowId}
+            animateEnterKey={animateEnterKey}
             blacklistMap={blacklistMap}
             onToggleAll={() => setSelectedIds(allSelected ? [] : filteredCandidates.map((c) => c.id))}
             onToggleSelect={toggleSelect}
@@ -931,6 +983,7 @@ export function AutoPipelineClient(props: {
         <div
           role="region"
           aria-label="批量分诊操作条"
+          className="ap-bulk-bar"
           style={{
             position: "fixed",
             bottom: 20,

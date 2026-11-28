@@ -65,6 +65,7 @@ export function CandidateDrawer(props: {
       }}
     >
       <aside
+        className="ap-drawer-panel"
         onClick={(e) => e.stopPropagation()}
         style={{
           width: "min(520px, 94vw)",
