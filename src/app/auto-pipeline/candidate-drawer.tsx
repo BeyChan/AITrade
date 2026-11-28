@@ -4,7 +4,8 @@ import { useState } from "react";
 import Link from "next/link";
 import type { AutoCandidateResult } from "@/lib/auto-pipeline/types";
 import { ELIMINATION_REASONS, type EliminatedHistoryRecord } from "@/lib/sourcing-funnel";
-import { btn, gradeBadgeStyle, inputStyle, resolveCandidateFunnelState, rowBetweenStyle, rowStyle } from "./ui-styles";
+import { getSelectionActionCapabilities, getSelectionStatusMeta } from "@/lib/selection-status";
+import { btn, gradeBadgeStyle, inputStyle, rowBetweenStyle, rowStyle } from "./ui-styles";
 
 export function CandidateDrawer(props: {
   item: AutoCandidateResult | null;
@@ -30,7 +31,13 @@ export function CandidateDrawer(props: {
 
   if (!item) return null;
 
-  const state = resolveCandidateFunnelState(item);
+  const statusMeta = getSelectionStatusMeta(item.selectionStatus);
+  const caps = getSelectionActionCapabilities(item.selectionStatus);
+  const caseHref = item.promotedCaseId ? `/cases/${encodeURIComponent(item.promotedCaseId)}` : "";
+  const kanbanHref =
+    item.adoptedRunId && item.adoptedHypothesisId
+      ? `/ai-sourcing/${encodeURIComponent(item.adoptedRunId)}?hypothesisId=${encodeURIComponent(item.adoptedHypothesisId)}`
+      : "";
 
   const metricBox: React.CSSProperties = {
     padding: "10px 12px",
@@ -135,13 +142,13 @@ export function CandidateDrawer(props: {
           }}
         >
           <div style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)" }}>
-            当前阶段：<strong style={{ color: "var(--ink)" }}>{state.label}</strong>
-            {state.kind === "pending" && " · 推荐先采纳进选品看板完成 4 步验证"}
+            当前阶段：<strong style={{ color: "var(--ink)" }}>{statusMeta.label}</strong>
+            {caps.canAdopt && " · 推荐先采纳进选品看板完成 4 步验证"}
           </div>
           <div style={rowStyle}>
-            {state.kind === "promoted" ? (
+            {caps.canViewCase && caseHref ? (
               <>
-                <Link href={state.href} style={btn.subtleGood}>
+                <Link href={caseHref} style={btn.subtleGood}>
                   查看商品案卷 →
                 </Link>
                 <button
@@ -153,9 +160,9 @@ export function CandidateDrawer(props: {
                   {props.unpromoting ? "取消中…" : "取消案卷关联"}
                 </button>
               </>
-            ) : state.kind === "adopted" ? (
+            ) : caps.canViewKanban && kanbanHref ? (
               <>
-                <Link href={state.href} style={btn.subtleGood}>
+                <Link href={kanbanHref} style={btn.subtleGood}>
                   已采纳 · 打开选品看板 →
                 </Link>
                 <button
@@ -175,7 +182,7 @@ export function CandidateDrawer(props: {
                   淘汰入避坑库
                 </button>
               </>
-            ) : state.kind === "pending" ? (
+            ) : caps.canAdopt ? (
               <>
                 <button
                   type="button"
@@ -358,7 +365,7 @@ export function CandidateDrawer(props: {
 
           <div style={{ ...rowBetweenStyle, paddingTop: 8, borderTop: "1px dashed var(--line)" }}>
             <div style={rowStyle}>
-              {state.kind === "pending" && (
+              {caps.canPromoteFastTrack && (
                 <button
                   type="button"
                   disabled={props.promoting || props.busy}

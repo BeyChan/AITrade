@@ -3,7 +3,8 @@
 import Link from "next/link";
 import type { AutoCandidateResult } from "@/lib/auto-pipeline/types";
 import type { EliminatedHistoryRecord } from "@/lib/sourcing-funnel";
-import { btn, gradeBadgeStyle, resolveCandidateFunnelState, rowBetweenStyle, rowStyle } from "./ui-styles";
+import { getSelectionActionCapabilities, getSelectionStatusMeta } from "@/lib/selection-status";
+import { btn, gradeBadgeStyle, rowBetweenStyle, rowStyle, statusBadgeStyle } from "./ui-styles";
 
 export function CandidateCard(props: {
   item: AutoCandidateResult;
@@ -24,7 +25,13 @@ export function CandidateCard(props: {
   onDelete: (item: AutoCandidateResult) => void;
 }) {
   const { item, blacklistHit } = props;
-  const state = resolveCandidateFunnelState(item);
+  const statusMeta = getSelectionStatusMeta(item.selectionStatus);
+  const caps = getSelectionActionCapabilities(item.selectionStatus);
+  const caseHref = item.promotedCaseId ? `/cases/${encodeURIComponent(item.promotedCaseId)}` : "";
+  const kanbanHref =
+    item.adoptedRunId && item.adoptedHypothesisId
+      ? `/ai-sourcing/${encodeURIComponent(item.adoptedRunId)}?hypothesisId=${encodeURIComponent(item.adoptedHypothesisId)}`
+      : "";
 
   return (
     <div
@@ -48,8 +55,8 @@ export function CandidateCard(props: {
           <strong style={{ fontSize: 14, color: "var(--ink)", cursor: "pointer" }} onClick={() => props.onOpenDrawer(item)}>
             {item.title}
           </strong>
-          <span style={{ fontSize: 11, color: "var(--muted)", padding: "2px 6px", borderRadius: 4, border: "1px solid var(--line)" }}>
-            估算快筛 · {item.verdict}
+          <span style={{ ...statusBadgeStyle(statusMeta.tone), fontSize: 11, padding: "2px 7px", borderRadius: 4, fontWeight: 600 }}>
+            {statusMeta.label}
           </span>
           {blacklistHit && (
             <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, background: "var(--red-soft)", color: "var(--red)", fontWeight: 600 }}>
@@ -59,18 +66,18 @@ export function CandidateCard(props: {
         </div>
 
         <div style={rowStyle}>
-          {state.kind === "promoted" ? (
+          {caps.canViewCase && caseHref ? (
             <>
-              <Link href={state.href} style={btn.subtleGood}>
+              <Link href={caseHref} style={btn.subtleGood}>
                 查看案卷 →
               </Link>
               <button type="button" disabled={props.unpromoting || props.busy} onClick={() => props.onUnpromote(item)} style={btn.secondary}>
                 {props.unpromoting ? "取消中…" : "取消案卷"}
               </button>
             </>
-          ) : state.kind === "adopted" ? (
+          ) : caps.canViewKanban && kanbanHref ? (
             <>
-              <Link href={state.href} style={btn.subtleGood}>
+              <Link href={kanbanHref} style={btn.subtleGood}>
                 查看看板 →
               </Link>
               <button
@@ -82,7 +89,7 @@ export function CandidateCard(props: {
                 {props.unadopting ? "取消中…" : "取消采纳"}
               </button>
             </>
-          ) : state.kind === "pending" ? (
+          ) : caps.canAdopt ? (
             <>
               <button
                 type="button"

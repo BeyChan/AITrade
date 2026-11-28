@@ -3,7 +3,8 @@
 import Link from "next/link";
 import type { AutoCandidateResult } from "@/lib/auto-pipeline/types";
 import type { EliminatedHistoryRecord } from "@/lib/sourcing-funnel";
-import { btn, gradeBadgeStyle, resolveCandidateFunnelState } from "./ui-styles";
+import { getSelectionActionCapabilities, getSelectionStatusMeta } from "@/lib/selection-status";
+import { btn, gradeBadgeStyle, statusBadgeStyle } from "./ui-styles";
 
 export type SortField = "grade" | "score" | "price" | "margin" | "maxCost" | "reviews";
 export type SortDir = "asc" | "desc";
@@ -118,7 +119,13 @@ export function CandidateTable(props: {
             const checked = selectedIds.includes(item.id);
             const hit = props.blacklistMap.get(item.id);
             const failReasons = item.reasons.filter((r) => r.severity === "fail");
-            const state = resolveCandidateFunnelState(item);
+            const statusMeta = getSelectionStatusMeta(item.selectionStatus);
+            const caps = getSelectionActionCapabilities(item.selectionStatus);
+            const caseHref = item.promotedCaseId ? `/cases/${encodeURIComponent(item.promotedCaseId)}` : "";
+            const kanbanHref =
+              item.adoptedRunId && item.adoptedHypothesisId
+                ? `/ai-sourcing/${encodeURIComponent(item.adoptedRunId)}?hypothesisId=${encodeURIComponent(item.adoptedHypothesisId)}`
+                : "";
 
             return (
               <tr
@@ -166,32 +173,18 @@ export function CandidateTable(props: {
                       {item.brand && (
                         <span style={{ fontSize: 11, color: "var(--muted)" }}>· {item.brand}</span>
                       )}
-                      {state.kind === "promoted" && (
+                      {(statusMeta.phase === "case" || statusMeta.phase === "kanban") && (
                         <span
                           style={{
+                            ...statusBadgeStyle(statusMeta.tone),
                             fontSize: 11,
                             padding: "1px 6px",
                             borderRadius: 4,
-                            background: "var(--green-soft)",
-                            color: "var(--green)",
                             fontWeight: 600,
                           }}
+                          title={statusMeta.label}
                         >
-                          {state.label}
-                        </span>
-                      )}
-                      {state.kind === "adopted" && (
-                        <span
-                          style={{
-                            fontSize: 11,
-                            padding: "1px 6px",
-                            borderRadius: 4,
-                            background: "var(--accent-soft)",
-                            color: "var(--accent)",
-                            fontWeight: 600,
-                          }}
-                        >
-                          {state.label}
+                          {statusMeta.shortLabel}
                         </span>
                       )}
                     </div>
@@ -280,13 +273,13 @@ export function CandidateTable(props: {
                   onClick={(e) => e.stopPropagation()}
                 >
                   <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                    {state.kind === "promoted" ? (
-                      <Link href={state.href} style={btn.subtleGood}>
+                    {caps.canViewCase && caseHref ? (
+                      <Link href={caseHref} style={btn.subtleGood}>
                         查看案卷 →
                       </Link>
-                    ) : state.kind === "adopted" ? (
+                    ) : caps.canViewKanban && kanbanHref ? (
                       <>
-                        <Link href={state.href} style={btn.subtleGood}>
+                        <Link href={kanbanHref} style={btn.subtleGood}>
                           查看看板 →
                         </Link>
                         <button
@@ -299,7 +292,7 @@ export function CandidateTable(props: {
                           {props.unadoptingId === item.id ? "取消中…" : "取消采纳"}
                         </button>
                       </>
-                    ) : state.kind === "pending" ? (
+                    ) : caps.canAdopt ? (
                       <button
                         type="button"
                         disabled={props.busy || props.adoptingId === item.id}
@@ -309,7 +302,7 @@ export function CandidateTable(props: {
                         {props.adoptingId === item.id ? "采纳中…" : "采纳进看板"}
                       </button>
                     ) : (
-                      <span style={{ fontSize: 12, color: "var(--muted)", paddingRight: 4 }}>已淘汰</span>
+                      <span style={{ fontSize: 12, color: "var(--muted)", paddingRight: 4 }}>{statusMeta.shortLabel}</span>
                     )}
 
                     <button

@@ -6,6 +6,7 @@ import {
 } from "../economics.ts";
 import { evaluateFastScreen } from "../sourcing-funnel.ts";
 import { resolveSourcingGrade } from "../sourcing-grade.ts";
+import { deriveAutoCandidateSelectionStatus } from "../selection-status.ts";
 import type {
   AutoCandidateReason,
   AutoCandidateResult,
@@ -278,6 +279,7 @@ export function evaluateAndGradeCandidate(input: {
       marketStatus: effectiveMarketStatus,
     },
     promotedCaseId: null,
+    selectionStatus: deriveAutoCandidateSelectionStatus({ grade }),
     observedAt: seed.observedAt || new Date().toISOString(),
   };
 }

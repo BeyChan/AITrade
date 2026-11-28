@@ -1517,9 +1517,31 @@ SELECT
 FROM auto_candidates
 ON CONFLICT (run_id, external_id) DO NOTHING;
 
--- 选品线索池 → 推进看板（opportunity_hypotheses）流转关联字段（幂等）
+-- 选品线索池 → 推进看板（opportunity_hypotheses）流转关联字段与统一状态枚举（幂等）
 ALTER TABLE auto_candidates ADD COLUMN IF NOT EXISTS adopted_run_id TEXT;
 ALTER TABLE auto_candidates ADD COLUMN IF NOT EXISTS adopted_hypothesis_id TEXT;
+ALTER TABLE auto_candidates ADD COLUMN IF NOT EXISTS selection_status TEXT NOT NULL DEFAULT 'triage_pending';
 ALTER TABLE auto_run_candidates ADD COLUMN IF NOT EXISTS adopted_run_id TEXT;
 ALTER TABLE auto_run_candidates ADD COLUMN IF NOT EXISTS adopted_hypothesis_id TEXT;
+ALTER TABLE auto_run_candidates ADD COLUMN IF NOT EXISTS selection_status TEXT NOT NULL DEFAULT 'triage_pending';
+
+UPDATE auto_candidates
+SET selection_status = CASE
+  WHEN promoted_case_id IS NOT NULL THEN 'promoted_case'
+  WHEN grade = 'ELIMINATED' THEN 'eliminated'
+  WHEN adopted_hypothesis_id IS NOT NULL THEN 'kanban_candidate'
+  ELSE 'triage_pending'
+END
+WHERE selection_status = 'triage_pending'
+  AND (promoted_case_id IS NOT NULL OR grade = 'ELIMINATED' OR adopted_hypothesis_id IS NOT NULL);
+
+UPDATE auto_run_candidates
+SET selection_status = CASE
+  WHEN promoted_case_id IS NOT NULL THEN 'promoted_case'
+  WHEN grade = 'ELIMINATED' THEN 'eliminated'
+  WHEN adopted_hypothesis_id IS NOT NULL THEN 'kanban_candidate'
+  ELSE 'triage_pending'
+END
+WHERE selection_status = 'triage_pending'
+  AND (promoted_case_id IS NOT NULL OR grade = 'ELIMINATED' OR adopted_hypothesis_id IS NOT NULL);
 

@@ -4,6 +4,7 @@ import { OFFICIAL_FX_CONFIG } from "../currency.ts";
 import { getFxRatesSnapshot } from "../fx-rates.ts";
 import { recordAuditLog } from "../audit-logs.ts";
 import { computeBatchMarketContext, evaluateAndGradeCandidate } from "./grading.ts";
+import { deriveAutoCandidateSelectionStatus } from "../selection-status.ts";
 import { getPlatformConfig } from "./repository.ts";
 import type {
   AutoCandidateResult,
@@ -219,6 +220,10 @@ export async function runAutoSourcingPipeline(input: {
         ...evaluated,
         id: snapshotId,
         promotedCaseId,
+        selectionStatus: deriveAutoCandidateSelectionStatus({
+          grade: evaluated.grade,
+          promotedCaseId,
+        }),
       });
     }
 

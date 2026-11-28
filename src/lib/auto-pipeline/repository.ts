@@ -4,6 +4,12 @@ import { calculateEconomics, type EconomicsAssumptions } from "../economics.ts";
 import { recordAuditLog } from "../audit-logs.ts";
 import { saveFunnelThresholds } from "../app-settings.ts";
 import {
+  SELECTION_STATUS,
+  canTransitionSelectionStatus,
+  deriveAutoCandidateSelectionStatus,
+  type SelectionStatus,
+} from "../selection-status.ts";
+import {
   BUILTIN_PLATFORM_CONFIGS,
   buildConfigId,
   getDefaultPlatformConfig,
@@ -80,6 +86,7 @@ type CandidateRow = {
   promoted_case_id: string | null;
   adopted_run_id?: string | null;
   adopted_hypothesis_id?: string | null;
+  selection_status?: string | null;
   observed_at: string;
   updated_at: string;
 };
@@ -164,6 +171,13 @@ function rowToCandidate(row: CandidateRow): AutoCandidateResult {
     promotedCaseId: row.promoted_case_id ?? null,
     adoptedRunId: row.adopted_run_id ?? null,
     adoptedHypothesisId: row.adopted_hypothesis_id ?? null,
+    selectionStatus: deriveAutoCandidateSelectionStatus({
+      grade: row.grade,
+      promotedCaseId: row.promoted_case_id,
+      adoptedRunId: row.adopted_run_id,
+      adoptedHypothesisId: row.adopted_hypothesis_id,
+      persistedStatus: row.selection_status,
+    }),
     observedAt: row.observed_at,
     updatedAt: row.updated_at,
   };
@@ -331,6 +345,7 @@ export async function listAutoCandidates(filter: {
   limit?: number;
 } = {}): Promise<AutoCandidateResult[]> {
   const db = await getDb();
+  await ensureSelectionStateColumns(db);
   const clauses: string[] = [];
   const params: unknown[] = [];
   const useRunSnapshot = Boolean(filter.runId && filter.runId !== "ALL");
@@ -365,7 +380,65 @@ export async function listAutoCandidates(filter: {
      LIMIT $${params.length}`,
     params,
   );
-  return res.rows.map(rowToCandidate);
+  const mapped = res.rows.map(rowToCandidate);
+  const hypIds = Array.from(
+    new Set(
+      mapped
+        .filter((item) => !item.promotedCaseId && item.grade !== "ELIMINATED" && item.adoptedHypothesisId)
+        .map((item) => item.adoptedHypothesisId as string),
+    ),
+  );
+  if (hypIds.length === 0) return mapped;
+
+  // 实时回读选品看板中的真实阶段，保证选品初筛与选品看板的状态枚举 100% 同步
+  const hypRes = await db.query<{
+    id: string;
+    product_case_id: string | null;
+    eliminated_at: string | null;
+    comparison_report_id: string | null;
+    cost_sheet_id: string | null;
+    quote_count: number;
+  }>(
+    `SELECT
+       h.id,
+       h.product_case_id,
+       h.eliminated_at,
+       h.comparison_report_id,
+       h.cost_sheet_id,
+       (SELECT COUNT(*) FROM sourcing_supplier_quotes q WHERE q.hypothesis_id = h.id)::int AS quote_count
+     FROM opportunity_hypotheses h
+     WHERE h.id = ANY($1::text[])`,
+    [hypIds],
+  );
+  const stageByHypId = new Map<string, SelectionStatus>();
+  const caseByHypId = new Map<string, string>();
+  for (const h of hypRes.rows) {
+    if (h.product_case_id) {
+      stageByHypId.set(h.id, SELECTION_STATUS.PROMOTED_CASE);
+      caseByHypId.set(h.id, h.product_case_id);
+    } else if (h.eliminated_at) {
+      stageByHypId.set(h.id, SELECTION_STATUS.ELIMINATED);
+    } else if (h.quote_count > 0) {
+      stageByHypId.set(h.id, SELECTION_STATUS.KANBAN_SAMPLING);
+    } else if (h.cost_sheet_id) {
+      stageByHypId.set(h.id, SELECTION_STATUS.KANBAN_PROFITABLE);
+    } else if (h.comparison_report_id) {
+      stageByHypId.set(h.id, SELECTION_STATUS.KANBAN_SCANNED);
+    } else {
+      stageByHypId.set(h.id, SELECTION_STATUS.KANBAN_CANDIDATE);
+    }
+  }
+
+  return mapped.map((item) => {
+    if (!item.adoptedHypothesisId) return item;
+    const liveStatus = stageByHypId.get(item.adoptedHypothesisId);
+    if (!liveStatus) return item;
+    return {
+      ...item,
+      promotedCaseId: item.promotedCaseId ?? caseByHypId.get(item.adoptedHypothesisId) ?? null,
+      selectionStatus: liveStatus,
+    };
+  });
 }
 
 type DbClient = Awaited<ReturnType<typeof getDb>>;
@@ -707,17 +780,18 @@ export async function promoteAutoCandidateToCase(candidateId: string, actor = "�
   }
 
   const syncPromotedCase = async (caseId: string) => {
+    await ensureSelectionStateColumns(db);
     await db.query(
       `UPDATE auto_candidates
-       SET promoted_case_id = $1, updated_at = NOW()
-       WHERE platform_code = $2 AND market_code = $3 AND external_id = $4`,
-      [caseId, candidate.platform_code, candidate.market_code, candidate.external_id],
+       SET promoted_case_id = $1, selection_status = $2, updated_at = NOW()
+       WHERE platform_code = $3 AND market_code = $4 AND external_id = $5`,
+      [caseId, SELECTION_STATUS.PROMOTED_CASE, candidate.platform_code, candidate.market_code, candidate.external_id],
     );
     await db.query(
       `UPDATE auto_run_candidates
-       SET promoted_case_id = $1, updated_at = NOW()
-       WHERE platform_code = $2 AND market_code = $3 AND external_id = $4`,
-      [caseId, candidate.platform_code, candidate.market_code, candidate.external_id],
+       SET promoted_case_id = $1, selection_status = $2, updated_at = NOW()
+       WHERE platform_code = $3 AND market_code = $4 AND external_id = $5`,
+      [caseId, SELECTION_STATUS.PROMOTED_CASE, candidate.platform_code, candidate.market_code, candidate.external_id],
     );
   };
 
@@ -838,17 +912,24 @@ export async function unpromoteAutoCandidate(
   }
 
   const caseId = candidate.promoted_case_id;
+  await ensureSelectionStateColumns(db);
+  const nextStatusAfterUnpromote = deriveAutoCandidateSelectionStatus({
+    grade: candidate.grade,
+    promotedCaseId: null,
+    adoptedRunId: candidate.adopted_run_id,
+    adoptedHypothesisId: candidate.adopted_hypothesis_id,
+  });
   await db.query(
     `UPDATE auto_candidates
-     SET promoted_case_id = NULL, updated_at = NOW()
-     WHERE platform_code = $1 AND market_code = $2 AND external_id = $3`,
-    [candidate.platform_code, candidate.market_code, candidate.external_id],
+     SET promoted_case_id = NULL, selection_status = $1, updated_at = NOW()
+     WHERE platform_code = $2 AND market_code = $3 AND external_id = $4`,
+    [nextStatusAfterUnpromote, candidate.platform_code, candidate.market_code, candidate.external_id],
   );
   await db.query(
     `UPDATE auto_run_candidates
-     SET promoted_case_id = NULL, updated_at = NOW()
-     WHERE platform_code = $1 AND market_code = $2 AND external_id = $3`,
-    [candidate.platform_code, candidate.market_code, candidate.external_id],
+     SET promoted_case_id = NULL, selection_status = $1, updated_at = NOW()
+     WHERE platform_code = $2 AND market_code = $3 AND external_id = $4`,
+    [nextStatusAfterUnpromote, candidate.platform_code, candidate.market_code, candidate.external_id],
   );
 
   let caseDeleted = false;
@@ -977,15 +1058,17 @@ async function ensureKanbanRunForPool(
  * - 已采纳且看板记录仍存在的候选幂等复用，不重复建卡
  * - 自动带入 ASIN、售价、估算净利率、采购天花板与竞品检索词，进入统一 4 步选品验证工作台
  */
-let adoptionColumnsEnsured = false;
+let selectionStateColumnsEnsured = false;
 
-async function ensureAdoptionColumns(db: DbClient): Promise<void> {
-  if (adoptionColumnsEnsured) return;
+async function ensureSelectionStateColumns(db: DbClient): Promise<void> {
+  if (selectionStateColumnsEnsured) return;
   await db.query(`ALTER TABLE auto_candidates ADD COLUMN IF NOT EXISTS adopted_run_id TEXT`);
   await db.query(`ALTER TABLE auto_candidates ADD COLUMN IF NOT EXISTS adopted_hypothesis_id TEXT`);
+  await db.query(`ALTER TABLE auto_candidates ADD COLUMN IF NOT EXISTS selection_status TEXT NOT NULL DEFAULT 'triage_pending'`);
   await db.query(`ALTER TABLE auto_run_candidates ADD COLUMN IF NOT EXISTS adopted_run_id TEXT`);
   await db.query(`ALTER TABLE auto_run_candidates ADD COLUMN IF NOT EXISTS adopted_hypothesis_id TEXT`);
-  adoptionColumnsEnsured = true;
+  await db.query(`ALTER TABLE auto_run_candidates ADD COLUMN IF NOT EXISTS selection_status TEXT NOT NULL DEFAULT 'triage_pending'`);
+  selectionStateColumnsEnsured = true;
 }
 
 export async function adoptAutoCandidatesToKanban(input: {
@@ -997,7 +1080,7 @@ export async function adoptAutoCandidatesToKanban(input: {
   items: Array<{ candidateId: string; runId: string; hypothesisId: string; alreadyExisted: boolean }>;
 }> {
   const db = await getDb();
-  await ensureAdoptionColumns(db);
+  await ensureSelectionStateColumns(db);
   const actor = input.actor?.trim() || "运营人员";
   const rows = await resolveCandidatesByIds(db, input.candidateIds);
   if (rows.length === 0) {
@@ -1044,6 +1127,17 @@ export async function adoptAutoCandidatesToKanban(input: {
           });
           continue;
         }
+      }
+
+      const currentStatus = deriveAutoCandidateSelectionStatus({
+        grade: candidate.grade,
+        promotedCaseId: candidate.promoted_case_id,
+        adoptedRunId: candidate.adopted_run_id,
+        adoptedHypothesisId: candidate.adopted_hypothesis_id,
+        persistedStatus: candidate.selection_status,
+      });
+      if (!canTransitionSelectionStatus(currentStatus, SELECTION_STATUS.KANBAN_CANDIDATE)) {
+        throw new Error(`候选 ${candidate.external_id} 当前状态为「${currentStatus}」，不可采纳进看板`);
       }
 
       if (!runIdCache) {
@@ -1104,15 +1198,15 @@ export async function adoptAutoCandidatesToKanban(input: {
 
       await db.query(
         `UPDATE auto_candidates
-         SET adopted_run_id = $1, adopted_hypothesis_id = $2, updated_at = NOW()
-         WHERE platform_code = $3 AND market_code = $4 AND external_id = $5`,
-        [runIdCache, hypothesisId, candidate.platform_code, candidate.market_code, candidate.external_id],
+         SET adopted_run_id = $1, adopted_hypothesis_id = $2, selection_status = $3, updated_at = NOW()
+         WHERE platform_code = $4 AND market_code = $5 AND external_id = $6`,
+        [runIdCache, hypothesisId, SELECTION_STATUS.KANBAN_CANDIDATE, candidate.platform_code, candidate.market_code, candidate.external_id],
       );
       await db.query(
         `UPDATE auto_run_candidates
-         SET adopted_run_id = $1, adopted_hypothesis_id = $2, updated_at = NOW()
-         WHERE platform_code = $3 AND market_code = $4 AND external_id = $5`,
-        [runIdCache, hypothesisId, candidate.platform_code, candidate.market_code, candidate.external_id],
+         SET adopted_run_id = $1, adopted_hypothesis_id = $2, selection_status = $3, updated_at = NOW()
+         WHERE platform_code = $4 AND market_code = $5 AND external_id = $6`,
+        [runIdCache, hypothesisId, SELECTION_STATUS.KANBAN_CANDIDATE, candidate.platform_code, candidate.market_code, candidate.external_id],
       );
 
       adoptedCount += 1;
@@ -1154,7 +1248,7 @@ export async function unadoptAutoCandidate(
   actor = "运营人员",
 ): Promise<{ hypothesisId: string | null; hypothesisDeleted: boolean }> {
   const db = await getDb();
-  await ensureAdoptionColumns(db);
+  await ensureSelectionStateColumns(db);
   const rows = await resolveCandidatesByIds(db, [candidateId]);
   const candidate = rows[0];
   if (!candidate) {
@@ -1164,17 +1258,24 @@ export async function unadoptAutoCandidate(
   const hypothesisId = candidate.adopted_hypothesis_id ?? null;
   const runId = candidate.adopted_run_id ?? null;
 
+  const nextStatusAfterUnadopt = deriveAutoCandidateSelectionStatus({
+    grade: candidate.grade,
+    promotedCaseId: candidate.promoted_case_id,
+    adoptedRunId: null,
+    adoptedHypothesisId: null,
+  });
+
   await db.query(
     `UPDATE auto_candidates
-     SET adopted_run_id = NULL, adopted_hypothesis_id = NULL, updated_at = NOW()
-     WHERE platform_code = $1 AND market_code = $2 AND external_id = $3`,
-    [candidate.platform_code, candidate.market_code, candidate.external_id],
+     SET adopted_run_id = NULL, adopted_hypothesis_id = NULL, selection_status = $1, updated_at = NOW()
+     WHERE platform_code = $2 AND market_code = $3 AND external_id = $4`,
+    [nextStatusAfterUnadopt, candidate.platform_code, candidate.market_code, candidate.external_id],
   );
   await db.query(
     `UPDATE auto_run_candidates
-     SET adopted_run_id = NULL, adopted_hypothesis_id = NULL, updated_at = NOW()
-     WHERE platform_code = $1 AND market_code = $2 AND external_id = $3`,
-    [candidate.platform_code, candidate.market_code, candidate.external_id],
+     SET adopted_run_id = NULL, adopted_hypothesis_id = NULL, selection_status = $1, updated_at = NOW()
+     WHERE platform_code = $2 AND market_code = $3 AND external_id = $4`,
+    [nextStatusAfterUnadopt, candidate.platform_code, candidate.market_code, candidate.external_id],
   );
 
   let hypothesisDeleted = false;
@@ -1271,7 +1372,7 @@ export async function eliminateAutoCandidatesToBlacklist(input: {
   actor?: string;
 }): Promise<{ eliminatedCount: number }> {
   const db = await getDb();
-  await ensureAdoptionColumns(db);
+  await ensureSelectionStateColumns(db);
   const actor = input.actor?.trim() || "运营人员";
   const reason = input.reason?.trim() || "其他";
   const note = input.note?.trim() || null;
@@ -1292,15 +1393,15 @@ export async function eliminateAutoCandidatesToBlacklist(input: {
 
     await db.query(
       `UPDATE auto_candidates
-       SET grade = 'ELIMINATED', verdict = 'NO-GO', reasons = $1::jsonb, updated_at = NOW()
-       WHERE platform_code = $2 AND market_code = $3 AND external_id = $4`,
-      [JSON.stringify(nextReasons), candidate.platform_code, candidate.market_code, candidate.external_id],
+       SET grade = 'ELIMINATED', verdict = 'NO-GO', selection_status = $1, reasons = $2::jsonb, updated_at = NOW()
+       WHERE platform_code = $3 AND market_code = $4 AND external_id = $5`,
+      [SELECTION_STATUS.ELIMINATED, JSON.stringify(nextReasons), candidate.platform_code, candidate.market_code, candidate.external_id],
     );
     await db.query(
       `UPDATE auto_run_candidates
-       SET grade = 'ELIMINATED', verdict = 'NO-GO', reasons = $1::jsonb, updated_at = NOW()
-       WHERE platform_code = $2 AND market_code = $3 AND external_id = $4`,
-      [JSON.stringify(nextReasons), candidate.platform_code, candidate.market_code, candidate.external_id],
+       SET grade = 'ELIMINATED', verdict = 'NO-GO', selection_status = $1, reasons = $2::jsonb, updated_at = NOW()
+       WHERE platform_code = $3 AND market_code = $4 AND external_id = $5`,
+      [SELECTION_STATUS.ELIMINATED, JSON.stringify(nextReasons), candidate.platform_code, candidate.market_code, candidate.external_id],
     );
 
     // 若已采纳进看板，直接把该看板记录标记为淘汰；否则写入统一的“线索池避坑沉淀”批次

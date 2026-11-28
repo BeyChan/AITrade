@@ -1,6 +1,7 @@
 import type { SourcingFunnelThresholds } from "../sourcing-funnel.ts";
 import type { ProductComplianceAttribute } from "../prelaunch-compliance.ts";
 import type { SourcingGrade } from "../sourcing-grade.ts";
+import type { SelectionStatus } from "../selection-status.ts";
 
 export type AutoGrade = SourcingGrade;
 
@@ -122,6 +123,8 @@ export type AutoCandidateResult = {
   promotedCaseId: string | null;
   adoptedRunId?: string | null;
   adoptedHypothesisId?: string | null;
+  /** 全局统一选品流转状态枚举（唯一真相源） */
+  selectionStatus: SelectionStatus;
   observedAt: string;
   updatedAt?: string;
 };

@@ -14,6 +14,7 @@ import {
   findEliminationMatches,
   type EliminatedHistoryRecord,
 } from "@/lib/sourcing-funnel";
+import { getSelectionActionCapabilities } from "@/lib/selection-status";
 import { CandidateCard } from "./candidate-card";
 import { CandidateDrawer } from "./candidate-drawer";
 import { CandidateTable, type SortDir, type SortField } from "./candidate-table";
@@ -157,24 +158,6 @@ export function AutoPipelineClient(props: {
       setFeedback({ kind: "err", text: err instanceof Error ? err.message : fallbackErr });
     } finally {
       setBusy(false);
-    }
-  };
-
-  const handleSelectPlatform = async (nextConfigId: string) => {
-    setSelectedConfigId(nextConfigId);
-    setRenamingRunId(null);
-    setSelectedIds([]);
-    setDrawerCandidateId(null);
-    const cfg = configs.find((c) => c.id === nextConfigId);
-    if (!cfg) return;
-    persistSiteCookies(cfg.platformCode, cfg.marketCode);
-    const nextRunId =
-      runs.find((r) => r.platformCode === cfg.platformCode && r.marketCode === cfg.marketCode)?.id ?? "";
-    setSelectedRunId(nextRunId);
-    try {
-      await fetchView(cfg.platformCode, cfg.marketCode, nextRunId);
-    } catch (err) {
-      setFeedback({ kind: "err", text: err instanceof Error ? err.message : "切换平台失败" });
     }
   };
 
@@ -537,7 +520,7 @@ export function AutoPipelineClient(props: {
         return false;
       }
       if (activeGrade !== "ALL" && c.grade !== activeGrade) return false;
-      if (hideProcessed && (c.adoptedHypothesisId || c.promotedCaseId)) return false;
+      if (hideProcessed && getSelectionActionCapabilities(c.selectionStatus).isProcessed) return false;
       if (q) {
         const hay = `${c.externalId} ${c.title} ${c.brand} ${c.category}`.toLowerCase();
         if (!hay.includes(q)) return false;
@@ -565,7 +548,7 @@ export function AutoPipelineClient(props: {
       if (activeConfig && (c.platformCode !== activeConfig.platformCode || c.marketCode !== activeConfig.marketCode)) {
         continue;
       }
-      if (hideProcessed && (c.adoptedHypothesisId || c.promotedCaseId)) continue;
+      if (hideProcessed && getSelectionActionCapabilities(c.selectionStatus).isProcessed) continue;
       map[c.grade] += 1;
     }
     return map;
