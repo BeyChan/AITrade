@@ -38,11 +38,12 @@ export async function GET(request: Request) {
     const platformCode = searchParams.get("platform") || "ALL";
     const marketCode = searchParams.get("market") || "ALL";
     const grade = (searchParams.get("grade") || "ALL") as AutoGrade | "ALL";
+    const runId = searchParams.get("runId") || undefined;
 
     const [configs, runs, candidates] = await Promise.all([
       listPlatformConfigs(),
-      listAutoPipelineRuns(20),
-      listAutoCandidates({ platformCode, marketCode, grade, limit: 200 }),
+      listAutoPipelineRuns({ limit: 50 }),
+      listAutoCandidates({ platformCode, marketCode, grade, runId, limit: runId && runId !== "ALL" ? 500 : 300 }),
     ]);
 
     return NextResponse.json({ configs, runs, candidates }, { headers });

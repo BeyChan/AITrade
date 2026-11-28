@@ -9,6 +9,8 @@ import type {
   DeliveryMethodCode,
   PlatformPipelineConfig,
 } from "@/lib/auto-pipeline/types";
+import { CandidateCard } from "./candidate-card";
+import { PlatformConfigEditor } from "./platform-config-editor";
 
 const GRADE_TABS: Array<{ key: AutoGrade | "ALL"; label: string }> = [
   { key: "ALL", label: "全部候选" },
@@ -26,17 +28,15 @@ const DELIVERY_LABELS: Record<DeliveryMethodCode, string> = {
   api_draft: "官方 API 草稿",
 };
 
-function gradeBadgeStyle(grade: AutoGrade): React.CSSProperties {
-  if (grade === "S") {
-    return { background: "var(--good-soft)", color: "var(--good)", border: "1px solid var(--good)" };
-  }
-  if (grade === "A") {
-    return { background: "var(--accent-soft)", color: "var(--accent)", border: "1px solid var(--accent)" };
-  }
-  if (grade === "B" || grade === "HOLD") {
-    return { background: "var(--warn-soft)", color: "var(--warn)", border: "1px solid var(--warn)" };
-  }
-  return { background: "var(--bad-soft)", color: "var(--bad)", border: "1px solid var(--bad)" };
+function formatRunTime(iso?: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return `${mm}-${dd} ${hh}:${mi}`;
 }
 
 export function AutoPipelineClient(props: {
@@ -45,6 +45,7 @@ export function AutoPipelineClient(props: {
   initialCandidates: AutoCandidateResult[];
   initialPlatform: string;
   initialMarket: string;
+  initialRunId: string;
 }) {
   const [configs, setConfigs] = useState<PlatformPipelineConfig[]>(props.initialConfigs);
   const [runs, setRuns] = useState<AutoPipelineRunSummary[]>(props.initialRuns);
@@ -56,38 +57,83 @@ export function AutoPipelineClient(props: {
       ? defaultConfigKey
       : (props.initialConfigs[0]?.id ?? "amazon:US"),
   );
+  const [selectedRunId, setSelectedRunId] = useState<string>(props.initialRunId || "");
   const [activeGrade, setActiveGrade] = useState<AutoGrade | "ALL">("ALL");
+  const [hidePromoted, setHidePromoted] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
   const [showConfigEditor, setShowConfigEditor] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [loadingRun, setLoadingRun] = useState(false);
   const [promotingId, setPromotingId] = useState<string | null>(null);
+  const [deletingCandidateId, setDeletingCandidateId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
-
-  // 新增自定义平台/站点弹窗表单
-  const [newPlatformCode, setNewPlatformCode] = useState("");
-  const [newMarketCode, setNewMarketCode] = useState("US");
-  const [newCurrency, setNewCurrency] = useState("USD");
+  const [renamingRunId, setRenamingRunId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
 
   const activeConfig = useMemo(
     () => configs.find((c) => c.id === selectedConfigId) ?? configs[0],
     [configs, selectedConfigId],
   );
 
-  // 配置编辑态
-  const [draftConfig, setDraftConfig] = useState<PlatformPipelineConfig | null>(null);
+  const platformRuns = useMemo(() => {
+    if (!activeConfig) return runs;
+    return runs.filter(
+      (r) => r.platformCode === activeConfig.platformCode && r.marketCode === activeConfig.marketCode,
+    );
+  }, [runs, activeConfig]);
 
-  const openEditor = () => {
-    if (!activeConfig) return;
-    setDraftConfig(structuredClone(activeConfig));
-    setShowConfigEditor(true);
-  };
+  const activeRun = useMemo(
+    () => (selectedRunId ? platformRuns.find((r) => r.id === selectedRunId) ?? null : null),
+    [platformRuns, selectedRunId],
+  );
 
-  const refreshData = async () => {
-    const res = await fetch("/api/auto-pipeline", { cache: "no-store" });
-    const data = await res.json();
-    if (res.ok) {
+  const fetchPipelineView = async (opts: { platformCode: string; marketCode: string; runId: string }) => {
+    setLoadingRun(true);
+    try {
+      const qs = new URLSearchParams({ platform: opts.platformCode, market: opts.marketCode });
+      if (opts.runId) qs.set("runId", opts.runId);
+      const res = await fetch(`/api/auto-pipeline?${qs.toString()}`, { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "刷新自动选品池失败");
       setConfigs(data.configs ?? []);
       setRuns(data.runs ?? []);
-      setCandidates(data.candidates ?? []);
+      setCandidates(opts.runId ? (data.candidates ?? []) : []);
+      setSelectedIds([]);
+    } finally {
+      setLoadingRun(false);
+    }
+  };
+
+  const handleSelectPlatform = async (nextConfigId: string) => {
+    setSelectedConfigId(nextConfigId);
+    setRenamingRunId(null);
+    setSelectedIds([]);
+    const cfg = configs.find((c) => c.id === nextConfigId);
+    if (!cfg) return;
+    const nextRunId =
+      runs.find((r) => r.platformCode === cfg.platformCode && r.marketCode === cfg.marketCode)?.id ?? "";
+    setSelectedRunId(nextRunId);
+    try {
+      await fetchPipelineView({ platformCode: cfg.platformCode, marketCode: cfg.marketCode, runId: nextRunId });
+    } catch (err) {
+      setFeedback({ kind: "err", text: err instanceof Error ? err.message : "切换平台失败" });
+    }
+  };
+
+  const handleSelectRun = async (nextRunId: string) => {
+    if (!activeConfig) return;
+    setSelectedRunId(nextRunId);
+    setRenamingRunId(null);
+    setSelectedIds([]);
+    try {
+      await fetchPipelineView({
+        platformCode: activeConfig.platformCode,
+        marketCode: activeConfig.marketCode,
+        runId: nextRunId,
+      });
+    } catch (err) {
+      setFeedback({ kind: "err", text: err instanceof Error ? err.message : "切换批次失败" });
     }
   };
 
@@ -110,11 +156,18 @@ export function AutoPipelineClient(props: {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "CSV 自动选品运行失败");
+      const newRunId: string = data.run?.id || "";
+      setSelectedRunId(newRunId);
+      setActiveGrade("ALL");
       setFeedback({
         kind: "ok",
-        text: `已自动处理 ${data.run.totalSeeds} 条候选：S 级 ${data.run.sCount}、A 级 ${data.run.aCount}、B 级 ${data.run.bCount}、HOLD ${data.run.holdCount}、淘汰 ${data.run.eliminatedCount}（全部为估算快筛，人工补真实报价后才可签发 GO）。`,
+        text: `已自动处理 ${data.run.totalSeeds} 条候选并切换到本批次：S 级 ${data.run.sCount}、A 级 ${data.run.aCount}、B 级 ${data.run.bCount}、HOLD ${data.run.holdCount}、淘汰 ${data.run.eliminatedCount}（估算快筛，人工补真实报价后才可签发 GO）。`,
       });
-      await refreshData();
+      await fetchPipelineView({
+        platformCode: activeConfig.platformCode,
+        marketCode: activeConfig.marketCode,
+        runId: newRunId,
+      });
     } catch (err) {
       setFeedback({ kind: "err", text: err instanceof Error ? err.message : "上传失败" });
     } finally {
@@ -139,11 +192,18 @@ export function AutoPipelineClient(props: {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "扫描收件箱失败");
+      const newRunId: string = data.run?.id || "";
+      setSelectedRunId(newRunId);
+      setActiveGrade("ALL");
       setFeedback({
         kind: "ok",
-        text: `已扫描 ${data.filesRead?.length ?? 0} 个 CSV 文件，共入池 ${data.run.totalSeeds} 条（S 级 ${data.run.sCount} / A 级 ${data.run.aCount}）。`,
+        text: `已扫描 ${data.filesRead?.length ?? 0} 个 CSV 文件，共入池 ${data.run.totalSeeds} 条（S 级 ${data.run.sCount} / A 级 ${data.run.aCount}），已切换到本批次。`,
       });
-      await refreshData();
+      await fetchPipelineView({
+        platformCode: activeConfig.platformCode,
+        marketCode: activeConfig.marketCode,
+        runId: newRunId,
+      });
     } catch (err) {
       setFeedback({ kind: "err", text: err instanceof Error ? err.message : "扫描失败" });
     } finally {
@@ -151,21 +211,24 @@ export function AutoPipelineClient(props: {
     }
   };
 
-  const handleSaveConfig = async () => {
-    if (!draftConfig) return;
+  const handleSaveConfig = async (nextConfig: PlatformPipelineConfig) => {
     setBusy(true);
     setFeedback(null);
     try {
       const res = await fetch("/api/auto-pipeline/configs", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(draftConfig),
+        body: JSON.stringify(nextConfig),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "保存配置失败");
       setShowConfigEditor(false);
       setFeedback({ kind: "ok", text: `已保存 ${data.config.label} 的选品费率、分级阈值与半自动上架策略。` });
-      await refreshData();
+      await fetchPipelineView({
+        platformCode: nextConfig.platformCode,
+        marketCode: nextConfig.marketCode,
+        runId: selectedRunId,
+      });
     } catch (err) {
       setFeedback({ kind: "err", text: err instanceof Error ? err.message : "保存失败" });
     } finally {
@@ -173,10 +236,11 @@ export function AutoPipelineClient(props: {
     }
   };
 
-  const handleCreateCustomPlatform = async () => {
-    const p = newPlatformCode.trim().toLowerCase();
-    const m = newMarketCode.trim().toUpperCase();
-    if (!p || !m) return;
+  const handleCreateCustomPlatform = async (input: {
+    platformCode: string;
+    marketCode: string;
+    currency: string;
+  }) => {
     setBusy(true);
     setFeedback(null);
     try {
@@ -184,17 +248,20 @@ export function AutoPipelineClient(props: {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          platformCode: p,
-          marketCode: m,
-          currency: newCurrency.trim().toUpperCase() || "USD",
-          label: `${p.toUpperCase()} (${m})`,
+          ...input,
+          label: `${input.platformCode.toUpperCase()} (${input.marketCode})`,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "创建平台配置失败");
-      setNewPlatformCode("");
-      await refreshData();
       setSelectedConfigId(data.config.id);
+      setSelectedRunId("");
+      setShowConfigEditor(false);
+      await fetchPipelineView({
+        platformCode: data.config.platformCode,
+        marketCode: data.config.marketCode,
+        runId: "",
+      });
       setFeedback({ kind: "ok", text: `已新增平台配置 ${data.config.label}，后续可直接切换使用。` });
     } catch (err) {
       setFeedback({ kind: "err", text: err instanceof Error ? err.message : "新增失败" });
@@ -204,6 +271,7 @@ export function AutoPipelineClient(props: {
   };
 
   const handlePromote = async (candidateId: string) => {
+    if (!activeConfig) return;
     setPromotingId(candidateId);
     setFeedback(null);
     try {
@@ -218,11 +286,182 @@ export function AutoPipelineClient(props: {
           ? "该候选已关联正式商品案卷，已为你刷新入口。"
           : "已推进为正式商品案卷（初始状态 HOLD，待录真实报价并定标后可签发 GO）。",
       });
-      await refreshData();
+      await fetchPipelineView({
+        platformCode: activeConfig.platformCode,
+        marketCode: activeConfig.marketCode,
+        runId: selectedRunId,
+      });
     } catch (err) {
       setFeedback({ kind: "err", text: err instanceof Error ? err.message : "推进失败" });
     } finally {
       setPromotingId(null);
+    }
+  };
+
+  const handleRenameRun = async (runId: string) => {
+    if (!activeConfig || !renameDraft.trim()) return;
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const res = await fetch(`/api/auto-pipeline/runs/${encodeURIComponent(runId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceLabel: renameDraft.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "重命名批次失败");
+      setRenamingRunId(null);
+      setFeedback({ kind: "ok", text: `批次已重命名为「${data.run.sourceLabel}」。` });
+      await fetchPipelineView({
+        platformCode: activeConfig.platformCode,
+        marketCode: activeConfig.marketCode,
+        runId: selectedRunId,
+      });
+    } catch (err) {
+      setFeedback({ kind: "err", text: err instanceof Error ? err.message : "重命名失败" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDeleteRun = async (run: AutoPipelineRunSummary) => {
+    if (!activeConfig) return;
+    if (
+      !window.confirm(
+        `确认删除批次「${run.sourceLabel}」（共 ${run.totalSeeds} 条候选）？\n\n仅删除该批次的选品快照，不会影响已推进生成的正式商品案卷。`,
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const res = await fetch(`/api/auto-pipeline/runs/${encodeURIComponent(run.id)}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "删除批次失败");
+      const remaining = platformRuns.filter((r) => r.id !== run.id);
+      const nextRunId = selectedRunId === run.id ? (remaining[0]?.id ?? "") : selectedRunId;
+      setSelectedRunId(nextRunId);
+      setRenamingRunId(null);
+      setFeedback({
+        kind: "ok",
+        text: `已删除批次「${run.sourceLabel}」（移除 ${data.deletedCandidates ?? run.totalSeeds} 条快照，正式案卷不受影响）。`,
+      });
+      await fetchPipelineView({
+        platformCode: activeConfig.platformCode,
+        marketCode: activeConfig.marketCode,
+        runId: nextRunId,
+      });
+    } catch (err) {
+      setFeedback({ kind: "err", text: err instanceof Error ? err.message : "删除批次失败" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDeleteSingleCandidate = async (item: AutoCandidateResult) => {
+    if (!activeConfig || !selectedRunId) return;
+    if (
+      !window.confirm(
+        `确认从当前批次删除「${item.externalId} · ${item.title.slice(0, 48)}」？\n（不影响已推进的正式商品案卷）。`,
+      )
+    ) {
+      return;
+    }
+    setDeletingCandidateId(item.id);
+    setFeedback(null);
+    try {
+      const res = await fetch(
+        `/api/auto-pipeline/candidates/${encodeURIComponent(item.id)}?runId=${encodeURIComponent(selectedRunId)}`,
+        { method: "DELETE" },
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "删除候选记录失败");
+      setFeedback({ kind: "ok", text: `已移除候选 ${item.externalId}。` });
+      await fetchPipelineView({
+        platformCode: activeConfig.platformCode,
+        marketCode: activeConfig.marketCode,
+        runId: selectedRunId,
+      });
+    } catch (err) {
+      setFeedback({ kind: "err", text: err instanceof Error ? err.message : "删除失败" });
+    } finally {
+      setDeletingCandidateId(null);
+    }
+  };
+
+  const handleBulkDeleteSelected = async () => {
+    if (!activeConfig || !selectedRunId || selectedIds.length === 0) return;
+    if (
+      !window.confirm(
+        `确认从当前批次批量删除已勾选的 ${selectedIds.length} 条候选记录？\n不影响已推进生成的正式商品案卷。`,
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const res = await fetch("/api/auto-pipeline/candidates/cleanup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ids: selectedIds,
+          runId: selectedRunId,
+          platformCode: activeConfig.platformCode,
+          marketCode: activeConfig.marketCode,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "批量删除失败");
+      setFeedback({ kind: "ok", text: `已批量删除 ${data.deletedCount ?? selectedIds.length} 条候选记录。` });
+      await fetchPipelineView({
+        platformCode: activeConfig.platformCode,
+        marketCode: activeConfig.marketCode,
+        runId: selectedRunId,
+      });
+    } catch (err) {
+      setFeedback({ kind: "err", text: err instanceof Error ? err.message : "批量删除失败" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCleanupEliminated = async () => {
+    if (!activeConfig || !selectedRunId || gradeCounts.ELIMINATED === 0) return;
+    if (
+      !window.confirm(
+        `确认一键清理当前批次下的 ${gradeCounts.ELIMINATED} 条「已淘汰」记录？\n不影响其他分级和已推进的正式商品案卷。`,
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const res = await fetch("/api/auto-pipeline/candidates/cleanup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          grade: "ELIMINATED",
+          runId: selectedRunId,
+          platformCode: activeConfig.platformCode,
+          marketCode: activeConfig.marketCode,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "清理已淘汰记录失败");
+      if (activeGrade === "ELIMINATED") setActiveGrade("ALL");
+      setFeedback({ kind: "ok", text: `已清理 ${data.deletedCount ?? 0} 条「已淘汰」候选记录。` });
+      await fetchPipelineView({
+        platformCode: activeConfig.platformCode,
+        marketCode: activeConfig.marketCode,
+        runId: selectedRunId,
+      });
+    } catch (err) {
+      setFeedback({ kind: "err", text: err instanceof Error ? err.message : "清理失败" });
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -232,9 +471,10 @@ export function AutoPipelineClient(props: {
         return false;
       }
       if (activeGrade !== "ALL" && c.grade !== activeGrade) return false;
+      if (hidePromoted && c.promotedCaseId) return false;
       return true;
     });
-  }, [candidates, activeConfig, activeGrade]);
+  }, [candidates, activeConfig, activeGrade, hidePromoted]);
 
   const gradeCounts = useMemo(() => {
     const map: Record<AutoGrade, number> = { S: 0, A: 0, B: 0, HOLD: 0, ELIMINATED: 0 };
@@ -242,10 +482,22 @@ export function AutoPipelineClient(props: {
       if (activeConfig && (c.platformCode !== activeConfig.platformCode || c.marketCode !== activeConfig.marketCode)) {
         continue;
       }
+      if (hidePromoted && c.promotedCaseId) continue;
       map[c.grade] += 1;
     }
     return map;
-  }, [candidates, activeConfig]);
+  }, [candidates, activeConfig, hidePromoted]);
+
+  const allFilteredSelected =
+    filteredCandidates.length > 0 && filteredCandidates.every((c) => selectedIds.includes(c.id));
+
+  const toggleSelectAllFiltered = () => {
+    setSelectedIds(allFilteredSelected ? [] : filteredCandidates.map((c) => c.id));
+  };
+
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -267,13 +519,13 @@ export function AutoPipelineClient(props: {
               自动选品池 · 多平台可配置流水线
             </h1>
             <p style={{ margin: "6px 0 0", fontSize: 13, color: "var(--muted)" }}>
-              无需 Keepa Key：支持卖家精灵/H10 CSV 上传、本地收件箱扫描与 Chrome 扩展一键推送。自动执行市场格局快筛、目标净利率采购上限反推与 S/A/B 分级；<strong>严禁自动签发 GO</strong>，人工核实报价并定标后进入半自动上架。
+              无需 Keepa Key：支持卖家精灵/H10 CSV 上传、本地收件箱扫描与 Chrome 扩展一键推送。按批次独立留存历史快照，自动执行市场格局快筛、目标净利率采购上限反推与 S/A/B 分级；<strong>严禁自动签发 GO</strong>，人工核实报价并定标后进入半自动上架。
             </p>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             <select
               value={selectedConfigId}
-              onChange={(e) => setSelectedConfigId(e.target.value)}
+              onChange={(e) => void handleSelectPlatform(e.target.value)}
               style={{
                 padding: "8px 12px",
                 borderRadius: 8,
@@ -292,7 +544,7 @@ export function AutoPipelineClient(props: {
             </select>
             <button
               type="button"
-              onClick={openEditor}
+              onClick={() => setShowConfigEditor((v) => !v)}
               style={{
                 padding: "8px 14px",
                 borderRadius: 8,
@@ -301,7 +553,6 @@ export function AutoPipelineClient(props: {
                 color: "var(--ink)",
                 fontSize: 13,
                 fontWeight: 600,
-                cursor: "pointer",
               }}
             >
               配置当前平台规则
@@ -355,7 +606,7 @@ export function AutoPipelineClient(props: {
             <button
               type="button"
               disabled={busy}
-              onClick={handleScanInbox}
+              onClick={() => void handleScanInbox()}
               style={{
                 padding: "8px 14px",
                 borderRadius: 8,
@@ -382,9 +633,9 @@ export function AutoPipelineClient(props: {
               padding: "10px 14px",
               borderRadius: 8,
               fontSize: 13,
-              background: feedback.kind === "ok" ? "var(--good-soft)" : "var(--bad-soft)",
-              color: feedback.kind === "ok" ? "var(--good)" : "var(--bad)",
-              border: `1px solid ${feedback.kind === "ok" ? "var(--good)" : "var(--bad)"}`,
+              background: feedback.kind === "ok" ? "var(--green-soft)" : "var(--red-soft)",
+              color: feedback.kind === "ok" ? "var(--green)" : "var(--red)",
+              border: `1px solid ${feedback.kind === "ok" ? "var(--green)" : "var(--red)"}`,
             }}
           >
             {feedback.text}
@@ -393,219 +644,319 @@ export function AutoPipelineClient(props: {
       </section>
 
       {/* 平台规则配置编辑器 */}
-      {showConfigEditor && draftConfig && (
-        <section
-          style={{
-            background: "var(--paper)",
-            border: "1px solid var(--accent)",
-            borderRadius: 14,
-            padding: 20,
-            display: "flex",
-            flexDirection: "column",
-            gap: 14,
-          }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "var(--ink)" }}>
-              平台规则配置：{draftConfig.label}（{draftConfig.platformCode} / {draftConfig.marketCode}）
-            </h2>
-            <button
-              type="button"
-              onClick={() => setShowConfigEditor(false)}
+      {showConfigEditor && activeConfig && (
+        <PlatformConfigEditor
+          key={activeConfig.id}
+          initialConfig={activeConfig}
+          busy={busy}
+          onClose={() => setShowConfigEditor(false)}
+          onSave={handleSaveConfig}
+          onCreatePlatform={handleCreateCustomPlatform}
+        />
+      )}
+
+      {/* 批次切换与管理栏 */}
+      <section
+        style={{
+          background: "var(--paper)",
+          border: "1px solid var(--line)",
+          borderRadius: 14,
+          padding: 16,
+          display: "flex",
+          flexDirection: "column",
+          gap: 12,
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "var(--ink)" }}>查看批次：</span>
+            <select
+              value={selectedRunId}
+              disabled={loadingRun || busy || platformRuns.length === 0}
+              onChange={(e) => void handleSelectRun(e.target.value)}
               style={{
-                border: "none",
-                background: "transparent",
-                color: "var(--muted)",
-                cursor: "pointer",
+                padding: "7px 12px",
+                borderRadius: 8,
+                border: "1px solid var(--line)",
+                background: "var(--surface-subtle)",
+                color: "var(--ink)",
                 fontSize: 13,
+                fontWeight: 600,
+                maxWidth: 420,
               }}
             >
-              关闭
-            </button>
+              {platformRuns.length === 0 ? (
+                <option value="">暂无选品批次</option>
+              ) : (
+                platformRuns.map((r, idx) => (
+                  <option key={r.id} value={r.id}>
+                    {idx === 0 ? "[最新] " : ""}
+                    {r.sourceLabel} · {formatRunTime(r.createdAt)} · 共 {r.totalSeeds} 条 (S:{r.sCount} / A:{r.aCount})
+                  </option>
+                ))
+              )}
+            </select>
+            {loadingRun && <span style={{ fontSize: 12, color: "var(--muted)" }}>加载中…</span>}
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "var(--muted)" }}>
-              平台佣金率 (如 0.15)
-              <input
-                type="number"
-                step="0.01"
-                value={draftConfig.economicsDefaults.referralRate}
-                onChange={(e) =>
-                  setDraftConfig({
-                    ...draftConfig,
-                    economicsDefaults: { ...draftConfig.economicsDefaults, referralRate: Number(e.target.value) },
-                  })
-                }
-                style={{ padding: "6px 8px", borderRadius: 6, border: "1px solid var(--line)", background: "var(--surface-subtle)", color: "var(--ink)" }}
-              />
-            </label>
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "var(--muted)" }}>
-              目标净利率门禁 (如 0.18)
-              <input
-                type="number"
-                step="0.01"
-                value={draftConfig.economicsDefaults.targetMarginRate}
-                onChange={(e) =>
-                  setDraftConfig({
-                    ...draftConfig,
-                    economicsDefaults: { ...draftConfig.economicsDefaults, targetMarginRate: Number(e.target.value) },
-                  })
-                }
-                style={{ padding: "6px 8px", borderRadius: 6, border: "1px solid var(--line)", background: "var(--surface-subtle)", color: "var(--ink)" }}
-              />
-            </label>
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "var(--muted)" }}>
-              默认广告费率 (如 0.12)
-              <input
-                type="number"
-                step="0.01"
-                value={draftConfig.economicsDefaults.adRate}
-                onChange={(e) =>
-                  setDraftConfig({
-                    ...draftConfig,
-                    economicsDefaults: { ...draftConfig.economicsDefaults, adRate: Number(e.target.value) },
-                  })
-                }
-                style={{ padding: "6px 8px", borderRadius: 6, border: "1px solid var(--line)", background: "var(--surface-subtle)", color: "var(--ink)" }}
-              />
-            </label>
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "var(--muted)" }}>
-              S 级最低净利率 (如 0.24)
-              <input
-                type="number"
-                step="0.01"
-                value={draftConfig.thresholds.sGradeMinMargin}
-                onChange={(e) =>
-                  setDraftConfig({
-                    ...draftConfig,
-                    thresholds: { ...draftConfig.thresholds, sGradeMinMargin: Number(e.target.value) },
-                  })
-                }
-                style={{ padding: "6px 8px", borderRadius: 6, border: "1px solid var(--line)", background: "var(--surface-subtle)", color: "var(--ink)" }}
-              />
-            </label>
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "var(--muted)" }}>
-              最大评论中位数上限
-              <input
-                type="number"
-                step="50"
-                value={draftConfig.thresholds.maxMedianReviews}
-                onChange={(e) =>
-                  setDraftConfig({
-                    ...draftConfig,
-                    thresholds: { ...draftConfig.thresholds, maxMedianReviews: Number(e.target.value) },
-                  })
-                }
-                style={{ padding: "6px 8px", borderRadius: 6, border: "1px solid var(--line)", background: "var(--surface-subtle)", color: "var(--ink)" }}
-              />
-            </label>
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "var(--muted)" }}>
-              品牌 HHI 垄断上限
-              <input
-                type="number"
-                step="100"
-                value={draftConfig.thresholds.maxHhi}
-                onChange={(e) =>
-                  setDraftConfig({
-                    ...draftConfig,
-                    thresholds: { ...draftConfig.thresholds, maxHhi: Number(e.target.value) },
-                  })
-                }
-                style={{ padding: "6px 8px", borderRadius: 6, border: "1px solid var(--line)", background: "var(--surface-subtle)", color: "var(--ink)" }}
-              />
-            </label>
-          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <Link
+              href={
+                activeConfig
+                  ? `/auto-pipeline/history?platform=${encodeURIComponent(activeConfig.platformCode)}&market=${encodeURIComponent(activeConfig.marketCode)}`
+                  : "/auto-pipeline/history"
+              }
+              style={{
+                padding: "6px 12px",
+                borderRadius: 7,
+                border: "1px solid var(--line)",
+                background: "var(--surface-subtle)",
+                color: "var(--ink)",
+                fontSize: 12,
+                fontWeight: 600,
+                textDecoration: "none",
+              }}
+            >
+              历史选品 ({platformRuns.length})
+            </Link>
 
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <span style={{ fontSize: 12, color: "var(--muted)" }}>新增其他平台/站点配置：</span>
-              <input
-                placeholder="平台码如 ebay / temu"
-                value={newPlatformCode}
-                onChange={(e) => setNewPlatformCode(e.target.value)}
-                style={{ padding: "6px 8px", borderRadius: 6, border: "1px solid var(--line)", background: "var(--surface-subtle)", color: "var(--ink)", width: 140, fontSize: 12 }}
-              />
-              <input
-                placeholder="站点如 US/DE"
-                value={newMarketCode}
-                onChange={(e) => setNewMarketCode(e.target.value)}
-                style={{ padding: "6px 8px", borderRadius: 6, border: "1px solid var(--line)", background: "var(--surface-subtle)", color: "var(--ink)", width: 90, fontSize: 12 }}
-              />
-              <input
-                placeholder="币种 USD"
-                value={newCurrency}
-                onChange={(e) => setNewCurrency(e.target.value)}
-                style={{ padding: "6px 8px", borderRadius: 6, border: "1px solid var(--line)", background: "var(--surface-subtle)", color: "var(--ink)", width: 80, fontSize: 12 }}
-              />
+            {activeRun &&
+              (renamingRunId === activeRun.id ? (
+                <>
+                  <input
+                    value={renameDraft}
+                    onChange={(e) => setRenameDraft(e.target.value)}
+                    placeholder="输入批次备注名"
+                    style={{
+                      padding: "6px 10px",
+                      borderRadius: 6,
+                      border: "1px solid var(--accent)",
+                      background: "var(--surface-subtle)",
+                      color: "var(--ink)",
+                      fontSize: 12,
+                      width: 200,
+                    }}
+                  />
+                  <button
+                    type="button"
+                    disabled={busy || !renameDraft.trim()}
+                    onClick={() => void handleRenameRun(activeRun.id)}
+                    style={{
+                      padding: "6px 10px",
+                      borderRadius: 6,
+                      border: "none",
+                      background: "var(--accent)",
+                      color: "var(--paper)",
+                      fontSize: 12,
+                      fontWeight: 600,
+                    }}
+                  >
+                    保存
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRenamingRunId(null)}
+                    style={{
+                      padding: "6px 10px",
+                      borderRadius: 6,
+                      border: "1px solid var(--line)",
+                      background: "var(--surface-subtle)",
+                      color: "var(--muted)",
+                      fontSize: 12,
+                    }}
+                  >
+                    取消
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      setRenamingRunId(activeRun.id);
+                      setRenameDraft(activeRun.sourceLabel);
+                    }}
+                    style={{
+                      padding: "6px 10px",
+                      borderRadius: 7,
+                      border: "1px solid var(--line)",
+                      background: "var(--surface-subtle)",
+                      color: "var(--ink)",
+                      fontSize: 12,
+                      fontWeight: 600,
+                    }}
+                  >
+                    重命名此批
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void handleDeleteRun(activeRun)}
+                    style={{
+                      padding: "6px 10px",
+                      borderRadius: 7,
+                      border: "1px solid var(--red)",
+                      background: "var(--red-soft)",
+                      color: "var(--red)",
+                      fontSize: 12,
+                      fontWeight: 600,
+                    }}
+                  >
+                    删除此批
+                  </button>
+                </>
+              ))}
+          </div>
+        </div>
+
+        {/* 最近批次快捷胶囊 */}
+        {platformRuns.length > 0 && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            {platformRuns.slice(0, 6).map((r, idx) => {
+              const isSelected = selectedRunId === r.id;
+              return (
+                <button
+                  key={r.id}
+                  type="button"
+                  disabled={loadingRun}
+                  onClick={() => void handleSelectRun(r.id)}
+                  style={{
+                    padding: "5px 10px",
+                    borderRadius: 8,
+                    border: `1px solid ${isSelected ? "var(--accent)" : "var(--line)"}`,
+                    background: isSelected ? "var(--accent-soft)" : "var(--surface-subtle)",
+                    color: isSelected ? "var(--accent)" : "var(--ink)",
+                    fontSize: 12,
+                    fontWeight: isSelected ? 700 : 500,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                  }}
+                >
+                  <span>
+                    {idx === 0 ? "最新 · " : ""}
+                    {r.sourceLabel}
+                  </span>
+                  <span style={{ opacity: 0.75 }}>({r.totalSeeds})</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* 分级统计 Tab 与批量清理工具栏 */}
+      <section style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {GRADE_TABS.map((tab) => {
+            const count =
+              tab.key === "ALL"
+                ? Object.values(gradeCounts).reduce((a, b) => a + b, 0)
+                : gradeCounts[tab.key];
+            const active = activeGrade === tab.key;
+            return (
               <button
+                key={tab.key}
                 type="button"
-                disabled={busy || !newPlatformCode.trim()}
-                onClick={handleCreateCustomPlatform}
+                onClick={() => {
+                  setActiveGrade(tab.key);
+                  setSelectedIds([]);
+                }}
                 style={{
-                  padding: "6px 12px",
-                  borderRadius: 6,
-                  border: "1px solid var(--line)",
-                  background: "var(--surface-subtle)",
-                  color: "var(--ink)",
-                  fontSize: 12,
+                  padding: "8px 14px",
+                  borderRadius: 999,
+                  border: `1px solid ${active ? "var(--accent)" : "var(--line)"}`,
+                  background: active ? "var(--accent-soft)" : "var(--paper)",
+                  color: active ? "var(--accent)" : "var(--ink)",
+                  fontSize: 13,
                   fontWeight: 600,
-                  cursor: "pointer",
                 }}
               >
-                + 添加平台
+                {tab.label} ({count})
               </button>
-            </div>
+            );
+          })}
+        </div>
 
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <label
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              fontSize: 12,
+              color: "var(--muted)",
+              cursor: "pointer",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={hidePromoted}
+              onChange={(e) => {
+                setHidePromoted(e.target.checked);
+                setSelectedIds([]);
+              }}
+            />
+            隐藏已推进案卷
+          </label>
+
+          {filteredCandidates.length > 0 && (
+            <button
+              type="button"
+              onClick={toggleSelectAllFiltered}
+              style={{
+                padding: "6px 10px",
+                borderRadius: 7,
+                border: "1px solid var(--line)",
+                background: "var(--paper)",
+                color: "var(--ink)",
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+            >
+              {allFilteredSelected ? "取消全选" : `全选当前 (${filteredCandidates.length})`}
+            </button>
+          )}
+
+          {selectedIds.length > 0 && (
             <button
               type="button"
               disabled={busy}
-              onClick={handleSaveConfig}
+              onClick={() => void handleBulkDeleteSelected()}
               style={{
-                padding: "8px 18px",
-                borderRadius: 8,
-                border: "none",
-                background: "var(--accent)",
-                color: "var(--paper)",
-                fontSize: 13,
+                padding: "6px 12px",
+                borderRadius: 7,
+                border: "1px solid var(--red)",
+                background: "var(--red-soft)",
+                color: "var(--red)",
+                fontSize: 12,
                 fontWeight: 600,
-                cursor: "pointer",
               }}
             >
-              保存规则配置
+              删除已选 ({selectedIds.length})
             </button>
-          </div>
-        </section>
-      )}
+          )}
 
-      {/* 分级统计与 Tab */}
-      <section style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        {GRADE_TABS.map((tab) => {
-          const count =
-            tab.key === "ALL"
-              ? Object.values(gradeCounts).reduce((a, b) => a + b, 0)
-              : gradeCounts[tab.key];
-          const active = activeGrade === tab.key;
-          return (
+          {gradeCounts.ELIMINATED > 0 && (
             <button
-              key={tab.key}
               type="button"
-              onClick={() => setActiveGrade(tab.key)}
+              disabled={busy}
+              onClick={() => void handleCleanupEliminated()}
               style={{
-                padding: "8px 14px",
-                borderRadius: 999,
-                border: `1px solid ${active ? "var(--accent)" : "var(--line)"}`,
-                background: active ? "var(--accent-soft)" : "var(--paper)",
-                color: active ? "var(--accent)" : "var(--ink)",
-                fontSize: 13,
+                padding: "6px 12px",
+                borderRadius: 7,
+                border: "1px solid var(--amber)",
+                background: "var(--amber-soft)",
+                color: "var(--amber)",
+                fontSize: 12,
                 fontWeight: 600,
-                cursor: "pointer",
               }}
             >
-              {tab.label} ({count})
+              一键清理已淘汰 ({gradeCounts.ELIMINATED})
             </button>
-          );
-        })}
+          )}
+        </div>
       </section>
 
       {/* 候选列表 */}
@@ -622,181 +973,24 @@ export function AutoPipelineClient(props: {
       >
         {filteredCandidates.length === 0 ? (
           <div style={{ padding: 32, textAlign: "center", color: "var(--muted)", fontSize: 13 }}>
-            当前平台/分级下暂无候选品。你可以点击上方「上传候选 CSV 自动跑批」，或在 Amazon 搜索页打开 Chrome 扩展点击「推送本页到自动选品池」。
+            当前批次/分级下暂无候选品。你可以点击上方「上传候选 CSV 自动跑批」、点「历史选品」切换其他批次，或在 Amazon 搜索页打开 Chrome 扩展点击「推送本页到自动选品池」。
           </div>
         ) : (
           filteredCandidates.map((item) => (
-            <div
+            <CandidateCard
               key={item.id}
-              style={{
-                border: "1px solid var(--line)",
-                borderRadius: 10,
-                padding: 14,
-                background: "var(--surface-subtle)",
-                display: "flex",
-                flexDirection: "column",
-                gap: 10,
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
-                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                  <span
-                    style={{
-                      ...gradeBadgeStyle(item.grade),
-                      padding: "2px 10px",
-                      borderRadius: 999,
-                      fontSize: 12,
-                      fontWeight: 700,
-                    }}
-                  >
-                    {item.grade} 级
-                  </span>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)" }}>
-                    {item.externalId}
-                  </span>
-                  <strong style={{ fontSize: 14, color: "var(--ink)" }}>{item.title}</strong>
-                  <span style={{ fontSize: 11, color: "var(--muted)", padding: "2px 6px", borderRadius: 4, border: "1px solid var(--line)" }}>
-                    估算快筛 · {item.verdict}
-                  </span>
-                </div>
-
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <a
-                    href={`/api/sourcing/1688-search?q=${encodeURIComponent(item.title.slice(0, 40))}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{
-                      padding: "6px 10px",
-                      borderRadius: 7,
-                      border: "1px solid var(--line)",
-                      background: "var(--paper)",
-                      color: "var(--ink)",
-                      fontSize: 12,
-                      fontWeight: 600,
-                      textDecoration: "none",
-                    }}
-                  >
-                    按 ≤¥{item.maxLandedCostCny.toFixed(1)} 去 1688 找厂
-                  </a>
-
-                  {item.promotedCaseId ? (
-                    <Link
-                      href={`/cases/${item.promotedCaseId}`}
-                      style={{
-                        padding: "6px 12px",
-                        borderRadius: 7,
-                        background: "var(--good-soft)",
-                        color: "var(--good)",
-                        border: "1px solid var(--good)",
-                        fontSize: 12,
-                        fontWeight: 600,
-                        textDecoration: "none",
-                      }}
-                    >
-                      查看正式案卷 →
-                    </Link>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={promotingId === item.id || item.grade === "ELIMINATED"}
-                      onClick={() => void handlePromote(item.id)}
-                      style={{
-                        padding: "6px 12px",
-                        borderRadius: 7,
-                        border: "none",
-                        background: item.grade === "ELIMINATED" ? "var(--line)" : "var(--accent)",
-                        color: item.grade === "ELIMINATED" ? "var(--muted)" : "var(--paper)",
-                        fontSize: 12,
-                        fontWeight: 600,
-                        cursor: item.grade === "ELIMINATED" ? "not-allowed" : "pointer",
-                      }}
-                    >
-                      {promotingId === item.id ? "推进中…" : "推进为商品案卷"}
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 12, color: "var(--muted)" }}>
-                <span>售价：<strong style={{ color: "var(--ink)" }}>{(item.priceCents / 100).toFixed(2)} {item.currency}</strong></span>
-                <span>估算净利率：<strong style={{ color: "var(--ink)" }}>{(item.estimatedMarginRate * 100).toFixed(1)}%</strong></span>
-                <span>机会分：<strong style={{ color: "var(--ink)" }}>{item.score}</strong></span>
-                <span>达标采购天花板：<strong style={{ color: "var(--good)" }}>≤ ¥{item.maxLandedCostCny.toFixed(1)}</strong></span>
-                <span>评论：{item.reviewCount.toLocaleString()} · 评分：{item.rating ?? "—"}</span>
-                <span>品牌：{item.brand || "未识别"}</span>
-              </div>
-
-              {item.reasons.length > 0 && (
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {item.reasons.map((r, idx) => (
-                    <span
-                      key={`${item.id}-r-${idx}`}
-                      style={{
-                        fontSize: 11,
-                        padding: "3px 8px",
-                        borderRadius: 6,
-                        background:
-                          r.severity === "fail"
-                            ? "var(--bad-soft)"
-                            : r.severity === "warn"
-                              ? "var(--warn-soft)"
-                              : "var(--good-soft)",
-                        color:
-                          r.severity === "fail"
-                            ? "var(--bad)"
-                            : r.severity === "warn"
-                              ? "var(--warn)"
-                              : "var(--good)",
-                      }}
-                    >
-                      {r.message}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
+              item={item}
+              checked={selectedIds.includes(item.id)}
+              busy={busy}
+              promoting={promotingId === item.id}
+              deleting={deletingCandidateId === item.id}
+              onToggleSelect={toggleSelectOne}
+              onPromote={(id) => void handlePromote(id)}
+              onDelete={(target) => void handleDeleteSingleCandidate(target)}
+            />
           ))
         )}
       </section>
-
-      {/* 最近批跑记录 */}
-      {runs.length > 0 && (
-        <section
-          style={{
-            background: "var(--paper)",
-            border: "1px solid var(--line)",
-            borderRadius: 14,
-            padding: 16,
-          }}
-        >
-          <h2 style={{ margin: "0 0 10px", fontSize: 15, fontWeight: 700, color: "var(--ink)" }}>
-            最近自动选品批跑记录
-          </h2>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12, color: "var(--muted)" }}>
-            {runs.slice(0, 8).map((r) => (
-              <div
-                key={r.id}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  flexWrap: "wrap",
-                  gap: 8,
-                  padding: "6px 10px",
-                  borderRadius: 6,
-                  background: "var(--surface-subtle)",
-                }}
-              >
-                <span>
-                  <strong style={{ color: "var(--ink)" }}>{r.platformCode.toUpperCase()} / {r.marketCode}</strong> · 来源 {r.sourceType}（{r.sourceLabel}）
-                </span>
-                <span>
-                  共 {r.totalSeeds} 条 · S:{r.sCount} / A:{r.aCount} / B:{r.bCount} / HOLD:{r.holdCount} / 淘汰:{r.eliminatedCount}
-                </span>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
     </div>
   );
 }

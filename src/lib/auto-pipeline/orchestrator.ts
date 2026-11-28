@@ -149,10 +149,76 @@ export async function runAutoSourcingPipeline(input: {
         ],
       );
 
+      const upsertedId = upserted.rows[0]?.id ?? evaluated.id;
+      const promotedCaseId = upserted.rows[0]?.promoted_case_id ?? null;
+      const snapshotId = randomUUID();
+
+      await db.query(
+        `INSERT INTO auto_run_candidates
+         (id, run_id, candidate_id, platform_code, market_code, external_id, title, brand, category, url, currency,
+          price_cents, monthly_sales_estimate, review_count, rating, grade, verdict, score,
+          estimated_margin_rate, max_landed_cost_cents, max_landed_cost_cny, pricing_source,
+          evidence_source, reasons, metrics, promoted_case_id, observed_at, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24::jsonb,$25::jsonb,$26,$27,NOW(),NOW())
+         ON CONFLICT (run_id, external_id) DO UPDATE SET
+           candidate_id = EXCLUDED.candidate_id,
+           title = EXCLUDED.title,
+           brand = EXCLUDED.brand,
+           category = EXCLUDED.category,
+           url = EXCLUDED.url,
+           currency = EXCLUDED.currency,
+           price_cents = EXCLUDED.price_cents,
+           monthly_sales_estimate = EXCLUDED.monthly_sales_estimate,
+           review_count = EXCLUDED.review_count,
+           rating = EXCLUDED.rating,
+           grade = EXCLUDED.grade,
+           verdict = EXCLUDED.verdict,
+           score = EXCLUDED.score,
+           estimated_margin_rate = EXCLUDED.estimated_margin_rate,
+           max_landed_cost_cents = EXCLUDED.max_landed_cost_cents,
+           max_landed_cost_cny = EXCLUDED.max_landed_cost_cny,
+           pricing_source = EXCLUDED.pricing_source,
+           evidence_source = EXCLUDED.evidence_source,
+           reasons = EXCLUDED.reasons,
+           metrics = EXCLUDED.metrics,
+           promoted_case_id = COALESCE(EXCLUDED.promoted_case_id, auto_run_candidates.promoted_case_id),
+           observed_at = EXCLUDED.observed_at,
+           updated_at = NOW()`,
+        [
+          snapshotId,
+          evaluated.runId,
+          upsertedId,
+          evaluated.platformCode,
+          evaluated.marketCode,
+          evaluated.externalId,
+          evaluated.title,
+          evaluated.brand,
+          evaluated.category,
+          evaluated.url,
+          evaluated.currency,
+          evaluated.priceCents,
+          evaluated.monthlySalesEstimate,
+          evaluated.reviewCount,
+          evaluated.rating,
+          evaluated.grade,
+          evaluated.verdict,
+          evaluated.score,
+          evaluated.estimatedMarginRate,
+          evaluated.maxLandedCostCents,
+          evaluated.maxLandedCostCny,
+          evaluated.pricingSource,
+          evaluated.evidenceSource,
+          JSON.stringify(evaluated.reasons),
+          JSON.stringify(evaluated.metrics),
+          promotedCaseId,
+          evaluated.observedAt,
+        ],
+      );
+
       results.push({
         ...evaluated,
-        id: upserted.rows[0]?.id ?? evaluated.id,
-        promotedCaseId: upserted.rows[0]?.promoted_case_id ?? null,
+        id: snapshotId,
+        promotedCaseId,
       });
     }
 

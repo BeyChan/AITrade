@@ -1464,3 +1464,56 @@ CREATE TABLE IF NOT EXISTS auto_candidates (
 CREATE INDEX IF NOT EXISTS idx_auto_candidates_platform_grade
   ON auto_candidates(platform_code, market_code, grade, score DESC);
 
+CREATE TABLE IF NOT EXISTS auto_run_candidates (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES auto_pipeline_runs(id) ON DELETE CASCADE,
+  candidate_id TEXT REFERENCES auto_candidates(id) ON DELETE SET NULL,
+  platform_code TEXT NOT NULL,
+  market_code TEXT NOT NULL,
+  external_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  brand TEXT NOT NULL DEFAULT '',
+  category TEXT NOT NULL DEFAULT '',
+  url TEXT NOT NULL DEFAULT '',
+  currency TEXT NOT NULL DEFAULT 'USD',
+  price_cents INTEGER NOT NULL DEFAULT 0,
+  monthly_sales_estimate INTEGER NOT NULL DEFAULT 0,
+  review_count INTEGER NOT NULL DEFAULT 0,
+  rating REAL,
+  grade TEXT NOT NULL CHECK (grade IN ('S', 'A', 'B', 'HOLD', 'ELIMINATED')),
+  verdict TEXT NOT NULL CHECK (verdict IN ('HOLD', 'NO-GO', 'PENDING')),
+  score INTEGER NOT NULL DEFAULT 0,
+  estimated_margin_rate REAL NOT NULL DEFAULT 0,
+  max_landed_cost_cents INTEGER NOT NULL DEFAULT 0,
+  max_landed_cost_cny REAL NOT NULL DEFAULT 0,
+  pricing_source TEXT NOT NULL DEFAULT 'estimated',
+  evidence_source TEXT NOT NULL DEFAULT 'real',
+  reasons JSONB NOT NULL DEFAULT '[]'::jsonb,
+  metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
+  promoted_case_id TEXT,
+  observed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(run_id, external_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_auto_run_candidates_run_grade
+  ON auto_run_candidates(run_id, grade, score DESC);
+
+CREATE INDEX IF NOT EXISTS idx_auto_run_candidates_platform_ext
+  ON auto_run_candidates(platform_code, market_code, external_id);
+
+-- 平滑回填既有 auto_candidates 到批次快照表（幂等）
+INSERT INTO auto_run_candidates
+  (id, run_id, candidate_id, platform_code, market_code, external_id, title, brand, category, url, currency,
+   price_cents, monthly_sales_estimate, review_count, rating, grade, verdict, score,
+   estimated_margin_rate, max_landed_cost_cents, max_landed_cost_cny, pricing_source,
+   evidence_source, reasons, metrics, promoted_case_id, observed_at, created_at, updated_at)
+SELECT
+  id, run_id, id, platform_code, market_code, external_id, title, brand, category, url, currency,
+  price_cents, monthly_sales_estimate, review_count, rating, grade, verdict, score,
+  estimated_margin_rate, max_landed_cost_cents, max_landed_cost_cny, pricing_source,
+  evidence_source, reasons, metrics, promoted_case_id, observed_at, created_at, updated_at
+FROM auto_candidates
+ON CONFLICT (run_id, external_id) DO NOTHING;
+

@@ -80,7 +80,7 @@ flowchart LR
 | 模块 | 路径 | 说明 |
 |---|---|---|
 | **工作台** | `/` | 站点时间与汇率换算、待办提醒、行业快讯和商品进度看板；全局 `⌘K` 支持命令面板检索（商品/研报/工厂/功能直达）与全站页面识别 AI 操盘手问答 |
-| **自动选品池** | `/auto-pipeline` | 多平台可配置全自动选品流水线（内置 Amazon US/UK/DE/JP、Shopify US、TikTok Shop US，支持随时新增自定义平台/站点与阈值）。无需 Keepa Key：支持 CSV 上传、本地收件箱 `.data/inbox-csv/` 扫描与 Chrome 扩展一键推送；自动执行 HHI/CR3 与合规快筛、反推 18% 采购上限（¥）并输出 `S / A / B / HOLD / 淘汰` 分级池，支持一键跳 1688 找厂或推进为正式商品案卷 |
+| **自动选品池** | `/auto-pipeline` `/auto-pipeline/history` | 多平台可配置全自动选品流水线（内置 Amazon US/UK/DE/JP、Shopify US、TikTok Shop US，支持随时新增自定义平台/站点与阈值）。无需 Keepa Key：支持 CSV 上传、本地收件箱 `.data/inbox-csv/` 扫描与 Chrome 扩展一键推送；按批次独立留存历史快照（默认展示最新一批，独立历史批次页支持搜索、分页、重命名与整批删除），自动执行 HHI/CR3 与合规快筛、反推 18% 采购上限（¥）并输出 `S / A / B / HOLD / 淘汰` 分级，支持单条/多选删除、一键清理已淘汰、一键跳 1688 找厂或推进为正式商品案卷 |
 | **选品看板 / 新建选品** | `/ai-sourcing` `/discover` | 从候选池、供应链入口和商品机会进入统一选品流程；支持 AI 找方向、从已确认竞品研报或成本核算单建立候选 |
 | **竞品研报** | `/competitors` | 支持浏览器扩展采集、**卖家精灵 / Helium 10** CSV 导入和 AI 整理；从候选进入时会锁定站点、平台与币种，确认并绑定后返回原候选 |
 | **成本核算** | `/costing` | 建立可追溯的售价、采购、头程、履约费与平台费率版本；草稿可迭代，确认后的最新版本才可作为候选 GO 与正式立项依据 |
@@ -134,7 +134,7 @@ npm run db:reset                   # 清空本地 PGlite 数据库与缓存
 ```
 
 ```text
-src/app/         页面路由（含 /auto-pipeline）、Server Actions 与 API
+src/app/         页面路由（含 /auto-pipeline 及 /auto-pipeline/history）、Server Actions 与 API
 src/components/  前端组件
 src/lib/         自动选品编排 (auto-pipeline/)、多平台交付 (listing-delivery.ts)、
                  利润/物流/合规/结算/汇率计算、AI 适配与数据库层
