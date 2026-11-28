@@ -12,6 +12,7 @@ import {
   type RawExtensionSeed,
 } from "@/lib/auto-pipeline/providers";
 import { runAutoSourcingPipeline } from "@/lib/auto-pipeline/orchestrator";
+import { listEliminatedHypotheses } from "@/lib/ai-sourcing-repository";
 import type { AutoGrade, AutoSourceType } from "@/lib/auto-pipeline/types";
 
 export const runtime = "nodejs";
@@ -40,13 +41,14 @@ export async function GET(request: Request) {
     const grade = (searchParams.get("grade") || "ALL") as AutoGrade | "ALL";
     const runId = searchParams.get("runId") || undefined;
 
-    const [configs, runs, candidates] = await Promise.all([
+    const [configs, runs, candidates, eliminatedHistory] = await Promise.all([
       listPlatformConfigs(),
       listAutoPipelineRuns({ limit: 50 }),
       listAutoCandidates({ platformCode, marketCode, grade, runId, limit: runId && runId !== "ALL" ? 500 : 300 }),
+      listEliminatedHypotheses(),
     ]);
 
-    return NextResponse.json({ configs, runs, candidates }, { headers });
+    return NextResponse.json({ configs, runs, candidates, eliminatedHistory }, { headers });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "读取自动选品失败" },

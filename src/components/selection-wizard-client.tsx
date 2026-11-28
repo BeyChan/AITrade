@@ -216,6 +216,24 @@ export function SelectionWizardClient({
             <span className="wizard-entry-description">只选用已确认且为最新版本的核算单，直接复用其成本模型</span>
           </span>
         </button>
+
+        <Link
+          href={`/auto-pipeline?action=upload&market=${encodeURIComponent(marketCode)}&platform=${encodeURIComponent(platformCode)}`}
+          className="wizard-entry-card"
+          style={{ textDecoration: "none" }}
+        >
+          <span className="wizard-entry-num" aria-hidden="true">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="17 8 12 3 7 8" />
+              <line x1="12" y1="3" x2="12" y2="15" />
+            </svg>
+          </span>
+          <span className="wizard-entry-body">
+            <strong>批量表 / 扩展快筛</strong>
+            <span className="wizard-entry-description">进入选品初筛上传卖家精灵/H10 CSV，自动分级后采纳进看板</span>
+          </span>
+        </Link>
       </section>
 
       {eliminationAlerts.length > 0 ? (

@@ -1517,3 +1517,9 @@ SELECT
 FROM auto_candidates
 ON CONFLICT (run_id, external_id) DO NOTHING;
 
+-- 选品线索池 → 推进看板（opportunity_hypotheses）流转关联字段（幂等）
+ALTER TABLE auto_candidates ADD COLUMN IF NOT EXISTS adopted_run_id TEXT;
+ALTER TABLE auto_candidates ADD COLUMN IF NOT EXISTS adopted_hypothesis_id TEXT;
+ALTER TABLE auto_run_candidates ADD COLUMN IF NOT EXISTS adopted_run_id TEXT;
+ALTER TABLE auto_run_candidates ADD COLUMN IF NOT EXISTS adopted_hypothesis_id TEXT;
+

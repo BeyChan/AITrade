@@ -33,8 +33,37 @@ export default function ImportPage() {
     });
   }, []);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleAutoPoolSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setPending(true);
+    setError("");
+    setResult(null);
+    try {
+      const csv = file ? await file.text() : csvText;
+      if (!csv.trim()) throw new Error("请选择 CSV 文件或粘贴 CSV 内容");
+      const res = await fetch("/api/auto-pipeline", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platformCode: site.platform,
+          marketCode: site.market,
+          sourceType: "csv",
+          sourceLabel: file?.name || `导入-${site.market}.csv`,
+          csv,
+        }),
+      });
+      const payload = (await res.json()) as { run?: { id?: string }; error?: string };
+      if (!res.ok) throw new Error(payload.error || "导入自动快筛失败");
+      const runParam = payload.run?.id ? `&runId=${encodeURIComponent(payload.run.id)}` : "";
+      router.push(`/auto-pipeline?platform=${encodeURIComponent(site.platform)}&market=${encodeURIComponent(site.market)}${runParam}`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "导入失败");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function handleLegacySubmit() {
     setPending(true);
     setError("");
     setResult(null);
@@ -73,7 +102,7 @@ export default function ImportPage() {
 
       <div className="import-layout">
         <section className="section">
-          <form onSubmit={handleSubmit} className="stack">
+          <form onSubmit={handleAutoPoolSubmit} className="stack">
             <div className="dropzone">
               <h3>选择 CSV 文件</h3>
               <p className="muted">
@@ -95,7 +124,15 @@ export default function ImportPage() {
 
             <div className="button-row">
               <button className="button primary" type="submit" disabled={pending || (!file && !csvText.trim())}>
-                {pending ? "正在导入…" : "导入并生成成本模型"}
+                {pending ? "正在导入快筛…" : "导入并自动快筛（进入选品初筛）"}
+              </button>
+              <button
+                className="button secondary"
+                type="button"
+                disabled={pending || (!file && !csvText.trim())}
+                onClick={() => void handleLegacySubmit()}
+              >
+                直接导入为案卷（旧版）
               </button>
               <a className="button ghost" href="/candidates-template-v2.csv" download>下载模板 v2</a>
             </div>

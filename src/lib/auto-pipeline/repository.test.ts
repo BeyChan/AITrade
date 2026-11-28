@@ -10,14 +10,20 @@ process.env.PGLITE_DATA_DIR = dataDir;
 const { getDb } = await import("../db.ts");
 const { runAutoSourcingPipeline } = await import("./orchestrator.ts");
 const {
+  adoptAutoCandidatesToKanban,
   deleteAutoCandidates,
   deleteAutoPipelineRun,
+  eliminateAutoCandidatesToBlacklist,
   listAutoCandidates,
   listAutoPipelineRuns,
   promoteAutoCandidateToCase,
   renameAutoPipelineRun,
+  unadoptAutoCandidate,
   unpromoteAutoCandidate,
+  upsertPlatformConfig,
 } = await import("./repository.ts");
+const { listEliminatedHypotheses } = await import("../ai-sourcing-repository.ts");
+const { loadFunnelThresholds } = await import("../app-settings.ts");
 
 after(async () => {
   const db = await getDb();
@@ -178,4 +184,96 @@ test("auto-pipeline retains per-batch snapshots, supports rename/delete, and pre
     [promoted.caseId],
   );
   assert.equal(caseCheckAfterUnpromote.rows.length, 0);
+});
+
+test("auto-pipeline supports adopting candidates to Kanban, eliminating to unified blacklist, and syncing rules", async () => {
+  const run = await runAutoSourcingPipeline({
+    platformCode: "amazon",
+    marketCode: "US",
+    sourceType: "csv",
+    sourceLabel: "triage-bridge-test.csv",
+    seeds: [
+      {
+        platformCode: "amazon",
+        marketCode: "US",
+        externalId: "B0ADOPT001",
+        title: "Collapsible Silicone Camping Kettle",
+        brand: "TrailCraft",
+        category: "Sports & Outdoors",
+        currency: "USD",
+        priceCents: 3899,
+        monthlySalesEstimate: 650,
+        reviewCount: 72,
+        rating: 4.5,
+      },
+      {
+        platformCode: "amazon",
+        marketCode: "US",
+        externalId: "B0BLACK001",
+        title: "Patented Heated Pet Bowl",
+        brand: "MegaPet",
+        category: "Pet Supplies",
+        currency: "USD",
+        priceCents: 4599,
+        monthlySalesEstimate: 500,
+        reviewCount: 95,
+        rating: 4.3,
+      },
+    ],
+  });
+
+  const list = await listAutoCandidates({ runId: run.run.id });
+  const toAdopt = list.find((c) => c.externalId === "B0ADOPT001");
+  const toEliminate = list.find((c) => c.externalId === "B0BLACK001");
+  assert.ok(toAdopt && toEliminate);
+
+  // 1. 采纳进推进看板（幂等）
+  const firstAdopt = await adoptAutoCandidatesToKanban({ candidateIds: [toAdopt.id] });
+  assert.equal(firstAdopt.adoptedCount, 1);
+  assert.equal(firstAdopt.reusedCount, 0);
+  assert.ok(firstAdopt.items[0]?.runId);
+  assert.ok(firstAdopt.items[0]?.hypothesisId);
+
+  const secondAdopt = await adoptAutoCandidatesToKanban({ candidateIds: [toAdopt.id] });
+  assert.equal(secondAdopt.adoptedCount, 0);
+  assert.equal(secondAdopt.reusedCount, 1);
+  assert.equal(secondAdopt.items[0]?.hypothesisId, firstAdopt.items[0]?.hypothesisId);
+
+  const refreshed = await listAutoCandidates({ runId: run.run.id });
+  assert.equal(
+    refreshed.find((c) => c.externalId === "B0ADOPT001")?.adoptedHypothesisId,
+    firstAdopt.items[0]?.hypothesisId,
+  );
+
+  // 1b. 取消采纳空白看板候选 → 解除关联并自动清理空白候选
+  const unadopted = await unadoptAutoCandidate(toAdopt.id);
+  assert.equal(unadopted.hypothesisId, firstAdopt.items[0]?.hypothesisId);
+  assert.equal(unadopted.hypothesisDeleted, true);
+  const afterUnadopt = await listAutoCandidates({ runId: run.run.id });
+  assert.equal(afterUnadopt.find((c) => c.externalId === "B0ADOPT001")?.adoptedHypothesisId, null);
+
+  // 2. 淘汰入统一避坑库，且能被 listEliminatedHypotheses 查到
+  const elimRes = await eliminateAutoCandidatesToBlacklist({
+    candidateIds: [toEliminate.id],
+    reason: "专利/品牌垄断",
+    note: "检索到美国外观专利",
+  });
+  assert.equal(elimRes.eliminatedCount, 1);
+
+  const blacklist = await listEliminatedHypotheses();
+  const hit = blacklist.find((item) => item.concept.includes("B0BLACK001"));
+  assert.ok(hit, "淘汰记录应同步沉淀至统一避坑库");
+  assert.equal(hit?.eliminationReason, "专利/品牌垄断");
+
+  // 3. 修改平台规则同步至统一红灯阈值
+  await upsertPlatformConfig({
+    platformCode: "amazon",
+    marketCode: "US",
+    economicsDefaults: { targetMarginRate: 0.22 },
+    thresholds: { maxHhi: 2400, maxBrandCr3Percent: 55 },
+  });
+  const syncedThresholds = await loadFunnelThresholds();
+  assert.equal(syncedThresholds.maxHhi, 2400);
+  assert.equal(syncedThresholds.maxBrandCr3Percent, 55);
+  assert.equal(syncedThresholds.minMarginRate, 0.22);
 });

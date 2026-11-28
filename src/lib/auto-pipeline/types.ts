@@ -120,6 +120,8 @@ export type AutoCandidateResult = {
     marketStatus: string;
   };
   promotedCaseId: string | null;
+  adoptedRunId?: string | null;
+  adoptedHypothesisId?: string | null;
   observedAt: string;
   updatedAt?: string;
 };

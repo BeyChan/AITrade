@@ -3,20 +3,24 @@ import {
   listAutoPipelineRuns,
   listPlatformConfigs,
 } from "@/lib/auto-pipeline/repository";
+import { listEliminatedHypotheses } from "@/lib/ai-sourcing-repository";
+import { resolvePersistedSiteScope } from "@/lib/site-scope";
 import { AutoPipelineClient } from "./auto-pipeline-client";
 
 export const dynamic = "force-dynamic";
 
 export default async function AutoPipelinePage(props: {
-  searchParams: Promise<{ platform?: string; market?: string; runId?: string }>;
+  searchParams: Promise<{ platform?: string; market?: string; runId?: string; action?: string }>;
 }) {
   const searchParams = await props.searchParams;
-  const initialPlatform = (searchParams.platform || "amazon").toLowerCase();
-  const initialMarket = (searchParams.market || "US").toUpperCase();
+  const scope = await resolvePersistedSiteScope(searchParams.market, searchParams.platform);
+  const initialPlatform = scope.platformCode;
+  const initialMarket = scope.marketCode;
 
-  const [configs, runs] = await Promise.all([
+  const [configs, runs, eliminatedHistory] = await Promise.all([
     listPlatformConfigs(),
     listAutoPipelineRuns({ limit: 50 }),
+    listEliminatedHypotheses(),
   ]);
 
   const platformRuns = runs.filter(
@@ -39,12 +43,15 @@ export default async function AutoPipelinePage(props: {
 
   return (
     <AutoPipelineClient
+      key={`${initialPlatform}:${initialMarket}:${initialRunId}`}
       initialConfigs={configs}
       initialRuns={runs}
       initialCandidates={candidates}
+      initialEliminatedHistory={eliminatedHistory}
       initialPlatform={initialPlatform}
       initialMarket={initialMarket}
       initialRunId={initialRunId}
+      initialAction={searchParams.action}
     />
   );
 }

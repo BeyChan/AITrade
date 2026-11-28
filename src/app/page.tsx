@@ -266,9 +266,9 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                 新建选品立项
               </Link>
               <Link
-                href={`/import?${siteQuery}`}
+                href={`/auto-pipeline?action=upload&${siteQuery}`}
                 className="button secondary"
-                title="支持卖家精灵 / Helium 10 / 自定义 CSV"
+                title="进入选品初筛上传卖家精灵 / Helium 10 / 自定义 CSV 自动快筛"
               >
                 导入竞品表
               </Link>

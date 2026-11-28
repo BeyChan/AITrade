@@ -10,6 +10,7 @@ type SubItem = {
   href: string;
   label: string;
   badge?: string;
+  dividerLabel?: string;
 };
 
 type NavItem = {
@@ -30,10 +31,9 @@ const MAIN_NAV_ITEMS: NavItem[] = [
     label: "选品",
     icon: "competitor",
     subItems: [
-      { href: "/auto-pipeline", label: "自动选品" },
+      { href: "/auto-pipeline", label: "选品初筛" },
       { href: "/ai-sourcing", label: "选品看板" },
-      { href: "/discover", label: "新建选品" },
-      { href: "/competitors", label: "竞品研报" },
+      { href: "/competitors", label: "竞品研报", dividerLabel: "分析工具" },
       { href: "/costing", label: "成本核算" },
     ],
   },
@@ -293,32 +293,39 @@ function SidebarItem({
             }
 
             return (
-              <li key={sub.href + sub.label}>
-                <Link
-                  href={sub.href}
-                  className={`sidebar-sublink${isSubActive ? " active" : ""}`}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <span>{sub.label}</span>
-                  {sub.badge && (
-                    <span
-                      style={{
-                        fontSize: "12px",
-                        padding: "1px 5px",
-                        borderRadius: "3px",
-                        background: "rgba(255,255,255,0.1)",
-                        color: "var(--lime)",
-                      }}
-                    >
-                      {sub.badge}
-                    </span>
-                  )}
-                </Link>
-              </li>
+              <div key={sub.href + sub.label} style={{ display: "contents" }}>
+                {sub.dividerLabel && (
+                  <li className="sidebar-subnav-divider" aria-hidden="true">
+                    <span>{sub.dividerLabel}</span>
+                  </li>
+                )}
+                <li>
+                  <Link
+                    href={sub.href}
+                    className={`sidebar-sublink${isSubActive ? " active" : ""}`}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                    }}
+                  >
+                    <span>{sub.label}</span>
+                    {sub.badge && (
+                      <span
+                        style={{
+                          fontSize: "12px",
+                          padding: "1px 5px",
+                          borderRadius: "3px",
+                          background: "rgba(255,255,255,0.1)",
+                          color: "var(--lime)",
+                        }}
+                      >
+                        {sub.badge}
+                      </span>
+                    )}
+                  </Link>
+                </li>
+              </div>
             );
           })}
 

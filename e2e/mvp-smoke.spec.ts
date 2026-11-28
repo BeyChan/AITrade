@@ -5,6 +5,8 @@ test.describe("AITrade MVP 核心闭环冒烟测试", () => {
     test.setTimeout(120_000);
     const routes = [
       { path: "/", heading: /工作台|待办/ },
+      { path: "/auto-pipeline", heading: /选品初筛/ },
+      { path: "/ai-sourcing", heading: /选品看板/ },
       { path: "/discover", heading: /选品/ },
       { path: "/cases", heading: /商品/ },
       { path: "/studio", heading: /视觉工坊/ },
@@ -121,5 +123,47 @@ test.describe("AITrade MVP 核心闭环冒烟测试", () => {
     const restoreJson = (await restoreRes.json()) as { ok?: boolean; preRestoreSnapshot?: string | null };
     expect(restoreJson.ok).toBe(true);
     expect(restoreJson.preRestoreSnapshot).toBeTruthy();
+  });
+
+  test("7. 选品初筛 → 采纳入选品看板 → 淘汰入统一避坑库闭环", async ({ page, request }) => {
+    // 1. 侧边栏精简校验：无独立「新建选品」二级菜单，含「选品初筛」与「选品看板」
+    await page.goto("/auto-pipeline", { waitUntil: "domcontentloaded" });
+    const sidebar = page.locator("aside.sidebar");
+    await expect(sidebar.getByRole("link", { name: "选品初筛" })).toBeVisible();
+    await expect(sidebar.getByRole("link", { name: "选品看板" })).toBeVisible();
+    await expect(sidebar.getByRole("link", { name: "新建选品" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "上传 CSV 快筛" })).toBeVisible();
+
+    // 2. 通过 CSV 跑批入池 → 采纳进推进看板 → 淘汰入统一避坑库
+    const csv = [
+      "ASIN,Title,Brand,Category,Price,MonthlySales,Reviews,Rating",
+      "B0E2EPOOL1,E2E Folding Camp Kettle,CampPro,Outdoors,39.99,700,65,4.5",
+      "B0E2EPOOL2,E2E Patented Pet Bowl,BigBrand,Pet Supplies,44.99,500,80,4.2",
+    ].join("\n");
+    const runRes = await request.post("/api/auto-pipeline", {
+      data: { platformCode: "amazon", marketCode: "US", sourceType: "csv", sourceLabel: "e2e-pool.csv", csv },
+    });
+    expect(runRes.status()).toBe(200);
+    const runJson = (await runRes.json()) as { candidates?: Array<{ id: string; externalId: string }> };
+    const c1 = runJson.candidates?.find((c) => c.externalId === "B0E2EPOOL1");
+    const c2 = runJson.candidates?.find((c) => c.externalId === "B0E2EPOOL2");
+    expect(c1?.id).toBeTruthy();
+    expect(c2?.id).toBeTruthy();
+
+    const adoptRes = await request.post("/api/auto-pipeline/candidates/adopt", {
+      data: { candidateIds: [c1!.id] },
+    });
+    expect(adoptRes.status()).toBe(200);
+    const adoptJson = (await adoptRes.json()) as { ok?: boolean; adoptedCount?: number; reusedCount?: number };
+    expect(adoptJson.ok).toBe(true);
+    expect((adoptJson.adoptedCount ?? 0) + (adoptJson.reusedCount ?? 0)).toBe(1);
+
+    const elimRes = await request.post("/api/auto-pipeline/candidates/eliminate", {
+      data: { candidateIds: [c2!.id], reason: "专利/品牌垄断", note: "E2E 验证避坑闭环" },
+    });
+    expect(elimRes.status()).toBe(200);
+    const elimJson = (await elimRes.json()) as { ok?: boolean; eliminatedCount?: number };
+    expect(elimJson.ok).toBe(true);
+    expect(elimJson.eliminatedCount).toBe(1);
   });
 });

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AddSelectionMenu } from "@/components/add-selection-menu";
 import { DeleteResearchBatch } from "@/components/delete-research-batch";
 import { EmptyState, MetricGrid, PageHeader, QueryNotices } from "@/components/ui";
 import {
@@ -71,12 +72,10 @@ export default async function AISourcingBatchListPage({ searchParams }: PageProp
           { label: "工作台", href: "/" },
           { label: "选品看板" },
         ]}
-        eyebrow="单一漏斗 · 先淘汰后取证"
+        eyebrow="选品漏斗 · 第 2 阶段（4 步深度验证）"
         title="选品看板"
-        description="所有选品方向汇总在此按真实进度推进；可按选品批次筛选，每张卡片只给一个「下一步」和「淘汰」入口。"
-        actions={
-          <Link href="/discover" className="button primary">+ 新建选品</Link>
-        }
+        description="承接选品初筛采纳与 AI/手动新建的高价值方向，按真实取证进度推进（竞品研报 → 成本核算 → 找厂打样 → 风险立项）。"
+        actions={<AddSelectionMenu />}
       />
 
       <MetricGrid
@@ -186,12 +185,12 @@ export default async function AISourcingBatchListPage({ searchParams }: PageProp
       {candidates.length === 0 ? (
         <section className="panel">
           <EmptyState
-            title="还没有选品候选"
-            description="点击右上角「+ 新建选品」，输入类目、粘贴 ASIN 或测算 1688 毛利即可进入看板。"
+            title="还没有进入选品看板的候选"
+            description="点击右上角「+ 添加选品」发起 AI 找方向，或先去「选品初筛」批量快筛后一键采纳进看板。"
             actions={
               <>
-                <Link href="/discover" className="button primary">+ 新建选品</Link>
-                <Link href="/import" className="button secondary">批量导入 CSV</Link>
+                <Link href="/auto-pipeline?action=upload" className="button primary">去选品初筛批量快筛</Link>
+                <Link href="/discover?entry=ai" className="button secondary">AI 类目找方向</Link>
               </>
             }
           />

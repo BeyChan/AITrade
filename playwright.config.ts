@@ -21,7 +21,10 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
+      use: {
+        ...devices["Desktop Chrome"],
+        ...(process.env.E2E_CHANNEL ? { channel: process.env.E2E_CHANNEL as "chrome" | "msedge" } : {}),
+      },
     },
   ],
   webServer: process.env.E2E_SKIP_WEBSERVER

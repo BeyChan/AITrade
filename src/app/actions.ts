@@ -591,7 +591,7 @@ export async function createQuickCandidateAction(formData: FormData) {
 export async function saveFunnelThresholdsAction(formData: FormData) {
   const returnPath = safeReturnPath(formData.get("returnPath") || "/ai-sourcing");
   try {
-    await saveFunnelThresholds({
+    const saved = await saveFunnelThresholds({
       minCompetitorsForPass: numberOrNull(formData.get("minCompetitorsForPass")) ?? undefined,
       maxHhi: numberOrNull(formData.get("maxHhi")) ?? undefined,
       maxBrandCr3Percent: numberOrNull(formData.get("maxBrandCr3Percent")) ?? undefined,
@@ -602,11 +602,30 @@ export async function saveFunnelThresholdsAction(formData: FormData) {
       })(),
       maxComplianceCostUsd: numberOrNull(formData.get("maxComplianceCostUsd")) ?? undefined,
     });
+    const [{ resolvePersistedSiteScope }, { upsertPlatformConfig }] = await Promise.all([
+      import("@/lib/site-scope"),
+      import("@/lib/auto-pipeline/repository"),
+    ]);
+    const scope = await resolvePersistedSiteScope();
+    await upsertPlatformConfig({
+      platformCode: scope.platformCode,
+      marketCode: scope.marketCode,
+      economicsDefaults: { targetMarginRate: saved.minMarginRate },
+      thresholds: {
+        minCompetitorsForPass: saved.minCompetitorsForPass,
+        maxHhi: saved.maxHhi,
+        maxBrandCr3Percent: saved.maxBrandCr3Percent,
+        maxMedianReviews: saved.maxMedianReviews,
+        minMarginRate: saved.minMarginRate,
+        maxComplianceCostUsd: saved.maxComplianceCostUsd,
+      },
+    }).catch(() => {});
   } catch (error) {
     redirect(withQuery(returnPath, "error", errorMessage(error)));
   }
   revalidatePath("/ai-sourcing");
-  redirect(withQuery(returnPath, "notice", "已更新选品漏斗红灯阈值配置"));
+  revalidatePath("/auto-pipeline");
+  redirect(withQuery(returnPath, "notice", "已更新统一选品红灯阈值，并同步至选品初筛"));
 }
 
 export async function recordSupplierCandidatesAction(formData: FormData) {
