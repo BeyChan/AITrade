@@ -11,7 +11,7 @@ import { SupplierMatrixPk } from "@/components/supplier-matrix-pk";
 import { QuoteSmartPaste } from "@/components/quote-smart-paste";
 import { SourcingPracticalTools } from "@/components/sourcing-practical-tools";
 import { PageHeader, QueryNotices } from "@/components/ui";
-import { getAppMode } from "@/lib/app-mode";
+import { getAppMode, isDemoMode } from "@/lib/app-mode";
 import { getDb } from "@/lib/db";
 import type { SampleLogRecord, SampleLogStatus } from "@/app/api/cases/[id]/samples/route";
 
@@ -23,20 +23,23 @@ type PageProps = {
 };
 
 export default async function SourcingDetailPage({ params, searchParams }: PageProps) {
-  const [{ id }, query, directoryData, appMode] = await Promise.all([
-    params,
-    searchParams,
-    listSupplierDirectory().catch(() => ({ suppliers: [] })),
-    getAppMode(),
+  const [{ id }, query, appMode] = await Promise.all([params, searchParams, getAppMode()]);
+  const [directoryData, detail] = await Promise.all([
+    listSupplierDirectory({ mode: appMode }).catch(() => ({ suppliers: [] })),
+    getSourcingDetail(id, { mode: appMode }),
   ]);
-  const detail = await getSourcingDetail(id);
   if (!detail) notFound();
+  const demo = isDemoMode(appMode);
 
   const initialSamples: SampleLogRecord[] = await getDb()
     .then((db) =>
       db.query<Record<string, unknown>>(
-        `SELECT * FROM sourcing_sample_logs WHERE case_id = $1 ORDER BY created_at DESC`,
-        [id],
+        `SELECT ssl.*
+         FROM sourcing_sample_logs ssl
+         JOIN product_cases pc ON pc.id = ssl.case_id
+         WHERE ssl.case_id = $1 AND pc.is_demo = $2
+         ORDER BY ssl.created_at DESC`,
+        [id, demo],
       ),
     )
     .then((res) =>
@@ -242,6 +245,7 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
 
       <SupplierMatrixPk
         caseId={productCase.id}
+        mode={appMode}
         currency={productCase.marketplace === "AU" ? "AUD" : "USD"}
         quotes={quotes}
         scoredQuotes={scoredQuotes}
@@ -252,7 +256,7 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
         onCreate1688Action={createSupplierQuoteAction}
       />
 
-      <SourcingPracticalTools caseId={productCase.id} initialSamples={initialSamples} />
+      <SourcingPracticalTools caseId={productCase.id} initialSamples={initialSamples} mode={appMode} />
 
       <div className="sourcing-bottom-grid">
         <div className="stack">

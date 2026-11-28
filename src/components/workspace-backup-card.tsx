@@ -81,6 +81,7 @@ export function WorkspaceBackupCard({ pinEnabled }: { pinEnabled: boolean }) {
         ok?: boolean;
         restoredCounts?: Record<string, number>;
         preRestoreSnapshot?: string | null;
+        securityNotice?: string;
         error?: string;
       };
       if (!res.ok || !result.ok) {
@@ -92,7 +93,7 @@ export function WorkspaceBackupCard({ pinEnabled }: { pinEnabled: boolean }) {
         ? `（恢复前已自动快照至 ${result.preRestoreSnapshot}）`
         : "";
       setMessage(
-        `已事务安全地幂等合并恢复 ${totalRows} 条业务记录（已有记录自动跳过，未覆盖 API Key）${snapshotHint}。`,
+        `已事务安全地按当前模式合并恢复 ${totalRows} 条记录（已有同模式配置会更新，敏感密钥不恢复）${snapshotHint}。${result.securityNotice ? ` ${result.securityNotice}` : ""}`,
       );
       setPreview(null);
       router.refresh();

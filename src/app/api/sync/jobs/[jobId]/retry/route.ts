@@ -1,13 +1,13 @@
+import { getAppMode } from "@/lib/app-mode";
 import { retryConnectorSyncJob } from "@/lib/connector-sync";
 import { sanitizeConnectorError } from "@/lib/connectors/security";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function POST(_request: Request, context: { params: Promise<{ jobId: string }> }) {
   try {
+    const mode = await getAppMode();
     const { jobId } = await context.params;
-    const result = await retryConnectorSyncJob(jobId);
+    const result = await retryConnectorSyncJob(jobId, { mode });
     const status = result.job.status === "failed"
       ? result.errorCode === "not_configured" ? 409 : 502
       : 200;

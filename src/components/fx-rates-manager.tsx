@@ -11,7 +11,7 @@ function syncRuntimeFromSnapshot(snapshot: FxRatesSnapshot) {
   for (const item of snapshot.items) {
     map[item.currency] = item.rateToRmb;
   }
-  setRuntimeFxRates(map);
+  setRuntimeFxRates(map, snapshot.mode);
 }
 
 function formatSyncTime(iso: string | null): string {

@@ -1,16 +1,16 @@
 import { randomUUID } from "node:crypto";
+import { getAppMode } from "@/lib/app-mode";
 import { parseAdSpendReport, runOperationsPipeline } from "@/lib/operations-pipeline";
 import { listChannelSkuMappings } from "@/lib/operations-repository";
 import type { ForecastComparisonInput } from "@/lib/operations-settlement";
 import { listCasesForSite } from "@/lib/repository";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const MAX_TEXT_CHARS = 2 * 1024 * 1024;
 
 export async function POST(request: Request) {
   try {
+    const mode = await getAppMode();
     const body = (await request.json()) as Record<string, unknown>;
     const settlementText = typeof body.settlementText === "string" ? body.settlementText : "";
     const inventoryText =
@@ -64,8 +64,8 @@ export async function POST(request: Request) {
     const forecastsBySku: Record<string, ForecastComparisonInput> = {};
     try {
       const [cases, mappings] = await Promise.all([
-        listCasesForSite(marketplaceCode, "amazon"),
-        listChannelSkuMappings(marketplaceCode).catch(() => []),
+        listCasesForSite(marketplaceCode, "amazon", { mode }),
+        listChannelSkuMappings(marketplaceCode, { mode }).catch(() => []),
       ]);
       const caseById = new Map(cases.map((c) => [c.id, c]));
 

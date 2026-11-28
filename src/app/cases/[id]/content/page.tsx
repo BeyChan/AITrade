@@ -47,8 +47,8 @@ type PageProps = {
 export default async function ContentStudioPage({ params, searchParams }: PageProps) {
   const [{ id }, query, appMode] = await Promise.all([params, searchParams, getAppMode()]);
   const [detail, benchmarkLookup] = await Promise.all([
-    getContentDetail(id),
-    loadCaseCompetitorBenchmark(id, query.hypothesisId),
+    getContentDetail(id, { mode: appMode }),
+    loadCaseCompetitorBenchmark(id, query.hypothesisId, { mode: appMode }),
   ]);
   if (!detail) notFound();
 
@@ -84,7 +84,7 @@ export default async function ContentStudioPage({ params, searchParams }: PagePr
     ? { ...preflightListing(content), benchmarkAdvisories }
     : null;
   const bulletProposalResult = benchmark
-    ? await resolveBenchmarkBulletProposals(benchmark, profileForBenchmark, query.proposeBullets === "1")
+    ? await resolveBenchmarkBulletProposals(benchmark, profileForBenchmark, query.proposeBullets === "1", appMode)
     : null;
   const effectiveBullets = query.applyProposal === "1" && bulletProposalResult && bulletProposalResult.bullets.length > 0
     ? content.bullets.map((existing, idx) => bulletProposalResult.bullets[idx]?.bullet ?? existing)

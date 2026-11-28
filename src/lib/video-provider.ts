@@ -9,6 +9,7 @@ import {
   type VideoProviderConfig,
   type VideoProviderId,
 } from "./app-settings.ts";
+import type { ModeOptions } from "./app-mode.ts";
 
 export type { VideoProviderId } from "./app-settings.ts";
 
@@ -271,15 +272,16 @@ export function composeVideoPrompt(ctx: VideoPromptContext, provider: VideoProvi
   };
 }
 
-export async function getVideoProviderStatus(): Promise<VideoProviderStatus> {
-  return videoStatusFromConfig(await loadVideoProviderConfig());
+export async function getVideoProviderStatus(options?: ModeOptions): Promise<VideoProviderStatus> {
+  return videoStatusFromConfig(await loadVideoProviderConfig(options));
 }
 
 export async function testVideoProviderConnection(
   input: VideoProviderTestInput,
   fetchImpl: typeof fetch = fetch,
+  options?: ModeOptions,
 ): Promise<VideoProviderTestResult> {
-  const current = await loadVideoProviderConfig();
+  const current = await loadVideoProviderConfig(options);
   const provider = normalizeVideoProvider(input.provider);
   const baseUrl = (
     input.baseUrl.trim() ||
@@ -364,8 +366,9 @@ export async function testVideoProviderConnection(
 export async function submitVideoGenerationJob(
   input: SubmitVideoJobInput,
   fetchImpl: typeof fetch = fetch,
+  options?: ModeOptions,
 ): Promise<SubmitVideoJobResult> {
-  const config = await loadVideoProviderConfig();
+  const config = await loadVideoProviderConfig(options);
   const cost = estimateVideoCostUsd(config.provider, input.durationSec);
 
   if (config.provider === "template") {
@@ -659,8 +662,9 @@ export async function submitVideoGenerationJob(
 export async function pollVideoGenerationJob(
   input: PollVideoJobInput,
   fetchImpl: typeof fetch = fetch,
+  options?: ModeOptions,
 ): Promise<PollVideoJobResult> {
-  const config = await loadVideoProviderConfig();
+  const config = await loadVideoProviderConfig(options);
   if (!config.apiKey) {
     return { status: "failed", errorMessage: "视频 API Key 未配置，无法查询任务状态" };
   }

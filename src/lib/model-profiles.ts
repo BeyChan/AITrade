@@ -9,6 +9,7 @@ import {
   loadVideoProviderConfig,
   validateBaseUrl,
 } from "./app-settings.ts";
+import { isDemoMode, resolveAppMode, type AppMode, type ModeOptions } from "./app-mode.ts";
 import { testAIProviderConnection } from "./ai-provider.ts";
 import { checkpointDb, getDb } from "./db.ts";
 import { testImageProviderConnection } from "./image-provider.ts";
@@ -296,6 +297,7 @@ export type ModelProfilePublic = {
 
 type ModelProfileRow = {
   id: string;
+  is_demo: boolean;
   service_type: ModelServiceType;
   vendor: string;
   protocol: string;
@@ -326,15 +328,19 @@ async function ensureProfilesTable() {
 }
 
 /** 首次读取时把历史 app_settings 中的已配置模型无损迁入列表，确保老配置不丢 */
-async function seedLegacySettingsIfEmpty() {
+async function seedLegacySettingsIfEmpty(mode: AppMode) {
+  const demo = isDemoMode(mode);
   const db = await getDb();
-  const countRes = await db.query<{ cnt: string }>(`SELECT COUNT(*)::text AS cnt FROM model_provider_profiles`);
+  const countRes = await db.query<{ cnt: string }>(
+    `SELECT COUNT(*)::text AS cnt FROM model_provider_profiles WHERE is_demo = $1`,
+    [demo],
+  );
   if (Number(countRes.rows[0]?.cnt || 0) > 0) return;
 
   const [ai, img, vid] = await Promise.all([
-    loadAIProviderConfig(),
-    loadImageProviderConfig(),
-    loadVideoProviderConfig(),
+    loadAIProviderConfig({ mode }),
+    loadImageProviderConfig({ mode }),
+    loadVideoProviderConfig({ mode }),
   ]);
 
   const toSeed: Array<{
@@ -386,8 +392,8 @@ async function seedLegacySettingsIfEmpty() {
     await db.query(
       `INSERT INTO model_provider_profiles (
         id, service_type, vendor, protocol, name, base_url, api_key_encrypted,
-        models_json, default_model, is_default
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,TRUE)`,
+        models_json, default_model, is_default, is_demo
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,TRUE,$10)`,
       [
         randomUUID(),
         item.serviceType,
@@ -398,12 +404,21 @@ async function seedLegacySettingsIfEmpty() {
         encrypted,
         JSON.stringify(item.defaultModel ? [item.defaultModel] : []),
         item.defaultModel,
+        demo,
       ],
     );
   }
 }
 
-const VAULT_FILE = path.resolve(/* turbopackIgnore: true */ process.cwd(), ".data", "model-profiles.vault.json");
+const LEGACY_VAULT_FILE = path.resolve(/* turbopackIgnore: true */ process.cwd(), ".data", "model-profiles.vault.json");
+
+function vaultFileForMode(mode: AppMode) {
+  return path.resolve(
+    /* turbopackIgnore: true */ process.cwd(),
+    ".data",
+    `model-profiles.${mode}.vault.json`,
+  );
+}
 
 type VaultProfileRecord = {
   id: string;
@@ -421,11 +436,14 @@ type VaultProfileRecord = {
   is_default: boolean;
 };
 
-async function syncProfilesVault() {
+async function syncProfilesVault(mode: AppMode) {
   try {
+    const demo = isDemoMode(mode);
+    const vaultFile = vaultFileForMode(mode);
     const db = await getDb();
     const res = await db.query<ModelProfileRow>(
-      `SELECT * FROM model_provider_profiles ORDER BY is_default DESC, updated_at DESC`,
+      `SELECT * FROM model_provider_profiles WHERE is_demo = $1 ORDER BY is_default DESC, updated_at DESC`,
+      [demo],
     );
     const records: VaultProfileRecord[] = res.rows.map((r) => ({
       id: r.id,
@@ -442,39 +460,51 @@ async function syncProfilesVault() {
       supports_multi_image: r.supports_multi_image,
       is_default: r.is_default,
     }));
-    await mkdir(path.dirname(VAULT_FILE), { recursive: true });
-    const tmp = `${VAULT_FILE}.${randomUUID()}.tmp`;
+    await mkdir(path.dirname(vaultFile), { recursive: true });
+    const tmp = `${vaultFile}.${randomUUID()}.tmp`;
     await writeFile(tmp, JSON.stringify({ schema: "aitrade.model_vault.v1", updatedAt: new Date().toISOString(), profiles: records }, null, 2), {
       encoding: "utf8",
       mode: 0o600,
     });
-    await rename(tmp, VAULT_FILE);
+    await rename(tmp, vaultFile);
   } catch {
     // 镜像写入失败不阻断主流程
   }
 }
 
-async function restoreFromVaultIfNeeded() {
+async function restoreFromVaultIfNeeded(mode: AppMode) {
+  const demo = isDemoMode(mode);
+  const vaultFile = vaultFileForMode(mode);
   let vaultProfiles: VaultProfileRecord[] = [];
   try {
-    const raw = await readFile(VAULT_FILE, "utf8");
+    const raw = await readFile(vaultFile, "utf8");
     const parsed = JSON.parse(raw) as { profiles?: VaultProfileRecord[] };
     if (Array.isArray(parsed.profiles)) vaultProfiles = parsed.profiles;
   } catch {
-    return;
+    // 旧版本只有一个共享镜像；其中记录属于迁移前的真实空间，仅 live 可回补。
+    if (mode !== "live") return;
+    try {
+      const raw = await readFile(LEGACY_VAULT_FILE, "utf8");
+      const parsed = JSON.parse(raw) as { profiles?: VaultProfileRecord[] };
+      if (Array.isArray(parsed.profiles)) vaultProfiles = parsed.profiles;
+    } catch {
+      return;
+    }
   }
   if (vaultProfiles.length === 0) return;
 
   const db = await getDb();
-  const current = (await db.query<ModelProfileRow>(`SELECT * FROM model_provider_profiles`)).rows;
+  const current = (
+    await db.query<ModelProfileRow>(`SELECT * FROM model_provider_profiles WHERE is_demo = $1`, [demo])
+  ).rows;
 
   if (current.length === 0) {
     for (const v of vaultProfiles) {
       await db.query(
         `INSERT INTO model_provider_profiles (
           id, service_type, vendor, protocol, name, base_url, api_key_encrypted,
-          models_json, default_model, submit_endpoint, query_endpoint, supports_multi_image, is_default
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+          models_json, default_model, submit_endpoint, query_endpoint, supports_multi_image, is_default, is_demo
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
         ON CONFLICT (id) DO NOTHING`,
         [
           v.id,
@@ -490,6 +520,7 @@ async function restoreFromVaultIfNeeded() {
           v.query_endpoint,
           v.supports_multi_image,
           v.is_default,
+          demo,
         ],
       );
     }
@@ -504,23 +535,25 @@ async function restoreFromVaultIfNeeded() {
       vaultProfiles.find((v) => v.service_type === row.service_type && v.name === row.name && v.base_url === row.base_url && v.api_key_encrypted);
     if (match?.api_key_encrypted) {
       await db.query(
-        `UPDATE model_provider_profiles SET api_key_encrypted = $2, updated_at = NOW() WHERE id = $1`,
-        [row.id, match.api_key_encrypted],
+        `UPDATE model_provider_profiles SET api_key_encrypted = $2, updated_at = NOW() WHERE id = $1 AND is_demo = $3`,
+        [row.id, match.api_key_encrypted, demo],
       );
     }
   }
 }
 
-export async function listModelProfiles(): Promise<ModelProfilePublic[]> {
+export async function listModelProfiles(options?: ModeOptions): Promise<ModelProfilePublic[]> {
+  const mode = await resolveAppMode(options?.mode);
   await ensureProfilesTable();
-  await restoreFromVaultIfNeeded();
-  await seedLegacySettingsIfEmpty();
+  await restoreFromVaultIfNeeded(mode);
+  await seedLegacySettingsIfEmpty(mode);
   const db = await getDb();
   const res = await db.query<ModelProfileRow>(
-    `SELECT * FROM model_provider_profiles ORDER BY is_default DESC, updated_at DESC`,
+    `SELECT * FROM model_provider_profiles WHERE is_demo = $1 ORDER BY is_default DESC, updated_at DESC`,
+    [isDemoMode(mode)],
   );
   if (res.rows.some((r) => Boolean(r.api_key_encrypted))) {
-    void syncProfilesVault();
+    void syncProfilesVault(mode);
   }
   const out: ModelProfilePublic[] = [];
   for (const row of res.rows) {
@@ -546,7 +579,12 @@ export type SaveModelProfileInput = {
   actor?: string;
 };
 
-export async function saveModelProfile(input: SaveModelProfileInput): Promise<ModelProfilePublic> {
+export async function saveModelProfile(
+  input: SaveModelProfileInput,
+  options?: ModeOptions,
+): Promise<ModelProfilePublic> {
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   await ensureProfilesTable();
   const serviceType: ModelServiceType =
     input.serviceType === "image" || input.serviceType === "video" ? input.serviceType : "text";
@@ -576,8 +614,14 @@ export async function saveModelProfile(input: SaveModelProfileInput): Promise<Mo
   const db = await getDb();
   const actor = (input.actor || "本机管理员").trim().slice(0, 80);
   const existing = input.id
-    ? (await db.query<ModelProfileRow>(`SELECT * FROM model_provider_profiles WHERE id = $1`, [input.id])).rows[0]
+    ? (
+        await db.query<ModelProfileRow>(
+          `SELECT * FROM model_provider_profiles WHERE id = $1 AND is_demo = $2`,
+          [input.id, demo],
+        )
+      ).rows[0]
     : undefined;
+  if (input.id && !existing) throw new Error("配置不存在");
 
   const rawKey = input.apiKey?.trim() || "";
   const encryptedKey = rawKey
@@ -586,15 +630,18 @@ export async function saveModelProfile(input: SaveModelProfileInput): Promise<Mo
 
   // 如果该类型当前还没有默认配置，自动设为默认
   const existingDefaults = await db.query<{ cnt: string }>(
-    `SELECT COUNT(*)::text AS cnt FROM model_provider_profiles WHERE service_type = $1 AND is_default = TRUE`,
-    [serviceType],
+    `SELECT COUNT(*)::text AS cnt FROM model_provider_profiles WHERE service_type = $1 AND is_default = TRUE AND is_demo = $2`,
+    [serviceType, demo],
   );
   const shouldBeDefault = Boolean(input.isDefault) || Number(existingDefaults.rows[0]?.cnt || 0) === 0;
   const id = existing?.id || randomUUID();
 
   await db.transaction(async (tx) => {
     if (shouldBeDefault) {
-      await tx.query(`UPDATE model_provider_profiles SET is_default = FALSE WHERE service_type = $1`, [serviceType]);
+      await tx.query(
+        `UPDATE model_provider_profiles SET is_default = FALSE WHERE service_type = $1 AND is_demo = $2`,
+        [serviceType, demo],
+      );
     }
     if (existing) {
       await tx.query(
@@ -603,7 +650,7 @@ export async function saveModelProfile(input: SaveModelProfileInput): Promise<Mo
              api_key_encrypted = $7, models_json = $8, default_model = $9,
              submit_endpoint = $10, query_endpoint = $11, supports_multi_image = $12,
              is_default = $13, updated_at = NOW()
-         WHERE id = $1`,
+         WHERE id = $1 AND is_demo = $14`,
         [
           id,
           serviceType,
@@ -618,14 +665,15 @@ export async function saveModelProfile(input: SaveModelProfileInput): Promise<Mo
           (input.queryEndpoint || "").trim(),
           Boolean(input.supportsMultiImage),
           shouldBeDefault,
+          demo,
         ],
       );
     } else {
       await tx.query(
         `INSERT INTO model_provider_profiles (
           id, service_type, vendor, protocol, name, base_url, api_key_encrypted,
-          models_json, default_model, submit_endpoint, query_endpoint, supports_multi_image, is_default
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+          models_json, default_model, submit_endpoint, query_endpoint, supports_multi_image, is_default, is_demo
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
         [
           id,
           serviceType,
@@ -640,12 +688,13 @@ export async function saveModelProfile(input: SaveModelProfileInput): Promise<Mo
           (input.queryEndpoint || "").trim(),
           Boolean(input.supportsMultiImage),
           shouldBeDefault,
+          demo,
         ],
       );
     }
 
     if (shouldBeDefault) {
-      await syncActiveProfileToAppSettings(tx, {
+      await syncActiveProfileToAppSettings(tx, mode, {
         serviceType,
         protocol: input.protocol.trim(),
         baseUrl,
@@ -656,22 +705,38 @@ export async function saveModelProfile(input: SaveModelProfileInput): Promise<Mo
     }
   });
 
-  const saved = (await db.query<ModelProfileRow>(`SELECT * FROM model_provider_profiles WHERE id = $1`, [id])).rows[0]!;
-  await syncProfilesVault();
+  const saved = (
+    await db.query<ModelProfileRow>(`SELECT * FROM model_provider_profiles WHERE id = $1 AND is_demo = $2`, [id, demo])
+  ).rows[0]!;
+  await syncProfilesVault(mode);
   await checkpointDb();
   return toPublicProfile(saved);
 }
 
-export async function setDefaultModelProfile(id: string, actor = "本机管理员"): Promise<ModelProfilePublic> {
+export async function setDefaultModelProfile(
+  id: string,
+  actor = "本机管理员",
+  options?: ModeOptions,
+): Promise<ModelProfilePublic> {
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   await ensureProfilesTable();
   const db = await getDb();
-  const row = (await db.query<ModelProfileRow>(`SELECT * FROM model_provider_profiles WHERE id = $1`, [id])).rows[0];
+  const row = (
+    await db.query<ModelProfileRow>(`SELECT * FROM model_provider_profiles WHERE id = $1 AND is_demo = $2`, [id, demo])
+  ).rows[0];
   if (!row) throw new Error("配置不存在");
 
   await db.transaction(async (tx) => {
-    await tx.query(`UPDATE model_provider_profiles SET is_default = FALSE WHERE service_type = $1`, [row.service_type]);
-    await tx.query(`UPDATE model_provider_profiles SET is_default = TRUE, updated_at = NOW() WHERE id = $1`, [id]);
-    await syncActiveProfileToAppSettings(tx, {
+    await tx.query(
+      `UPDATE model_provider_profiles SET is_default = FALSE WHERE service_type = $1 AND is_demo = $2`,
+      [row.service_type, demo],
+    );
+    await tx.query(
+      `UPDATE model_provider_profiles SET is_default = TRUE, updated_at = NOW() WHERE id = $1 AND is_demo = $2`,
+      [id, demo],
+    );
+    await syncActiveProfileToAppSettings(tx, mode, {
       serviceType: row.service_type,
       protocol: row.protocol,
       baseUrl: row.base_url,
@@ -681,28 +746,37 @@ export async function setDefaultModelProfile(id: string, actor = "本机管理�
     });
   });
 
-  const updated = (await db.query<ModelProfileRow>(`SELECT * FROM model_provider_profiles WHERE id = $1`, [id])).rows[0]!;
+  const updated = (
+    await db.query<ModelProfileRow>(`SELECT * FROM model_provider_profiles WHERE id = $1 AND is_demo = $2`, [id, demo])
+  ).rows[0]!;
   return toPublicProfile(updated);
 }
 
-export async function deleteModelProfile(id: string): Promise<void> {
+export async function deleteModelProfile(id: string, options?: ModeOptions): Promise<void> {
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   await ensureProfilesTable();
   const db = await getDb();
-  const row = (await db.query<ModelProfileRow>(`SELECT * FROM model_provider_profiles WHERE id = $1`, [id])).rows[0];
+  const row = (
+    await db.query<ModelProfileRow>(`SELECT * FROM model_provider_profiles WHERE id = $1 AND is_demo = $2`, [id, demo])
+  ).rows[0];
   if (!row) return;
 
   await db.transaction(async (tx) => {
-    await tx.query(`DELETE FROM model_provider_profiles WHERE id = $1`, [id]);
+    await tx.query(`DELETE FROM model_provider_profiles WHERE id = $1 AND is_demo = $2`, [id, demo]);
     if (row.is_default) {
       const next = (
         await tx.query<ModelProfileRow>(
-          `SELECT * FROM model_provider_profiles WHERE service_type = $1 ORDER BY updated_at DESC LIMIT 1`,
-          [row.service_type],
+          `SELECT * FROM model_provider_profiles WHERE service_type = $1 AND is_demo = $2 ORDER BY updated_at DESC LIMIT 1`,
+          [row.service_type, demo],
         )
       ).rows[0];
       if (next) {
-        await tx.query(`UPDATE model_provider_profiles SET is_default = TRUE WHERE id = $1`, [next.id]);
-        await syncActiveProfileToAppSettings(tx, {
+        await tx.query(
+          `UPDATE model_provider_profiles SET is_default = TRUE WHERE id = $1 AND is_demo = $2`,
+          [next.id, demo],
+        );
+        await syncActiveProfileToAppSettings(tx, mode, {
           serviceType: next.service_type,
           protocol: next.protocol,
           baseUrl: next.base_url,
@@ -713,41 +787,59 @@ export async function deleteModelProfile(id: string): Promise<void> {
       }
     }
   });
+  await syncProfilesVault(mode);
 }
 
-export async function testSavedModelProfile(id: string) {
+export async function testSavedModelProfile(id: string, options?: ModeOptions) {
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   await ensureProfilesTable();
   const db = await getDb();
-  const row = (await db.query<ModelProfileRow>(`SELECT * FROM model_provider_profiles WHERE id = $1`, [id])).rows[0];
+  const row = (
+    await db.query<ModelProfileRow>(`SELECT * FROM model_provider_profiles WHERE id = $1 AND is_demo = $2`, [id, demo])
+  ).rows[0];
   if (!row) throw new Error("配置不存在");
   const apiKey = row.api_key_encrypted ? (await decryptSecret(row.api_key_encrypted)) || "" : "";
 
   if (row.service_type === "text") {
-    return testAIProviderConnection({
-      provider: row.protocol,
-      baseUrl: row.base_url,
-      model: row.default_model,
-      apiKey,
-    });
+    return testAIProviderConnection(
+      {
+        provider: row.protocol,
+        baseUrl: row.base_url,
+        model: row.default_model,
+        apiKey,
+      },
+      fetch,
+      { mode },
+    );
   }
   if (row.service_type === "image") {
-    return testImageProviderConnection({
+    return testImageProviderConnection(
+      {
+        provider: row.protocol,
+        baseUrl: row.base_url,
+        model: row.default_model,
+        apiKey,
+      },
+      fetch,
+      { mode },
+    );
+  }
+  return testVideoProviderConnection(
+    {
       provider: row.protocol,
       baseUrl: row.base_url,
       model: row.default_model,
       apiKey,
-    });
-  }
-  return testVideoProviderConnection({
-    provider: row.protocol,
-    baseUrl: row.base_url,
-    model: row.default_model,
-    apiKey,
-  });
+    },
+    fetch,
+    { mode },
+  );
 }
 
 async function syncActiveProfileToAppSettings(
   tx: { query: (sql: string, params?: unknown[]) => Promise<unknown> },
+  mode: AppMode,
   input: {
     serviceType: ModelServiceType;
     protocol: string;
@@ -757,6 +849,7 @@ async function syncActiveProfileToAppSettings(
     actor: string;
   },
 ) {
+  const demo = isDemoMode(mode);
   const prefix = input.serviceType === "text" ? "ai" : input.serviceType === "image" ? "image" : "video";
   const pairs: Array<[string, string]> = [
     [`${prefix}_provider`, input.protocol],
@@ -766,10 +859,10 @@ async function syncActiveProfileToAppSettings(
   ];
   for (const [key, value] of pairs) {
     await tx.query(
-      `INSERT INTO app_settings (key, value, updated_by, updated_at)
-       VALUES ($1, $2, $3, NOW())
-       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
-      [key, value, input.actor],
+      `INSERT INTO app_settings (key, value, updated_by, updated_at, is_demo)
+       VALUES ($1, $2, $3, NOW(), $4)
+       ON CONFLICT (key, is_demo) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+      [key, value, input.actor, demo],
     );
   }
 }

@@ -11,6 +11,6 @@ services:
       - "5432:5432"
     volumes:
       - aitrade_pgdata:/var/lib/postgresql/data
-      - ./db/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
 volumes:
   aitrade_pgdata:

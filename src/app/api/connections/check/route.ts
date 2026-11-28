@@ -1,10 +1,9 @@
+import { getAppMode } from "@/lib/app-mode";
 import { checkConnectorConnection } from "@/lib/connection-diagnostics";
 import { loadConnectorEnv } from "@/lib/connector-settings";
 import { sanitizeConnectorError } from "@/lib/connectors/security";
 import { ConnectorNotConfiguredError } from "@/lib/connectors/types";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
@@ -12,9 +11,10 @@ export async function POST(request: Request) {
     const code = String(payload.code ?? "").trim();
     if (!code) return Response.json({ error: "缺少连接器代码", code: "missing_connector" }, { status: 400 });
     const actor = String(payload.actor ?? "本地管理员").trim();
+    const mode = await getAppMode();
     // 界面保存的凭证优先于环境变量，无需重启服务
-    const env = await loadConnectorEnv();
-    const result = await checkConnectorConnection(code, actor, env);
+    const env = await loadConnectorEnv({ mode });
+    const result = await checkConnectorConnection(code, actor, env, { mode });
     return Response.json(result);
   } catch (error) {
     if (error instanceof ConnectorNotConfiguredError) {

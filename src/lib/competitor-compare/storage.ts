@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { getAppMode, isDemoMode, type AppMode } from "../app-mode.ts";
 import { getDb } from "../db.ts";
 import {
   COMPETITOR_NUMERIC_FIELDS,
@@ -66,8 +67,8 @@ async function migrateLegacyJsonIfNeeded(): Promise<void> {
             const normalized = normalizeReport(item);
             if (!normalized) continue;
             await db.query(
-              `INSERT INTO competitor_comparison_reports (id, market_code, platform_code, provenance, review_status, payload, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6::jsonb, COALESCE($7::timestamptz, NOW()), NOW())
+              `INSERT INTO competitor_comparison_reports (id, market_code, platform_code, provenance, review_status, payload, created_at, updated_at, is_demo)
+               VALUES ($1, $2, $3, $4, $5, $6::jsonb, COALESCE($7::timestamptz, NOW()), NOW(), $8)
                ON CONFLICT (id) DO NOTHING`,
               [
                 normalized.id,
@@ -77,6 +78,7 @@ async function migrateLegacyJsonIfNeeded(): Promise<void> {
                 normalized.reviewStatus,
                 JSON.stringify(normalized),
                 normalized.createdAt || null,
+                normalized.provenance === "demo",
               ],
             );
           }
@@ -105,12 +107,16 @@ function reportFingerprint(report: CompetitorComparisonReport): string {
   return `${market}:${platform}:title:${(report.title || "").trim().toLowerCase()}`;
 }
 
-async function readAllReports(): Promise<CompetitorComparisonReport[]> {
+async function readAllReports(demo: boolean): Promise<CompetitorComparisonReport[]> {
   await migrateLegacyJsonIfNeeded();
   const db = await getDb();
   const res = await db.query<{ payload: unknown }>(
-    `SELECT payload FROM competitor_comparison_reports ORDER BY created_at DESC LIMIT $1`,
-    [MAX_COMPARISON_REPORTS],
+    `SELECT payload
+     FROM competitor_comparison_reports
+     WHERE is_demo = $1
+     ORDER BY created_at DESC
+     LIMIT $2`,
+    [demo, MAX_COMPARISON_REPORTS],
   );
   const seenFingerprints = new Set<string>();
   const deduped: CompetitorComparisonReport[] = [];
@@ -125,42 +131,23 @@ async function readAllReports(): Promise<CompetitorComparisonReport[]> {
   return deduped;
 }
 
-export async function getComparisonReports(options?: { mode?: "sandbox" | "live" }): Promise<CompetitorComparisonReport[]> {
-  const all = await readAllReports();
-  let mode = options?.mode;
-  if (!mode) {
-    try {
-      const { getAppMode } = await import("@/lib/app-mode");
-      mode = await getAppMode();
-    } catch {
-      mode = "sandbox";
-    }
-  }
-  if (mode === "live") {
-    return all.filter((r) => r.provenance !== "demo");
-  }
-  return all;
+export async function getComparisonReports(options?: { mode?: AppMode }): Promise<CompetitorComparisonReport[]> {
+  const mode = options?.mode ?? await getAppMode();
+  return readAllReports(isDemoMode(mode));
 }
 
-export async function getComparisonReportById(id: string, options?: { mode?: "sandbox" | "live" }): Promise<CompetitorComparisonReport | null> {
+export async function getComparisonReportById(id: string, options?: { mode?: AppMode }): Promise<CompetitorComparisonReport | null> {
   await migrateLegacyJsonIfNeeded();
   const db = await getDb();
+  const mode = options?.mode ?? await getAppMode();
   const res = await db.query<{ payload: unknown }>(
-    `SELECT payload FROM competitor_comparison_reports WHERE id = $1 LIMIT 1`,
-    [id],
+    `SELECT payload
+     FROM competitor_comparison_reports
+     WHERE id = $1 AND is_demo = $2
+     LIMIT 1`,
+    [id, isDemoMode(mode)],
   );
   const report = res.rows[0] ? normalizeReport(res.rows[0].payload) : null;
-  if (!report) return null;
-  let mode = options?.mode;
-  if (!mode) {
-    try {
-      const { getAppMode } = await import("@/lib/app-mode");
-      mode = await getAppMode();
-    } catch {
-      mode = "sandbox";
-    }
-  }
-  if (mode === "live" && report.provenance === "demo") return null;
   return report;
 }
 
@@ -263,14 +250,22 @@ function asinOverlapRatio(a: CompetitorComparisonReport, b: CompetitorComparison
   return shared / Math.min(setA.size, setB.size);
 }
 
-export async function saveComparisonReport(report: CompetitorComparisonReport): Promise<void> {
+export async function saveComparisonReport(
+  report: CompetitorComparisonReport,
+  options?: { mode?: AppMode },
+): Promise<void> {
   await migrateLegacyJsonIfNeeded();
   const db = await getDb();
+  const mode = options?.mode ?? await getAppMode();
+  const demo = isDemoMode(mode);
   // 自动清理同站点 + 相同 ASIN 集合的历史重复研报，并在覆盖前计算 Snapshot Diff 预警
   const targetFp = reportFingerprint(report);
   const existing = await db.query<{ id: string; payload: unknown }>(
-    `SELECT id, payload FROM competitor_comparison_reports WHERE market_code = $1 AND platform_code = $2 ORDER BY created_at DESC`,
-    [(report.marketCode || "US").toUpperCase(), (report.platformCode || "amazon").toLowerCase()],
+    `SELECT id, payload
+     FROM competitor_comparison_reports
+     WHERE market_code = $1 AND platform_code = $2 AND is_demo = $3
+     ORDER BY created_at DESC`,
+    [(report.marketCode || "US").toUpperCase(), (report.platformCode || "amazon").toLowerCase(), demo],
   );
   let matchedPrevForDiff: CompetitorComparisonReport | null = null;
   for (const row of existing.rows) {
@@ -282,23 +277,28 @@ export async function saveComparisonReport(report: CompetitorComparisonReport): 
       matchedPrevForDiff = prev;
     }
     if (!prev.promotedCaseId && sameFp) {
-      await db.query(`DELETE FROM competitor_comparison_reports WHERE id = $1`, [row.id]);
+      await db.query(
+        `DELETE FROM competitor_comparison_reports WHERE id = $1 AND is_demo = $2`,
+        [row.id, demo],
+      );
     }
   }
   const reportToSave: CompetitorComparisonReport = !report.snapshotDiff && matchedPrevForDiff
     ? { ...report, snapshotDiff: computeSnapshotDiff(matchedPrevForDiff, report) }
     : report;
 
-  await db.query(
-    `INSERT INTO competitor_comparison_reports (id, market_code, platform_code, provenance, review_status, payload, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6::jsonb, COALESCE($7::timestamptz, NOW()), NOW())
+  const saved = await db.query<{ id: string }>(
+    `INSERT INTO competitor_comparison_reports (id, market_code, platform_code, provenance, review_status, payload, created_at, updated_at, is_demo)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb, COALESCE($7::timestamptz, NOW()), NOW(), $8)
      ON CONFLICT (id) DO UPDATE SET
        market_code = EXCLUDED.market_code,
        platform_code = EXCLUDED.platform_code,
        provenance = EXCLUDED.provenance,
        review_status = EXCLUDED.review_status,
        payload = EXCLUDED.payload,
-       updated_at = NOW()`,
+       updated_at = NOW()
+     WHERE competitor_comparison_reports.is_demo = EXCLUDED.is_demo
+     RETURNING id`,
     [
       reportToSave.id,
       (reportToSave.marketCode || "US").toUpperCase(),
@@ -307,22 +307,29 @@ export async function saveComparisonReport(report: CompetitorComparisonReport): 
       reportToSave.reviewStatus || "pending",
       JSON.stringify(reportToSave),
       reportToSave.createdAt || null,
+      demo,
     ],
   );
+  if (!saved.rows[0]) throw new Error("研报 ID 已被另一模式占用，请重新生成研报");
 }
 
-export async function deleteComparisonReport(id: string): Promise<void> {
+export async function deleteComparisonReport(id: string, options?: { mode?: AppMode }): Promise<void> {
   await migrateLegacyJsonIfNeeded();
   const db = await getDb();
-  await db.query(`DELETE FROM competitor_comparison_reports WHERE id = $1`, [id]);
+  const mode = options?.mode ?? await getAppMode();
+  await db.query(
+    `DELETE FROM competitor_comparison_reports WHERE id = $1 AND is_demo = $2`,
+    [id, isDemoMode(mode)],
+  );
 }
 
 /** 人工确认后才允许把研报内容写入商品草稿或转入选品池；演示模式可显式放宽样本门禁。 */
 export async function confirmComparisonReport(
   id: string,
-  options?: { allowUnverified?: boolean },
+  options?: { allowUnverified?: boolean; mode?: AppMode },
 ): Promise<CompetitorComparisonReport | null> {
-  const target = await getComparisonReportById(id, { mode: "sandbox" });
+  const mode = options?.mode ?? await getAppMode();
+  const target = await getComparisonReportById(id, { mode });
   if (!target) return null;
 
   const verifiedCount = target.priceStats?.verifiedSampleCount ?? 0;
@@ -334,6 +341,6 @@ export async function confirmComparisonReport(
   }
 
   const updated: CompetitorComparisonReport = { ...target, reviewStatus: "confirmed" };
-  await saveComparisonReport(updated);
+  await saveComparisonReport(updated, { mode });
   return updated;
 }

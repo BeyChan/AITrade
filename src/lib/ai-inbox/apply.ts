@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { getDb } from "../db.ts";
+import { isDemoMode, resolveAppMode, type ModeOptions } from "../app-mode.ts";
 import { refreshAISelectionDecision } from "../ai-sourcing-repository.ts";
 import {
   getFieldDefinition,
@@ -90,7 +91,10 @@ const APPLICABLE_STATUSES = new Set(["needs_review", "ready"]);
 
 export async function reviewAiInboxField(
   input: ReviewAiInboxFieldInput,
+  options?: ModeOptions,
 ): Promise<AiInboxTaskDetail> {
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const actor = normalizeActor(input.actor);
   if (!["accept", "correct", "reject"].includes(input.action)) {
     throw new Error("审核动作必须是 accept、correct 或 reject");
@@ -99,7 +103,7 @@ export async function reviewAiInboxField(
 
   const db = await getDb();
   await db.transaction(async (tx) => {
-    const task = await lockTask(tx, input.taskId);
+    const task = await lockTask(tx, input.taskId, { mode });
     if (!task) throw new Error("AI 证据任务不存在");
     if (task.status === "applied") throw new Error("任务已应用，不能再修改字段");
     if (!APPLICABLE_STATUSES.has(task.status)) {
@@ -113,7 +117,7 @@ export async function reviewAiInboxField(
     if (!definition) throw new Error("字段定义已失效，不能审核");
 
     const target = task.target_hypothesis_id
-      ? await readTarget(tx, task.target_hypothesis_id)
+      ? await readTarget(tx, task.target_hypothesis_id, { mode })
       : null;
     const targetCurrency = target?.currency.toUpperCase() ?? null;
 
@@ -187,9 +191,9 @@ export async function reviewAiInboxField(
     const nextStatus = evaluation.blockers.length === 0 ? "ready" : "needs_review";
     await tx.query(
       `UPDATE ai_tasks
-       SET status = $2, error_message = NULL, updated_at = NOW()
-       WHERE id = $1 AND status <> 'applied'`,
-      [input.taskId, nextStatus],
+       SET status = $3, error_message = NULL, updated_at = NOW()
+       WHERE id = $1 AND is_demo = $2 AND status <> 'applied'`,
+      [input.taskId, demo, nextStatus],
     );
     await tx.query(
       `INSERT INTO ai_review_actions
@@ -215,8 +219,8 @@ export async function reviewAiInboxField(
       ],
     );
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'ai_inbox.field_reviewed', 'ai_extracted_field', $3, $4::jsonb)`,
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'ai_inbox.field_reviewed', 'ai_extracted_field', $3, $4::jsonb, $5)`,
       [
         randomUUID(),
         actor,
@@ -228,16 +232,20 @@ export async function reviewAiInboxField(
           resultingTaskStatus: nextStatus,
           externalActions: "none",
         }),
+        demo,
       ],
     );
   });
 
-  return requireTask(input.taskId);
+  return requireTask(input.taskId, { mode });
 }
 
 export async function applyAiInboxTask(
   input: ApplyAiInboxTaskInput,
+  options?: ModeOptions,
 ): Promise<AiInboxTaskDetail> {
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const actor = normalizeActor(input.actor);
   if (!input.taskId.trim()) throw new Error("缺少任务标识");
 
@@ -248,7 +256,7 @@ export async function applyAiInboxTask(
 
   try {
     await db.transaction(async (tx) => {
-      const task = await lockTask(tx, input.taskId);
+      const task = await lockTask(tx, input.taskId, { mode });
       if (!task) throw new Error("AI 证据任务不存在");
       if (task.status === "applied") {
         alreadyApplied = true;
@@ -259,7 +267,7 @@ export async function applyAiInboxTask(
       }
       if (!task.target_hypothesis_id) throw new Error("目标机会已不存在，不能应用证据");
       hypothesisId = task.target_hypothesis_id;
-      const target = await readTarget(tx, hypothesisId, true);
+      const target = await readTarget(tx, hypothesisId, { mode }, true);
       if (!target) throw new Error("目标机会不存在，不能应用证据");
       if (!target.selected_for_validation) throw new Error("目标机会已不在验证阶段，不能应用证据");
       if (target.product_case_id) throw new Error("目标机会已转为商品立项，不能继续写入验证证据");
@@ -284,9 +292,9 @@ export async function applyAiInboxTask(
         `UPDATE ai_tasks
          SET status = 'applied', applied_entity_type = $2, applied_entity_id = $3,
              applied_at = NOW(), applied_by = $4, error_message = NULL, updated_at = NOW()
-         WHERE id = $1 AND status <> 'applied'
+         WHERE id = $1 AND is_demo = $5 AND status <> 'applied'
          RETURNING id`,
-        [input.taskId, result.entityType, result.entityId, actor],
+        [input.taskId, result.entityType, result.entityId, actor, demo],
       );
       if (!updated.rows[0]) {
         throw new Error("任务状态已变化，请刷新后重试");
@@ -304,8 +312,8 @@ export async function applyAiInboxTask(
         ],
       );
       await tx.query(
-        `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-         VALUES ($1, $2, 'ai_inbox.task_applied', 'ai_task', $3, $4::jsonb)`,
+        `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+         VALUES ($1, $2, 'ai_inbox.task_applied', 'ai_task', $3, $4::jsonb, $5)`,
         [
           randomUUID(),
           actor,
@@ -317,6 +325,7 @@ export async function applyAiInboxTask(
             appliedEntityId: result.entityId,
             externalActions: "none",
           }),
+          demo,
         ],
       );
     });
@@ -324,37 +333,38 @@ export async function applyAiInboxTask(
     const safeError = sanitizeAiInboxError(error);
     await db.query(
       `UPDATE ai_tasks
-       SET error_message = $2, updated_at = NOW()
-       WHERE id = $1 AND status <> 'applied'`,
-      [input.taskId, safeError],
+       SET error_message = $3, updated_at = NOW()
+       WHERE id = $1 AND is_demo = $2 AND status <> 'applied'`,
+      [input.taskId, demo, safeError],
     );
     throw new Error(safeError);
   }
 
-  if (alreadyApplied || !result || !hypothesisId) return requireTask(input.taskId);
+  if (alreadyApplied || !result || !hypothesisId) return requireTask(input.taskId, { mode });
 
   try {
-    await refreshAISelectionDecision(hypothesisId);
+    await refreshAISelectionDecision(hypothesisId, { mode });
   } catch (error) {
     const safeError = sanitizeAiInboxError(error);
     await db.query(
-      `UPDATE ai_tasks SET error_message = $2, updated_at = NOW() WHERE id = $1`,
-      [input.taskId, `业务事实已应用，但确定性门禁重算失败：${safeError}`],
+      `UPDATE ai_tasks SET error_message = $3, updated_at = NOW() WHERE id = $1 AND is_demo = $2`,
+      [input.taskId, demo, `业务事实已应用，但确定性门禁重算失败：${safeError}`],
     );
     await db.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'ai_inbox.decision_refresh_failed', 'ai_task', $3, $4::jsonb)`,
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'ai_inbox.decision_refresh_failed', 'ai_task', $3, $4::jsonb, $5)`,
       [
         randomUUID(),
         actor,
         input.taskId,
         JSON.stringify({ error: safeError, externalActions: "none" }),
+        demo,
       ],
     );
     throw new Error(`业务事实已应用，但确定性门禁重算失败：${safeError}`);
   }
 
-  return requireTask(input.taskId);
+  return requireTask(input.taskId, { mode });
 }
 
 export function evaluateStoredFields(
@@ -635,24 +645,33 @@ async function writeBusinessFacts(
   throw new Error("不支持的证据类型");
 }
 
-async function lockTask(db: Queryable, taskId: string) {
+async function lockTask(db: Queryable, taskId: string, options: ModeOptions) {
+  const mode = await resolveAppMode(options.mode);
+  const demo = isDemoMode(mode);
   const result = await db.query<TaskLockRow>(
     `SELECT id, status, target_hypothesis_id, applied_entity_type, applied_entity_id,
             applied_at, applied_by, error_message
-     FROM ai_tasks WHERE id = $1 FOR UPDATE`,
-    [taskId],
+     FROM ai_tasks WHERE id = $1 AND is_demo = $2 FOR UPDATE`,
+    [taskId, demo],
   );
   return result.rows[0] ?? null;
 }
 
-async function readTarget(db: Queryable, hypothesisId: string, lock = false) {
+async function readTarget(
+  db: Queryable,
+  hypothesisId: string,
+  options: ModeOptions,
+  lock = false,
+) {
+  const mode = await resolveAppMode(options.mode);
+  const demo = isDemoMode(mode);
   const result = await db.query<TargetRow>(
     `SELECT h.id, h.concept, h.selected_for_validation, h.product_case_id, b.currency
      FROM opportunity_hypotheses h
      JOIN ai_sourcing_runs r ON r.id = h.run_id
      JOIN sourcing_briefs b ON b.id = r.brief_id
-     WHERE h.id = $1${lock ? " FOR UPDATE OF h" : ""}`,
-    [hypothesisId],
+     WHERE h.id = $1 AND r.is_demo = $2 AND b.is_demo = $2${lock ? " FOR UPDATE OF h" : ""}`,
+    [hypothesisId, demo],
   );
   return result.rows[0] ?? null;
 }
@@ -743,8 +762,8 @@ function clampConfidence(value: number) {
   return Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0));
 }
 
-async function requireTask(taskId: string) {
-  const detail = await getAiInboxTask(taskId);
+async function requireTask(taskId: string, options: ModeOptions) {
+  const detail = await getAiInboxTask(taskId, options);
   if (!detail) throw new Error("AI 证据任务不存在");
   return detail;
 }

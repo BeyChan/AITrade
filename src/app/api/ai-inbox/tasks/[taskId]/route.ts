@@ -1,16 +1,11 @@
 import { getAiInboxTask } from "@/lib/ai-inbox/repository";
-import { apiError } from "@/lib/api-http";
+import { withApiRoute } from "@/lib/api-http";
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ taskId: string }> },
-) {
-  try {
+export const GET = withApiRoute(
+  async (_request: Request, { params }: { params: Promise<{ taskId: string }> }) => {
     const { taskId } = await params;
     const task = await getAiInboxTask(taskId);
     if (!task) return Response.json({ error: "AI 证据任务不存在" }, { status: 404 });
     return Response.json({ task });
-  } catch (error) {
-    return apiError(error);
-  }
-}
+  },
+);

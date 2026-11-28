@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getAppMode } from "@/lib/app-mode";
 import { recordAuditLog } from "@/lib/audit-logs";
 import type { PipelineResult } from "@/lib/operations-pipeline";
 import {
@@ -7,12 +8,11 @@ import {
   saveOperationsBatch,
 } from "@/lib/operations-repository";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const batches = await listOperationsBatches(30);
+    const mode = await getAppMode();
+    const batches = await listOperationsBatches(30, { mode });
     return NextResponse.json({ batches });
   } catch (err) {
     return NextResponse.json(
@@ -24,6 +24,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const mode = await getAppMode();
     const body = (await request.json()) as {
       label?: string;
       marketplace?: string;
@@ -39,8 +40,9 @@ export async function POST(request: Request) {
       currency: body.currency || "USD",
       createdBy: "本机用户",
       result: body.result,
-    });
+    }, { mode });
     await recordAuditLog({
+      mode,
       actor: "本机用户",
       action: "operations.batch_saved",
       entityType: "operations_batch",
@@ -67,13 +69,15 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    const mode = await getAppMode();
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id")?.trim();
     if (!id) {
       return NextResponse.json({ error: "缺少批次 ID" }, { status: 400 });
     }
-    await deleteOperationsBatch(id);
+    await deleteOperationsBatch(id, { mode });
     await recordAuditLog({
+      mode,
       actor: "本机用户",
       action: "operations.batch_deleted",
       entityType: "operations_batch",

@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { AppMode } from "../app-mode.ts";
+import { isDemoMode } from "../app-mode.ts";
 import { getDb } from "../db.ts";
 import { calculateEconomics, opportunityScore, recommendationFor, type EconomicsAssumptions } from "../economics.ts";
 import { analyzeSupplierQuotes } from "../sourcing.ts";
-import { getCaseWorkflowFacts, resolveCurrentMode } from "./cases.ts";
+import { getCaseForMode, getCaseWorkflowFacts, resolveCurrentMode } from "./cases.ts";
 import type {
   AuditRow,
   CostModelRow,
@@ -89,7 +90,8 @@ const sourcingQuoteSelect = `
     s.created_at AS supplier_created_at
   FROM quotes q
   JOIN rfqs r ON r.id = q.rfq_id
-  JOIN suppliers s ON s.id = r.supplier_id
+  JOIN product_cases pc ON pc.id = r.case_id
+  JOIN suppliers s ON s.id = r.supplier_id AND s.is_demo = pc.is_demo
 `;
 
 function mapSourcingQuote(row: SourcingQuoteJoinRow): SourcingQuote {
@@ -177,15 +179,32 @@ function buildSourcingSummary(
 export async function listSourcingCases(options?: { mode?: AppMode }): Promise<SourcingCaseSummary[]> {
   const db = await getDb();
   const mode = await resolveCurrentMode(options?.mode);
-  const casesQuery = mode === "live"
-    ? "SELECT * FROM product_cases WHERE status = 'approved' AND is_demo = FALSE ORDER BY updated_at DESC"
-    : "SELECT * FROM product_cases WHERE status = 'approved' ORDER BY updated_at DESC";
+  const demo = isDemoMode(mode);
 
   const [cases, costs, quoteRows, selections] = await Promise.all([
-    db.query<ProductCaseRow>(casesQuery),
-    db.query<CostModelRow>("SELECT DISTINCT ON (case_id) * FROM cost_models ORDER BY case_id, version DESC"),
-    db.query<SourcingQuoteJoinRow>(`${sourcingQuoteSelect} ORDER BY q.created_at DESC`),
-    db.query<SupplierSelectionRow>("SELECT * FROM supplier_selections"),
+    db.query<ProductCaseRow>(
+      "SELECT * FROM product_cases WHERE status = 'approved' AND is_demo = $1 ORDER BY updated_at DESC",
+      [demo],
+    ),
+    db.query<CostModelRow>(
+      `SELECT DISTINCT ON (cm.case_id) cm.*
+       FROM cost_models cm
+       JOIN product_cases pc ON pc.id = cm.case_id
+       WHERE pc.is_demo = $1
+       ORDER BY cm.case_id, cm.version DESC`,
+      [demo],
+    ),
+    db.query<SourcingQuoteJoinRow>(
+      `${sourcingQuoteSelect} WHERE pc.is_demo = $1 ORDER BY q.created_at DESC`,
+      [demo],
+    ),
+    db.query<SupplierSelectionRow>(
+      `SELECT ss.*
+       FROM supplier_selections ss
+       JOIN product_cases pc ON pc.id = ss.case_id
+       WHERE pc.is_demo = $1`,
+      [demo],
+    ),
   ]);
   const costByCase = new Map(costs.rows.map((cost) => [cost.case_id, cost]));
   const quotesByCase = new Map<string, SourcingQuote[]>();
@@ -207,20 +226,45 @@ export async function listSourcingCases(options?: { mode?: AppMode }): Promise<S
   );
 }
 
-export async function getSourcingDetail(caseId: string): Promise<SourcingDetail | null> {
+export async function getSourcingDetail(
+  caseId: string,
+  options?: { mode?: AppMode },
+): Promise<SourcingDetail | null> {
   const db = await getDb();
-  const product = await db.query<ProductCaseRow>("SELECT * FROM product_cases WHERE id = $1", [caseId]);
-  const productCase = product.rows[0];
+  const mode = await resolveCurrentMode(options?.mode);
+  const demo = isDemoMode(mode);
+  const productCase = await getCaseForMode(caseId, { mode });
   if (!productCase) return null;
 
   const [costs, quoteRows, selections, audits, workflowFacts] = await Promise.all([
-    db.query<CostModelRow>("SELECT * FROM cost_models WHERE case_id = $1 ORDER BY version DESC LIMIT 1", [caseId]),
-    db.query<SourcingQuoteJoinRow>(`${sourcingQuoteSelect} WHERE r.case_id = $1 ORDER BY q.created_at DESC`, [caseId]),
-    db.query<SupplierSelectionRow>("SELECT * FROM supplier_selections WHERE case_id = $1 LIMIT 1", [caseId]),
-    db.query<AuditRow>("SELECT * FROM audit_logs WHERE entity_type = 'product_case' AND entity_id = $1 ORDER BY created_at DESC LIMIT 30", [
-      caseId,
-    ]),
-    getCaseWorkflowFacts(caseId),
+    db.query<CostModelRow>(
+      `SELECT cm.*
+       FROM cost_models cm
+       JOIN product_cases pc ON pc.id = cm.case_id
+       WHERE cm.case_id = $1 AND pc.is_demo = $2
+       ORDER BY cm.version DESC
+       LIMIT 1`,
+      [caseId, demo],
+    ),
+    db.query<SourcingQuoteJoinRow>(
+      `${sourcingQuoteSelect} WHERE r.case_id = $1 AND pc.is_demo = $2 ORDER BY q.created_at DESC`,
+      [caseId, demo],
+    ),
+    db.query<SupplierSelectionRow>(
+      `SELECT ss.*
+       FROM supplier_selections ss
+       JOIN product_cases pc ON pc.id = ss.case_id
+       WHERE ss.case_id = $1 AND pc.is_demo = $2
+       LIMIT 1`,
+      [caseId, demo],
+    ),
+    db.query<AuditRow>(
+      `SELECT * FROM audit_logs
+       WHERE entity_type = 'product_case' AND entity_id = $1 AND is_demo = $2
+       ORDER BY created_at DESC LIMIT 30`,
+      [caseId, demo],
+    ),
+    getCaseWorkflowFacts(caseId, { mode }),
   ]);
   const summary = buildSourcingSummary(
     productCase,
@@ -285,7 +329,12 @@ export function assertSourcingGateAllowed(input: {
   return { recommendation };
 }
 
-export async function createSupplierAndQuote(caseId: string, input: SupplierQuoteInput, actor = "采购人员") {
+export async function createSupplierAndQuote(
+  caseId: string,
+  input: SupplierQuoteInput,
+  actor = "采购人员",
+  options?: { mode?: AppMode },
+) {
   if (!input.supplierName.trim()) throw new Error("请输入供应商名称");
   if (input.unitPriceCents <= 0) throw new Error("采购单价必须大于 0");
   if (input.moq < 1) throw new Error("MOQ 必须大于 0");
@@ -294,11 +343,30 @@ export async function createSupplierAndQuote(caseId: string, input: SupplierQuot
   if (input.dutyRate < 0 || input.dutyRate > 1) throw new Error("关税率必须在 0–100% 之间");
 
   const db = await getDb();
+  const mode = await resolveCurrentMode(options?.mode);
+  const demo = isDemoMode(mode);
+  const productCase = await getCaseForMode(caseId, { mode });
+  if (!productCase) throw new Error("商品机会不存在");
   const [product, costs, selection, workflowFacts] = await Promise.all([
-    db.query<ProductCaseRow>("SELECT * FROM product_cases WHERE id = $1", [caseId]),
-    db.query<CostModelRow>("SELECT * FROM cost_models WHERE case_id = $1 ORDER BY version DESC LIMIT 1", [caseId]),
-    db.query<{ id: string }>("SELECT id FROM supplier_selections WHERE case_id = $1 LIMIT 1", [caseId]),
-    getCaseWorkflowFacts(caseId),
+    db.query<ProductCaseRow>("SELECT * FROM product_cases WHERE id = $1 AND is_demo = $2", [caseId, demo]),
+    db.query<CostModelRow>(
+      `SELECT cm.*
+       FROM cost_models cm
+       JOIN product_cases pc ON pc.id = cm.case_id
+       WHERE cm.case_id = $1 AND pc.is_demo = $2
+       ORDER BY cm.version DESC
+       LIMIT 1`,
+      [caseId, demo],
+    ),
+    db.query<{ id: string }>(
+      `SELECT ss.id
+       FROM supplier_selections ss
+       JOIN product_cases pc ON pc.id = ss.case_id
+       WHERE ss.case_id = $1 AND pc.is_demo = $2
+       LIMIT 1`,
+      [caseId, demo],
+    ),
+    getCaseWorkflowFacts(caseId, { mode }),
   ]);
   if (!product.rows[0]) throw new Error("商品机会不存在");
   assertSourcingGateAllowed({
@@ -322,9 +390,14 @@ export async function createSupplierAndQuote(caseId: string, input: SupplierQuot
   };
 
   await db.transaction(async (tx) => {
+    const guard = await tx.query<{ id: string }>(
+      "SELECT id FROM product_cases WHERE id = $1 AND is_demo = $2 FOR UPDATE",
+      [caseId, demo],
+    );
+    if (!guard.rows[0]) throw new Error("商品机会不存在");
     await tx.query(
-      `INSERT INTO suppliers (id, name, platform, url, contact, country, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      `INSERT INTO suppliers (id, name, platform, url, contact, country, notes, is_demo)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [
         supplierId,
         input.supplierName.trim(),
@@ -333,6 +406,7 @@ export async function createSupplierAndQuote(caseId: string, input: SupplierQuot
         input.contact.trim() || null,
         input.country.trim() || null,
         input.supplierNotes.trim(),
+        demo,
       ],
     );
     await tx.query(
@@ -368,9 +442,9 @@ export async function createSupplierAndQuote(caseId: string, input: SupplierQuot
     ] as const;
     for (const [action, details] of auditRows) {
       await tx.query(
-        `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-         VALUES ($1, $2, $3, 'product_case', $4, $5::jsonb)`,
-        [randomUUID(), actor.trim() || "采购人员", action, caseId, JSON.stringify(details)],
+        `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+         VALUES ($1, $2, $3, 'product_case', $4, $5::jsonb, $6)`,
+        [randomUUID(), actor.trim() || "采购人员", action, caseId, JSON.stringify(details), demo],
       );
     }
   });
@@ -383,17 +457,40 @@ export async function selectSupplierQuote(
   quoteId: string,
   reviewer: string,
   exceptionReason: string,
+  options?: { mode?: AppMode },
 ) {
   if (!quoteId) throw new Error("请选择报价");
   if (!reviewer.trim()) throw new Error("请输入定标人");
 
   const db = await getDb();
+  const mode = await resolveCurrentMode(options?.mode);
+  const demo = isDemoMode(mode);
+  const productCase = await getCaseForMode(caseId, { mode });
+  if (!productCase) throw new Error("商品机会不存在");
   const [product, costs, quoteRows, existingSelections, workflowFacts] = await Promise.all([
-    db.query<ProductCaseRow>("SELECT * FROM product_cases WHERE id = $1", [caseId]),
-    db.query<CostModelRow>("SELECT * FROM cost_models WHERE case_id = $1 ORDER BY version DESC LIMIT 1", [caseId]),
-    db.query<SourcingQuoteJoinRow>(`${sourcingQuoteSelect} WHERE r.case_id = $1 ORDER BY q.created_at DESC`, [caseId]),
-    db.query<SupplierSelectionRow>("SELECT * FROM supplier_selections WHERE case_id = $1 LIMIT 1", [caseId]),
-    getCaseWorkflowFacts(caseId),
+    db.query<ProductCaseRow>("SELECT * FROM product_cases WHERE id = $1 AND is_demo = $2", [caseId, demo]),
+    db.query<CostModelRow>(
+      `SELECT cm.*
+       FROM cost_models cm
+       JOIN product_cases pc ON pc.id = cm.case_id
+       WHERE cm.case_id = $1 AND pc.is_demo = $2
+       ORDER BY cm.version DESC
+       LIMIT 1`,
+      [caseId, demo],
+    ),
+    db.query<SourcingQuoteJoinRow>(
+      `${sourcingQuoteSelect} WHERE r.case_id = $1 AND pc.is_demo = $2 ORDER BY q.created_at DESC`,
+      [caseId, demo],
+    ),
+    db.query<SupplierSelectionRow>(
+      `SELECT ss.*
+       FROM supplier_selections ss
+       JOIN product_cases pc ON pc.id = ss.case_id
+       WHERE ss.case_id = $1 AND pc.is_demo = $2
+       LIMIT 1`,
+      [caseId, demo],
+    ),
+    getCaseWorkflowFacts(caseId, { mode }),
   ]);
   if (!product.rows[0]) throw new Error("商品机会不存在");
   assertSourcingGateAllowed({
@@ -440,7 +537,19 @@ export async function selectSupplierQuote(
   let nextVersion = 0;
 
   await db.transaction(async (tx) => {
-    const guard = await tx.query<{ id: string }>("SELECT id FROM supplier_selections WHERE case_id = $1 LIMIT 1", [caseId]);
+    const productGuard = await tx.query<{ id: string }>(
+      "SELECT id FROM product_cases WHERE id = $1 AND is_demo = $2 FOR UPDATE",
+      [caseId, demo],
+    );
+    if (!productGuard.rows[0]) throw new Error("商品机会不存在");
+    const guard = await tx.query<{ id: string }>(
+      `SELECT ss.id
+       FROM supplier_selections ss
+       JOIN product_cases pc ON pc.id = ss.case_id
+       WHERE ss.case_id = $1 AND pc.is_demo = $2
+       LIMIT 1`,
+      [caseId, demo],
+    );
     if (guard.rows[0]) throw new Error("该商品已经完成供应商定标");
     const versionResult = await tx.query<{ version: number }>(
       "SELECT COALESCE(MAX(version), 0) + 1 AS version FROM cost_models WHERE case_id = $1",
@@ -453,8 +562,8 @@ export async function selectSupplierQuote(
       [modelId, caseId, nextVersion, JSON.stringify(nextAssumptions), JSON.stringify(nextResults), reviewer.trim()],
     );
     await tx.query(
-      "UPDATE product_cases SET status = CASE WHEN status = 'review_pending' THEN 'approved' ELSE status END, updated_at = NOW() WHERE id = $1",
-      [caseId],
+      "UPDATE product_cases SET status = CASE WHEN status = 'review_pending' THEN 'approved' ELSE status END, updated_at = NOW() WHERE id = $1 AND is_demo = $2",
+      [caseId, demo],
     );
     await tx.query(
       "UPDATE rfqs SET status = CASE WHEN id = $1 THEN 'selected' ELSE 'not_selected' END, selected_at = CASE WHEN id = $1 THEN NOW() ELSE selected_at END WHERE case_id = $2",
@@ -486,8 +595,8 @@ export async function selectSupplierQuote(
       ],
     );
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'supplier.selected', 'product_case', $3, $4::jsonb)`,
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'supplier.selected', 'product_case', $3, $4::jsonb, $5)`,
       [
         randomUUID(),
         reviewer.trim(),
@@ -505,6 +614,7 @@ export async function selectSupplierQuote(
           humanDecision: true,
           externalActions: "none",
         }),
+        demo,
       ],
     );
   });
@@ -513,7 +623,7 @@ export async function selectSupplierQuote(
 }
 
 
-export async function listSupplierDirectory(): Promise<{
+export async function listSupplierDirectory(options?: { mode?: AppMode }): Promise<{
   suppliers: SupplierDirectoryItem[];
   stats: {
     totalSuppliers: number;
@@ -523,9 +633,14 @@ export async function listSupplierDirectory(): Promise<{
   };
 }> {
   const db = await getDb();
+  const mode = await resolveCurrentMode(options?.mode);
+  const demo = isDemoMode(mode);
 
-  // 1. 如果供应商库为空，自动初始化 4 家 1688 核心产业带示范工厂
-  const countRes = await db.query<{ count: string }>("SELECT COUNT(*) FROM suppliers");
+  // 1. 演示模式首次打开时初始化 4 家 1688 核心产业带示范工厂；真实模式绝不写入演示数据。
+  const countRes = await db.query<{ count: string }>(
+    "SELECT COUNT(*) FROM suppliers WHERE is_demo = $1",
+    [demo],
+  );
   if (parseInt(countRes.rows[0]?.count ?? "0", 10) === 0) {
     const seeds = [
       {
@@ -570,19 +685,21 @@ export async function listSupplierDirectory(): Promise<{
       },
     ];
 
-    for (const seed of seeds) {
-      await db.query(
-        `INSERT INTO suppliers (id, name, platform, url, contact, country, rating, notes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         ON CONFLICT (id) DO NOTHING`,
-        [seed.id, seed.name, seed.platform, seed.url, seed.contact, seed.country, seed.rating, seed.notes]
-      );
+    if (demo) {
+      for (const seed of seeds) {
+        await db.query(
+          `INSERT INTO suppliers (id, name, platform, url, contact, country, rating, notes, is_demo)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE)
+           ON CONFLICT (id) DO NOTHING`,
+          [seed.id, seed.name, seed.platform, seed.url, seed.contact, seed.country, seed.rating, seed.notes]
+        );
+      }
     }
   }
 
-  // 2. 查出全部供应商与关联统计
+  // 2. 只查询当前模式的供应商与同模式案卷关联统计
   const [suppliersRes, quotesRes, selectionsRes] = await Promise.all([
-    db.query<SupplierRow>("SELECT * FROM suppliers ORDER BY created_at DESC"),
+    db.query<SupplierRow>("SELECT * FROM suppliers WHERE is_demo = $1 ORDER BY created_at DESC", [demo]),
     db.query<{
       supplier_id: string;
       case_id: string;
@@ -600,8 +717,15 @@ export async function listSupplierDirectory(): Promise<{
       JOIN rfqs r ON r.id = q.rfq_id
       JOIN suppliers s ON s.id = r.supplier_id
       JOIN product_cases pc ON pc.id = r.case_id
-    `),
-    db.query<{ supplier_id: string }>("SELECT supplier_id FROM supplier_selections"),
+      WHERE s.is_demo = $1 AND pc.is_demo = $1
+    `, [demo]),
+    db.query<{ supplier_id: string }>(
+      `SELECT ss.supplier_id
+       FROM supplier_selections ss
+       JOIN product_cases pc ON pc.id = ss.case_id
+       WHERE pc.is_demo = $1`,
+      [demo],
+    ),
   ]);
 
   const quotesBySupplier = new Map<string, Array<{ id: string; title: string; marketplace: string; status: string }>>();
@@ -657,13 +781,14 @@ export async function createSupplierDirectoryEntry(input: {
   country?: string;
   rating?: number;
   notes?: string;
-}) {
+}, options?: { mode?: AppMode }) {
   if (!input.name.trim()) throw new Error("供应商名称必填");
   const db = await getDb();
+  const mode = await resolveCurrentMode(options?.mode);
   const id = `sup-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   await db.query(
-    `INSERT INTO suppliers (id, name, platform, url, contact, country, rating, notes)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    `INSERT INTO suppliers (id, name, platform, url, contact, country, rating, notes, is_demo)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
     [
       id,
       input.name.trim(),
@@ -673,6 +798,7 @@ export async function createSupplierDirectoryEntry(input: {
       input.country?.trim() || "CN",
       input.rating ?? 4.8,
       input.notes?.trim() || "",
+      isDemoMode(mode),
     ]
   );
   return { id };

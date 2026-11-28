@@ -20,6 +20,7 @@ async function createTestDb() {
       entity_type TEXT NOT NULL,
       entity_id TEXT NOT NULL,
       details JSONB NOT NULL DEFAULT '{}'::jsonb,
+      is_demo BOOLEAN NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
@@ -48,6 +49,7 @@ test("recordAuditLog and queryAuditLogs support filtering, pagination, and summa
   try {
     await recordAuditLog(
       {
+        mode: "sandbox",
         actor: "运营A",
         action: "case.created_from_wizard",
         entityType: "product_case",
@@ -58,6 +60,7 @@ test("recordAuditLog and queryAuditLogs support filtering, pagination, and summa
     );
     await recordAuditLog(
       {
+        mode: "sandbox",
         actor: "管理员",
         action: "ai.settings_saved",
         entityType: "app_settings",
@@ -68,6 +71,7 @@ test("recordAuditLog and queryAuditLogs support filtering, pagination, and summa
     );
     await recordAuditLog(
       {
+        mode: "sandbox",
         actor: "系统",
         action: "connector_sync.failed",
         entityType: "connector_sync_job",
@@ -77,29 +81,45 @@ test("recordAuditLog and queryAuditLogs support filtering, pagination, and summa
       db,
     );
 
-    const all = await queryAuditLogs({}, db);
+    await recordAuditLog(
+      {
+        mode: "live",
+        actor: "真实用户",
+        action: "case.created_from_wizard",
+        entityType: "product_case",
+        entityId: "case-live-001",
+        details: { asin: "B0LIVE001", marketplace: "US" },
+      },
+      db,
+    );
+
+    const all = await queryAuditLogs({ mode: "sandbox" }, db);
     assert.equal(all.total, 3);
     assert.equal(all.summary.total, 3);
     assert.equal(all.summary.sensitiveCount, 1);
     assert.equal(all.summary.errorCount, 1);
     assert.equal(all.summary.actorCount, 3);
 
-    const settingsOnly = await queryAuditLogs({ module: "settings" }, db);
+    const settingsOnly = await queryAuditLogs({ mode: "sandbox", module: "settings" }, db);
     assert.equal(settingsOnly.total, 1);
     assert.equal(settingsOnly.items[0].details.apiKey, "***");
     assert.equal(settingsOnly.items[0].actionLabel, "保存大模型连接配置");
 
-    const byKeyword = await queryAuditLogs({ q: "B0TEST001" }, db);
+    const byKeyword = await queryAuditLogs({ mode: "sandbox", q: "B0TEST001" }, db);
     assert.equal(byKeyword.total, 1);
     assert.equal(byKeyword.items[0].entityHref, "/cases/case-001");
 
-    const dangerOnly = await queryAuditLogs({ level: "danger" }, db);
+    const dangerOnly = await queryAuditLogs({ mode: "sandbox", level: "danger" }, db);
     assert.equal(dangerOnly.total, 1);
     assert.equal(dangerOnly.items[0].action, "connector_sync.failed");
 
-    const paged = await queryAuditLogs({ page: 2, pageSize: 2 }, db);
+    const paged = await queryAuditLogs({ mode: "sandbox", page: 2, pageSize: 2 }, db);
     assert.equal(paged.items.length, 1);
     assert.equal(paged.totalPages, 2);
+
+    const live = await queryAuditLogs({ mode: "live" }, db);
+    assert.equal(live.total, 1);
+    assert.equal(live.items[0].entityId, "case-live-001");
   } finally {
     await db.close();
   }
@@ -110,6 +130,7 @@ test("exportAuditLogsCsv emits UTF-8 BOM and escapes commas and quotes", async (
   try {
     await recordAuditLog(
       {
+        mode: "sandbox",
         actor: "采购B",
         action: "supplier.selected",
         entityType: "product_case",
@@ -119,7 +140,7 @@ test("exportAuditLogsCsv emits UTF-8 BOM and escapes commas and quotes", async (
       db,
     );
 
-    const csv = await exportAuditLogsCsv({ module: "sourcing" }, db);
+    const csv = await exportAuditLogsCsv({ mode: "sandbox", module: "sourcing" }, db);
     assert.ok(csv.startsWith("\uFEFF时间,操作人,模块,级别,动作名称"));
     assert.ok(csv.includes("采购B"));
     assert.ok(csv.includes("定标选中供应商"));

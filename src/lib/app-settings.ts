@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { isDemoMode, resolveAppMode, type AppMode, type ModeOptions } from "./app-mode.ts";
 import { getDb } from "./db.ts";
 import {
   DEFAULT_FUNNEL_THRESHOLDS,
@@ -83,8 +84,9 @@ const DEFAULT_ZHIPU_URL = "https://open.bigmodel.cn/api/paas/v4";
 const DEFAULT_FAL_URL = "https://fal.run";
 const DEFAULT_IDEOGRAM_URL = "https://api.ideogram.ai";
 
-export async function loadAIProviderConfig(): Promise<AIProviderConfig> {
-  const stored = await readSettingMap(SETTING_KEYS);
+export async function loadAIProviderConfig(options?: ModeOptions): Promise<AIProviderConfig> {
+  const mode = await resolveAppMode(options?.mode);
+  const stored = await readSettingMap(SETTING_KEYS, mode);
   const provider = normalizeAIProvider(stored.get("ai_provider") ?? process.env.AI_PROVIDER);
   const baseUrl = (stored.get("ai_base_url") || process.env.AI_BASE_URL || defaultAIBaseUrl(provider)).trim();
   const model = (stored.get("ai_model") || process.env.AI_MODEL || defaultAIModel(provider)).trim();
@@ -100,7 +102,9 @@ export async function loadAIProviderConfig(): Promise<AIProviderConfig> {
   };
 }
 
-export async function saveAIProviderSettings(input: SaveAIProviderSettingsInput) {
+export async function saveAIProviderSettings(input: SaveAIProviderSettingsInput, options?: ModeOptions) {
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const provider = normalizeAIProvider(input.provider);
   const baseUrl = (input.baseUrl.trim() || defaultAIBaseUrl(provider)).slice(0, 500);
   const model = (input.model.trim() || defaultAIModel(provider)).slice(0, 160);
@@ -112,7 +116,7 @@ export async function saveAIProviderSettings(input: SaveAIProviderSettingsInput)
     if (!model) throw new Error("请填写模型名称");
   }
   if ((provider === "openai-compatible" || provider === "anthropic-compatible") && !apiKey) {
-    if (!(await hasStoredOrEnvKey("ai_api_key", envKeyForAI(provider)))) {
+    if (!(await hasStoredOrEnvKey("ai_api_key", envKeyForAI(provider), mode))) {
       throw new Error(
         provider === "anthropic-compatible"
           ? "Anthropic 兼容接口需要 API Key；也可以先在环境变量中配置 AI_API_KEY 或 ANTHROPIC_API_KEY"
@@ -135,15 +139,15 @@ export async function saveAIProviderSettings(input: SaveAIProviderSettingsInput)
 
     for (const [key, value] of values) {
       await tx.query(
-        `INSERT INTO app_settings (key, value, updated_by, updated_at)
-         VALUES ($1, $2, $3, NOW())
-         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
-        [key, value, actor],
+        `INSERT INTO app_settings (key, value, updated_by, updated_at, is_demo)
+         VALUES ($1, $2, $3, NOW(), $4)
+         ON CONFLICT (key, is_demo) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+        [key, value, actor, demo],
       );
     }
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'ai.settings_saved', 'app_settings', 'ai', $3::jsonb)`,
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'ai.settings_saved', 'app_settings', 'ai', $3::jsonb, $4)`,
       [
         randomUUID(),
         actor,
@@ -154,6 +158,7 @@ export async function saveAIProviderSettings(input: SaveAIProviderSettingsInput)
           keyAction,
           keyConfigured: Boolean(encryptedKey) || provider === "template",
         }),
+        demo,
       ],
     );
   });
@@ -161,12 +166,13 @@ export async function saveAIProviderSettings(input: SaveAIProviderSettingsInput)
   return { provider, baseUrl, model, keyAction };
 }
 
-export async function clearStoredAIProviderKey(actorInput: string) {
-  await clearSettingKey("ai_api_key", "ai.api_key_cleared", "ai", actorInput);
+export async function clearStoredAIProviderKey(actorInput: string, options?: ModeOptions) {
+  await clearSettingKey("ai_api_key", "ai.api_key_cleared", "ai", actorInput, options);
 }
 
-export async function loadImageProviderConfig(): Promise<ImageProviderConfig> {
-  const stored = await readSettingMap(IMAGE_SETTING_KEYS);
+export async function loadImageProviderConfig(options?: ModeOptions): Promise<ImageProviderConfig> {
+  const mode = await resolveAppMode(options?.mode);
+  const stored = await readSettingMap(IMAGE_SETTING_KEYS, mode);
   const provider = normalizeImageProvider(stored.get("image_provider") ?? process.env.IMAGE_PROVIDER);
   const baseUrl = (stored.get("image_base_url") || process.env.IMAGE_BASE_URL || defaultImageBaseUrl(provider)).trim();
   const model = (stored.get("image_model") || process.env.IMAGE_MODEL || defaultImageModel(provider)).trim();
@@ -182,7 +188,9 @@ export async function loadImageProviderConfig(): Promise<ImageProviderConfig> {
   };
 }
 
-export async function saveImageProviderSettings(input: SaveImageProviderSettingsInput) {
+export async function saveImageProviderSettings(input: SaveImageProviderSettingsInput, options?: ModeOptions) {
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const provider = normalizeImageProvider(input.provider);
   const baseUrl = (input.baseUrl.trim() || defaultImageBaseUrl(provider)).slice(0, 500);
   const model = (input.model.trim() || defaultImageModel(provider)).slice(0, 160);
@@ -192,7 +200,7 @@ export async function saveImageProviderSettings(input: SaveImageProviderSettings
   if (provider !== "template") {
     validateBaseUrl(baseUrl);
     if (!model) throw new Error("请填写生图模型名称");
-    if (!apiKey && !(await hasStoredOrEnvKey("image_api_key", envKeyForImage(provider)))) {
+    if (!apiKey && !(await hasStoredOrEnvKey("image_api_key", envKeyForImage(provider), mode))) {
       throw new Error(
         provider === "gemini"
           ? "Gemini 生图需要 API Key；也可以先配置 IMAGE_API_KEY 或 GEMINI_API_KEY 环境变量"
@@ -219,15 +227,15 @@ export async function saveImageProviderSettings(input: SaveImageProviderSettings
 
     for (const [key, value] of values) {
       await tx.query(
-        `INSERT INTO app_settings (key, value, updated_by, updated_at)
-         VALUES ($1, $2, $3, NOW())
-         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
-        [key, value, actor],
+        `INSERT INTO app_settings (key, value, updated_by, updated_at, is_demo)
+         VALUES ($1, $2, $3, NOW(), $4)
+         ON CONFLICT (key, is_demo) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+        [key, value, actor, demo],
       );
     }
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'image.settings_saved', 'app_settings', 'image', $3::jsonb)`,
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'image.settings_saved', 'app_settings', 'image', $3::jsonb, $4)`,
       [
         randomUUID(),
         actor,
@@ -238,6 +246,7 @@ export async function saveImageProviderSettings(input: SaveImageProviderSettings
           keyAction,
           keyConfigured: Boolean(encryptedKey) || provider === "template",
         }),
+        demo,
       ],
     );
   });
@@ -245,12 +254,13 @@ export async function saveImageProviderSettings(input: SaveImageProviderSettings
   return { provider, baseUrl, model, keyAction };
 }
 
-export async function clearStoredImageProviderKey(actorInput: string) {
-  await clearSettingKey("image_api_key", "image.api_key_cleared", "image", actorInput);
+export async function clearStoredImageProviderKey(actorInput: string, options?: ModeOptions) {
+  await clearSettingKey("image_api_key", "image.api_key_cleared", "image", actorInput, options);
 }
 
-export async function loadVideoProviderConfig(): Promise<VideoProviderConfig> {
-  const stored = await readSettingMap(VIDEO_SETTING_KEYS);
+export async function loadVideoProviderConfig(options?: ModeOptions): Promise<VideoProviderConfig> {
+  const mode = await resolveAppMode(options?.mode);
+  const stored = await readSettingMap(VIDEO_SETTING_KEYS, mode);
   const provider = normalizeVideoProvider(stored.get("video_provider") ?? process.env.VIDEO_PROVIDER);
   const baseUrl = (stored.get("video_base_url") || process.env.VIDEO_BASE_URL || defaultVideoBaseUrl(provider)).trim();
   const model = (stored.get("video_model") || process.env.VIDEO_MODEL || defaultVideoModel(provider)).trim();
@@ -266,11 +276,14 @@ export async function loadVideoProviderConfig(): Promise<VideoProviderConfig> {
   };
 }
 
-async function readSettingMap(keys: readonly string[]) {
+async function readSettingMap(keys: readonly string[], mode: AppMode) {
   const db = await getDb();
+  const params = [...keys, isDemoMode(mode)];
   const result = await db.query<{ key: string; value: string }>(
-    `SELECT key, value FROM app_settings WHERE key IN (${keys.map((_, index) => `$${index + 1}`).join(", ")})`,
-    [...keys],
+    `SELECT key, value FROM app_settings
+     WHERE key IN (${keys.map((_, index) => `$${index + 1}`).join(", ")})
+       AND is_demo = $${params.length}`,
+    params,
   );
   return new Map(result.rows.map((row) => [row.key, row.value]));
 }
@@ -289,20 +302,35 @@ async function resolveStoredSecret(
   return { apiKey: "", apiKeySource: "none" };
 }
 
-async function clearSettingKey(settingKey: string, auditAction: string, entityId: string, actorInput: string) {
+async function clearSettingKey(
+  settingKey: string,
+  auditAction: string,
+  entityId: string,
+  actorInput: string,
+  options?: ModeOptions,
+) {
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const db = await getDb();
   const actor = actorInput.trim().slice(0, 80) || "本机管理员";
   await db.transaction(async (tx) => {
     await tx.query(
-      `INSERT INTO app_settings (key, value, updated_by, updated_at)
-       VALUES ($1, '', $2, NOW())
-       ON CONFLICT (key) DO UPDATE SET value = '', updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
-      [settingKey, actor],
+      `INSERT INTO app_settings (key, value, updated_by, updated_at, is_demo)
+       VALUES ($1, '', $2, NOW(), $3)
+       ON CONFLICT (key, is_demo) DO UPDATE SET value = '', updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+      [settingKey, actor, demo],
     );
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, $3, 'app_settings', $4, $5::jsonb)`,
-      [randomUUID(), actor, auditAction, entityId, JSON.stringify({ keyConfigured: false, credentialsExposed: false })],
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, $3, 'app_settings', $4, $5::jsonb, $6)`,
+      [
+        randomUUID(),
+        actor,
+        auditAction,
+        entityId,
+        JSON.stringify({ keyConfigured: false, credentialsExposed: false }),
+        demo,
+      ],
     );
   });
 }
@@ -342,8 +370,8 @@ function envKeyForVideo(provider: VideoProviderId) {
   );
 }
 
-async function hasStoredOrEnvKey(settingKey: string, envKey: string): Promise<boolean> {
-  const stored = await readSettingMap([settingKey]);
+async function hasStoredOrEnvKey(settingKey: string, envKey: string, mode: AppMode): Promise<boolean> {
+  const stored = await readSettingMap([settingKey], mode);
   const secret = await resolveStoredSecret(stored.get(settingKey), envKey);
   return Boolean(secret.apiKey);
 }
@@ -543,10 +571,13 @@ function isAlreadyExists(error: unknown) {
   return error instanceof Error && "code" in error && error.code === "EEXIST";
 }
 
-export async function loadFunnelThresholds(): Promise<SourcingFunnelThresholds> {
+export async function loadFunnelThresholds(options?: ModeOptions): Promise<SourcingFunnelThresholds> {
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const db = await getDb();
   const res = await db.query<{ value: string }>(
-    "SELECT value FROM app_settings WHERE key = 'sourcing_funnel_thresholds' LIMIT 1",
+    "SELECT value FROM app_settings WHERE key = 'sourcing_funnel_thresholds' AND is_demo = $1 LIMIT 1",
+    [demo],
   );
   const raw = res.rows[0]?.value;
   if (!raw) return { ...DEFAULT_FUNNEL_THRESHOLDS };
@@ -565,9 +596,15 @@ export async function loadFunnelThresholds(): Promise<SourcingFunnelThresholds> 
   }
 }
 
-export async function saveFunnelThresholds(input: Partial<SourcingFunnelThresholds>, actor = "管理员") {
+export async function saveFunnelThresholds(
+  input: Partial<SourcingFunnelThresholds>,
+  actor = "管理员",
+  options?: ModeOptions,
+) {
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const db = await getDb();
-  const current = await loadFunnelThresholds();
+  const current = await loadFunnelThresholds({ mode });
   const merged: SourcingFunnelThresholds = {
     minCompetitorsForPass: Math.max(4, Math.round(Number(input.minCompetitorsForPass ?? current.minCompetitorsForPass))),
     maxHhi: Math.max(1000, Math.round(Number(input.maxHhi ?? current.maxHhi))),
@@ -577,18 +614,21 @@ export async function saveFunnelThresholds(input: Partial<SourcingFunnelThreshol
     maxComplianceCostUsd: Math.max(100, Math.round(Number(input.maxComplianceCostUsd ?? current.maxComplianceCostUsd))),
   };
   await db.query(
-    `INSERT INTO app_settings (key, value, updated_by, updated_at)
-     VALUES ('sourcing_funnel_thresholds', $1, $2, NOW())
-     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
-    [JSON.stringify(merged), actor.trim() || "管理员"],
+    `INSERT INTO app_settings (key, value, updated_by, updated_at, is_demo)
+     VALUES ('sourcing_funnel_thresholds', $1, $2, NOW(), $3)
+     ON CONFLICT (key, is_demo) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+    [JSON.stringify(merged), actor.trim() || "管理员", demo],
   );
   return merged;
 }
 
-export async function loadSourcingConstraints(): Promise<SourcingConstraints> {
+export async function loadSourcingConstraints(options?: ModeOptions): Promise<SourcingConstraints> {
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const db = await getDb();
   const res = await db.query<{ value: string }>(
-    "SELECT value FROM app_settings WHERE key = 'sourcing_constraints' LIMIT 1",
+    "SELECT value FROM app_settings WHERE key = 'sourcing_constraints' AND is_demo = $1 LIMIT 1",
+    [demo],
   );
   const raw = res.rows[0]?.value;
   if (!raw) return { ...DEFAULT_SOURCING_CONSTRAINTS };
@@ -617,13 +657,19 @@ export async function loadSourcingConstraints(): Promise<SourcingConstraints> {
   }
 }
 
-export async function saveSourcingConstraints(input: SourcingConstraints, actor = "选品负责人") {
+export async function saveSourcingConstraints(
+  input: SourcingConstraints,
+  actor = "选品负责人",
+  options?: ModeOptions,
+) {
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const db = await getDb();
   await db.query(
-    `INSERT INTO app_settings (key, value, updated_by, updated_at)
-     VALUES ('sourcing_constraints', $1, $2, NOW())
-     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
-    [JSON.stringify(input), actor.trim() || "选品负责人"],
+    `INSERT INTO app_settings (key, value, updated_by, updated_at, is_demo)
+     VALUES ('sourcing_constraints', $1, $2, NOW(), $3)
+     ON CONFLICT (key, is_demo) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+    [JSON.stringify(input), actor.trim() || "选品负责人", demo],
   );
   return input;
 }

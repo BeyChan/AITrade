@@ -25,11 +25,18 @@ npm install
 npm run dev
 ```
 
-启动后访问 <http://localhost:1688>（本地数据存放在 `.data/`，首次启动会自动写入演示数据，可在「设置 → 常规设置」切换到真实数据模式）。
+启动后访问 <http://localhost:1688>。本地数据存放在 `.data/`，首次启动会自动执行迁移并写入演示数据，可在「设置 → 常规设置」切换到真实数据模式。
 
-- **生产构建与运行**：`npm run build && npm start`（不依赖 Google Fonts，断网可构建）
+- **生产构建与运行**：`npm run build && npm start`，同样监听 **1688** 端口（不依赖 Google Fonts，断网可构建）
 - **开启访问口令（可选）**：`APP_ACCESS_PIN=your-pin npm start`（通过 Next.js `proxy.ts` 拦截，Cookie 有效期 30 天）
 - **健康检查**：`GET /api/health`
+
+### 数据库与迁移
+
+- `db/migrations/` 是唯一表结构真相源，不再维护重复的 `db/schema.sql`。
+- 服务启动时按版本顺序执行迁移；已执行迁移会校验 SHA-256 摘要，文件缺失、版本前缀重复或历史迁移被修改都会直接报错。
+- 每个迁移的 SQL 与 `schema_migrations` 版本记录在同一事务中提交，失败时整体回滚，不会留下半完成结构。
+- PGlite 数据目录同一时间只允许一个进程打开；重复启动会保留原库并报错，不会自动覆盖数据。
 
 ---
 
@@ -125,13 +132,30 @@ flowchart LR
 
 ## 常用命令与目录
 
+### 测试约定
+
+- `npm run test:e2e` 默认在 **1699** 启动隔离的生产构建，并使用临时 PGlite 数据目录；测试结束后自动清理。显式传入 `E2E_DB_DIR` 时不会删除该目录。
+- 针对正在运行的 **1688** 开发服务做 E2E 时，使用下面的命令。该模式会直接读写当前开发库，并留下少量 `e2e-*.csv` 测试批次：
+
 ```bash
+E2E_SKIP_WEBSERVER=1 \
+E2E_BASE_URL=http://127.0.0.1:1688 \
+E2E_CHANNEL=chrome \
+npm run test:e2e
+```
+
+- API 路由统一通过 `src/lib/api-http.ts` 处理输入错误、HTTP 状态码、未知异常与 CORS。未知异常返回 500，缺少资源返回 404，不再混用 400。
+
+```bash
+npm run dev                        # 开发服务，监听 1688
 npm run typecheck                  # TypeScript 类型检查
+npm run lint                       # Oxlint 静态检查
 npm run theme:check                # 浅色/深色主题变量检查
-npm test                           # 全量单元测试
-npm run test:e2e                   # Playwright 核心流程冒烟测试
+npm test                           # 全量单元/集成测试
+npm run test:e2e                   # Playwright 核心流程 E2E（默认隔离环境）
 npm run screenshots                # 重拍工作台与自动选品深浅双模截图
 npm run build                      # 本地生产构建
+npm start                          # 生产服务，监听 1688
 npm run db:reset                   # 清空本地 PGlite 数据库与缓存
 ```
 
@@ -139,9 +163,10 @@ npm run db:reset                   # 清空本地 PGlite 数据库与缓存
 src/app/         页面路由（含 /auto-pipeline 及 /auto-pipeline/history）、Server Actions 与 API
 src/components/  前端组件
 src/lib/         自动选品编排 (auto-pipeline/)、多平台交付 (listing-delivery.ts)、
-                 利润/物流/合规/结算/汇率计算、AI 适配与数据库层
+                 利润/物流/合规/结算/汇率计算、AI 适配、数据库迁移与 API 公共层
+src/lib/api-http.ts  API 错误语义、统一包装与 CORS 辅助
 src/proxy.ts     Next.js 16 请求代理（可选 APP_ACCESS_PIN）
 extensions/      Chrome 三合一实战助手（Amazon 选品 + 1688 寻源 + 多平台半自动上架）
-e2e/             Playwright 冒烟测试
-db/schema.sql    PGlite 表结构（PostgreSQL 语法兼容）
+e2e/             Playwright E2E、测试数据目录隔离与清理
+db/migrations/   唯一表结构真相源（按版本顺序执行的 PostgreSQL 迁移）
 ```

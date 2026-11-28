@@ -1,4 +1,5 @@
 import { generateStructuredJSON, getAIProviderStatus } from "../ai-provider.ts";
+import type { ModeOptions } from "../app-mode.ts";
 import {
   applySupplierPolish,
   buildDeterministicSupplierDraft,
@@ -32,9 +33,9 @@ export type SupplierDraftGenerationResult = {
 export async function generateSupplierDraft(input: {
   draftType: SupplierDraftType;
   facts: SupplierDraftFactSnapshot;
-}): Promise<SupplierDraftGenerationResult> {
+}, options?: ModeOptions): Promise<SupplierDraftGenerationResult> {
   const deterministic = buildDeterministicSupplierDraft(input);
-  const status = await getAIProviderStatus();
+  const status = await getAIProviderStatus(options);
 
   if (!status.configured || status.provider === "template") {
     return {
@@ -58,7 +59,7 @@ export async function generateSupplierDraft(input: {
       }),
       timeoutMs: 35_000,
       maxTokens: 1_000,
-    });
+    }, fetch, undefined, options);
     const raw = parseSupplierPolish(generated.content);
     const validation = validateSupplierPolish(raw, deterministic, input.facts);
     if (!validation.ok) throw new Error(validation.error);

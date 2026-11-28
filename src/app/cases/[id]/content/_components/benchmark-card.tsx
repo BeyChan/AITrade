@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ProposalMeta } from "@/components/ai-proposal-card";
 import { CopyDraftButton } from "@/components/copy-draft-button";
 import { generateStructuredJSON } from "@/lib/ai-provider";
+import type { AppMode } from "@/lib/app-mode";
 import type { CaseBenchmarkLookupResult } from "@/lib/ai-sourcing-repository";
 import {
   buildTemplateBenchmarkBullets,
@@ -24,6 +25,7 @@ export async function resolveBenchmarkBulletProposals(
     claimsToAvoid?: string | null;
   } | null,
   requestModel: boolean,
+  mode: AppMode,
 ): Promise<BenchmarkBulletProposal | null> {
   const fallbackProposal = buildTemplateBenchmarkBullets(benchmark, profile);
   if (!requestModel) {
@@ -60,7 +62,7 @@ export async function resolveBenchmarkBulletProposals(
       }),
       timeoutMs: 18_000,
       maxTokens: 1_600,
-    });
+    }, fetch, undefined, { mode });
 
     const parsed = JSON.parse(generated.content) as unknown;
     return validateBenchmarkBulletProposal(parsed, benchmark, {

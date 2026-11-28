@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getAppMode } from "@/lib/app-mode";
 import { recordAuditLog } from "@/lib/audit-logs";
 import { evaluateMediaPackExportGate } from "@/lib/export-gates";
 import { getContentDetail } from "@/lib/repository";
@@ -8,8 +9,6 @@ import { listStandaloneVideoAssets } from "@/lib/standalone-video-studio";
 import { readStoredImage } from "@/lib/storage";
 import { buildZipBuffer, type ZipEntry } from "@/lib/zip";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 function safeSlug(input: string): string {
   return (input || "product")
@@ -56,16 +55,17 @@ export async function GET(
   context: { params: Promise<{ id: string }> },
 ) {
   try {
+    const mode = await getAppMode();
     const { id } = await context.params;
-    const detail = await getContentDetail(id);
+    const detail = await getContentDetail(id, { mode });
     if (!detail) {
       return NextResponse.json({ error: "未找到对应商品案卷" }, { status: 404 });
     }
 
     const { productCase, costModel, selection, profile, assets, listing } = detail;
     const [studioImages, studioVideos] = await Promise.all([
-      listStandaloneStudioAssets().catch(() => []),
-      listStandaloneVideoAssets().catch(() => []),
+      listStandaloneStudioAssets({ mode }).catch(() => []),
+      listStandaloneVideoAssets({ mode }).catch(() => []),
     ]);
     const approvedMainImageCount = assets.filter(
       (asset) => asset.asset_type === "main_image" && asset.status === "approved",
@@ -205,6 +205,7 @@ export async function GET(
     const filename = `AITrade-${productCase.asin}-${safeSlug(productCase.category)}-pack.zip`;
 
     await recordAuditLog({
+      mode,
       actor: "本机用户",
       action: "case.media_pack_exported",
       entityType: "product_case",

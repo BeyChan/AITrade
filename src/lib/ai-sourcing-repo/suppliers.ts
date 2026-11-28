@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { getDb } from "../db.ts";
+import { isDemoMode, resolveAppMode, type ModeOptions } from "../app-mode.ts";
 import { normalizeObservedAt, validateEvidenceUrl } from "../ai-sourcing.ts";
 import {
   parseSupplierCandidatePayload,
@@ -19,8 +20,10 @@ export async function recordSupplierCandidates(input: {
   payload: string;
   actor: string;
   observedAt?: string;
-}) {
-  const context = await loadHypothesisContext(input.hypothesisId);
+}, options?: ModeOptions) {
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
+  const context = await loadHypothesisContext(input.hypothesisId, { mode });
   if (!context) throw new Error("机会假设不存在");
   if (!context.hypothesis.selectedForValidation) throw new Error("请先把机会加入验证，再采集供应商候选");
 
@@ -38,8 +41,12 @@ export async function recordSupplierCandidates(input: {
 
   return db.transaction(async (tx) => {
     const selected = await tx.query<{ selected_for_validation: boolean }>(
-      "SELECT selected_for_validation FROM opportunity_hypotheses WHERE id = $1 FOR UPDATE",
-      [input.hypothesisId],
+      `SELECT h.selected_for_validation
+       FROM opportunity_hypotheses h
+       JOIN ai_sourcing_runs r ON r.id = h.run_id
+       WHERE h.id = $1 AND r.is_demo = $2
+       FOR UPDATE OF h`,
+      [input.hypothesisId, demo],
     );
     if (!selected.rows[0]) throw new Error("机会假设不存在");
     if (!selected.rows[0].selected_for_validation) throw new Error("请先把机会加入验证，再采集供应商候选");
@@ -118,8 +125,8 @@ export async function recordSupplierCandidates(input: {
       [duplicateCount, JSON.stringify(warnings), runId],
     );
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'ai_sourcing.supplier_candidates_recorded', 'opportunity_hypothesis', $3, $4::jsonb)`,
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'ai_sourcing.supplier_candidates_recorded', 'opportunity_hypothesis', $3, $4::jsonb, $5)`,
       [
         randomUUID(),
         actor,
@@ -134,6 +141,7 @@ export async function recordSupplierCandidates(input: {
           triggerMode: "user_triggered",
           externalActions: "none",
         }),
+        demo,
       ],
     );
 
@@ -157,7 +165,7 @@ export async function shortlistSupplierCandidate(input: {
   productMatch: string;
   actor: string;
   verified: boolean;
-}) {
+}, options?: ModeOptions) {
   if (!input.verified) throw new Error("请先确认已经人工核验供应商和产品，再加入短名单");
   const candidateId = input.candidateId.trim();
   if (!candidateId) throw new Error("缺少候选 ID");
@@ -167,15 +175,18 @@ export async function shortlistSupplierCandidate(input: {
   if (!productMatch) throw new Error("请填写人工核验后的产品匹配说明");
   const actor = input.actor.trim().slice(0, 80) || "采购人员";
   const db = await getDb();
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
 
   const outcome = await db.transaction(async (tx) => {
     const candidateResult = await tx.query<SupplierCandidateRow & { selected_for_validation: boolean }>(
       `SELECT c.*, h.selected_for_validation
        FROM supplier_candidates c
        JOIN opportunity_hypotheses h ON h.id = c.hypothesis_id
-       WHERE c.id = $1
+       JOIN ai_sourcing_runs r ON r.id = h.run_id
+       WHERE c.id = $1 AND r.is_demo = $2
        FOR UPDATE OF c`,
-      [candidateId],
+      [candidateId, demo],
     );
     const candidate = candidateResult.rows[0];
     if (!candidate) throw new Error("供应商候选不存在");
@@ -214,8 +225,8 @@ export async function shortlistSupplierCandidate(input: {
     if (updated.rows.length === 0) throw new Error("候选状态已变化，请刷新后重试");
 
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'ai_sourcing.supplier_candidate_shortlisted', 'supplier_candidate', $3, $4::jsonb)`,
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'ai_sourcing.supplier_candidate_shortlisted', 'supplier_candidate', $3, $4::jsonb, $5)`,
       [
         randomUUID(),
         actor,
@@ -229,12 +240,13 @@ export async function shortlistSupplierCandidate(input: {
           manuallyVerified: true,
           externalActions: "none",
         }),
+        demo,
       ],
     );
 
     return { candidateId, shortlistId, supplierName, hypothesisId: candidate.hypothesis_id };
   });
-  await refreshAISelectionDecision(outcome.hypothesisId);
+  await refreshAISelectionDecision(outcome.hypothesisId, { mode });
   return outcome;
 }
 
@@ -242,17 +254,24 @@ export async function rejectSupplierCandidate(input: {
   candidateId: string;
   actor: string;
   reason: string;
-}) {
+}, options?: ModeOptions) {
   const candidateId = input.candidateId.trim();
   if (!candidateId) throw new Error("缺少候选 ID");
   const actor = input.actor.trim().slice(0, 80) || "采购人员";
   const reason = input.reason.trim().slice(0, 300) || "人工排除";
   const db = await getDb();
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
 
   return db.transaction(async (tx) => {
     const candidateResult = await tx.query<SupplierCandidateRow>(
-      `SELECT * FROM supplier_candidates WHERE id = $1 FOR UPDATE`,
-      [candidateId],
+      `SELECT c.*
+       FROM supplier_candidates c
+       JOIN opportunity_hypotheses h ON h.id = c.hypothesis_id
+       JOIN ai_sourcing_runs r ON r.id = h.run_id
+       WHERE c.id = $1 AND r.is_demo = $2
+       FOR UPDATE OF c`,
+      [candidateId, demo],
     );
     const candidate = candidateResult.rows[0];
     if (!candidate) throw new Error("供应商候选不存在");
@@ -266,8 +285,8 @@ export async function rejectSupplierCandidate(input: {
       [candidateId],
     );
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'ai_sourcing.supplier_candidate_rejected', 'supplier_candidate', $3, $4::jsonb)`,
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'ai_sourcing.supplier_candidate_rejected', 'supplier_candidate', $3, $4::jsonb, $5)`,
       [
         randomUUID(),
         actor,
@@ -277,6 +296,7 @@ export async function rejectSupplierCandidate(input: {
           reason,
           externalActions: "none",
         }),
+        demo,
       ],
     );
 
@@ -309,9 +329,10 @@ export async function recordAISupplierQuote(input: {
   quoteUrl: string;
   observedAt: string;
   actor: string;
-}) {
+}, options?: ModeOptions) {
   const db = await getDb();
-  const context = await loadHypothesisContext(input.hypothesisId);
+  const mode = await resolveAppMode(options?.mode);
+  const context = await loadHypothesisContext(input.hypothesisId, { mode });
   if (!context) throw new Error("机会假设不存在");
   if (!context.hypothesis.selectedForValidation) throw new Error("请先把机会加入验证");
   const supplierUrl = validateEvidenceUrl(input.supplierUrl.trim());
@@ -388,6 +409,6 @@ export async function recordAISupplierQuote(input: {
       ],
     );
   });
-  return refreshAISelectionDecision(input.hypothesisId);
+  return refreshAISelectionDecision(input.hypothesisId, { mode });
 }
 

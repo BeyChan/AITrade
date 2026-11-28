@@ -2,15 +2,15 @@ import {
   createAndRunKeepaSync,
   getConnectorSyncDashboard,
 } from "@/lib/connector-sync";
+import { getAppMode } from "@/lib/app-mode";
 import { sanitizeConnectorError } from "@/lib/connectors/security";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const MAX_REQUEST_BYTES = 64 * 1024;
 
 export async function GET() {
-  return Response.json(await getConnectorSyncDashboard());
+  const mode = await getAppMode();
+  return Response.json(await getConnectorSyncDashboard({ mode }));
 }
 
 export async function POST(request: Request) {
@@ -20,6 +20,7 @@ export async function POST(request: Request) {
   }
 
   try {
+    const mode = await getAppMode();
     const body = (await request.json()) as Record<string, unknown>;
     const sourceCode = String(body.sourceCode ?? "");
     if (sourceCode !== "keepa") {
@@ -34,6 +35,7 @@ export async function POST(request: Request) {
       marketplace: String(body.marketplace ?? "US"),
       actor: String(body.actor ?? "运营人员"),
       triggerType: "manual",
+      mode,
     });
 
     const status = result.job.status === "failed"

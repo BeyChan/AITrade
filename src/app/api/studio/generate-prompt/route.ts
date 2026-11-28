@@ -1,5 +1,6 @@
-import { apiError, readJsonObject, stringField } from "@/lib/api-http";
+import { readJsonObject, stringField, withApiRoute } from "@/lib/api-http";
 import { generateStructuredJSON, getAIProviderStatus } from "@/lib/ai-provider";
+import { getAppMode } from "@/lib/app-mode";
 import { getImageSkillById, normalizeAspectRatio } from "@/lib/image-skills";
 import {
   composeVideoPrompt,
@@ -9,8 +10,6 @@ import {
 } from "@/lib/video-provider";
 import { getVideoSkillById } from "@/lib/video-skills";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 function extractJsonObject(raw: string): Record<string, unknown> | null {
   const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/```$/i, "").trim();
@@ -25,8 +24,8 @@ function extractJsonObject(raw: string): Record<string, unknown> | null {
   }
 }
 
-export async function POST(request: Request) {
-  try {
+export const POST = withApiRoute(async (request: Request) => {
+    const mode = await getAppMode();
     const body = await readJsonObject(request);
     const kind = stringField(body, "kind", { required: true, maxLength: 16 });
     const productName = stringField(body, "productName", { maxLength: 160 }) || "跨境电商品牌主推单品";
@@ -38,14 +37,14 @@ export async function POST(request: Request) {
       ? body.topPainPoints.filter((item): item is string => typeof item === "string" && Boolean(item.trim())).slice(0, 3)
       : [];
 
-    const aiStatus = await getAIProviderStatus();
+    const aiStatus = await getAIProviderStatus({ mode });
 
     if (kind === "video") {
       const skillId = stringField(body, "skillId", { maxLength: 80 });
       const skill = await getVideoSkillById(skillId);
       const aspectRatio = normalizeVideoAspectRatio(stringField(body, "aspectRatio", { maxLength: 10 }), skill.aspectRatio);
       const durationSec = normalizeVideoDuration(body.durationSec, skill.durationSec);
-      const videoStatus = await getVideoProviderStatus();
+      const videoStatus = await getVideoProviderStatus({ mode });
 
       // 默认模板兜底结果（结合所选 Video Skill）
       const fallback = composeVideoPrompt(
@@ -122,7 +121,7 @@ export async function POST(request: Request) {
           }),
           maxTokens: 900,
           timeoutMs: 35_000,
-        });
+        }, fetch, undefined, { mode });
 
         const parsed = extractJsonObject(res.content);
         if (parsed && typeof parsed.prompt === "string" && parsed.prompt.trim()) {
@@ -227,7 +226,7 @@ export async function POST(request: Request) {
         }),
         maxTokens: 700,
         timeoutMs: 35_000,
-      });
+      }, fetch, undefined, { mode });
 
       const parsed = extractJsonObject(res.content);
       if (parsed && typeof parsed.prompt === "string" && parsed.prompt.trim()) {
@@ -259,7 +258,4 @@ export async function POST(request: Request) {
       negativePrompt: fallbackNegative,
       note: "外部文本模型暂不可用，已自动回退为结构化商业摄影提示词。",
     });
-  } catch (error) {
-    return apiError(error);
-  }
-}
+});

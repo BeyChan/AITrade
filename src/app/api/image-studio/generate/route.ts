@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
+import { getAppMode } from "@/lib/app-mode";
 import { recordAuditLog } from "@/lib/audit-logs";
 import { generateImagesWithProvider, getImageProviderStatus } from "@/lib/image-provider";
 import {
@@ -18,8 +19,6 @@ import {
 } from "@/lib/standalone-image-studio";
 import { deleteStoredImage, detectImageType, readStoredImage, saveImageBuffer } from "@/lib/storage";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const MAX_REFERENCE_BYTES = 8 * 1024 * 1024;
 
@@ -31,6 +30,7 @@ function readField(formData: FormData, key: string, maxLength = 2000): string {
 
 export async function POST(request: Request) {
   try {
+    const mode = await getAppMode();
     const formData = await request.formData();
     const rawAction = readField(formData, "action", 20) || "preview";
     const action = rawAction === "generate" ? "generate" : "preview";
@@ -75,7 +75,7 @@ export async function POST(request: Request) {
             }),
           )
         : getImageSkillById(skillId),
-      getImageProviderStatus(),
+      getImageProviderStatus({ mode }),
     ]);
     const slot = rawSlot && isSupportedImageSlot(rawSlot) ? rawSlot : skill.slot;
     const aspectRatio = normalizeAspectRatio(rawAspectRatio, skill.aspectRatio);
@@ -125,7 +125,7 @@ export async function POST(request: Request) {
         fileName: referenceFile.name || `reference.${detected.extension}`,
       };
     } else if (referenceAssetId) {
-      const refAsset = await getStandaloneStudioAsset(referenceAssetId);
+      const refAsset = await getStandaloneStudioAsset(referenceAssetId, { mode });
       if (!refAsset) {
         return Response.json({ error: "所选历史参考底图不存在" }, { status: 400 });
       }
@@ -140,13 +140,18 @@ export async function POST(request: Request) {
     const finalPrompt = promptOverride || preview.prompt;
     const finalNegativePrompt = negativePromptOverride || preview.negativePrompt;
 
-    const generated = await generateImagesWithProvider({
-      prompt: finalPrompt,
-      negativePrompt: finalNegativePrompt,
-      aspectRatio: preview.aspectRatio,
-      count,
-      referenceImage: referencePayload,
-    });
+    const generated = await generateImagesWithProvider(
+      {
+        prompt: finalPrompt,
+        negativePrompt: finalNegativePrompt,
+        aspectRatio: preview.aspectRatio,
+        count,
+        referenceImage: referencePayload,
+      },
+      fetch,
+      undefined,
+      { mode },
+    );
 
     if (generated.mode === "prompt_only" || generated.images.length === 0) {
       return Response.json({
@@ -187,7 +192,7 @@ export async function POST(request: Request) {
         createdAt: new Date().toISOString(),
       };
       try {
-        await saveStandaloneStudioAsset(record);
+        await saveStandaloneStudioAsset(record, { mode });
         createdAssets.push(record);
       } catch (error) {
         await deleteStoredImage(saved.storageKey);
@@ -199,7 +204,7 @@ export async function POST(request: Request) {
     const linkedCaseId = readField(formData, "caseId", 120);
     let autoBoundCount = 0;
     if (linkedCaseId && createdAssets.length > 0) {
-      const detail = await getContentDetail(linkedCaseId).catch(() => null);
+      const detail = await getContentDetail(linkedCaseId, { mode }).catch(() => null);
       if (detail && detail.productCase.status === "approved" && detail.selection) {
         for (const asset of createdAssets) {
           try {
@@ -228,8 +233,13 @@ export async function POST(request: Request) {
                 },
               },
               actor,
+              { mode },
             );
-            await markStandaloneImageBound(asset.id, { caseId: linkedCaseId, caseTitle: detail.productCase.title });
+            await markStandaloneImageBound(
+              asset.id,
+              { caseId: linkedCaseId, caseTitle: detail.productCase.title },
+              { mode },
+            );
             autoBoundCount += 1;
           } catch {
             // 不阻断主流程，失败时仍可手动点入库
@@ -242,6 +252,7 @@ export async function POST(request: Request) {
     }
 
     await recordAuditLog({
+      mode,
       actor,
       action: "image_studio.generated",
       entityType: "studio_image",
@@ -253,6 +264,7 @@ export async function POST(request: Request) {
         provider: generated.provider,
         model: generated.model,
         count: createdAssets.length,
+        mode,
       },
     }).catch(() => {});
 

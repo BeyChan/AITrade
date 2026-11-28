@@ -41,6 +41,7 @@ import {
 } from "./helpers";
 
 export async function createAISourcingBatchAction(formData: FormData) {
+  const mode = await getAppMode();
   const marketCode = String(formData.get("marketCode") || "").trim().toUpperCase();
   const platformCode = String(formData.get("platformCode") || "").trim().toLowerCase();
   const returnPath = `/discover?market=${encodeURIComponent(marketCode)}&platform=${encodeURIComponent(platformCode)}&entry=ai`;
@@ -50,7 +51,7 @@ export async function createAISourcingBatchAction(formData: FormData) {
     let fxSourceUrl = String(formData.get("fxSourceUrl") || "").trim() || null;
 
     if (!fxRateToUsd) {
-      const [siteOpts, fxSnapshot] = await Promise.all([getSiteOptions(), getFxRatesSnapshot()]);
+      const [siteOpts, fxSnapshot] = await Promise.all([getSiteOptions(), getFxRatesSnapshot({ mode })]);
       const market = siteOpts.markets.find((m) => m.code.toUpperCase() === marketCode);
       const currency = (market?.currency || "USD").toUpperCase();
       if (currency !== "USD") {
@@ -107,7 +108,7 @@ export async function createAISourcingBatchAction(formData: FormData) {
       fxSourceUrl,
       requestKey: String(formData.get("requestKey") || "") || null,
       constraints,
-    });
+    }, { mode });
   } catch (error) {
     redirect(`${returnPath}&error=${encodeURIComponent(errorMessage(error))}`);
   }
@@ -120,10 +121,11 @@ export async function createAISourcingBatchAction(formData: FormData) {
 }
 
 export async function deleteAISourcingBatchAction(formData: FormData) {
+  const mode = await getAppMode();
   const runId = String(formData.get("runId") || "").trim();
   let deleted: Awaited<ReturnType<typeof deleteAISourcingBatch>>;
   try {
-    deleted = await deleteAISourcingBatch(runId, String(formData.get("actor") || "运营人员"));
+    deleted = await deleteAISourcingBatch(runId, String(formData.get("actor") || "运营人员"), { mode });
   } catch (error) {
     redirect(`/ai-sourcing?error=${encodeURIComponent(errorMessage(error))}`);
   }
@@ -138,10 +140,11 @@ export async function deleteAISourcingBatchAction(formData: FormData) {
 }
 
 export async function selectHypothesisAction(formData: FormData) {
+  const mode = await getAppMode();
   const runId = String(formData.get("runId") || "");
   const hypothesisId = String(formData.get("hypothesisId") || "");
   try {
-    await selectHypothesisForValidation(hypothesisId, String(formData.get("actor") || ""));
+    await selectHypothesisForValidation(hypothesisId, String(formData.get("actor") || ""), { mode });
   } catch (error) {
     redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
   }
@@ -150,6 +153,7 @@ export async function selectHypothesisAction(formData: FormData) {
 }
 
 export async function toggleValidationTaskAction(formData: FormData) {
+  const mode = await getAppMode();
   const taskId = String(formData.get("taskId") || "");
   const runId = String(formData.get("runId") || "");
   const hypothesisId = String(formData.get("hypothesisId") || "");
@@ -159,7 +163,7 @@ export async function toggleValidationTaskAction(formData: FormData) {
   let resultStatus = "已更新";
   let targetHypothesisId = hypothesisId;
   try {
-    const res = await toggleValidationTaskStatus(taskId, status, actor);
+    const res = await toggleValidationTaskStatus(taskId, status, actor, { mode });
     resultStatus = res?.status === "done" ? "已完成" : "待处理";
     if (res?.hypothesisId) {
       targetHypothesisId = res.hypothesisId;
@@ -174,6 +178,7 @@ export async function toggleValidationTaskAction(formData: FormData) {
 }
 
 export async function recordOpportunityEvidenceAction(formData: FormData) {
+  const mode = await getAppMode();
   const runId = String(formData.get("runId") || "");
   const hypothesisId = String(formData.get("hypothesisId") || "");
   const requestedType = String(formData.get("evidenceType") || "review_insight");
@@ -196,7 +201,7 @@ export async function recordOpportunityEvidenceAction(formData: FormData) {
       sentiment: "negative",
       riskLevel: evidenceType === "review_insight" ? undefined : riskLevel,
       actor: String(formData.get("actor") || ""),
-    });
+    }, { mode });
   } catch (error) {
     redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
   }
@@ -205,6 +210,7 @@ export async function recordOpportunityEvidenceAction(formData: FormData) {
 }
 
 export async function recordCompetitorAction(formData: FormData) {
+  const mode = await getAppMode();
   const runId = String(formData.get("runId") || "");
   const hypothesisId = String(formData.get("hypothesisId") || "");
   const ratingValue = numberOrNull(formData.get("rating"));
@@ -224,7 +230,7 @@ export async function recordCompetitorAction(formData: FormData) {
       variationCount: positiveIntegerOrNull(formData.get("variationCount")),
       observedAt: String(formData.get("observedAt") || ""),
       actor: String(formData.get("actor") || ""),
-    });
+    }, { mode });
   } catch (error) {
     redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
   }
@@ -233,6 +239,7 @@ export async function recordCompetitorAction(formData: FormData) {
 }
 
 export async function autoImportCompetitorsAction(formData: FormData) {
+  const mode = await getAppMode();
   const runId = String(formData.get("runId") || "");
   const hypothesisId = String(formData.get("hypothesisId") || "");
   const targetCount = positiveIntegerOrNull(formData.get("targetCount")) ?? 20;
@@ -245,7 +252,7 @@ export async function autoImportCompetitorsAction(formData: FormData) {
       includeReviews: formData.get("includeReviews") !== "false",
       rawPayload: String(formData.get("rawPayload") || ""),
       actor: String(formData.get("actor") || "运营人员"),
-    });
+    }, { mode });
   } catch (error) {
     redirect(`/ai-sourcing/${encodeURIComponent(runId)}?tab=hypotheses&hypothesisId=${encodeURIComponent(hypothesisId)}&error=${encodeURIComponent(errorMessage(error))}#hypothesis-${encodeURIComponent(hypothesisId)}`);
   }
@@ -257,6 +264,7 @@ export async function autoImportCompetitorsAction(formData: FormData) {
 }
 
 export async function recordAISupplierQuoteAction(formData: FormData) {
+  const mode = await getAppMode();
   const runId = String(formData.get("runId") || "");
   const hypothesisId = String(formData.get("hypothesisId") || "");
   const score = numberOrNull(formData.get("sampleScore"));
@@ -264,7 +272,7 @@ export async function recordAISupplierQuoteAction(formData: FormData) {
   const unitPriceRmb = numberOrNull(formData.get("unitPriceRmb"));
   const unitPriceCents =
     unitPriceRmb && unitPriceRmb > 0
-      ? convertRmbToForeignCents(unitPriceRmb, currency)
+      ? convertRmbToForeignCents(unitPriceRmb, currency, mode)
       : dollarsToCents(formData.get("unitPrice"));
   const supplierUrlRaw = String(formData.get("supplierUrl") || "").trim();
   const quoteUrlRaw = String(formData.get("quoteUrl") || "").trim();
@@ -292,7 +300,7 @@ export async function recordAISupplierQuoteAction(formData: FormData) {
       quoteUrl: quoteUrlRaw || supplierUrlRaw || fallback1688Url,
       observedAt: String(formData.get("observedAt") || new Date().toISOString()),
       actor: String(formData.get("actor") || "采购人员"),
-    });
+    }, { mode });
   } catch (error) {
     redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
   }
@@ -301,6 +309,7 @@ export async function recordAISupplierQuoteAction(formData: FormData) {
 }
 
 export async function eliminateHypothesisAction(formData: FormData) {
+  const mode = await getAppMode();
   const runId = String(formData.get("runId") || "").trim();
   const hypothesisId = String(formData.get("hypothesisId") || "").trim();
   const reason = String(formData.get("reason") || "").trim();
@@ -309,7 +318,7 @@ export async function eliminateHypothesisAction(formData: FormData) {
   const returnPath = formData.get("returnPath") ? safeReturnPath(formData.get("returnPath")) : null;
 
   try {
-    await eliminateHypothesis({ hypothesisId, reason, note, actor });
+    await eliminateHypothesis({ hypothesisId, reason, note, actor }, { mode });
   } catch (error) {
     if (returnPath) redirect(withQuery(returnPath, "error", errorMessage(error)));
     redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
@@ -323,13 +332,14 @@ export async function eliminateHypothesisAction(formData: FormData) {
 }
 
 export async function restoreHypothesisAction(formData: FormData) {
+  const mode = await getAppMode();
   const runId = String(formData.get("runId") || "").trim();
   const hypothesisId = String(formData.get("hypothesisId") || "").trim();
   const actor = String(formData.get("actor") || "运营人员").trim();
   const returnPath = formData.get("returnPath") ? safeReturnPath(formData.get("returnPath")) : null;
 
   try {
-    await restoreHypothesis(hypothesisId, actor);
+    await restoreHypothesis(hypothesisId, actor, { mode });
   } catch (error) {
     if (returnPath) redirect(withQuery(returnPath, "error", errorMessage(error)));
     redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
@@ -343,6 +353,7 @@ export async function restoreHypothesisAction(formData: FormData) {
 }
 
 export async function deleteHypothesisAction(formData: FormData) {
+  const mode = await getAppMode();
   const runId = String(formData.get("runId") || "").trim();
   const hypothesisId = String(formData.get("hypothesisId") || "").trim();
   const tab = String(formData.get("tab") || "hypotheses").trim();
@@ -350,7 +361,7 @@ export async function deleteHypothesisAction(formData: FormData) {
 
   let deleted: Awaited<ReturnType<typeof deleteHypothesis>>;
   try {
-    deleted = await deleteHypothesis(hypothesisId, actor);
+    deleted = await deleteHypothesis(hypothesisId, actor, { mode });
   } catch (error) {
     redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
   }
@@ -366,6 +377,7 @@ export async function deleteHypothesisAction(formData: FormData) {
 }
 
 export async function attachComparisonReportAction(formData: FormData) {
+  const mode = await getAppMode();
   const runId = String(formData.get("runId") || "").trim();
   const hypothesisId = String(formData.get("hypothesisId") || "").trim();
   const reportId = String(formData.get("reportId") || "").trim();
@@ -381,22 +393,23 @@ export async function attachComparisonReportAction(formData: FormData) {
   let demoMode = false;
   let autoConfirmedTitle = "";
   try {
-    demoMode = (await getAppMode()) === "sandbox";
+    demoMode = mode === "sandbox";
     if (demoMode) {
-      const report = await getComparisonReportById(reportId);
+      const report = await getComparisonReportById(reportId, { mode });
       if (report && report.reviewStatus !== "confirmed") {
-        await confirmComparisonReport(reportId, { allowUnverified: true });
+        await confirmComparisonReport(reportId, { allowUnverified: true, mode });
         autoConfirmedTitle = report.title;
       }
     }
-    res = await attachComparisonReportToHypothesis({ hypothesisId, reportId, actor });
+    res = await attachComparisonReportToHypothesis({ hypothesisId, reportId, actor }, { mode });
     if (autoConfirmedTitle) {
       await recordAuditLog({
+        mode,
         actor,
         action: "competitor.report_confirmed",
         entityType: "competitor_report",
         entityId: reportId,
-        details: { title: autoConfirmedTitle, demoBypass: true, source: "candidate_bind" },
+        details: { title: autoConfirmedTitle, demoBypass: true, source: "candidate_bind", mode },
       }).catch(() => {});
     }
   } catch (error) {
@@ -412,6 +425,7 @@ export async function attachComparisonReportAction(formData: FormData) {
 }
 
 export async function saveHypothesisComplianceAttrsAction(formData: FormData) {
+  const mode = await getAppMode();
   const runId = String(formData.get("runId") || "").trim();
   const hypothesisId = String(formData.get("hypothesisId") || "").trim();
   const returnTabRaw = String(formData.get("returnTab") || "profit").trim();
@@ -430,7 +444,7 @@ export async function saveHypothesisComplianceAttrsAction(formData: FormData) {
       hypothesisId,
       complianceAttrs,
       actor,
-    });
+    }, { mode });
   } catch (error) {
     redirect(aiSourcingDetailPath(runId, "error", errorMessage(error)));
   }
@@ -441,6 +455,7 @@ export async function saveHypothesisComplianceAttrsAction(formData: FormData) {
 }
 
 export async function createQuickCandidateAction(formData: FormData) {
+  const mode = await getAppMode();
   const marketCode = String(formData.get("marketCode") || "US").trim().toUpperCase();
   const platformCode = String(formData.get("platformCode") || "amazon").trim().toLowerCase();
   const category = String(formData.get("category") || "跨境候选").trim();
@@ -462,7 +477,7 @@ export async function createQuickCandidateAction(formData: FormData) {
   try {
     let reportReferencePriceCents: number | null = null;
     if (comparisonReportId) {
-      const report = await getComparisonReportById(comparisonReportId);
+      const report = await getComparisonReportById(comparisonReportId, { mode });
       if (!report) throw new Error("未找到对应的竞品研报");
       if (report.reviewStatus !== "confirmed") throw new Error("研报尚未人工确认，不能建立正式候选");
       reportReferencePriceCents = report.priceStats.p50 > 0 ? Math.round(report.priceStats.p50) : null;
@@ -481,13 +496,13 @@ export async function createQuickCandidateAction(formData: FormData) {
       eliminationReason,
       eliminationNote,
       actor,
-    });
+    }, { mode });
     if (comparisonReportId) {
       await attachComparisonReportToHypothesis({
         hypothesisId: created.hypothesisId,
         reportId: comparisonReportId,
         actor,
-      });
+      }, { mode });
     }
   } catch (error) {
     redirect(`/discover?market=${encodeURIComponent(marketCode)}&platform=${encodeURIComponent(platformCode)}&error=${encodeURIComponent(errorMessage(error))}`);

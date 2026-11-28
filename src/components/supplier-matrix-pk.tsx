@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { money, percent } from "@/lib/format";
 import { getFxRate } from "@/lib/currency";
+import type { AppMode } from "@/lib/app-mode";
 import { FX_UPDATED_EVENT } from "./topbar-fx-widget";
 
 type ScoredQuote = {
@@ -44,6 +45,7 @@ type Props = {
   scoredQuotes: ScoredQuote[];
   selectedQuoteId: string | null;
   canSource: boolean;
+  mode: AppMode;
   initialOpenAddForm?: boolean;
   onSelectAction: (formData: FormData) => void;
   onCreate1688Action: (formData: FormData) => void;
@@ -56,6 +58,7 @@ export function SupplierMatrixPk({
   scoredQuotes,
   selectedQuoteId,
   canSource,
+  mode,
   initialOpenAddForm = false,
   onSelectAction,
   onCreate1688Action,
@@ -64,16 +67,16 @@ export function SupplierMatrixPk({
   const [priceRmb, setPriceRmb] = useState<number>(24);
   const [freightRmb, setFreightRmb] = useState<number>(5);
 
-  const [fx, setFx] = useState<number>(() => getFxRate(currency));
+  const [fx, setFx] = useState<number>(() => getFxRate(currency, mode));
 
   useEffect(() => {
-    setFx(getFxRate(currency));
+    setFx(getFxRate(currency, mode));
     function onFxUpdated() {
-      setFx(getFxRate(currency));
+      setFx(getFxRate(currency, mode));
     }
     window.addEventListener(FX_UPDATED_EVENT, onFxUpdated);
     return () => window.removeEventListener(FX_UPDATED_EVENT, onFxUpdated);
-  }, [currency]);
+  }, [currency, mode]);
 
   const convUnitPrice = (priceRmb / fx).toFixed(2);
   const convFreight = (freightRmb / fx).toFixed(2);

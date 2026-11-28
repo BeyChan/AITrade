@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { getAppMode, isDemoMode, type ModeOptions } from "./app-mode.ts";
 import { getDb } from "./db.ts";
 import type { ContributionCostKey } from "./operations-metrics.ts";
 import type { AdAttributionSource, PipelineResult } from "./operations-pipeline.ts";
@@ -100,7 +101,7 @@ type CaseCostLookup = {
   planNetMarginRate: number | null;
 };
 
-async function loadCaseLookupForMarketplace(marketplace: string): Promise<{
+async function loadCaseLookupForMarketplace(marketplace: string, isDemo: boolean): Promise<{
   byCaseId: Map<string, CaseCostLookup>;
   bySku: Map<string, { caseId: string | null; unitLandedCostCentsOverride: number | null; lookup: CaseCostLookup | null }>;
 }> {
@@ -115,8 +116,8 @@ async function loadCaseLookupForMarketplace(marketplace: string): Promise<{
             (SELECT cm.assumptions FROM cost_models cm WHERE cm.case_id = pc.id ORDER BY cm.version DESC LIMIT 1) AS assumptions,
             (SELECT cm.results FROM cost_models cm WHERE cm.case_id = pc.id ORDER BY cm.version DESC LIMIT 1) AS results
      FROM product_cases pc
-     WHERE UPPER(pc.marketplace) = UPPER($1)`,
-    [marketplace],
+     WHERE UPPER(pc.marketplace) = UPPER($1) AND pc.is_demo = $2`,
+    [marketplace, isDemo],
   );
 
   const byCaseId = new Map<string, CaseCostLookup>();
@@ -177,8 +178,8 @@ async function loadCaseLookupForMarketplace(marketplace: string): Promise<{
   }>(
     `SELECT channel_sku, case_id, unit_landed_cost_cents_override
      FROM channel_sku_mappings
-     WHERE UPPER(marketplace) = UPPER($1)`,
-    [marketplace],
+     WHERE UPPER(marketplace) = UPPER($1) AND is_demo = $2`,
+    [marketplace, isDemo],
   );
   for (const m of mapRes.rows) {
     const lookup = m.case_id ? byCaseId.get(m.case_id) ?? null : null;
@@ -201,11 +202,13 @@ export async function saveOperationsBatch(params: {
   result: PipelineResult;
   settlementFileName?: string;
   inventoryFileName?: string;
-}): Promise<SavedOperationsBatch> {
+}, options?: ModeOptions): Promise<SavedOperationsBatch> {
   const db = await getDb();
+  const mode = options?.mode ?? (await getAppMode());
+  const demo = isDemoMode(mode);
   const batchId = `ops-${randomUUID().slice(0, 12)}`;
   const periods = params.result.periods ?? [];
-  const { bySku } = await loadCaseLookupForMarketplace(params.marketplace);
+  const { bySku } = await loadCaseLookupForMarketplace(params.marketplace, demo);
 
   let totalRevenueCents = 0;
   let totalContributionCents = 0;
@@ -336,8 +339,8 @@ export async function saveOperationsBatch(params: {
   await db.query(
     `INSERT INTO operations_settlement_batches
       (id, label, marketplace, currency, period_start, period_end, settlement_file_name, inventory_file_name,
-       sku_count, total_revenue_cents, total_contribution_cents, avg_margin_rate, stockout_risk_count, created_by, summary)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb)`,
+       sku_count, total_revenue_cents, total_contribution_cents, avg_margin_rate, stockout_risk_count, created_by, summary, is_demo)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, $16)`,
     [
       batchId,
       params.label.trim() || `${params.marketplace} 实盘账本 (${periodStart || new Date().toISOString().slice(0, 10)})`,
@@ -358,6 +361,7 @@ export async function saveOperationsBatch(params: {
         landedCostCoveredCount,
         totalNetProfitCents,
       }),
+      demo,
     ],
   );
 
@@ -443,8 +447,10 @@ export async function saveOperationsBatch(params: {
   };
 }
 
-export async function listOperationsBatches(limit = 30): Promise<SavedOperationsBatch[]> {
+export async function listOperationsBatches(limit = 30, options?: ModeOptions): Promise<SavedOperationsBatch[]> {
   const db = await getDb();
+  const mode = options?.mode ?? (await getAppMode());
+  const demo = isDemoMode(mode);
   const batchRes = await db.query<{
     id: string;
     label: string;
@@ -460,15 +466,19 @@ export async function listOperationsBatches(limit = 30): Promise<SavedOperations
     created_by: string;
     created_at: string;
   }>(
-    `SELECT * FROM operations_settlement_batches ORDER BY created_at DESC LIMIT $1`,
-    [limit],
+    `SELECT * FROM operations_settlement_batches WHERE is_demo = $2 ORDER BY created_at DESC LIMIT $1`,
+    [limit, demo],
   );
 
   if (batchRes.rows.length === 0) return [];
   const batchIds = batchRes.rows.map((b) => b.id);
   const skuRes = await db.query<Record<string, unknown>>(
-    `SELECT * FROM operations_sku_snapshots WHERE batch_id = ANY($1::text[]) ORDER BY contribution_cents DESC`,
-    [batchIds],
+    `SELECT s.*
+     FROM operations_sku_snapshots s
+     JOIN operations_settlement_batches b ON b.id = s.batch_id
+     WHERE s.batch_id = ANY($1::text[]) AND b.is_demo = $2
+     ORDER BY s.contribution_cents DESC`,
+    [batchIds, demo],
   );
 
   const skusByBatch = new Map<string, SavedOperationsSkuRow[]>();
@@ -557,16 +567,27 @@ export async function listOperationsBatches(limit = 30): Promise<SavedOperations
   });
 }
 
-export async function deleteOperationsBatch(id: string): Promise<void> {
+export async function deleteOperationsBatch(id: string, options?: ModeOptions): Promise<void> {
   const db = await getDb();
-  await db.query(`DELETE FROM operations_settlement_batches WHERE id = $1`, [id]);
+  const mode = options?.mode ?? (await getAppMode());
+  await db.query(`DELETE FROM operations_settlement_batches WHERE id = $1 AND is_demo = $2`, [
+    id,
+    isDemoMode(mode),
+  ]);
 }
 
-export async function listChannelSkuMappings(marketplace?: string): Promise<ChannelSkuMapping[]> {
+export async function listChannelSkuMappings(
+  marketplace?: string,
+  options?: ModeOptions,
+): Promise<ChannelSkuMapping[]> {
   const db = await getDb();
-  const params: unknown[] = [];
-  const where = marketplace ? `WHERE UPPER(m.marketplace) = UPPER($1)` : "";
-  if (marketplace) params.push(marketplace);
+  const mode = options?.mode ?? (await getAppMode());
+  const params: unknown[] = [isDemoMode(mode)];
+  const filters = ["m.is_demo = $1"];
+  if (marketplace) {
+    params.push(marketplace);
+    filters.push(`UPPER(m.marketplace) = UPPER($${params.length})`);
+  }
 
   const res = await db.query<{
     id: string;
@@ -587,8 +608,8 @@ export async function listChannelSkuMappings(marketplace?: string): Promise<Chan
             (SELECT (cm.assumptions->>'landedCostCents')::integer FROM cost_models cm WHERE cm.case_id = m.case_id ORDER BY cm.version DESC LIMIT 1) AS case_landed_cost_cents,
             m.notes, m.updated_at
      FROM channel_sku_mappings m
-     LEFT JOIN product_cases pc ON pc.id = m.case_id
-     ${where}
+     LEFT JOIN product_cases pc ON pc.id = m.case_id AND pc.is_demo = m.is_demo
+     WHERE ${filters.join(" AND ")}
      ORDER BY m.updated_at DESC`,
     params,
   );
@@ -622,13 +643,22 @@ export async function upsertChannelSkuMapping(input: {
   caseId?: string | null;
   unitLandedCostCentsOverride?: number | null;
   notes?: string;
-}): Promise<{ mapping: ChannelSkuMapping; updatedSnapshotCount: number }> {
+}, options?: ModeOptions): Promise<{ mapping: ChannelSkuMapping; updatedSnapshotCount: number }> {
   const db = await getDb();
+  const mode = options?.mode ?? (await getAppMode());
+  const demo = isDemoMode(mode);
   const marketplace = input.marketplace.trim().toUpperCase() || "US";
   const channelSku = input.channelSku.trim();
   if (!channelSku) throw new Error("channelSku 不能为空");
 
   const caseId = input.caseId && input.caseId.trim() ? input.caseId.trim() : null;
+  if (caseId) {
+    const caseRes = await db.query<{ id: string }>(
+      `SELECT id FROM product_cases WHERE id = $1 AND is_demo = $2 LIMIT 1`,
+      [caseId, demo],
+    );
+    if (!caseRes.rows[0]) throw new Error("未找到对应商品案卷");
+  }
   const override =
     typeof input.unitLandedCostCentsOverride === "number" &&
     Number.isFinite(input.unitLandedCostCentsOverride) &&
@@ -639,19 +669,19 @@ export async function upsertChannelSkuMapping(input: {
   const id = `skumap-${randomUUID().slice(0, 12)}`;
   await db.query(
     `INSERT INTO channel_sku_mappings
-       (id, marketplace, channel_sku, case_id, unit_landed_cost_cents_override, notes, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, NOW())
-     ON CONFLICT (marketplace, channel_sku)
+       (id, marketplace, channel_sku, case_id, unit_landed_cost_cents_override, notes, is_demo, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+     ON CONFLICT (marketplace, channel_sku, is_demo)
      DO UPDATE SET
        case_id = EXCLUDED.case_id,
        unit_landed_cost_cents_override = EXCLUDED.unit_landed_cost_cents_override,
        notes = EXCLUDED.notes,
        updated_at = NOW()`,
-    [id, marketplace, channelSku, caseId, override, input.notes?.trim() ?? ""],
+    [id, marketplace, channelSku, caseId, override, input.notes?.trim() ?? "", demo],
   );
 
   // 回填并重算该站点下该 SKU 的所有历史账本快照
-  const { byCaseId } = await loadCaseLookupForMarketplace(marketplace);
+  const { byCaseId } = await loadCaseLookupForMarketplace(marketplace, demo);
   const lookup = caseId ? byCaseId.get(caseId) ?? null : null;
   const effectiveUnitLanded = override ?? lookup?.unitLandedCostCents ?? null;
   const amortizedUnit = lookup?.unitAmortizedFixedCostCents ?? 0;
@@ -670,8 +700,8 @@ export async function upsertChannelSkuMapping(input: {
     `SELECT s.id, s.units_sold, s.revenue_cents, s.contribution_cents, s.external_ad_spend_cents, s.margin_rate, s.payload
      FROM operations_sku_snapshots s
      JOIN operations_settlement_batches b ON b.id = s.batch_id
-     WHERE UPPER(b.marketplace) = UPPER($1) AND UPPER(s.sku) = UPPER($2)`,
-    [marketplace, channelSku],
+     WHERE UPPER(b.marketplace) = UPPER($1) AND UPPER(s.sku) = UPPER($2) AND b.is_demo = $3`,
+    [marketplace, channelSku, demo],
   );
 
   for (const snap of snapRes.rows) {
@@ -706,7 +736,8 @@ export async function upsertChannelSkuMapping(input: {
            plan_platform_margin_rate = $8,
            plan_net_margin_rate = $9,
            margin_delta = $10
-       WHERE id = $11`,
+       WHERE id = $11
+         AND batch_id IN (SELECT id FROM operations_settlement_batches WHERE is_demo = $12)`,
       [
         caseId,
         effectiveUnitLanded,
@@ -719,17 +750,22 @@ export async function upsertChannelSkuMapping(input: {
         planNet,
         delta,
         snap.id,
+        demo,
       ],
     );
   }
 
-  const all = await listChannelSkuMappings(marketplace);
+  const all = await listChannelSkuMappings(marketplace, { mode });
   const mapping = all.find((m) => m.channelSku.toUpperCase() === channelSku.toUpperCase());
   if (!mapping) throw new Error("保存 SKU 映射后读取失败");
   return { mapping, updatedSnapshotCount: snapRes.rows.length };
 }
 
-export async function deleteChannelSkuMapping(id: string): Promise<void> {
+export async function deleteChannelSkuMapping(id: string, options?: ModeOptions): Promise<void> {
   const db = await getDb();
-  await db.query(`DELETE FROM channel_sku_mappings WHERE id = $1`, [id]);
+  const mode = options?.mode ?? (await getAppMode());
+  await db.query(`DELETE FROM channel_sku_mappings WHERE id = $1 AND is_demo = $2`, [
+    id,
+    isDemoMode(mode),
+  ]);
 }

@@ -4,6 +4,7 @@
  */
 
 import { convertForeignCentsToRmb, convertRmbToForeignCents } from "./currency.ts";
+import type { AppMode } from "./app-mode.ts";
 
 export type ShippingMethod = "sea_slow" | "sea_fast" | "air_ddp";
 
@@ -261,6 +262,7 @@ export function calculateVolumetricFreight(
   weightG: number,
   method: ShippingMethod,
   currency: string = "USD",
+  mode: AppMode = "sandbox",
 ): VolumetricFreightResult {
   const actualWeightKg = round2(Math.max(1, Number(weightG) || 1) / 1000);
   const volumeCm3 =
@@ -272,7 +274,7 @@ export function calculateVolumetricFreight(
   const isVolumetricCharged = volumetricWeightKg > actualWeightKg * 1.05;
   const config = SHIPPING_RATES_RMB_PER_KG[method] ?? SHIPPING_RATES_RMB_PER_KG.sea_fast;
   const freightRmb = round2(billableWeightKg * config.rateRmbPerKg);
-  const freightForeignCents = convertRmbToForeignCents(freightRmb, currency);
+  const freightForeignCents = convertRmbToForeignCents(freightRmb, currency, mode);
 
   return {
     method,
@@ -316,7 +318,7 @@ export function calculateVatBreakdown(
  * - Month 1–2：冷启动期（销量按 40% / 70% 爬坡，分摊冷启动额外广告与推广）
  * - Month 3–6：稳态期，并在库存余量低于补货提前期时自动计入第二批翻单采购款。
  */
-export function calculateLaunchCashflow(input: CashflowInput): LaunchCashflowResult {
+export function calculateLaunchCashflow(input: CashflowInput, mode: AppMode = "sandbox"): LaunchCashflowResult {
   const moq = Math.max(1, Math.round(input.moq));
   const unitLanded = Math.max(0, Math.round(input.unitLandedCostCents));
   const firstOrderInventoryCents = moq * unitLanded;
@@ -381,9 +383,9 @@ export function calculateLaunchCashflow(input: CashflowInput): LaunchCashflowRes
     firstOrderInventoryCents,
     upfrontFixedCents,
     totalInitialCapitalCents,
-    totalInitialCapitalRmb: convertForeignCentsToRmb(totalInitialCapitalCents, input.currency),
+    totalInitialCapitalRmb: convertForeignCentsToRmb(totalInitialCapitalCents, input.currency, mode),
     peakCashOutflowCents: peakOutflow,
-    peakCashOutflowRmb: convertForeignCentsToRmb(peakOutflow, input.currency),
+    peakCashOutflowRmb: convertForeignCentsToRmb(peakOutflow, input.currency, mode),
     paybackMonths,
     annualizedCapitalRoi,
     monthlyCurve,

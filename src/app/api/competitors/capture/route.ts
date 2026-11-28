@@ -1,7 +1,8 @@
 import { analyzeCompetitors } from "@/lib/competitor-compare/engine.ts";
 import { saveComparisonReport } from "@/lib/competitor-compare/storage.ts";
-import { readJsonObject, stringField } from "@/lib/api-http.ts";
+import { corsHeaders, readJsonObject, stringField } from "@/lib/api-http.ts";
 import { recordAuditLog } from "@/lib/audit-logs.ts";
+import { getAppMode } from "@/lib/app-mode.ts";
 import type {
   CompetitorFulfillmentType,
   CompetitorInputItem,
@@ -9,8 +10,6 @@ import type {
   RatingDistribution,
 } from "@/lib/competitor-compare/types.ts";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 function isLocalRequest(request: Request): boolean {
   const host = (request.headers.get("host") || "").toLowerCase();
@@ -23,17 +22,6 @@ function isLocalRequest(request: Request): boolean {
   if (!origin) return true;
   return origin.startsWith("chrome-extension://")
     || /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin);
-}
-
-function corsHeaders(request: Request): Record<string, string> {
-  const origin = request.headers.get("origin");
-  return {
-    "Access-Control-Allow-Origin": origin || "http://localhost:3000",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-    "Access-Control-Max-Age": "86400",
-    Vary: "Origin",
-  };
 }
 
 function numericField(body: Record<string, unknown>, key: string): number | undefined {
@@ -143,17 +131,29 @@ function parseExtras(source: Record<string, unknown>, currency: string): NonNull
 
 export async function OPTIONS(request: Request) {
   if (!isLocalRequest(request)) return new Response(null, { status: 403 });
-  return new Response(null, { status: 204, headers: corsHeaders(request) });
+  return new Response(null, {
+    status: 204,
+    headers: corsHeaders(request, {
+      methods: "POST, OPTIONS",
+      fallbackOrigin: "http://localhost:3000",
+      maxAgeSeconds: 86400,
+    }),
+  });
 }
 
 export async function POST(request: Request) {
-  const headers = corsHeaders(request);
+  const headers = corsHeaders(request, {
+    methods: "POST, OPTIONS",
+    fallbackOrigin: "http://localhost:3000",
+    maxAgeSeconds: 86400,
+  });
   if (!isLocalRequest(request)) {
     // 拒绝时不回显 Allow-Origin，避免给非本机来源任何跨域许可
     return Response.json({ error: "仅允许本机工作台或浏览器扩展调用采集端点" }, { status: 403 });
   }
 
   try {
+    const mode = await getAppMode();
     const body = await readJsonObject(request) as Record<string, unknown>;
     const marketCode = stringField(body, "marketCode", { maxLength: 10 }) || "US";
     const platformCode = stringField(body, "platformCode", { maxLength: 50 }) || "amazon";
@@ -203,11 +203,13 @@ export async function POST(request: Request) {
         skipModel: true,
         capturedInputs,
         evidenceText: keyword ? `Search Keyword: ${keyword}` : "",
+        mode,
       });
 
-      await saveComparisonReport(report);
+      await saveComparisonReport(report, { mode });
 
       await recordAuditLog({
+        mode,
         actor: "Chrome 采集扩展",
         action: "competitor.serp_captured",
         entityType: "competitor_report",
@@ -276,11 +278,13 @@ export async function POST(request: Request) {
       skipModel: true,
       capturedInputs,
       evidenceText,
+      mode,
     });
 
-    await saveComparisonReport(report);
+    await saveComparisonReport(report, { mode });
 
     await recordAuditLog({
+      mode,
       actor: "Chrome 采集扩展",
       action: "competitor.dp_captured",
       entityType: "competitor_report",

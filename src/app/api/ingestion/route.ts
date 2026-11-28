@@ -1,4 +1,5 @@
 import { parseCsv } from "@/lib/csv";
+import { getAppMode } from "@/lib/app-mode";
 import { ConnectorNotConfiguredError } from "@/lib/connectors/keepa";
 import {
   importCandidatesCsv,
@@ -6,9 +7,8 @@ import {
   importQuotesCsv,
   importSuppliersCsv,
 } from "@/lib/ingestion";
+import { ApiInputError } from "@/lib/api-http";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const MAX_REQUEST_BYTES = 3 * 1024 * 1024;
 const MAX_CSV_BYTES = 2 * 1024 * 1024;
@@ -27,15 +27,16 @@ export async function POST(request: Request) {
   }
 
   try {
+    const mode = await getAppMode();
     const formData = await request.formData();
     const kind = String(formData.get("kind") || "candidates") as IngestionKind;
 
     if (kind === "keepa") {
       const asins = parseAsins(String(formData.get("asins") || ""));
-      if (asins.length === 0) throw new Error("请至少填写一个 ASIN");
-      if (asins.length > 100) throw new Error("单次 Keepa 同步最多 100 个 ASIN");
+      if (asins.length === 0) throw new ApiInputError("请至少填写一个 ASIN");
+      if (asins.length > 100) throw new ApiInputError("单次 Keepa 同步最多 100 个 ASIN");
       const marketplace = String(formData.get("marketplace") || "US").trim().toUpperCase();
-      const result = await importKeepaByAsins({ asins, marketplace, actor: "运营人员" });
+      const result = await importKeepaByAsins({ asins, marketplace, actor: "运营人员", mode });
       return Response.json({ ...result, kind });
     }
 
@@ -57,7 +58,7 @@ export async function POST(request: Request) {
       entryMode = "file_upload";
     }
 
-    if (!csvText.trim()) throw new Error("请选择 CSV 文件或粘贴 CSV 内容");
+    if (!csvText.trim()) throw new ApiInputError("请选择 CSV 文件或粘贴 CSV 内容");
     if (Buffer.byteLength(csvText, "utf8") > MAX_CSV_BYTES) {
       return Response.json({ error: "CSV 内容不能超过 2 MB", code: "payload_too_large" }, { status: 413 });
     }
@@ -71,6 +72,7 @@ export async function POST(request: Request) {
     }
 
     const options = {
+      mode,
       fileName: fileName || undefined,
       query: {
         entryMode,
@@ -96,8 +98,11 @@ export async function POST(request: Request) {
         { status: 409 },
       );
     }
+    if (error instanceof ApiInputError) {
+      return Response.json({ error: error.message, code: "invalid_input" }, { status: error.status });
+    }
     const message = error instanceof Error ? error.message : "导入失败";
-    return Response.json({ error: message, code: "ingestion_failed" }, { status: 400 });
+    return Response.json({ error: message, code: "ingestion_failed" }, { status: 500 });
   }
 }
 

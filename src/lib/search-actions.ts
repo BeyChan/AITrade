@@ -1,6 +1,7 @@
 "use server";
 
 import { getComparisonReports } from "./competitor-compare/storage.ts";
+import { getAppMode, isDemoMode } from "./app-mode.ts";
 import { getDb } from "./db.ts";
 
 export type SearchQuickLink = {
@@ -133,6 +134,7 @@ export async function getSpotlightInitialData(): Promise<SpotlightInitialData> {
   const quickCommands = QUICK_COMMANDS.slice(0, 8).map(commandToResult);
   try {
     const db = await getDb();
+    const mode = await getAppMode();
     const casesRes = await db.query<{
       id: string;
       title: string;
@@ -142,8 +144,10 @@ export async function getSpotlightInitialData(): Promise<SpotlightInitialData> {
     }>(
       `SELECT id, title, asin, category, marketplace
        FROM product_cases
+       WHERE is_demo = $1
        ORDER BY updated_at DESC
        LIMIT 4`,
+      [isDemoMode(mode)],
     );
 
     const recentCases: SearchResultItem[] = casesRes.rows.map((c) => ({
@@ -175,32 +179,34 @@ export async function searchGlobal(rawQuery: string): Promise<SearchResultItem[]
   const pattern = `%${query}%`;
 
   try {
+    const mode = await getAppMode();
+    const demo = isDemoMode(mode);
     const [casesRes, batchesRes, suppliersRes, comparisonReports] = await Promise.all([
       db.query<{ id: string; title: string; asin: string; category: string; marketplace: string }>(
         `SELECT id, title, asin, category, marketplace
          FROM product_cases
-         WHERE title ILIKE $1 OR asin ILIKE $1 OR category ILIKE $1
+         WHERE is_demo = $2 AND (title ILIKE $1 OR asin ILIKE $1 OR category ILIKE $1)
          ORDER BY updated_at DESC
          LIMIT 6`,
-        [pattern],
+        [pattern, demo],
       ),
       db.query<{ id: string; category: string; brief: string; market_code: string; platform_code: string }>(
         `SELECT id, category, brief, market_code, platform_code
-         FROM ai_sourcing_batches
-         WHERE category ILIKE $1 OR brief ILIKE $1
+         FROM sourcing_briefs
+         WHERE is_demo = $2 AND (category ILIKE $1 OR brief ILIKE $1)
          ORDER BY created_at DESC
          LIMIT 4`,
-        [pattern],
+        [pattern, demo],
       ).catch(() => ({ rows: [] })),
-      db.query<{ id: string; name: string; category: string; contact: string }>(
-        `SELECT id, name, category, contact
+      db.query<{ id: string; name: string; platform: string; notes: string }>(
+        `SELECT id, name, platform, notes
          FROM suppliers
-         WHERE name ILIKE $1 OR category ILIKE $1 OR contact ILIKE $1
+         WHERE is_demo = $2 AND (name ILIKE $1 OR platform ILIKE $1 OR notes ILIKE $1)
          ORDER BY name ASC
          LIMIT 5`,
-        [pattern],
+        [pattern, demo],
       ).catch(() => ({ rows: [] })),
-      getComparisonReports().catch(() => []),
+      getComparisonReports({ mode }).catch(() => []),
     ]);
 
     const results: SearchResultItem[] = [];
@@ -276,7 +282,7 @@ export async function searchGlobal(rawQuery: string): Promise<SearchResultItem[]
         type: "supplier",
         typeLabel: "供应商",
         title: s.name,
-        subtitle: `${s.category || "未分类"} · ${s.contact || "1688 工厂库"}`,
+        subtitle: `${s.platform || "未分类"} · ${s.notes || "1688 工厂库"}`,
         href: `/sourcing`,
       });
     }

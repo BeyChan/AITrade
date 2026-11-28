@@ -1,5 +1,6 @@
 import { generateStructuredJSON } from "../ai-provider.ts";
 import { loadAIProviderConfig } from "../app-settings.ts";
+import type { ModeOptions } from "../app-mode.ts";
 import type { CompetitorComparisonReport } from "./types.ts";
 
 export type SupplierRfqDraft = {
@@ -20,6 +21,7 @@ export type SupplierRfqDraft = {
 
 export async function generateSupplierRfqFromCompetitors(
   report: CompetitorComparisonReport,
+  options?: ModeOptions,
 ): Promise<SupplierRfqDraft> {
   const category = report.hypothesisBridge?.category || report.title;
   const weaknesses = report.summary.commonWeaknesses;
@@ -31,7 +33,7 @@ export async function generateSupplierRfqFromCompetitors(
     ? `目标价基于 ${report.priceStats.verifiedSampleCount} 条已采集的真实竞品售价推导。`
     : "目标价基于示意价格分位推导（竞品售价未经核实），仅供议价起点参考，须按真实售价重算。";
 
-  const config = await loadAIProviderConfig();
+  const config = await loadAIProviderConfig(options);
 
   if (config.provider !== "template") {
     try {
@@ -78,7 +80,7 @@ export async function generateSupplierRfqFromCompetitors(
         }),
         timeoutMs: 30_000,
         maxTokens: 3_000,
-      });
+      }, fetch, undefined, options);
 
       const parsed = JSON.parse(aiResponse.content) as SupplierRfqDraft;
       if (parsed.productName && Array.isArray(parsed.criticalImprovements) && parsed.criticalImprovements.length > 0) {

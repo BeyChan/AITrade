@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { getDb } from "../db.ts";
+import { isDemoMode, resolveAppMode, type ModeOptions } from "../app-mode.ts";
 import { extractEvidence, type ExtractionOutcome } from "./extractor.ts";
 import {
   getAiInboxTask,
@@ -10,7 +11,7 @@ import {
 } from "./repository.ts";
 import { validateExtraction, type ValidatedExtraction } from "./validator.ts";
 
-export type RunAiInboxTaskOptions = {
+export type RunAiInboxTaskOptions = ModeOptions & {
   actor?: string;
 };
 
@@ -18,33 +19,35 @@ export async function runAiInboxTask(
   taskId: string,
   options: RunAiInboxTaskOptions = {},
 ): Promise<AiInboxTaskDetail> {
-  const initial = await getAiInboxTask(taskId);
+  const mode = await resolveAppMode(options.mode);
+  const demo = isDemoMode(mode);
+  const initial = await getAiInboxTask(taskId, { mode });
   if (!initial) throw new Error("AI 证据任务不存在");
   if (initial.task.status === "applied") return initial;
   if (initial.task.status === "running") throw new Error("AI 证据任务正在执行，请勿重复提交");
 
   const actor = normalizeActor(options.actor ?? initial.task.requestedBy);
   if (!initial.artifact) {
-    return failTask(taskId, actor, "任务缺少原始证据 artifact，无法提取", initial.task.extractionSummary);
+    return failTask(taskId, actor, "任务缺少原始证据 artifact，无法提取", initial.task.extractionSummary, { mode });
   }
   if (!initial.task.targetHypothesisId) {
-    return failTask(taskId, actor, "目标机会已不存在，无法提取证据", initial.task.extractionSummary);
+    return failTask(taskId, actor, "目标机会已不存在，无法提取证据", initial.task.extractionSummary, { mode });
   }
 
-  const context = await getAiInboxTargetContext(initial.task.targetHypothesisId);
+  const context = await getAiInboxTargetContext(initial.task.targetHypothesisId, { mode });
   if (!context) {
-    return failTask(taskId, actor, "目标机会不存在，无法提取证据", initial.task.extractionSummary);
+    return failTask(taskId, actor, "目标机会不存在，无法提取证据", initial.task.extractionSummary, { mode });
   }
   if (!context.selectedForValidation) {
-    return failTask(taskId, actor, "目标机会已不在验证阶段，不能继续写入 AI 证据", initial.task.extractionSummary);
+    return failTask(taskId, actor, "目标机会已不在验证阶段，不能继续写入 AI 证据", initial.task.extractionSummary, { mode });
   }
 
   const db = await getDb();
   await db.query(
     `UPDATE ai_tasks
      SET status = 'running', error_message = NULL, updated_at = NOW()
-     WHERE id = $1 AND status <> 'applied'`,
-    [taskId],
+     WHERE id = $1 AND is_demo = $2 AND status <> 'applied'`,
+    [taskId, demo],
   );
 
   let outcome: ExtractionOutcome | null = null;
@@ -56,9 +59,10 @@ export async function runAiInboxTask(
       sourceKind: initial.task.sourceKind,
       fileName: initial.artifact.fileName,
       targetCurrency: context.currency,
+      mode,
     });
 
-    await recordModelCall(taskId, initial.task.attempt, outcome);
+    await recordModelCall(taskId, initial.task.attempt, outcome, { mode });
     modelCallRecorded = true;
 
     if (!outcome.extraction || outcome.extraction.documentType === "unknown") {
@@ -67,6 +71,7 @@ export async function runAiInboxTask(
         actor,
         outcome.error || "未能识别证据类型。请补充明确字段表头，或改用文本/CSV/JSON/Markdown。",
         buildSummary(outcome, null),
+        { mode },
       );
     }
     if (Object.keys(outcome.extraction.fields).length === 0) {
@@ -75,6 +80,7 @@ export async function runAiInboxTask(
         actor,
         outcome.error || "没有从原始证据中识别到可追溯字段",
         buildSummary(outcome, null),
+        { mode },
       );
     }
 
@@ -87,8 +93,14 @@ export async function runAiInboxTask(
     });
   } catch (error) {
     const message = sanitizeAiInboxError(error);
-    if (outcome && !modelCallRecorded) await recordModelCall(taskId, initial.task.attempt, outcome, message);
-    return failTask(taskId, actor, message, outcome ? buildSummary(outcome, null) : initial.task.extractionSummary);
+    if (outcome && !modelCallRecorded) await recordModelCall(taskId, initial.task.attempt, outcome, { mode }, message);
+    return failTask(
+      taskId,
+      actor,
+      message,
+      outcome ? buildSummary(outcome, null) : initial.task.extractionSummary,
+      { mode },
+    );
   }
 
   const summary = buildSummary(outcome, validated);
@@ -135,11 +147,12 @@ export async function runAiInboxTask(
 
     await tx.query(
       `UPDATE ai_tasks
-       SET status = $2, provider = $3, model = $4, extraction_summary = $5::jsonb,
-           error_message = $6, updated_at = NOW()
-       WHERE id = $1 AND status <> 'applied'`,
+       SET status = $3, provider = $4, model = $5, extraction_summary = $6::jsonb,
+           error_message = $7, updated_at = NOW()
+       WHERE id = $1 AND is_demo = $2 AND status <> 'applied'`,
       [
         taskId,
+        demo,
         nextStatus,
         outcome?.provider ?? initial.task.provider,
         outcome?.model ?? initial.task.model,
@@ -148,8 +161,8 @@ export async function runAiInboxTask(
       ],
     );
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'ai_inbox.task_completed', 'ai_task', $3, $4::jsonb)`,
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'ai_inbox.task_completed', 'ai_task', $3, $4::jsonb, $5)`,
       [
         randomUUID(),
         actor,
@@ -169,16 +182,23 @@ export async function runAiInboxTask(
           schemaVersion: "ai-inbox-fields-v1",
           externalActions: "none",
         }),
+        demo,
       ],
     );
   });
 
-  return requireTask(taskId);
+  return requireTask(taskId, { mode });
 }
 
-export async function retryAiInboxTask(taskId: string, actorInput: string): Promise<AiInboxTaskDetail> {
+export async function retryAiInboxTask(
+  taskId: string,
+  actorInput: string,
+  options?: ModeOptions,
+): Promise<AiInboxTaskDetail> {
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const actor = normalizeActor(actorInput);
-  const detail = await getAiInboxTask(taskId);
+  const detail = await getAiInboxTask(taskId, { mode });
   if (!detail) throw new Error("AI 证据任务不存在");
   if (detail.task.status === "applied") throw new Error("已应用的任务不能重试");
   if (detail.task.status === "running") throw new Error("任务正在执行，不能重试");
@@ -188,8 +208,8 @@ export async function retryAiInboxTask(taskId: string, actorInput: string): Prom
     await tx.query(
       `UPDATE ai_tasks
        SET status = 'queued', attempt = attempt + 1, error_message = NULL, updated_at = NOW()
-       WHERE id = $1`,
-      [taskId],
+       WHERE id = $1 AND is_demo = $2`,
+      [taskId, demo],
     );
     await tx.query(
       `INSERT INTO ai_review_actions
@@ -204,8 +224,8 @@ export async function retryAiInboxTask(taskId: string, actorInput: string): Prom
       ],
     );
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'ai_inbox.task_retried', 'ai_task', $3, $4::jsonb)`,
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'ai_inbox.task_retried', 'ai_task', $3, $4::jsonb, $5)`,
       [
         randomUUID(),
         actor,
@@ -215,11 +235,12 @@ export async function retryAiInboxTask(taskId: string, actorInput: string): Prom
           previousStatus: detail.task.status,
           externalActions: "none",
         }),
+        demo,
       ],
     );
   });
 
-  return runAiInboxTask(taskId, { actor });
+  return runAiInboxTask(taskId, { actor, mode });
 }
 
 function buildSummary(
@@ -243,9 +264,17 @@ async function recordModelCall(
   taskId: string,
   attempt: number,
   outcome: ExtractionOutcome,
+  options: ModeOptions,
   overrideError?: string,
 ) {
   const db = await getDb();
+  const mode = await resolveAppMode(options.mode);
+  const demo = isDemoMode(mode);
+  const owned = await db.query<{ id: string }>(
+    "SELECT id FROM ai_tasks WHERE id = $1 AND is_demo = $2",
+    [taskId, demo],
+  );
+  if (!owned.rows[0]) throw new Error("AI 证据任务不存在");
   const modelFailed = Boolean(outcome.error || overrideError) && !outcome.extraction;
   const status = outcome.skippedModel ? "skipped" : modelFailed ? "failed" : "completed";
   await db.query(
@@ -280,32 +309,36 @@ async function failTask(
   actor: string,
   error: string,
   summary: AiInboxExtractionSummary,
+  options: ModeOptions,
 ): Promise<AiInboxTaskDetail> {
   const db = await getDb();
+  const mode = await resolveAppMode(options.mode);
+  const demo = isDemoMode(mode);
   const safeError = sanitizeAiInboxError(error);
   await db.transaction(async (tx) => {
     await tx.query(
       `UPDATE ai_tasks
        SET status = 'failed', error_message = $2, extraction_summary = $3::jsonb, updated_at = NOW()
-       WHERE id = $1 AND status <> 'applied'`,
-      [taskId, safeError, JSON.stringify({ ...summary, warnings: summary.warnings?.slice(0, 30), canApply: false })],
+       WHERE id = $1 AND is_demo = $4 AND status <> 'applied'`,
+      [taskId, safeError, JSON.stringify({ ...summary, warnings: summary.warnings?.slice(0, 30), canApply: false }), demo],
     );
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'ai_inbox.task_failed', 'ai_task', $3, $4::jsonb)`,
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'ai_inbox.task_failed', 'ai_task', $3, $4::jsonb, $5)`,
       [
         randomUUID(),
         actor,
         taskId,
         JSON.stringify({ error: safeError, externalActions: "none" }),
+        demo,
       ],
     );
   });
-  return requireTask(taskId);
+  return requireTask(taskId, { mode });
 }
 
-async function requireTask(taskId: string) {
-  const detail = await getAiInboxTask(taskId);
+async function requireTask(taskId: string, options: ModeOptions) {
+  const detail = await getAiInboxTask(taskId, options);
   if (!detail) throw new Error("AI 证据任务不存在");
   return detail;
 }

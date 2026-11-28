@@ -17,7 +17,11 @@ export function SandboxBanner({ mode }: SandboxBannerProps) {
 
   function handleSwitchToLive() {
     startTransition(async () => {
-      await setAppModeAction("live");
+      const result = await setAppModeAction("live");
+      if (result.success) {
+        // 模式切换会影响全局 RSC、API 查询和客户端缓存，必须整页重载而不只刷新当前组件。
+        window.location.reload();
+      }
     });
   }
 

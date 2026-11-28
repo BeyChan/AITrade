@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { recordAuditLog } from "@/lib/audit-logs";
+import { getAppMode } from "@/lib/app-mode";
 import type { EconomicsAssumptions } from "@/lib/economics";
 import { isSupportedImageSlot } from "@/lib/image-skills";
 import {
@@ -29,6 +30,7 @@ import {
 } from "./helpers";
 
 export async function archiveCaseAction(formData: FormData) {
+  const mode = await getAppMode();
   const caseId = String(formData.get("caseId") || "").trim();
   const reason = String(formData.get("reason") || "").trim();
   const actor = String(formData.get("actor") || "运营人员").trim();
@@ -36,7 +38,7 @@ export async function archiveCaseAction(formData: FormData) {
   if (!caseId) redirect(withQuery(returnPath, "error", "缺少商品标识"));
 
   try {
-    await setCaseLifecycle({ caseId, action: "archive", actor, reason });
+    await setCaseLifecycle({ caseId, action: "archive", actor, reason }, { mode });
   } catch (error) {
     redirect(withQuery(returnPath, "error", errorMessage(error)));
   }
@@ -47,13 +49,14 @@ export async function archiveCaseAction(formData: FormData) {
 }
 
 export async function restoreCaseAction(formData: FormData) {
+  const mode = await getAppMode();
   const caseId = String(formData.get("caseId") || "").trim();
   const actor = String(formData.get("actor") || "运营人员").trim();
   const returnPath = safeReturnPath(formData.get("returnPath"));
   if (!caseId) redirect(withQuery(returnPath, "error", "缺少商品标识"));
 
   try {
-    await setCaseLifecycle({ caseId, action: "restore", actor });
+    await setCaseLifecycle({ caseId, action: "restore", actor }, { mode });
   } catch (error) {
     redirect(withQuery(returnPath, "error", errorMessage(error)));
   }
@@ -64,6 +67,7 @@ export async function restoreCaseAction(formData: FormData) {
 }
 
 export async function approveNoGoExceptionAction(formData: FormData) {
+  const mode = await getAppMode();
   const caseId = String(formData.get("caseId") || "").trim();
   const reason = String(formData.get("reason") || "").trim();
   const riskNote = String(formData.get("riskNote") || "").trim();
@@ -72,7 +76,7 @@ export async function approveNoGoExceptionAction(formData: FormData) {
   if (!caseId) redirect(withQuery(returnPath, "error", "缺少商品标识"));
 
   try {
-    await recordCaseNoGoException({ caseId, reason, riskNote, approver });
+    await recordCaseNoGoException({ caseId, reason, riskNote, approver }, { mode });
   } catch (error) {
     redirect(withQuery(returnPath, "error", errorMessage(error)));
   }
@@ -85,6 +89,7 @@ export async function approveNoGoExceptionAction(formData: FormData) {
 
 
 export async function updateCostModelAction(formData: FormData) {
+  const mode = await getAppMode();
   const caseId = String(formData.get("caseId") || "").trim();
   const fallback = `/cases/${encodeURIComponent(caseId)}?tab=economics#cost-assumptions`;
   const returnPath = formData.get("returnPath") ? safeReturnPath(formData.get("returnPath")) : fallback;
@@ -108,7 +113,7 @@ export async function updateCostModelAction(formData: FormData) {
   }
 
   try {
-    await createCostModelVersion(caseId, assumptions, String(formData.get("actor") || "运营人员"));
+    await createCostModelVersion(caseId, assumptions, String(formData.get("actor") || "运营人员"), { mode });
   } catch (error) {
     redirect(withQuery(returnPath, "error", errorMessage(error)));
   }
@@ -119,6 +124,7 @@ export async function updateCostModelAction(formData: FormData) {
 }
 
 export async function createSupplierQuoteAction(formData: FormData) {
+  const mode = await getAppMode();
   const caseId = String(formData.get("caseId") || "");
   const actor = String(formData.get("actor") || "采购人员").trim();
   try {
@@ -143,6 +149,7 @@ export async function createSupplierQuoteAction(formData: FormData) {
         sampleFeeCents: dollarsToCents(formData.get("sampleFee")),
       },
       actor,
+      { mode },
     );
   } catch (error) {
     redirect(`/cases/${encodeURIComponent(caseId)}/sourcing?error=${encodeURIComponent(errorMessage(error))}`);
@@ -155,12 +162,13 @@ export async function createSupplierQuoteAction(formData: FormData) {
 }
 
 export async function selectSupplierQuoteAction(formData: FormData) {
+  const mode = await getAppMode();
   const caseId = String(formData.get("caseId") || "");
   const quoteId = String(formData.get("quoteId") || "");
   const reviewer = String(formData.get("reviewer") || "").trim();
   const exceptionReason = String(formData.get("exceptionReason") || "").trim();
   try {
-    await selectSupplierQuote(caseId, quoteId, reviewer, exceptionReason);
+    await selectSupplierQuote(caseId, quoteId, reviewer, exceptionReason, { mode });
   } catch (error) {
     redirect(`/cases/${encodeURIComponent(caseId)}/sourcing?error=${encodeURIComponent(errorMessage(error))}`);
   }
@@ -172,6 +180,7 @@ export async function selectSupplierQuoteAction(formData: FormData) {
 }
 
 export async function saveProductDefinitionAction(formData: FormData) {
+  const mode = await getAppMode();
   const caseId = String(formData.get("caseId") || "");
   const actor = String(formData.get("actor") || "").trim();
   try {
@@ -186,6 +195,7 @@ export async function saveProductDefinitionAction(formData: FormData) {
         claimsToAvoid: String(formData.get("claimsToAvoid") || ""),
       },
       actor,
+      { mode },
     );
   } catch (error) {
     redirect(`/cases/${encodeURIComponent(caseId)}/content?error=${encodeURIComponent(errorMessage(error))}`);
@@ -195,6 +205,7 @@ export async function saveProductDefinitionAction(formData: FormData) {
 }
 
 export async function uploadMainImageAction(formData: FormData) {
+  const mode = await getAppMode();
   const caseId = String(formData.get("caseId") || "");
   const actor = String(formData.get("actor") || "").trim();
   const rawType = String(formData.get("assetType") || "main_image").trim();
@@ -206,7 +217,7 @@ export async function uploadMainImageAction(formData: FormData) {
     if (!(file instanceof File)) throw new Error("请选择图片文件");
     const saved = await saveImageUpload(file);
     storageKey = saved.storageKey;
-    await createAssetRecord(caseId, { ...saved, assetType }, actor);
+    await createAssetRecord(caseId, { ...saved, assetType }, actor, { mode });
   } catch (error) {
     if (storageKey) await deleteStoredImage(storageKey);
     redirect(`/cases/${encodeURIComponent(caseId)}/content?error=${encodeURIComponent(errorMessage(error))}`);
@@ -216,6 +227,7 @@ export async function uploadMainImageAction(formData: FormData) {
 }
 
 export async function reviewMainImageAction(formData: FormData) {
+  const mode = await getAppMode();
   const caseId = String(formData.get("caseId") || "");
   const assetId = String(formData.get("assetId") || "");
   const reviewer = String(formData.get("reviewer") || "").trim();
@@ -227,7 +239,7 @@ export async function reviewMainImageAction(formData: FormData) {
       noTextWatermark: formData.get("noTextWatermark") === "on",
       resolutionConfirmed: formData.get("resolutionConfirmed") === "on",
       matchesPhysicalProduct: formData.get("matchesPhysicalProduct") === "on",
-    });
+    }, { mode });
   } catch (error) {
     redirect(`/cases/${encodeURIComponent(caseId)}/content?error=${encodeURIComponent(errorMessage(error))}`);
   }
@@ -236,6 +248,7 @@ export async function reviewMainImageAction(formData: FormData) {
 }
 
 export async function saveListingDraftAction(formData: FormData) {
+  const mode = await getAppMode();
   const caseId = String(formData.get("caseId") || "");
   const actor = String(formData.get("actor") || "").trim();
   try {
@@ -249,6 +262,7 @@ export async function saveListingDraftAction(formData: FormData) {
         searchTerms: String(formData.get("searchTerms") || ""),
       },
       actor,
+      { mode },
     );
   } catch (error) {
     redirect(`/cases/${encodeURIComponent(caseId)}/content?error=${encodeURIComponent(errorMessage(error))}`);
@@ -258,11 +272,12 @@ export async function saveListingDraftAction(formData: FormData) {
 }
 
 export async function approveListingContentAction(formData: FormData) {
+  const mode = await getAppMode();
   const caseId = String(formData.get("caseId") || "");
   const reviewer = String(formData.get("reviewer") || "").trim();
   const notes = String(formData.get("notes") || "").trim();
   try {
-    await approveListingContent(caseId, reviewer, notes);
+    await approveListingContent(caseId, reviewer, notes, { mode });
   } catch (error) {
     redirect(`/cases/${encodeURIComponent(caseId)}/content?error=${encodeURIComponent(errorMessage(error))}`);
   }
@@ -279,6 +294,7 @@ function revalidateContent(caseId: string) {
 }
 
 export async function createSupplierDirectoryEntryAction(formData: FormData) {
+  const mode = await getAppMode();
   const name = String(formData.get("name") ?? "").trim();
   const platform = String(formData.get("platform") ?? "1688").trim();
   const url = String(formData.get("url") ?? "").trim();
@@ -297,13 +313,14 @@ export async function createSupplierDirectoryEntryAction(formData: FormData) {
       country: country || "CN",
       rating: parseFloat(ratingStr) || 4.8,
       notes,
-    });
+    }, { mode });
     await recordAuditLog({
+      mode,
       actor: "采购人员",
       action: "supplier.created",
       entityType: "supplier",
       entityId: typeof created === "string" ? created : (created && typeof created === "object" && "id" in created ? String((created as { id: unknown }).id) : name),
-      details: { supplierName: name, platform, country: country || "CN" },
+      details: { supplierName: name, platform, country: country || "CN", mode },
     }).catch(() => {});
   } catch (error) {
     failure = errorMessage(error);

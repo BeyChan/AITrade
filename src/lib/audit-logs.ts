@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { PGlite } from "@electric-sql/pglite";
+import { isDemoMode, type AppMode } from "./app-mode.ts";
 import { getDb } from "./db.ts";
 import {
   AUDIT_LEVEL_OPTIONS,
@@ -34,6 +35,7 @@ export type AuditLogRow = {
 };
 
 export type RecordAuditLogInput = {
+  mode: AppMode;
   actor?: string | null;
   action: string;
   entityType: string;
@@ -344,9 +346,9 @@ export async function recordAuditLog(input: RecordAuditLogInput, dbOverride?: PG
   const safeDetails = sanitizeAuditDetails(input.details);
 
   await db.query(
-    `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-     VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
-    [id, actor, input.action, input.entityType, input.entityId, JSON.stringify(safeDetails)],
+    `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)`,
+    [id, actor, input.action, input.entityType, input.entityId, JSON.stringify(safeDetails), isDemoMode(input.mode)],
   );
 
   return id;
@@ -469,10 +471,11 @@ function toAuditLogEntry(row: AuditLogRow): AuditLogEntry {
 }
 
 export async function queryAuditLogs(
-  query: AuditLogQuery = {},
+  query: AuditLogQuery,
   dbOverride?: PGlite,
 ): Promise<AuditLogQueryResult> {
   const db = dbOverride ?? (await getDb());
+  const demo = isDemoMode(query.mode);
   const page = Math.max(1, Math.floor(query.page ?? 1));
   const pageSize = Math.min(100, Math.max(1, Math.floor(query.pageSize ?? 30)));
   const q = query.q?.trim().toLowerCase() ?? "";
@@ -481,8 +484,8 @@ export async function queryAuditLogs(
   const targetActor = query.actor?.trim() ?? "";
   const days = query.days && query.days > 0 ? Math.floor(query.days) : 0;
 
-  const whereParts: string[] = [];
-  const params: unknown[] = [];
+  const whereParts: string[] = ["is_demo = $1"];
+  const params: unknown[] = [demo];
 
   if (targetActor) {
     params.push(targetActor);
@@ -505,12 +508,17 @@ export async function queryAuditLogs(
        LIMIT 2000`,
       params,
     ),
-    db.query<{ actor: string }>(`SELECT DISTINCT actor FROM audit_logs ORDER BY actor ASC`),
+    db.query<{ actor: string }>(
+      `SELECT DISTINCT actor FROM audit_logs WHERE is_demo = $1 ORDER BY actor ASC`,
+      [demo],
+    ),
     db.query<AuditLogRow>(
       `SELECT id, actor, action, entity_type, entity_id, details, created_at
        FROM audit_logs
+       WHERE is_demo = $1
        ORDER BY created_at DESC
        LIMIT 2000`,
+      [demo],
     ),
   ]);
 
@@ -572,7 +580,7 @@ function escapeCsvCell(value: string): string {
   return value;
 }
 
-export async function exportAuditLogsCsv(query: AuditLogQuery = {}, dbOverride?: PGlite): Promise<string> {
+export async function exportAuditLogsCsv(query: AuditLogQuery, dbOverride?: PGlite): Promise<string> {
   const result = await queryAuditLogs({ ...query, page: 1, pageSize: 2000 }, dbOverride);
   const headers = ["时间", "操作人", "模块", "级别", "动作名称", "动作标识", "对象类型", "对象 ID", "详情 JSON"];
   const lines = [headers.map(escapeCsvCell).join(",")];

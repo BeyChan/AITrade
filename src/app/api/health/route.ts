@@ -2,8 +2,6 @@ import { getAppMode } from "@/lib/app-mode";
 import { getDb, getDbEngineInfo } from "@/lib/db";
 import { getStorageProviderInfo } from "@/lib/storage";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function GET() {
   const startedAt = Date.now();

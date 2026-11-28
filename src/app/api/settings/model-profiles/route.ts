@@ -1,5 +1,6 @@
 import { revalidatePath } from "next/cache";
-import { ApiInputError, apiError, readJsonObject, stringField } from "@/lib/api-http";
+import { ApiInputError, readJsonObject, stringField, withApiRoute } from "@/lib/api-http";
+import { getAppMode } from "@/lib/app-mode";
 import { recordAuditLog } from "@/lib/audit-logs";
 import {
   MODEL_VENDOR_PRESETS,
@@ -8,14 +9,12 @@ import {
   type ModelServiceType,
 } from "@/lib/model-profiles";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
-export async function GET(request: Request) {
-  try {
-    const profiles = await listModelProfiles();
-    const { searchParams } = new URL(request.url);
-    if (searchParams.get("export") === "1") {
+export const GET = withApiRoute(async (request: Request) => {
+  const mode = await getAppMode();
+  const profiles = await listModelProfiles({ mode });
+  const { searchParams } = new URL(request.url);
+  if (searchParams.get("export") === "1") {
       const payload = {
         schema: "aitrade.model_profiles.v1",
         exportedAt: new Date().toISOString(),
@@ -36,6 +35,7 @@ export async function GET(request: Request) {
         })),
       };
       await recordAuditLog({
+        mode,
         actor: "本机管理员",
         action: "model_profile.exported",
         entityType: "model_profile",
@@ -49,24 +49,21 @@ export async function GET(request: Request) {
           "Cache-Control": "no-store",
         },
       });
-    }
-    return Response.json({ profiles, presets: MODEL_VENDOR_PRESETS });
-  } catch (error) {
-    return apiError(error);
   }
-}
+  return Response.json({ profiles, presets: MODEL_VENDOR_PRESETS });
+});
 
-export async function POST(request: Request) {
-  try {
-    const body = await readJsonObject(request);
-    const action = stringField(body, "action", { maxLength: 20 });
+export const POST = withApiRoute(async (request: Request) => {
+  const mode = await getAppMode();
+  const body = await readJsonObject(request);
+  const action = stringField(body, "action", { maxLength: 20 });
 
     if (action === "import") {
       const rawItems = Array.isArray(body.profiles) ? body.profiles : [];
       if (rawItems.length === 0) {
         throw new ApiInputError("导入文件中未找到有效的模型配置列表（profiles）", 400);
       }
-      const existing = await listModelProfiles();
+      const existing = await listModelProfiles({ mode });
       let imported = 0;
       const skipped: string[] = [];
 
@@ -96,26 +93,30 @@ export async function POST(request: Request) {
           continue;
         }
         const matched = existing.find((e) => e.serviceType === serviceType && e.name === name);
-        await saveModelProfile({
-          id: matched?.id,
-          serviceType,
-          vendor,
-          protocol,
-          name,
-          baseUrl,
-          apiKey: apiKey || undefined,
-          models,
-          defaultModel: defaultModel || models[0] || "",
-          submitEndpoint: String(rec.submitEndpoint ?? rec.submit_endpoint ?? ""),
-          queryEndpoint: String(rec.queryEndpoint ?? rec.query_endpoint ?? ""),
-          supportsMultiImage: Boolean(rec.supportsMultiImage ?? rec.supports_multi_image),
-          isDefault: Boolean(rec.isDefault ?? rec.is_default),
-          actor: "JSON 导入",
-        });
+        await saveModelProfile(
+          {
+            id: matched?.id,
+            serviceType,
+            vendor,
+            protocol,
+            name,
+            baseUrl,
+            apiKey: apiKey || undefined,
+            models,
+            defaultModel: defaultModel || models[0] || "",
+            submitEndpoint: String(rec.submitEndpoint ?? rec.submit_endpoint ?? ""),
+            queryEndpoint: String(rec.queryEndpoint ?? rec.query_endpoint ?? ""),
+            supportsMultiImage: Boolean(rec.supportsMultiImage ?? rec.supports_multi_image),
+            isDefault: Boolean(rec.isDefault ?? rec.is_default),
+            actor: "JSON 导入",
+          },
+          { mode },
+        );
         imported += 1;
       }
 
       await recordAuditLog({
+        mode,
         actor: "JSON 导入",
         action: "model_profile.imported",
         entityType: "model_profile",
@@ -157,24 +158,28 @@ export async function POST(request: Request) {
 
     if (!name.trim()) throw new ApiInputError("请填写配置名称", 400);
 
-    const saved = await saveModelProfile({
-      id,
-      serviceType,
-      vendor,
-      protocol,
-      name,
-      baseUrl,
-      apiKey,
-      models: modelsRaw,
-      defaultModel,
-      submitEndpoint,
-      queryEndpoint,
-      supportsMultiImage: Boolean(body.supportsMultiImage),
-      isDefault: Boolean(body.isDefault),
-      actor,
-    });
+    const saved = await saveModelProfile(
+      {
+        id,
+        serviceType,
+        vendor,
+        protocol,
+        name,
+        baseUrl,
+        apiKey,
+        models: modelsRaw,
+        defaultModel,
+        submitEndpoint,
+        queryEndpoint,
+        supportsMultiImage: Boolean(body.supportsMultiImage),
+        isDefault: Boolean(body.isDefault),
+        actor,
+      },
+      { mode },
+    );
 
     await recordAuditLog({
+      mode,
       actor,
       action: "model_profile.saved",
       entityType: "model_profile",
@@ -193,8 +198,5 @@ export async function POST(request: Request) {
     revalidatePath("/image-studio");
     revalidatePath("/video-studio");
     revalidatePath("/content");
-    return Response.json({ ok: true, profile: saved });
-  } catch (error) {
-    return apiError(error);
-  }
-}
+  return Response.json({ ok: true, profile: saved });
+});

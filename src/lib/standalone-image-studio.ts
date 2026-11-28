@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { getAppMode, isDemoMode, type AppMode, type ModeOptions } from "./app-mode.ts";
 import { getDb } from "./db.ts";
 import type { ImageAspectRatio, ImageAssetSlot } from "./image-skills.ts";
 
@@ -40,48 +41,49 @@ export type StandaloneStudioAsset = {
 
 let studioImageReadyPromise: Promise<void> | null = null;
 
-async function ensureStudioImageReady(): Promise<void> {
+async function ensureStudioImageReady(mode: AppMode): Promise<void> {
+  // 历史 JSON 没有可靠的模式字段，只能作为演示素材导入，绝不能复制到真实空间。
+  if (!isDemoMode(mode)) return;
   if (!studioImageReadyPromise) {
     studioImageReadyPromise = (async () => {
       const db = await getDb();
-      await db.exec(`
-        CREATE TABLE IF NOT EXISTS studio_media_assets (
-          id TEXT PRIMARY KEY,
-          media_kind TEXT NOT NULL CHECK (media_kind IN ('image', 'video')),
-          case_id TEXT REFERENCES product_cases(id) ON DELETE SET NULL,
-          product_name TEXT NOT NULL DEFAULT '',
-          marketplace TEXT NOT NULL DEFAULT 'US',
-          payload JSONB NOT NULL,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-        CREATE INDEX IF NOT EXISTS idx_studio_media_assets_kind_created
-          ON studio_media_assets(media_kind, created_at DESC);
-        CREATE INDEX IF NOT EXISTS idx_studio_media_assets_case
-          ON studio_media_assets(case_id, created_at DESC);
-      `);
 
       try {
         const raw = await readFile(LEGACY_MANIFEST_PATH, "utf8");
         const parsed: unknown = JSON.parse(raw);
         if (Array.isArray(parsed)) {
-          for (const item of parsed) {
-            if (!item || typeof item !== "object" || typeof (item as StandaloneStudioAsset).id !== "string") continue;
-            const rec = item as StandaloneStudioAsset;
-            const firstCaseId = rec.boundCases?.[0]?.caseId ?? null;
-            await db.query(
-              `INSERT INTO studio_media_assets (id, media_kind, case_id, product_name, marketplace, payload, created_at)
-               VALUES ($1, 'image', (SELECT id FROM product_cases WHERE id = $2 LIMIT 1), $3, $4, $5::jsonb, COALESCE($6::timestamptz, NOW()))
-               ON CONFLICT (id) DO NOTHING`,
-              [
-                rec.id,
-                firstCaseId,
-                rec.productName || "",
-                rec.marketplace || "US",
-                JSON.stringify(rec),
-                rec.createdAt || null,
-              ],
-            );
-          }
+          await db.transaction(async (tx) => {
+            for (const item of parsed) {
+              if (!item || typeof item !== "object" || typeof (item as StandaloneStudioAsset).id !== "string") continue;
+              const rec = item as StandaloneStudioAsset;
+              const caseIds = [...new Set((rec.boundCases ?? []).map((bound) => bound.caseId).filter(Boolean))];
+              let boundCases = rec.boundCases;
+              if (caseIds.length > 0) {
+                const validCases = await tx.query<{ id: string }>(
+                  `SELECT id FROM product_cases WHERE id = ANY($1::text[]) AND is_demo = TRUE`,
+                  [caseIds],
+                );
+                const validCaseIds = new Set(validCases.rows.map((row) => row.id));
+                boundCases = rec.boundCases?.filter((bound) => validCaseIds.has(bound.caseId));
+              }
+              const sanitized = { ...rec, boundCases };
+              const firstCaseId = boundCases?.[0]?.caseId ?? null;
+              await tx.query(
+                `INSERT INTO studio_media_assets (id, media_kind, case_id, product_name, marketplace, payload, created_at, is_demo)
+                 VALUES ($1, 'image', (SELECT id FROM product_cases WHERE id = $2 AND is_demo = $7 LIMIT 1), $3, $4, $5::jsonb, COALESCE($6::timestamptz, NOW()), $7)
+                 ON CONFLICT (id) DO NOTHING`,
+                [
+                  rec.id,
+                  firstCaseId,
+                  rec.productName || "",
+                  rec.marketplace || "US",
+                  JSON.stringify(sanitized),
+                  rec.createdAt || null,
+                  true,
+                ],
+              );
+            }
+          });
         }
       } catch {
         // 无历史 JSON 文件时忽略
@@ -94,40 +96,68 @@ async function ensureStudioImageReady(): Promise<void> {
   await studioImageReadyPromise;
 }
 
-export async function listStandaloneStudioAssets(): Promise<StandaloneStudioAsset[]> {
-  await ensureStudioImageReady();
+export async function listStandaloneStudioAssets(options?: ModeOptions): Promise<StandaloneStudioAsset[]> {
+  const mode = options?.mode ?? (await getAppMode());
+  await ensureStudioImageReady(mode);
   const db = await getDb();
   const res = await db.query<{ payload: unknown }>(
-    `SELECT payload FROM studio_media_assets WHERE media_kind = 'image' ORDER BY created_at DESC LIMIT $1`,
-    [MAX_STANDALONE_ASSETS],
+    `SELECT payload FROM studio_media_assets
+     WHERE media_kind = 'image' AND is_demo = $2
+     ORDER BY created_at DESC LIMIT $1`,
+    [MAX_STANDALONE_ASSETS, isDemoMode(mode)],
   );
   return res.rows
     .map((r) => r.payload as StandaloneStudioAsset)
     .filter((item): item is StandaloneStudioAsset => Boolean(item && typeof item.id === "string"));
 }
 
-export async function getStandaloneStudioAsset(id: string): Promise<StandaloneStudioAsset | null> {
-  await ensureStudioImageReady();
+export async function getStandaloneStudioAsset(
+  id: string,
+  options?: ModeOptions,
+): Promise<StandaloneStudioAsset | null> {
+  const mode = options?.mode ?? (await getAppMode());
+  await ensureStudioImageReady(mode);
   const db = await getDb();
   const res = await db.query<{ payload: unknown }>(
-    `SELECT payload FROM studio_media_assets WHERE id = $1 AND media_kind = 'image' LIMIT 1`,
-    [id],
+    `SELECT payload FROM studio_media_assets
+     WHERE id = $1 AND media_kind = 'image' AND is_demo = $2
+     LIMIT 1`,
+    [id, isDemoMode(mode)],
   );
   return (res.rows[0]?.payload as StandaloneStudioAsset | undefined) ?? null;
 }
 
-export async function saveStandaloneStudioAsset(record: StandaloneStudioAsset): Promise<void> {
-  await ensureStudioImageReady();
+async function assertBoundCasesInMode(boundCases: StudioBoundCaseRef[] | undefined, isDemo: boolean): Promise<void> {
+  const caseIds = [...new Set((boundCases ?? []).map((item) => item.caseId).filter(Boolean))];
+  if (caseIds.length === 0) return;
   const db = await getDb();
+  const res = await db.query<{ id: string }>(
+    `SELECT id FROM product_cases WHERE id = ANY($1::text[]) AND is_demo = $2`,
+    [caseIds, isDemo],
+  );
+  if (res.rows.length !== caseIds.length) throw new Error("绑定案卷不存在");
+}
+
+export async function saveStandaloneStudioAsset(
+  record: StandaloneStudioAsset,
+  options?: ModeOptions,
+): Promise<void> {
+  const mode = options?.mode ?? (await getAppMode());
+  await ensureStudioImageReady(mode);
+  const db = await getDb();
+  const demo = isDemoMode(mode);
+  await assertBoundCasesInMode(record.boundCases, demo);
   const firstCaseId = record.boundCases?.[0]?.caseId ?? null;
-  await db.query(
-    `INSERT INTO studio_media_assets (id, media_kind, case_id, product_name, marketplace, payload, created_at)
-     VALUES ($1, 'image', (SELECT id FROM product_cases WHERE id = $2 LIMIT 1), $3, $4, $5::jsonb, COALESCE($6::timestamptz, NOW()))
+  const saved = await db.query<{ id: string }>(
+    `INSERT INTO studio_media_assets (id, media_kind, case_id, product_name, marketplace, payload, created_at, is_demo)
+     VALUES ($1, 'image', (SELECT id FROM product_cases WHERE id = $2 AND is_demo = $7 LIMIT 1), $3, $4, $5::jsonb, COALESCE($6::timestamptz, NOW()), $7)
      ON CONFLICT (id) DO UPDATE SET
        case_id = EXCLUDED.case_id,
        product_name = EXCLUDED.product_name,
        marketplace = EXCLUDED.marketplace,
-       payload = EXCLUDED.payload`,
+       payload = EXCLUDED.payload
+     WHERE studio_media_assets.is_demo = EXCLUDED.is_demo
+     RETURNING id`,
     [
       record.id,
       firstCaseId,
@@ -135,23 +165,36 @@ export async function saveStandaloneStudioAsset(record: StandaloneStudioAsset): 
       record.marketplace || "US",
       JSON.stringify(record),
       record.createdAt || null,
+      demo,
     ],
   );
+  if (!saved.rows[0]) throw new Error("素材不存在");
 }
 
-export async function deleteStandaloneStudioAsset(id: string): Promise<StandaloneStudioAsset | null> {
-  const target = await getStandaloneStudioAsset(id);
+export async function deleteStandaloneStudioAsset(
+  id: string,
+  options?: ModeOptions,
+): Promise<StandaloneStudioAsset | null> {
+  const mode = options?.mode ?? (await getAppMode());
+  const target = await getStandaloneStudioAsset(id, { mode });
   if (!target) return null;
   const db = await getDb();
-  await db.query(`DELETE FROM studio_media_assets WHERE id = $1 AND media_kind = 'image'`, [id]);
+  await db.query(
+    `DELETE FROM studio_media_assets WHERE id = $1 AND media_kind = 'image' AND is_demo = $2`,
+    [id, isDemoMode(mode)],
+  );
   return target;
 }
 
 export async function markStandaloneImageBound(
   id: string,
   ref: { caseId: string; caseTitle: string },
+  options?: ModeOptions,
 ): Promise<void> {
-  const existing = await getStandaloneStudioAsset(id);
+  const mode = options?.mode ?? (await getAppMode());
+  const demo = isDemoMode(mode);
+  await assertBoundCasesInMode([{ ...ref, boundAt: new Date().toISOString() }], demo);
+  const existing = await getStandaloneStudioAsset(id, { mode });
   if (!existing) return;
   const current = Array.isArray(existing.boundCases) ? existing.boundCases : [];
   if (current.some((c) => c.caseId === ref.caseId)) return;
@@ -159,5 +202,5 @@ export async function markStandaloneImageBound(
     ...existing,
     boundCases: [...current, { caseId: ref.caseId, caseTitle: ref.caseTitle, boundAt: new Date().toISOString() }],
   };
-  await saveStandaloneStudioAsset(next);
+  await saveStandaloneStudioAsset(next, { mode });
 }

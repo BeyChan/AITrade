@@ -13,6 +13,7 @@ import {
   listKanbanCandidates,
   type KanbanCandidateItem,
 } from "@/lib/ai-sourcing-repository";
+import { getAppMode } from "@/lib/app-mode";
 import { loadFunnelThresholds } from "@/lib/app-settings";
 import { shortDate } from "@/lib/format";
 import {
@@ -38,10 +39,11 @@ function formatKanbanTitle(concept: string): string {
 }
 
 export default async function AISourcingBatchListPage({ searchParams }: PageProps) {
+  const mode = await getAppMode();
   const [query, batches, allCandidates, thresholds] = await Promise.all([
     searchParams,
-    listAISourcingBatches(),
-    listKanbanCandidates(),
+    listAISourcingBatches(undefined, undefined, { mode }),
+    listKanbanCandidates(undefined, undefined, { mode }),
     loadFunnelThresholds(),
   ]);
 

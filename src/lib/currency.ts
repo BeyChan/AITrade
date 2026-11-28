@@ -3,6 +3,8 @@
  * 基准时间：2026-11-01 · 离线兜底基准（实时汇率与手动覆盖由 fx-rates.ts 管理并注入运行时表）
  */
 
+import type { AppMode } from "./app-mode.ts";
+
 export type FxRateDefinition = {
   currency: string;
   name: string;
@@ -25,10 +27,14 @@ export const OFFICIAL_FX_CONFIG: Record<string, FxRateDefinition> = {
 
 export const SUPPORTED_FX_CURRENCIES = Object.keys(OFFICIAL_FX_CONFIG);
 
-// 运行时生效汇率表（由 fx-rates.ts 从数据库/实时接口同步写入）
-const runtimeRates = new Map<string, number>();
+// 运行时生效汇率表按运行模式隔离，避免 sandbox / live 快照互相覆盖。
+const runtimeRatesByMode: Record<AppMode, Map<string, number>> = {
+  sandbox: new Map(),
+  live: new Map(),
+};
 
-export function setRuntimeFxRates(rates: Record<string, number>) {
+export function setRuntimeFxRates(rates: Record<string, number>, mode: AppMode = "sandbox") {
+  const runtimeRates = runtimeRatesByMode[mode];
   for (const [rawCode, value] of Object.entries(rates)) {
     const code = rawCode.toUpperCase();
     if (Number.isFinite(value) && value > 0) {
@@ -59,9 +65,9 @@ export function formatFxRate(currency: string, rate: number): string {
 /**
  * 获取当前货币对人民币的汇率（优先读取实时/手动生效值，否则回落到官方基准）
  */
-export function getFxRate(currency: string): number {
+export function getFxRate(currency: string, mode: AppMode = "sandbox"): number {
   const code = (currency || "USD").toUpperCase();
-  const runtime = runtimeRates.get(code);
+  const runtime = runtimeRatesByMode[mode].get(code);
   if (runtime && Number.isFinite(runtime) && runtime > 0) return runtime;
   return OFFICIAL_FX_CONFIG[code]?.rateToRmb ?? 7.22;
 }
@@ -70,15 +76,23 @@ export function getFxRate(currency: string): number {
  * 将人民币金额转为目标外币分 (Cents)
  * 例如 35 元人民币转 USD: Math.round((35 / 7.22) * 100) = 485 ¢ ($4.85)
  */
-export function convertRmbToForeignCents(amountRmb: number, targetCurrency: string): number {
-  const rate = getFxRate(targetCurrency);
+export function convertRmbToForeignCents(
+  amountRmb: number,
+  targetCurrency: string,
+  mode: AppMode = "sandbox",
+): number {
+  const rate = getFxRate(targetCurrency, mode);
   return Math.round((amountRmb / rate) * 100);
 }
 
 /**
  * 将外币分 (Cents) 转为人民币
  */
-export function convertForeignCentsToRmb(cents: number, currency: string): number {
-  const rate = getFxRate(currency);
+export function convertForeignCentsToRmb(
+  cents: number,
+  currency: string,
+  mode: AppMode = "sandbox",
+): number {
+  const rate = getFxRate(currency, mode);
   return Number(((cents / 100) * rate).toFixed(2));
 }

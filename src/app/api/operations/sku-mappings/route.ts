@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getAppMode } from "@/lib/app-mode";
 import { recordAuditLog } from "@/lib/audit-logs";
 import {
   deleteChannelSkuMapping,
@@ -6,14 +7,13 @@ import {
   upsertChannelSkuMapping,
 } from "@/lib/operations-repository";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
+    const mode = await getAppMode();
     const { searchParams } = new URL(request.url);
     const marketplace = searchParams.get("marketplace")?.trim() || undefined;
-    const mappings = await listChannelSkuMappings(marketplace);
+    const mappings = await listChannelSkuMappings(marketplace, { mode });
     return NextResponse.json({ mappings });
   } catch (err) {
     return NextResponse.json(
@@ -25,6 +25,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const mode = await getAppMode();
     const body = (await request.json()) as {
       marketplace?: string;
       channelSku?: string;
@@ -48,9 +49,10 @@ export async function POST(request: Request) {
           ? body.unitLandedCostCentsOverride
           : null,
       notes: body.notes ?? "",
-    });
+    }, { mode });
 
     await recordAuditLog({
+      mode,
       actor: body.actor?.trim() || "本机用户",
       action: "operations.sku_mapping_upserted",
       entityType: "channel_sku_mapping",
@@ -77,13 +79,15 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    const mode = await getAppMode();
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id")?.trim();
     if (!id) {
       return NextResponse.json({ error: "缺少映射 ID" }, { status: 400 });
     }
-    await deleteChannelSkuMapping(id);
+    await deleteChannelSkuMapping(id, { mode });
     await recordAuditLog({
+      mode,
       actor: "本机用户",
       action: "operations.sku_mapping_deleted",
       entityType: "channel_sku_mapping",

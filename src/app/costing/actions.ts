@@ -110,26 +110,31 @@ function candidateProfitPath(
   return `/ai-sourcing/${encodeURIComponent(runId)}?${params.toString()}#hypothesis-${encodeURIComponent(hypothesisId)}`;
 }
 
-async function saveCostSheetFromForm(formData: FormData, sheetId: string) {
+async function saveCostSheetFromForm(
+  formData: FormData,
+  sheetId: string,
+  mode: Awaited<ReturnType<typeof getAppMode>>,
+) {
   const input = buildInput(formData);
-  if (!sheetId) return (await createCostSheet(input)).id;
-  const existing = await getCostSheet(sheetId);
+  if (!sheetId) return (await createCostSheet(input, { mode })).id;
+  const existing = await getCostSheet(sheetId, { mode });
   if (!existing) throw new Error("成本核算单不存在");
   const saved =
     existing.status === "draft"
-      ? await updateCostSheetDraft(sheetId, input)
-      : await createCostSheetVersion(sheetId, input);
+      ? await updateCostSheetDraft(sheetId, input, { mode })
+      : await createCostSheetVersion(sheetId, input, { mode });
   return saved.id;
 }
 
 export async function saveCostSheetAction(formData: FormData) {
+  const mode = await getAppMode();
   const sheetId = String(formData.get("sheetId") || "").trim();
   const hypothesisId = String(formData.get("hypothesisId") || "").trim() || null;
   const marketCode = String(formData.get("marketCode") || "").trim().toUpperCase() || undefined;
   const platformCode = String(formData.get("platformCode") || "").trim().toLowerCase() || undefined;
   let savedId: string;
   try {
-    savedId = await saveCostSheetFromForm(formData, sheetId);
+    savedId = await saveCostSheetFromForm(formData, sheetId, mode);
   } catch (error) {
     redirect(withQuery(costingPath(sheetId, hypothesisId, marketCode, platformCode), "error", message(error)));
   }
@@ -139,23 +144,24 @@ export async function saveCostSheetAction(formData: FormData) {
 
 /** 演示模式专用：保存本次表单、确认核算单，并在候选上下文内直接绑定。 */
 export async function saveAndConfirmCostSheetAction(formData: FormData) {
+  const mode = await getAppMode();
   const sheetId = String(formData.get("sheetId") || "").trim();
   const hypothesisId = String(formData.get("hypothesisId") || "").trim() || null;
   const runId = String(formData.get("runId") || "").trim();
   const actor = String(formData.get("actor") || "演示模式").trim() || "演示模式";
   const marketCode = String(formData.get("marketCode") || "").trim().toUpperCase() || undefined;
   const platformCode = String(formData.get("platformCode") || "").trim().toLowerCase() || undefined;
-  const demoMode = (await getAppMode()) === "sandbox";
+  const demoMode = mode === "sandbox";
   if (!demoMode) {
     redirect(withQuery(costingPath(sheetId, hypothesisId, marketCode, platformCode), "error", "正式模式必须单独人工确认核算单"));
   }
 
   let savedId = sheetId;
   try {
-    savedId = await saveCostSheetFromForm(formData, sheetId);
-    const confirmed = await confirmCostSheet(savedId, actor, { demoBypass: true });
+    savedId = await saveCostSheetFromForm(formData, sheetId, mode);
+    const confirmed = await confirmCostSheet(savedId, actor, { demoBypass: true, mode });
     if (hypothesisId) {
-      await attachCostSheetToHypothesis({ hypothesisId, costSheetId: confirmed.id, actor });
+      await attachCostSheetToHypothesis({ hypothesisId, costSheetId: confirmed.id, actor }, { mode });
     }
   } catch (error) {
     redirect(withQuery(costingPath(savedId || sheetId, hypothesisId, marketCode, platformCode), "error", message(error)));
@@ -171,6 +177,7 @@ export async function saveAndConfirmCostSheetAction(formData: FormData) {
 }
 
 export async function createCostSheetVersionAction(formData: FormData) {
+  const mode = await getAppMode();
   const sheetId = String(formData.get("sheetId") || "").trim();
   if (!sheetId) redirect(withQuery("/costing", "error", "缺少原核算单标识"));
   const hypothesisId = String(formData.get("hypothesisId") || "").trim() || null;
@@ -179,7 +186,7 @@ export async function createCostSheetVersionAction(formData: FormData) {
   let createdId = "";
   try {
     const input = buildInput(formData);
-    const created = await createCostSheetVersion(sheetId, input);
+    const created = await createCostSheetVersion(sheetId, input, { mode });
     createdId = created.id;
   } catch (error) {
     redirect(withQuery(costingPath(sheetId, hypothesisId, marketCode, platformCode), "error", message(error)));
@@ -189,6 +196,7 @@ export async function createCostSheetVersionAction(formData: FormData) {
 }
 
 export async function confirmCostSheetAction(formData: FormData) {
+  const mode = await getAppMode();
   const sheetId = String(formData.get("sheetId") || "").trim();
   const actor = String(formData.get("actor") || "").trim();
   const hypothesisId = String(formData.get("hypothesisId") || "").trim() || null;
@@ -197,12 +205,12 @@ export async function confirmCostSheetAction(formData: FormData) {
   const platformCode = String(formData.get("platformCode") || "").trim().toLowerCase() || undefined;
   if (!sheetId) redirect(withQuery("/costing", "error", "缺少核算单标识"));
   try {
-    const existing = await getCostSheet(sheetId);
-    if (existing?.status === "draft") await updateCostSheetDraft(sheetId, buildInput(formData));
-    const demoMode = (await getAppMode()) === "sandbox";
-    const confirmed = await confirmCostSheet(sheetId, actor, { demoBypass: demoMode });
+    const existing = await getCostSheet(sheetId, { mode });
+    if (existing?.status === "draft") await updateCostSheetDraft(sheetId, buildInput(formData), { mode });
+    const demoMode = mode === "sandbox";
+    const confirmed = await confirmCostSheet(sheetId, actor, { demoBypass: demoMode, mode });
     if (hypothesisId) {
-      await attachCostSheetToHypothesis({ hypothesisId, costSheetId: confirmed.id, actor });
+      await attachCostSheetToHypothesis({ hypothesisId, costSheetId: confirmed.id, actor }, { mode });
     }
   } catch (error) {
     redirect(withQuery(costingPath(sheetId, hypothesisId, marketCode, platformCode), "error", message(error)));
@@ -219,6 +227,7 @@ export async function confirmCostSheetAction(formData: FormData) {
 }
 
 export async function createHypothesisFromCostSheetAction(formData: FormData) {
+  const mode = await getAppMode();
   const sheetId = String(formData.get("sheetId") || "").trim();
   if (!sheetId) redirect(withQuery("/costing", "error", "缺少核算单标识"));
   const actor = String(formData.get("actor") || "选品负责人").trim();
@@ -229,7 +238,7 @@ export async function createHypothesisFromCostSheetAction(formData: FormData) {
       actor,
       concept: String(formData.get("concept") || "").trim() || undefined,
       category: String(formData.get("category") || "").trim() || undefined,
-    });
+    }, { mode });
   } catch (error) {
     redirect(withQuery(`/costing?id=${encodeURIComponent(sheetId)}`, "error", message(error)));
   }
@@ -240,6 +249,7 @@ export async function createHypothesisFromCostSheetAction(formData: FormData) {
 }
 
 export async function attachCostSheetAction(formData: FormData) {
+  const mode = await getAppMode();
   const hypothesisId = String(formData.get("hypothesisId") || "").trim();
   const costSheetId = String(formData.get("costSheetId") || "").trim();
   const runId = String(formData.get("runId") || "").trim();
@@ -249,15 +259,15 @@ export async function attachCostSheetAction(formData: FormData) {
   }
   let demoConfirmed = false;
   try {
-    const demoMode = (await getAppMode()) === "sandbox";
-    const sheet = await getCostSheet(costSheetId);
+    const demoMode = mode === "sandbox";
+    const sheet = await getCostSheet(costSheetId, { mode });
     if (!sheet) throw new Error("成本核算单不存在");
     if (demoMode && sheet.status !== "confirmed") {
-      if (!(await isLatestCostSheetVersion(sheet.id))) throw new Error("该核算单已有新版本，不能绑定旧版本");
-      await confirmCostSheet(sheet.id, actor, { demoBypass: true });
+      if (!(await isLatestCostSheetVersion(sheet.id, { mode }))) throw new Error("该核算单已有新版本，不能绑定旧版本");
+      await confirmCostSheet(sheet.id, actor, { demoBypass: true, mode });
       demoConfirmed = true;
     }
-    await attachCostSheetToHypothesis({ hypothesisId, costSheetId, actor });
+    await attachCostSheetToHypothesis({ hypothesisId, costSheetId, actor }, { mode });
   } catch (error) {
     redirect(withQuery(`/ai-sourcing/${encodeURIComponent(runId)}?tab=profit&hypothesisId=${encodeURIComponent(hypothesisId)}`, "error", message(error)));
   }

@@ -1,4 +1,5 @@
 import { ApiInputError, apiError, readJsonObject, stringField } from "@/lib/api-http";
+import { getAppMode } from "@/lib/app-mode";
 import { recordAuditLog } from "@/lib/audit-logs";
 import {
   deleteLocalImageSkill,
@@ -6,10 +7,9 @@ import {
   saveLocalImageSkill,
 } from "@/lib/image-skills";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  const mode = await getAppMode();
   try {
     const body = await readJsonObject(request);
     const name = stringField(body, "name", { required: true, maxLength: 80 });
@@ -30,6 +30,7 @@ export async function POST(request: Request) {
     const skills = await listAvailableImageSkills();
 
     await recordAuditLog({
+      mode,
       actor: "本地操作员",
       action: "image_skill.saved",
       entityType: "image_skill",
@@ -48,6 +49,7 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  const mode = await getAppMode();
   try {
     const url = new URL(request.url);
     const id = (url.searchParams.get("id") ?? "").trim();
@@ -57,6 +59,7 @@ export async function DELETE(request: Request) {
 
     await deleteLocalImageSkill(id);
     await recordAuditLog({
+      mode,
       actor: "本地操作员",
       action: "image_skill.deleted",
       entityType: "image_skill",

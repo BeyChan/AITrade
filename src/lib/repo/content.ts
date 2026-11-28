@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isDemoMode, type AppMode } from "../app-mode.ts";
 import { getDb } from "../db.ts";
 import { isSupportedImageSlot, type ImageAssetSlot } from "../image-skills.ts";
 import { type ListingDraftContent } from "../listing.ts";
@@ -7,7 +8,7 @@ import {
   ensureChannelFoundation,
   saveChannelVersionWithExecutor,
 } from "./channel-helpers.ts";
-import { getCaseWorkflowFacts } from "./cases.ts";
+import { getCaseForMode, getCaseWorkflowFacts, resolveCurrentMode } from "./cases.ts";
 import type {
   AssetRow,
   AuditRow,
@@ -49,55 +50,92 @@ export type MainImageReviewChecks = {
   matchesPhysicalProduct?: boolean;
 };
 
-async function assertContentUnlocked(caseId: string) {
+async function assertContentUnlocked(caseId: string, options?: { mode?: AppMode }) {
   const db = await getDb();
-  const [product, selection] = await Promise.all([
-    db.query<ProductCaseRow>("SELECT * FROM product_cases WHERE id = $1", [caseId]),
-    db.query<SupplierSelectionRow>("SELECT * FROM supplier_selections WHERE case_id = $1 LIMIT 1", [caseId]),
-  ]);
-  if (!product.rows[0]) throw new Error("商品机会不存在");
-  if (product.rows[0].status !== "approved") throw new Error("只有已立项商品可以进入内容制作");
+  const mode = await resolveCurrentMode(options?.mode);
+  const demo = isDemoMode(mode);
+  const product = await getCaseForMode(caseId, { mode });
+  const selection = await db.query<SupplierSelectionRow>(
+    `SELECT ss.*
+     FROM supplier_selections ss
+     JOIN suppliers s ON s.id = ss.supplier_id AND s.is_demo = $2
+     WHERE ss.case_id = $1
+     LIMIT 1`,
+    [caseId, demo],
+  );
+  if (!product) throw new Error("商品机会不存在");
+  if (product.status !== "approved") throw new Error("只有已立项商品可以进入内容制作");
   if (!selection.rows[0]) throw new Error("请先完成供应商人工定标，再制作商品内容");
-  return { product: product.rows[0], selection: selection.rows[0] };
+  return { product, selection: selection.rows[0], mode, demo };
 }
 
 
-export async function getContentDetail(caseId: string): Promise<ContentDetail | null> {
+export async function getContentDetail(
+  caseId: string,
+  options?: { mode?: AppMode },
+): Promise<ContentDetail | null> {
   const db = await getDb();
-  const product = await db.query<ProductCaseRow>("SELECT * FROM product_cases WHERE id = $1", [caseId]);
-  const productCase = product.rows[0];
+  const mode = await resolveCurrentMode(options?.mode);
+  const demo = isDemoMode(mode);
+  const productCase = await getCaseForMode(caseId, { mode });
   if (!productCase) return null;
 
   const [costs, selections, profiles, assets, listings, audits, workflowFacts] = await Promise.all([
-    db.query<CostModelRow>("SELECT * FROM cost_models WHERE case_id = $1 ORDER BY version DESC LIMIT 1", [caseId]),
+    db.query<CostModelRow>(
+      `SELECT cm.*
+       FROM cost_models cm
+       JOIN product_cases pc ON pc.id = cm.case_id
+       WHERE cm.case_id = $1 AND pc.is_demo = $2
+       ORDER BY cm.version DESC
+       LIMIT 1`,
+      [caseId, demo],
+    ),
     db.query<SupplierSelectionRow & { supplier_name: string }>(
       `SELECT ss.*, s.name AS supplier_name
        FROM supplier_selections ss
        JOIN suppliers s ON s.id = ss.supplier_id
-       WHERE ss.case_id = $1
+       JOIN product_cases pc ON pc.id = ss.case_id
+       WHERE ss.case_id = $1 AND pc.is_demo = $2 AND s.is_demo = $2
        LIMIT 1`,
-      [caseId],
+      [caseId, demo],
     ),
-    db.query<ContentProfileRow>("SELECT * FROM case_content_profiles WHERE case_id = $1 LIMIT 1", [caseId]),
-    db.query<AssetRow>("SELECT * FROM assets WHERE case_id = $1 ORDER BY created_at DESC", [caseId]),
+    db.query<ContentProfileRow>(
+      `SELECT cp.*
+       FROM case_content_profiles cp
+       JOIN product_cases pc ON pc.id = cp.case_id
+       WHERE cp.case_id = $1 AND pc.is_demo = $2
+       LIMIT 1`,
+      [caseId, demo],
+    ),
+    db.query<AssetRow>(
+      `SELECT a.*
+       FROM assets a
+       JOIN product_cases pc ON pc.id = a.case_id
+       WHERE a.case_id = $1 AND pc.is_demo = $2
+       ORDER BY a.created_at DESC`,
+      [caseId, demo],
+    ),
     db.query<ListingRow>(
       `SELECT l.*
        FROM listings l
        JOIN channel_listings cl ON cl.id = l.channel_listing_id
        JOIN channel_accounts ca ON ca.id = cl.channel_account_id
        JOIN product_market_variants pmv ON pmv.id = cl.product_market_variant_id
-       WHERE l.case_id = $1
+       JOIN product_cases pc ON pc.id = l.case_id
+       WHERE l.case_id = $1 AND pc.is_demo = $3
          AND ca.platform_code = 'amazon'
          AND pmv.country_code = $2
        ORDER BY l.version DESC
        LIMIT 1`,
-      [caseId, productCase.marketplace || "US"],
+      [caseId, productCase.marketplace || "US", demo],
     ),
     db.query<AuditRow>(
-      "SELECT * FROM audit_logs WHERE entity_type = 'product_case' AND entity_id = $1 ORDER BY created_at DESC LIMIT 40",
-      [caseId],
+      `SELECT * FROM audit_logs
+       WHERE entity_type = 'product_case' AND entity_id = $1 AND is_demo = $2
+       ORDER BY created_at DESC LIMIT 40`,
+      [caseId, demo],
     ),
-    getCaseWorkflowFacts(caseId),
+    getCaseWorkflowFacts(caseId, { mode }),
   ]);
   const listing = listings.rows[0] ?? null;
   const reviews = listing
@@ -121,7 +159,12 @@ export async function getContentDetail(caseId: string): Promise<ContentDetail | 
   };
 }
 
-export async function upsertProductDefinition(caseId: string, input: ProductDefinitionInput, actor: string) {
+export async function upsertProductDefinition(
+  caseId: string,
+  input: ProductDefinitionInput,
+  actor: string,
+  options?: { mode?: AppMode },
+) {
   if (!actor.trim()) throw new Error("请输入编辑人");
   const definition = {
     productName: input.productName.trim(),
@@ -137,7 +180,7 @@ export async function upsertProductDefinition(caseId: string, input: ProductDefi
   if (!definition.specifications) throw new Error("请输入规格与材质");
   if (!definition.packageContents) throw new Error("请输入包装清单");
 
-  await assertContentUnlocked(caseId);
+  const { demo } = await assertContentUnlocked(caseId, options);
   const db = await getDb();
   const existing = await db.query<{ id: string }>("SELECT id FROM case_content_profiles WHERE case_id = $1 LIMIT 1", [caseId]);
   const id = existing.rows[0]?.id ?? randomUUID();
@@ -169,21 +212,26 @@ export async function upsertProductDefinition(caseId: string, input: ProductDefi
       ],
     );
     await tx.query(
-      "UPDATE product_cases SET updated_at = NOW() WHERE id = $1",
-      [caseId],
+      "UPDATE product_cases SET updated_at = NOW() WHERE id = $1 AND is_demo = $2",
+      [caseId, demo],
     );
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'content_profile.updated', 'product_case', $3, $4::jsonb)`,
-      [randomUUID(), actor.trim(), caseId, JSON.stringify({ definition, humanDecision: false })],
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'content_profile.updated', 'product_case', $3, $4::jsonb, $5)`,
+      [randomUUID(), actor.trim(), caseId, JSON.stringify({ definition, humanDecision: false }), demo],
     );
   });
   return { id };
 }
 
-export async function createAssetRecord(caseId: string, input: AssetUploadInput, actor: string) {
+export async function createAssetRecord(
+  caseId: string,
+  input: AssetUploadInput,
+  actor: string,
+  options?: { mode?: AppMode },
+) {
   if (!actor.trim()) throw new Error("请输入上传人");
-  await assertContentUnlocked(caseId);
+  const { demo } = await assertContentUnlocked(caseId, options);
   const db = await getDb();
   const assetId = randomUUID();
   const assetType: ImageAssetSlot = input.assetType && isSupportedImageSlot(input.assetType)
@@ -212,12 +260,12 @@ export async function createAssetRecord(caseId: string, input: AssetUploadInput,
       [assetId, caseId, assetType, `/api/assets/${assetId}`, JSON.stringify(metadata), parentAssetId],
     );
     await tx.query(
-      "UPDATE product_cases SET updated_at = NOW() WHERE id = $1",
-      [caseId],
+      "UPDATE product_cases SET updated_at = NOW() WHERE id = $1 AND is_demo = $2",
+      [caseId, demo],
     );
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, $3, 'product_case', $4, $5::jsonb)`,
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, $3, 'product_case', $4, $5::jsonb, $6)`,
       [
         randomUUID(),
         actor.trim(),
@@ -235,6 +283,7 @@ export async function createAssetRecord(caseId: string, input: AssetUploadInput,
           parentAssetId,
           skillId: typeof input.extraMetadata?.skillId === "string" ? input.extraMetadata.skillId : undefined,
         }),
+        demo,
       ],
     );
   });
@@ -253,9 +302,10 @@ export async function createVideoAssetRecord(
     extraMetadata?: Record<string, unknown>;
   },
   actor: string,
+  options?: { mode?: AppMode },
 ) {
   if (!actor.trim()) throw new Error("请输入操作人");
-  await assertContentUnlocked(caseId);
+  const { demo } = await assertContentUnlocked(caseId, options);
   const db = await getDb();
   const assetId = randomUUID();
   const metadata = {
@@ -275,10 +325,13 @@ export async function createVideoAssetRecord(
        VALUES ($1, $2, 'product_video', $3, $4::jsonb, 'pending_review', NOW())`,
       [assetId, caseId, `/api/assets/${assetId}`, JSON.stringify(metadata)],
     );
-    await tx.query("UPDATE product_cases SET updated_at = NOW() WHERE id = $1", [caseId]);
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'content.video_generated', 'product_case', $3, $4::jsonb)`,
+      "UPDATE product_cases SET updated_at = NOW() WHERE id = $1 AND is_demo = $2",
+      [caseId, demo],
+    );
+    await tx.query(
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'content.video_generated', 'product_case', $3, $4::jsonb, $5)`,
       [
         randomUUID(),
         actor.trim(),
@@ -291,6 +344,7 @@ export async function createVideoAssetRecord(
           size: input.size,
           parentAssetId: input.parentAssetId ?? null,
         }),
+        demo,
       ],
     );
   });
@@ -304,13 +358,17 @@ export async function reviewVideoAsset(
   decision: "approved" | "rejected",
   reviewer: string,
   notes: string,
+  options?: { mode?: AppMode },
 ) {
   if (!reviewer.trim()) throw new Error("请输入审核人");
-  await assertContentUnlocked(caseId);
+  const { demo } = await assertContentUnlocked(caseId, options);
   const db = await getDb();
   const existing = await db.query<AssetRow>(
-    "SELECT * FROM assets WHERE id = $1 AND case_id = $2 AND asset_type = 'product_video'",
-    [assetId, caseId],
+    `SELECT a.*
+     FROM assets a
+     JOIN product_cases pc ON pc.id = a.case_id
+     WHERE a.id = $1 AND a.case_id = $2 AND a.asset_type = 'product_video' AND pc.is_demo = $3`,
+    [assetId, caseId, demo],
   );
   if (!existing.rows[0]) throw new Error("视频资产不存在");
 
@@ -326,16 +384,20 @@ export async function reviewVideoAsset(
       "UPDATE assets SET status = $1, metadata = $2::jsonb WHERE id = $3",
       [decision, JSON.stringify(nextMeta), assetId],
     );
-    await tx.query("UPDATE product_cases SET updated_at = NOW() WHERE id = $1", [caseId]);
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, $3, 'product_case', $4, $5::jsonb)`,
+      "UPDATE product_cases SET updated_at = NOW() WHERE id = $1 AND is_demo = $2",
+      [caseId, demo],
+    );
+    await tx.query(
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, $3, 'product_case', $4, $5::jsonb, $6)`,
       [
         randomUUID(),
         reviewer.trim(),
         decision === "approved" ? "content.video_approved" : "content.video_rejected",
         caseId,
         JSON.stringify({ assetId, decision, notes: nextMeta.reviewNotes }),
+        demo,
       ],
     );
   });
@@ -343,18 +405,42 @@ export async function reviewVideoAsset(
   return { assetId, status: decision, metadata: nextMeta };
 }
 
-export async function deleteAssetRecord(assetId: string, actor = "本机管理员"): Promise<AssetRow | null> {
+export async function deleteAssetRecord(
+  assetId: string,
+  actor = "本机管理员",
+  options?: { mode?: AppMode },
+): Promise<AssetRow | null> {
   const db = await getDb();
-  const existing = await db.query<AssetRow>("SELECT * FROM assets WHERE id = $1", [assetId]);
+  const mode = await resolveCurrentMode(options?.mode);
+  const demo = isDemoMode(mode);
+  const existing = await db.query<AssetRow>(
+    `SELECT a.*
+     FROM assets a
+     JOIN product_cases pc ON pc.id = a.case_id
+     WHERE a.id = $1 AND pc.is_demo = $2`,
+    [assetId, demo],
+  );
   const target = existing.rows[0];
   if (!target) return null;
 
   await db.transaction(async (tx) => {
+    const locked = await tx.query<AssetRow>(
+      `SELECT a.*
+       FROM assets a
+       JOIN product_cases pc ON pc.id = a.case_id
+       WHERE a.id = $1 AND pc.is_demo = $2
+       FOR UPDATE`,
+      [assetId, demo],
+    );
+    if (!locked.rows[0]) return;
     await tx.query("DELETE FROM assets WHERE id = $1", [assetId]);
-    await tx.query("UPDATE product_cases SET updated_at = NOW() WHERE id = $1", [target.case_id]);
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'content.asset_deleted', 'product_case', $3, $4::jsonb)`,
+      "UPDATE product_cases SET updated_at = NOW() WHERE id = $1 AND is_demo = $2",
+      [target.case_id, demo],
+    );
+    await tx.query(
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'content.asset_deleted', 'product_case', $3, $4::jsonb, $5)`,
       [
         randomUUID(),
         actor.trim() || "本机管理员",
@@ -364,6 +450,7 @@ export async function deleteAssetRecord(assetId: string, actor = "本机管理�
           assetType: target.asset_type,
           originalName: typeof target.metadata?.originalName === "string" ? target.metadata.originalName : "",
         }),
+        demo,
       ],
     );
   });
@@ -371,9 +458,19 @@ export async function deleteAssetRecord(assetId: string, actor = "本机管理�
   return target;
 }
 
-export async function getAssetRecord(assetId: string): Promise<AssetRow | null> {
+export async function getAssetRecord(
+  assetId: string,
+  options?: { mode?: AppMode },
+): Promise<AssetRow | null> {
   const db = await getDb();
-  const result = await db.query<AssetRow>("SELECT * FROM assets WHERE id = $1", [assetId]);
+  const mode = await resolveCurrentMode(options?.mode);
+  const result = await db.query<AssetRow>(
+    `SELECT a.*
+     FROM assets a
+     JOIN product_cases pc ON pc.id = a.case_id
+     WHERE a.id = $1 AND pc.is_demo = $2`,
+    [assetId, isDemoMode(mode)],
+  );
   return result.rows[0] ?? null;
 }
 
@@ -383,6 +480,7 @@ export async function reviewMainImageAsset(
   reviewer: string,
   notes: string,
   checks: MainImageReviewChecks,
+  options?: { mode?: AppMode },
 ) {
   if (!reviewer.trim()) throw new Error("请输入图片检查人");
   if (!notes.trim()) throw new Error("请填写图片检查说明");
@@ -392,10 +490,16 @@ export async function reviewMainImageAsset(
     Boolean(checks.noTextWatermark) &&
     Boolean(checks.resolutionConfirmed);
   if (!corePassed) throw new Error("请逐项确认图片检查项");
-  await assertContentUnlocked(caseId);
+  const { demo } = await assertContentUnlocked(caseId, options);
 
   const db = await getDb();
-  const asset = await db.query<AssetRow>("SELECT * FROM assets WHERE id = $1 AND case_id = $2", [assetId, caseId]);
+  const asset = await db.query<AssetRow>(
+    `SELECT a.*
+     FROM assets a
+     JOIN product_cases pc ON pc.id = a.case_id
+     WHERE a.id = $1 AND a.case_id = $2 AND pc.is_demo = $3`,
+    [assetId, caseId, demo],
+  );
   if (!asset.rows[0]) throw new Error("图片素材不存在");
   if (!isSupportedImageSlot(asset.rows[0].asset_type)) throw new Error("不支持的图片资产类型");
 
@@ -420,17 +524,22 @@ export async function reviewMainImageAsset(
       [JSON.stringify(metadata), assetId, caseId],
     );
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'asset.main_image_reviewed', 'product_case', $3, $4::jsonb)`,
-      [randomUUID(), reviewer.trim(), caseId, JSON.stringify({ assetId, assetType: asset.rows[0]!.asset_type, review })],
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'asset.main_image_reviewed', 'product_case', $3, $4::jsonb, $5)`,
+      [randomUUID(), reviewer.trim(), caseId, JSON.stringify({ assetId, assetType: asset.rows[0]!.asset_type, review }), demo],
     );
   });
   return { assetId };
 }
 
-export async function createListingDraft(caseId: string, input: Partial<ListingDraftContent>, actor: string) {
+export async function createListingDraft(
+  caseId: string,
+  input: Partial<ListingDraftContent>,
+  actor: string,
+  options?: { mode?: AppMode },
+) {
   if (!actor.trim()) throw new Error("请输入内容编辑人");
-  const { product } = await assertContentUnlocked(caseId);
+  const { product } = await assertContentUnlocked(caseId, options);
   const db = await getDb();
   const result = await db.transaction(async (tx) => {
     const target = await ensureChannelFoundation(tx, product, "amazon", product.marketplace || "US");
@@ -446,10 +555,15 @@ export async function createListingDraft(caseId: string, input: Partial<ListingD
   };
 }
 
-export async function approveListingContent(caseId: string, reviewer: string, notes: string) {
+export async function approveListingContent(
+  caseId: string,
+  reviewer: string,
+  notes: string,
+  options?: { mode?: AppMode },
+) {
   if (!reviewer.trim()) throw new Error("请输入内容确认人");
   if (!notes.trim()) throw new Error("请填写内容确认说明，记录声明核验依据");
-  const { product } = await assertContentUnlocked(caseId);
+  const { product } = await assertContentUnlocked(caseId, options);
   const db = await getDb();
   const result = await db.transaction(async (tx) => {
     const target = await ensureChannelFoundation(tx, product, "amazon", product.marketplace || "US");

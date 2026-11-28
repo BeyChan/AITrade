@@ -1,4 +1,4 @@
-import { sanitizeAiInboxError } from "@/lib/ai-inbox/worker";
+import { sanitizeAiInboxError } from "./ai-inbox/worker.ts";
 
 const MAX_BODY_BYTES = 300_000;
 
@@ -37,11 +37,13 @@ export function stringField(
   return value;
 }
 
-export function apiError(error: unknown) {
-  const status = error instanceof ApiInputError ? error.status : 400;
+export function apiError(error: unknown, init?: ResponseInit) {
+  const status = error instanceof ApiInputError || error instanceof ApiHttpError ? error.status : 500;
+  const headers = new Headers(init?.headers);
+  headers.set("Content-Type", "application/json");
   return Response.json(
     { error: sanitizeAiInboxError(error) },
-    { status },
+    { ...init, status, headers },
   );
 }
 
@@ -53,4 +55,44 @@ export class ApiInputError extends Error {
     this.name = "ApiInputError";
     this.status = status;
   }
+}
+
+export class ApiHttpError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiHttpError";
+    this.status = status;
+  }
+}
+
+export type CorsOptions = {
+  methods: string;
+  fallbackOrigin?: string;
+  allowHeaders?: string;
+  maxAgeSeconds?: number;
+};
+
+export function corsHeaders(request: Request, options: CorsOptions): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Access-Control-Allow-Origin": request.headers.get("origin") || options.fallbackOrigin || "*",
+    "Access-Control-Allow-Methods": options.methods,
+    "Access-Control-Allow-Headers": options.allowHeaders || "Content-Type",
+    Vary: "Origin",
+  };
+  if (options.maxAgeSeconds) headers["Access-Control-Max-Age"] = String(options.maxAgeSeconds);
+  return headers;
+}
+
+export function withApiRoute<Args extends unknown[]>(
+  handler: (...args: Args) => Promise<Response>,
+) {
+  return async (...args: Args): Promise<Response> => {
+    try {
+      return await handler(...args);
+    } catch (error) {
+      return apiError(error);
+    }
+  };
 }

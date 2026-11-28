@@ -2,29 +2,24 @@ import { NextResponse } from "next/server";
 import { recordAuditLog } from "@/lib/audit-logs";
 import { getDb } from "@/lib/db";
 import { getComparisonReportById } from "@/lib/competitor-compare/storage";
+import { corsHeaders } from "@/lib/api-http";
+import { getAppMode, isDemoMode } from "@/lib/app-mode";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
-function corsHeaders(request: Request): Record<string, string> {
-  const origin = request.headers.get("origin");
-  return {
-    "Access-Control-Allow-Origin": origin || "*",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-    Vary: "Origin",
-  };
-}
 
 export async function OPTIONS(request: Request) {
-  return new Response(null, { status: 204, headers: corsHeaders(request) });
+  return new Response(null, {
+    status: 204,
+    headers: corsHeaders(request, { methods: "GET, POST, OPTIONS" }),
+  });
 }
 
 /** 供 Chrome 扩展在 1688 页面拉取「待回补进价的竞品列表」 */
 export async function GET(request: Request) {
-  const headers = corsHeaders(request);
+  const headers = corsHeaders(request, { methods: "GET, POST, OPTIONS" });
   try {
     const db = await getDb();
+    const mode = await getAppMode();
+    const demo = isDemoMode(mode);
     const res = await db.query<{
       report_id: string;
       asin: string;
@@ -36,8 +31,10 @@ export async function GET(request: Request) {
     }>(
       `SELECT report_id, asin, title, market_code, target_max_cny, competitor_count, updated_at
        FROM competitor_sourcing_targets
+       WHERE is_demo = $1
        ORDER BY updated_at DESC
        LIMIT 10`,
+      [demo],
     );
     const pending: Array<{
       reportId: string;
@@ -49,11 +46,14 @@ export async function GET(request: Request) {
       updatedAt: string;
     }> = [];
     for (const r of res.rows) {
-      const report = await getComparisonReportById(r.report_id, { mode: "sandbox" }).catch(() => null);
+      const report = await getComparisonReportById(r.report_id, { mode }).catch(() => null);
       const comp = report?.competitors.find((c) => (c.asin || "").toUpperCase() === r.asin.toUpperCase());
       // 研报已删或该单品已完成进价回补/手填 -> 自动清出待回补队列
       if (!report || !comp || (comp.sourcingCost?.actualCny && comp.sourcingCost.actualCny > 0)) {
-        await db.query(`DELETE FROM competitor_sourcing_targets WHERE id = $1`, [`${r.report_id}:${r.asin}`]).catch(() => {});
+        await db.query(
+          `DELETE FROM competitor_sourcing_targets WHERE id = $1 AND is_demo = $2`,
+          [`${r.report_id}:${r.asin}`, demo],
+        ).catch(() => {});
         continue;
       }
       pending.push({
@@ -74,7 +74,7 @@ export async function GET(request: Request) {
 
 /** 用户在竞品研报点「搜 1688 同款」时，记录当前待回补竞品锚点 */
 export async function POST(request: Request) {
-  const headers = corsHeaders(request);
+  const headers = corsHeaders(request, { methods: "GET, POST, OPTIONS" });
   try {
     const body = (await request.json()) as {
       reportId?: string;
@@ -90,23 +90,35 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "缺少 reportId 或 asin" }, { status: 400, headers });
     }
     const db = await getDb();
+    const mode = await getAppMode();
+    const demo = isDemoMode(mode);
+    const report = await getComparisonReportById(reportId, { mode });
+    if (!report) {
+      return NextResponse.json({ error: "未找到当前模式下的竞品研报" }, { status: 404, headers });
+    }
     const id = `${reportId}:${asin}`;
     const targetMaxCny = Number.isFinite(Number(body.targetMaxCny)) ? Math.max(0, Number(body.targetMaxCny)) : 0;
     const competitorCount = Number.isFinite(Number(body.competitorCount)) && Number(body.competitorCount) > 0
       ? Math.round(Number(body.competitorCount))
       : 1;
-    await db.query(
-      `INSERT INTO competitor_sourcing_targets (id, report_id, asin, title, market_code, target_max_cny, competitor_count, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+    const saved = await db.query<{ id: string }>(
+      `INSERT INTO competitor_sourcing_targets (id, report_id, asin, title, market_code, target_max_cny, competitor_count, updated_at, is_demo)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8)
        ON CONFLICT (id) DO UPDATE SET
          title = EXCLUDED.title,
          market_code = EXCLUDED.market_code,
          target_max_cny = EXCLUDED.target_max_cny,
          competitor_count = EXCLUDED.competitor_count,
-         updated_at = NOW()`,
-      [id, reportId, asin, (body.title || "").slice(0, 120), (body.marketCode || "US").toUpperCase(), targetMaxCny, competitorCount],
+         updated_at = NOW()
+       WHERE competitor_sourcing_targets.is_demo = EXCLUDED.is_demo
+       RETURNING id`,
+      [id, reportId, asin, (body.title || "").slice(0, 120), (body.marketCode || "US").toUpperCase(), targetMaxCny, competitorCount, demo],
     );
+    if (!saved.rows[0]) {
+      return NextResponse.json({ error: "该回补目标已被另一模式占用" }, { status: 409, headers });
+    }
     await recordAuditLog({
+      mode,
       actor: "本机用户",
       action: "competitor.sourcing_target_saved",
       entityType: "competitor_report",

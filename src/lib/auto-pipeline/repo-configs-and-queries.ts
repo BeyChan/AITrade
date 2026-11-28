@@ -1,6 +1,7 @@
 import { getDb } from "../db.ts";
 import { recordAuditLog } from "../audit-logs.ts";
 import { saveFunnelThresholds } from "../app-settings.ts";
+import { isDemoMode, resolveAppMode, type AppMode, type ModeOptions } from "../app-mode.ts";
 import { SELECTION_STATUS, type SelectionStatus } from "../selection-status.ts";
 import {
   BUILTIN_PLATFORM_CONFIGS,
@@ -86,7 +87,9 @@ export async function upsertPlatformConfig(input: {
   deliveryMethods?: DeliveryMethodCode[];
   inboxDir?: string | null;
   actor?: string;
+  mode?: AppMode;
 }): Promise<PlatformPipelineConfig> {
+  const mode = await resolveAppMode(input.mode);
   const existing = await getPlatformConfig(input.platformCode, input.marketCode);
   const next = sanitizePlatformConfigPatch(existing, input);
   const id = buildConfigId(next.platformCode, next.marketCode);
@@ -132,6 +135,7 @@ export async function upsertPlatformConfig(input: {
   ).catch(() => {});
 
   await recordAuditLog({
+    mode,
     actor: input.actor || "运营人员",
     action: "auto_pipeline.config_updated",
     entityType: "auto_pipeline_config",
@@ -156,11 +160,14 @@ export async function listAutoPipelineRuns(
         marketCode?: string;
         limit?: number;
       } = 50,
+  options?: ModeOptions,
 ): Promise<AutoPipelineRunSummary[]> {
   const db = await getDb();
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const opts = typeof filter === "number" ? { limit: filter } : filter;
-  const clauses: string[] = [];
-  const params: unknown[] = [];
+  const clauses: string[] = ["is_demo = $1"];
+  const params: unknown[] = [demo];
 
   if (opts.platformCode && opts.platformCode !== "ALL") {
     params.push(opts.platformCode.trim().toLowerCase());
@@ -186,10 +193,12 @@ export async function listAutoCandidates(filter: {
   grade?: AutoGrade | "ALL";
   runId?: string;
   limit?: number;
-} = {}): Promise<AutoCandidateResult[]> {
+} = {}, options?: ModeOptions): Promise<AutoCandidateResult[]> {
   const db = await getDb();
-  const clauses: string[] = [];
-  const params: unknown[] = [];
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
+  const clauses: string[] = ["is_demo = $1"];
+  const params: unknown[] = [demo];
   const useRunSnapshot = Boolean(filter.runId && filter.runId !== "ALL");
 
   if (useRunSnapshot && filter.runId) {
@@ -249,8 +258,9 @@ export async function listAutoCandidates(filter: {
        h.cost_sheet_id,
        (SELECT COUNT(*) FROM sourcing_supplier_quotes q WHERE q.hypothesis_id = h.id)::int AS quote_count
      FROM opportunity_hypotheses h
+     JOIN ai_sourcing_runs r ON r.id = h.run_id AND r.is_demo = $2
      WHERE h.id = ANY($1::text[])`,
-    [hypIds],
+    [hypIds, demo],
   );
   const stageByHypId = new Map<string, SelectionStatus>();
   const caseByHypId = new Map<string, string>();

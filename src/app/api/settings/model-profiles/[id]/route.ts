@@ -1,5 +1,6 @@
 import { revalidatePath } from "next/cache";
-import { ApiInputError, apiError, readJsonObject, stringField } from "@/lib/api-http";
+import { ApiInputError, readJsonObject, stringField, withApiRoute } from "@/lib/api-http";
+import { getAppMode } from "@/lib/app-mode";
 import { recordAuditLog } from "@/lib/audit-logs";
 import {
   deleteModelProfile,
@@ -7,18 +8,17 @@ import {
   testSavedModelProfile,
 } from "@/lib/model-profiles";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
-export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  try {
+export const POST = withApiRoute(
+  async (request: Request, { params }: { params: Promise<{ id: string }> }) => {
+    const mode = await getAppMode();
     const { id } = await params;
     const body = await readJsonObject(request);
     const action = stringField(body, "action", { required: true, maxLength: 20 });
 
     if (action === "default") {
-      const profile = await setDefaultModelProfile(id);
+      const profile = await setDefaultModelProfile(id, "本机管理员", { mode });
       await recordAuditLog({
+        mode,
         actor: "本机管理员",
         action: "model_profile.default_changed",
         entityType: "model_profile",
@@ -33,7 +33,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
 
     if (action === "test") {
-      const result = await testSavedModelProfile(id);
+      const result = await testSavedModelProfile(id, { mode });
       return Response.json({
         ok: true,
         result,
@@ -42,16 +42,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
 
     throw new ApiInputError("不支持的操作类型", 400);
-  } catch (error) {
-    return apiError(error);
-  }
-}
+  },
+);
 
-export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
-  try {
+export const DELETE = withApiRoute(
+  async (_request: Request, { params }: { params: Promise<{ id: string }> }) => {
+    const mode = await getAppMode();
     const { id } = await params;
-    await deleteModelProfile(id);
+    await deleteModelProfile(id, { mode });
     await recordAuditLog({
+      mode,
       actor: "本机管理员",
       action: "model_profile.deleted",
       entityType: "model_profile",
@@ -62,7 +62,5 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     revalidatePath("/video-studio");
     revalidatePath("/content");
     return Response.json({ ok: true });
-  } catch (error) {
-    return apiError(error);
-  }
-}
+  },
+);

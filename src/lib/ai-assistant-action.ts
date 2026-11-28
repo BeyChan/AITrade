@@ -6,6 +6,7 @@ import {
   extractAnthropicText,
 } from "./ai-provider.ts";
 import { loadAIProviderConfig, validateBaseUrl } from "./app-settings.ts";
+import { getAppMode } from "./app-mode.ts";
 import { recordAuditLog } from "./audit-logs.ts";
 import { loadCopilotContext, type CopilotContext } from "./copilot-context.ts";
 import { moneyIn, percent } from "./format.ts";
@@ -36,7 +37,8 @@ export async function getCopilotContextPreview(
   pathname: string,
   search = "",
 ): Promise<CopilotContextPreview> {
-  const ctx = await loadCopilotContext(pathname, search);
+  const mode = await getAppMode();
+  const ctx = await loadCopilotContext(pathname, search, { mode });
   return {
     scope: ctx.scope,
     label: ctx.label,
@@ -64,6 +66,7 @@ export async function chatWithAiAssistant(
   history: ChatMessage[],
   options?: { pathname?: string; search?: string },
 ): Promise<AiAssistantReply> {
+  const mode = await getAppMode();
   const lastUserMessage = history.filter((m) => m.role === "user").pop()?.content ?? "";
   const pathname = options?.pathname ?? "/";
   const search = options?.search ?? "";
@@ -79,8 +82,8 @@ export async function chatWithAiAssistant(
   }
 
   const [config, context] = await Promise.all([
-    loadAIProviderConfig(),
-    loadCopilotContext(pathname, search),
+    loadAIProviderConfig({ mode }),
+    loadCopilotContext(pathname, search, { mode }),
   ]);
 
   const contextualSystemPrompt = `${SYSTEM_PROMPT}
@@ -90,6 +93,7 @@ ${context.summaryText}`;
 
   const logAndReturn = async (reply: AiAssistantReply): Promise<AiAssistantReply> => {
     await recordAuditLog({
+      mode,
       actor: "本机用户",
       action: "ai_assistant.chatted",
       entityType: context.caseSnapshot ? "product_case" : "ai_task",

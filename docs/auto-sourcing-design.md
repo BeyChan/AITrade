@@ -66,7 +66,7 @@
 | 新增 | `src/lib/auto-pipeline/types.ts` | `AutoRunConfig` / `AutoCandidate` / `AutoGrade` / `AutoRunSummary` |
 | 新增 | `src/app/api/auto-pipeline/route.ts` | POST 触发一次批量运行；GET 查运行状态与结果 |
 | 新增 | `src/app/auto-pipeline/page.tsx` + `auto-pipeline-client.tsx` | 配置表单 + 候选池分级看板 |
-| 新增 | `db/schema.sql` + migration | `auto_pipeline_runs`(run 元信息/状态/耗时) + `auto_candidates`(候选、等级、理由 JSON、关联 hypothesis)。**不新建数据表存竞品**，复用 `opportunity_evidence`/`competitor_snapshots` |
+| 新增 | `db/migrations/` 版本化迁移 | `auto_pipeline_runs`(run 元信息/状态/耗时) + `auto_candidates`(候选、等级、理由 JSON、关联 hypothesis)。**不新建数据表存竞品**，复用 `opportunity_evidence`/`competitor_snapshots` |
 | 修改 | `src/components/app-sidebar.tsx` | "选品"子项加"自动选品"（或替换 `/discover` 入口） |
 | 修改 | `src/lib/audit-logs.ts` 调用点 | 每次自动运行记一条审计：谁触发、多少候选、多少淘汰 |
 

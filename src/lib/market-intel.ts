@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isDemoMode, resolveAppMode, type ModeOptions } from "./app-mode.ts";
 import { getDb } from "./db.ts";
 
 export type MarketIntelCategory = "policy" | "logistics" | "tariff" | "market";
@@ -140,11 +141,13 @@ async function fetchSingleFeed(feed: { name: string; url: string; defaultCategor
   }
 }
 
-export async function getMarketIntelSnapshot(): Promise<MarketIntelSnapshot> {
+export async function getMarketIntelSnapshot(options?: ModeOptions): Promise<MarketIntelSnapshot> {
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const db = await getDb();
   const result = await db.query<{ value: string }>(
-    `SELECT value FROM app_settings WHERE key = $1 LIMIT 1`,
-    [CACHE_KEY],
+    `SELECT value FROM app_settings WHERE key = $1 AND is_demo = $2 LIMIT 1`,
+    [CACHE_KEY, demo],
   );
   const raw = result.rows[0]?.value;
   if (!raw) {
@@ -181,11 +184,14 @@ export async function getMarketIntelSnapshot(): Promise<MarketIntelSnapshot> {
 export async function refreshMarketIntel(
   actorInput = "本机管理员",
   recordAudit = true,
+  options?: ModeOptions,
 ): Promise<{
   snapshot: MarketIntelSnapshot;
   refreshed: boolean;
   error?: string;
 }> {
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const actor = actorInput.trim().slice(0, 80) || "本机管理员";
   const settled = await Promise.allSettled(RSS_FEEDS.map((feed) => fetchSingleFeed(feed)));
 
@@ -206,7 +212,7 @@ export async function refreshMarketIntel(
   }
 
   if (merged.length === 0) {
-    const current = await getMarketIntelSnapshot();
+    const current = await getMarketIntelSnapshot({ mode });
     return {
       snapshot: current,
       refreshed: false,
@@ -232,15 +238,15 @@ export async function refreshMarketIntel(
   const db = await getDb();
   await db.transaction(async (tx) => {
     await tx.query(
-      `INSERT INTO app_settings (key, value, updated_by, updated_at)
-       VALUES ($1, $2, $3, NOW())
-       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
-      [CACHE_KEY, JSON.stringify(payload), actor],
+      `INSERT INTO app_settings (key, value, updated_by, updated_at, is_demo)
+       VALUES ($1, $2, $3, NOW(), $4)
+       ON CONFLICT (key, is_demo) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+      [CACHE_KEY, JSON.stringify(payload), actor, demo],
     );
     if (recordAudit) {
       await tx.query(
-        `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-         VALUES ($1, $2, 'intel.feed_refreshed', 'market_intel', 'GLOBAL', $3::jsonb)`,
+        `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+         VALUES ($1, $2, 'intel.feed_refreshed', 'market_intel', 'GLOBAL', $3::jsonb, $4)`,
         [
           randomUUID(),
           actor,
@@ -249,6 +255,7 @@ export async function refreshMarketIntel(
             sourcesSucceeded: succeeded,
             sourcesChecked: RSS_FEEDS.length,
           }),
+          demo,
         ],
       );
     }

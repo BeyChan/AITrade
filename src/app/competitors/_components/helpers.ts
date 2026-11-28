@@ -1,5 +1,6 @@
 import type { AntiListingResult } from "@/lib/competitor-compare/anti-listing";
 import type { CompetitorProfile, CompetitorProvenance } from "@/lib/competitor-compare/types";
+import type { AppMode } from "@/lib/app-mode";
 import { calculateEconomics } from "@/lib/economics";
 import { platformEconomicDefaults } from "@/lib/ai-sourcing";
 import { convertRmbToForeignCents, OFFICIAL_FX_CONFIG } from "@/lib/currency";
@@ -43,12 +44,13 @@ export function estimateMaxPurchaseRmb(
   salePriceCents: number,
   currency: string,
   platformCode: string,
+  mode: AppMode = "sandbox",
   targetMargin = 0.18,
 ): number {
   if (!salePriceCents || salePriceCents <= 0) return 0;
   const defaults = platformEconomicDefaults(platformCode || "amazon", salePriceCents);
   const checkMargin = (rmb: number) => {
-    const purchaseCents = convertRmbToForeignCents(rmb, currency);
+    const purchaseCents = convertRmbToForeignCents(rmb, currency, mode);
     const landedCostCents = Math.round(purchaseCents * 1.25);
     return calculateEconomics({
       currency,
@@ -74,12 +76,13 @@ export function calcItemProfitEstimate(
   purchaseRmb: number,
   currency: string,
   platformCode: string,
+  mode: AppMode = "sandbox",
 ): { marginPct: number; netProfitCents: number; netProfitRmb: number } {
   if (!salePriceCents || salePriceCents <= 0 || !purchaseRmb || purchaseRmb <= 0) {
     return { marginPct: 0, netProfitCents: 0, netProfitRmb: 0 };
   }
   const defaults = platformEconomicDefaults(platformCode || "amazon", salePriceCents);
-  const purchaseCents = convertRmbToForeignCents(purchaseRmb, currency);
+  const purchaseCents = convertRmbToForeignCents(purchaseRmb, currency, mode);
   const landedCostCents = Math.round(purchaseCents * 1.25);
   const econ = calculateEconomics({
     currency,
@@ -101,10 +104,11 @@ export function calcItemRealMarginPct(
   actualCny: number,
   currency: string,
   platformCode: string,
+  mode: AppMode = "sandbox",
 ): number {
   if (!salePriceCents || salePriceCents <= 0 || !actualCny || actualCny <= 0) return 0;
   const defaults = platformEconomicDefaults(platformCode || "amazon", salePriceCents);
-  const purchaseCents = convertRmbToForeignCents(actualCny, currency);
+  const purchaseCents = convertRmbToForeignCents(actualCny, currency, mode);
   const landedCostCents = Math.round(purchaseCents * 1.25);
   const econ = calculateEconomics({
     currency,

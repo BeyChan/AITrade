@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { ApiInputError, apiError } from "@/lib/api-http";
+import { getAppMode, type AppMode } from "@/lib/app-mode";
 import { recordAuditLog } from "@/lib/audit-logs";
 import { createVideoAssetRecord, getAssetRecord, getContentDetail } from "@/lib/repository";
 import { getStandaloneStudioAsset } from "@/lib/standalone-image-studio";
@@ -31,8 +32,6 @@ import {
   submitVideoGenerationJob,
 } from "@/lib/video-provider";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const STANDALONE_CASE_KEY = "standalone";
 
@@ -53,6 +52,7 @@ function decodeJobSourceMeta(raw: string): { productName: string; linkedCaseId: 
 async function autoBindVideoToCase(
   linkedCaseId: string,
   videoBytes: Buffer,
+  mode: AppMode,
   record: {
     id: string;
     originalName: string;
@@ -67,7 +67,7 @@ async function autoBindVideoToCase(
   },
 ): Promise<boolean> {
   if (!linkedCaseId) return false;
-  const detail = await getContentDetail(linkedCaseId).catch(() => null);
+  const detail = await getContentDetail(linkedCaseId, { mode }).catch(() => null);
   if (!detail || detail.productCase.status !== "approved" || !detail.selection) return false;
   const copied = await saveVideoBuffer(videoBytes, record.originalName);
   await createVideoAssetRecord(
@@ -90,8 +90,9 @@ async function autoBindVideoToCase(
       },
     },
     record.actor,
+    { mode },
   );
-  await markStandaloneVideoBound(record.id, { caseId: linkedCaseId, caseTitle: detail.productCase.title });
+  await markStandaloneVideoBound(record.id, { caseId: linkedCaseId, caseTitle: detail.productCase.title }, { mode });
   revalidatePath(`/cases/${linkedCaseId}/content`);
   revalidatePath("/video-studio");
   revalidatePath("/content");
@@ -100,10 +101,11 @@ async function autoBindVideoToCase(
 
 export async function GET() {
   try {
+    const mode = await getAppMode();
     const [assets, jobs, providerStatus, ffmpegReady] = await Promise.all([
-      listStandaloneVideoAssets(),
-      listVideoJobsForCase(STANDALONE_CASE_KEY),
-      getVideoProviderStatus(),
+      listStandaloneVideoAssets({ mode }),
+      listVideoJobsForCase(STANDALONE_CASE_KEY, { mode }),
+      getVideoProviderStatus({ mode }),
       isFfmpegAvailable(),
     ]);
     return Response.json({
@@ -120,6 +122,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const mode = await getAppMode();
     const contentType = request.headers.get("content-type") || "";
     const isMultipart = contentType.includes("multipart/form-data");
 
@@ -130,17 +133,21 @@ export async function POST(request: Request) {
       if (action === "poll") {
         const jobId = String(body.jobId || "").trim();
         if (!jobId) throw new ApiInputError("缺少 jobId", 400);
-        const job = await getVideoJob(jobId);
+        const job = await getVideoJob(jobId, { mode });
         if (!job) throw new ApiInputError("任务不存在", 404);
         if (job.status === "succeeded" || job.status === "failed") {
           return Response.json({ job });
         }
-        const polled = await pollVideoGenerationJob({
-          provider: job.provider,
-          model: job.model,
-          externalTaskId: job.external_task_id,
-          pollUrl: job.poll_url || undefined,
-        });
+        const polled = await pollVideoGenerationJob(
+          {
+            provider: job.provider,
+            model: job.model,
+            externalTaskId: job.external_task_id,
+            pollUrl: job.poll_url || undefined,
+          },
+          fetch,
+          { mode },
+        );
         if (polled.status === "succeeded" && polled.videoBytes) {
           const saved = await saveVideoBuffer(
             polled.videoBytes,
@@ -165,8 +172,8 @@ export async function POST(request: Request) {
             actor: job.created_by,
             estimatedCostUsd: job.estimated_cost_usd,
             createdAt: new Date().toISOString(),
-          });
-          await autoBindVideoToCase(linkedCaseId, polled.videoBytes, {
+          }, { mode });
+          await autoBindVideoToCase(linkedCaseId, polled.videoBytes, mode, {
             id: assetId,
             originalName: saved.originalName,
             aspectRatio: job.aspect_ratio,
@@ -182,19 +189,19 @@ export async function POST(request: Request) {
             status: "succeeded",
             resultAssetId: assetId,
             errorMessage: null,
-          });
+          }, { mode });
           return Response.json({ job: updated });
         }
         if (polled.status === "failed") {
           const updated = await updateVideoJob(job.id, {
             status: "failed",
             errorMessage: polled.errorMessage || "外部视频渲染失败",
-          });
+          }, { mode });
           return Response.json({ job: updated });
         }
         const updated =
           polled.status !== job.status
-            ? await updateVideoJob(job.id, { status: polled.status, errorMessage: null })
+            ? await updateVideoJob(job.id, { status: polled.status, errorMessage: null }, { mode })
             : job;
         return Response.json({ job: updated });
       }
@@ -202,7 +209,7 @@ export async function POST(request: Request) {
       if (action === "delete_job") {
         const jobId = String(body.jobId || "").trim();
         if (!jobId) throw new ApiInputError("缺少 jobId", 400);
-        await deleteVideoJob(jobId);
+        await deleteVideoJob(jobId, { mode });
         return Response.json({ ok: true, deletedJobId: jobId });
       }
 
@@ -218,7 +225,7 @@ export async function POST(request: Request) {
         let totalDur = 0;
         let productName = "多镜头成片";
         for (const id of assetIds) {
-          const asset = await getStandaloneVideoAsset(id);
+          const asset = await getStandaloneVideoAsset(id, { mode });
           if (!asset) throw new ApiInputError(`视频片段 ${id} 不存在`, 404);
           storageKeys.push(asset.storageKey);
           totalDur += Number(asset.durationSec) || 5;
@@ -248,8 +255,9 @@ export async function POST(request: Request) {
           estimatedCostUsd: 0,
           createdAt: new Date().toISOString(),
         };
-        await saveStandaloneVideoAsset(record);
+        await saveStandaloneVideoAsset(record, { mode });
         await recordAuditLog({
+          mode,
           actor,
           action: "video_studio.stitched",
           entityType: "studio_video",
@@ -258,7 +266,7 @@ export async function POST(request: Request) {
         }).catch(() => {});
 
         const linkedCaseId = String(body.caseId || "").trim();
-        const autoBound = await autoBindVideoToCase(linkedCaseId, stitchedBytes, record).catch(() => false);
+        const autoBound = await autoBindVideoToCase(linkedCaseId, stitchedBytes, mode, record).catch(() => false);
         return Response.json({
           ok: true,
           autoBound,
@@ -274,7 +282,7 @@ export async function POST(request: Request) {
       const template = getVideoTemplateById(String(body.templateId || ""));
       const aspectRatio = normalizeVideoAspectRatio(String(body.aspectRatio || ""), template.defaultAspectRatio);
       const durationSec = normalizeVideoDuration(body.durationSec, template.defaultDurationSec);
-      const providerStatus = await getVideoProviderStatus();
+      const providerStatus = await getVideoProviderStatus({ mode });
 
       const preview = composeVideoPrompt(
         {
@@ -312,7 +320,7 @@ export async function POST(request: Request) {
     const linkedCaseId = String(form.get("caseId") || "").trim();
     const uploadedFile = form.get("referenceFile");
 
-    const providerStatus = await getVideoProviderStatus();
+    const providerStatus = await getVideoProviderStatus({ mode });
     const preview = composeVideoPrompt(
       {
         productName,
@@ -338,7 +346,7 @@ export async function POST(request: Request) {
       refPayload = { bytes, mimeType: detected.mimeType, fileName: uploadedFile.name || `ref.${detected.extension}` };
     } else if (studioImageId.startsWith("case:")) {
       const caseAssetId = studioImageId.slice("case:".length);
-      const caseAsset = await getAssetRecord(caseAssetId);
+      const caseAsset = await getAssetRecord(caseAssetId, { mode });
       const storageKey = typeof caseAsset?.metadata?.storageKey === "string" ? caseAsset.metadata.storageKey : "";
       if (!caseAsset || !storageKey) throw new ApiInputError("所选案卷图片不存在或缺少文件", 404);
       const bytes = await readStoredImage(storageKey);
@@ -348,7 +356,7 @@ export async function POST(request: Request) {
         fileName: typeof caseAsset.metadata?.originalName === "string" ? caseAsset.metadata.originalName : "case-ref.png",
       };
     } else if (studioImageId) {
-      const studioImg = await getStandaloneStudioAsset(studioImageId);
+      const studioImg = await getStandaloneStudioAsset(studioImageId, { mode });
       if (!studioImg) throw new ApiInputError("所选生图工坊图片不存在", 404);
       const bytes = await readStoredImage(studioImg.storageKey);
       refPayload = { bytes, mimeType: studioImg.mimeType || "image/png", fileName: studioImg.originalName || "ref.png" };
@@ -361,13 +369,17 @@ export async function POST(request: Request) {
     const finalPrompt = promptOverride || preview.prompt;
     const finalNegative = negativePromptOverride || preview.negativePrompt;
 
-    const submitted = await submitVideoGenerationJob({
-      prompt: finalPrompt,
-      negativePrompt: finalNegative,
-      aspectRatio,
-      durationSec,
-      referenceImage: refPayload ?? { bytes: Buffer.alloc(0), mimeType: "image/png", fileName: "template.png" },
-    });
+    const submitted = await submitVideoGenerationJob(
+      {
+        prompt: finalPrompt,
+        negativePrompt: finalNegative,
+        aspectRatio,
+        durationSec,
+        referenceImage: refPayload ?? { bytes: Buffer.alloc(0), mimeType: "image/png", fileName: "template.png" },
+      },
+      fetch,
+      { mode },
+    );
 
     if (submitted.mode === "prompt_only") {
       return Response.json({
@@ -403,8 +415,8 @@ export async function POST(request: Request) {
         actor,
         estimatedCostUsd: submitted.estimatedCostUsd,
         createdAt: new Date().toISOString(),
-      });
-      await autoBindVideoToCase(linkedCaseId, submitted.videoBytes, {
+      }, { mode });
+      await autoBindVideoToCase(linkedCaseId, submitted.videoBytes, mode, {
         id: assetId,
         originalName: saved.originalName,
         aspectRatio,
@@ -435,9 +447,10 @@ export async function POST(request: Request) {
       pollUrl: submitted.pollUrl,
       estimatedCostUsd: submitted.estimatedCostUsd,
       actor,
-    });
+    }, { mode });
 
     await recordAuditLog({
+      mode,
       actor,
       action: "video_studio.job_submitted",
       entityType: "studio_video",

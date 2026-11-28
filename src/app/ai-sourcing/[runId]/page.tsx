@@ -24,6 +24,7 @@ import { evaluateFastScreen } from "@/lib/sourcing-funnel";
 import { gradeManualHypothesis, type SourcingGradeMeta } from "@/lib/sourcing-grade";
 import type { ProductComplianceAttribute } from "@/lib/prelaunch-compliance";
 import { shortDate } from "@/lib/format";
+import { getAppMode } from "@/lib/app-mode";
 import { dateTimeInputValue, type DetailTab } from "./_components/helpers";
 import { CandidateSwitcher } from "./_components/candidate-switcher";
 import { HypothesisCard } from "./_components/hypothesis-card";
@@ -58,14 +59,19 @@ type PageProps = {
 };
 
 export default async function AISourcingDetailPage({ params, searchParams }: PageProps) {
-  const [{ runId }, query, cookieStore] = await Promise.all([params, searchParams, cookies()]);
+  const [{ runId }, query, cookieStore, mode] = await Promise.all([
+    params,
+    searchParams,
+    cookies(),
+    getAppMode(),
+  ]);
   const [batch, supplierDrafts, aiInboxCounts, allReports, funnelThresholds, eliminatedHistory] = await Promise.all([
-    getAISourcingBatch(runId),
-    listSupplierDraftsByRun(runId),
-    listAiInboxTaskCountsByRun(runId),
-    getComparisonReports(),
+    getAISourcingBatch(runId, { mode }),
+    listSupplierDraftsByRun(runId, { mode }),
+    listAiInboxTaskCountsByRun(runId, { mode }),
+    getComparisonReports({ mode }),
     loadFunnelThresholds(),
-    listEliminatedHypotheses(),
+    listEliminatedHypotheses(undefined, { mode }),
   ]);
   if (!batch) notFound();
 
@@ -98,8 +104,8 @@ export default async function AISourcingDetailPage({ params, searchParams }: Pag
   const costSheetEntries = await Promise.all(
     costSheetIds.map(async (id) => {
       const [sheet, isLatest] = await Promise.all([
-        getCostSheet(id),
-        isLatestCostSheetVersion(id),
+        getCostSheet(id, { mode }),
+        isLatestCostSheetVersion(id, { mode }),
       ]);
       return [id, sheet, isLatest] as const;
     }),

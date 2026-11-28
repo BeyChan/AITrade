@@ -1,5 +1,6 @@
 import { revalidatePath } from "next/cache";
 import { ApiInputError, apiError, readJsonObject, stringField } from "@/lib/api-http";
+import { getAppMode } from "@/lib/app-mode";
 import { isSupportedImageSlot, type ImageAssetSlot } from "@/lib/image-skills";
 import { createAssetRecord, getContentDetail } from "@/lib/repository";
 import { createVideoAssetRecord } from "@/lib/video-asset-repository";
@@ -7,18 +8,17 @@ import { getStandaloneStudioAsset, markStandaloneImageBound } from "@/lib/standa
 import { getStandaloneVideoAsset, markStandaloneVideoBound } from "@/lib/standalone-video-studio";
 import { readStoredImage, saveImageBuffer, saveVideoBuffer } from "@/lib/storage";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
+    const mode = await getAppMode();
     const body = await readJsonObject(request);
     const kind = stringField(body, "kind", { required: true, maxLength: 16 });
     const studioAssetId = stringField(body, "studioAssetId", { required: true, maxLength: 120 });
     const caseId = stringField(body, "caseId", { required: true, maxLength: 120 });
     const actor = stringField(body, "actor", { maxLength: 80 }) || "本机管理员";
 
-    const detail = await getContentDetail(caseId);
+    const detail = await getContentDetail(caseId, { mode });
     if (!detail) throw new ApiInputError("目标商品案卷不存在", 404);
     if (detail.productCase.status !== "approved" || !detail.selection) {
       throw new ApiInputError("目标商品需先完成立项与供应商人工定标，才能入库内容资产", 400);
@@ -30,9 +30,9 @@ export async function POST(request: Request) {
     );
     if (alreadyExisting) {
       if (kind === "image") {
-        await markStandaloneImageBound(studioAssetId, { caseId, caseTitle: detail.productCase.title });
+        await markStandaloneImageBound(studioAssetId, { caseId, caseTitle: detail.productCase.title }, { mode });
       } else if (kind === "video") {
-        await markStandaloneVideoBound(studioAssetId, { caseId, caseTitle: detail.productCase.title });
+        await markStandaloneVideoBound(studioAssetId, { caseId, caseTitle: detail.productCase.title }, { mode });
       }
       return Response.json({
         ok: true,
@@ -44,7 +44,7 @@ export async function POST(request: Request) {
     }
 
     if (kind === "image") {
-      const studioAsset = await getStandaloneStudioAsset(studioAssetId);
+      const studioAsset = await getStandaloneStudioAsset(studioAssetId, { mode });
       if (!studioAsset) throw new ApiInputError("生图工坊图片不存在", 404);
       const bytes = await readStoredImage(studioAsset.storageKey);
       const saved = await saveImageBuffer(bytes, studioAsset.originalName);
@@ -74,8 +74,9 @@ export async function POST(request: Request) {
           },
         },
         actor,
+        { mode },
       );
-      await markStandaloneImageBound(studioAssetId, { caseId, caseTitle: detail.productCase.title });
+      await markStandaloneImageBound(studioAssetId, { caseId, caseTitle: detail.productCase.title }, { mode });
       revalidatePath(`/cases/${caseId}/content`);
       revalidatePath("/image-studio");
       revalidatePath("/content");
@@ -89,7 +90,7 @@ export async function POST(request: Request) {
     }
 
     if (kind === "video") {
-      const studioVideo = await getStandaloneVideoAsset(studioAssetId);
+      const studioVideo = await getStandaloneVideoAsset(studioAssetId, { mode });
       if (!studioVideo) throw new ApiInputError("视频工坊视频不存在", 404);
       const bytes = await readStoredImage(studioVideo.storageKey);
       const saved = await saveVideoBuffer(bytes, studioVideo.originalName);
@@ -115,8 +116,9 @@ export async function POST(request: Request) {
           },
         },
         actor,
+        { mode },
       );
-      await markStandaloneVideoBound(studioAssetId, { caseId, caseTitle: detail.productCase.title });
+      await markStandaloneVideoBound(studioAssetId, { caseId, caseTitle: detail.productCase.title }, { mode });
       revalidatePath(`/cases/${caseId}/content`);
       revalidatePath("/video-studio");
       revalidatePath("/content");

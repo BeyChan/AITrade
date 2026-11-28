@@ -13,7 +13,7 @@
 | 事实 | 证据 |
 |---|---|
 | 定价要依据竞品，是写死的业务文案 | `ai-sourcing/[runId]/page.tsx:1336`「确认售价」注明「依据真实竞品价格带；利润门禁只使用这里的价格」，且依据链接必填（`:1341`）——但代码不校验，售价完全由人自填 |
-| 两阶段的对照锚点都已存在 | 假设侧 `differentiator` / `pain_point` / `recommended_price_cents` / `expected_margin_rate`（`db/schema.sql:826-831`）；内容侧 `core_differentiator` / `claims_to_avoid` / `target_customer`（`:208-220`） |
+| 两阶段的对照锚点都已存在 | 假设侧 `differentiator` / `pain_point` / `recommended_price_cents` / `expected_margin_rate`（`db/migrations/001_baseline.sql:826-831`）；内容侧 `core_differentiator` / `claims_to_avoid` / `target_customer`（`:208-220`） |
 | 竞品数据齐全，但只被数了数 | `competitor_snapshots`（`:863-880`）、`review_insights`（`:882-893`）字段完整；`evaluateSourcingDecision`（`src/lib/ai-sourcing.ts:425-435`）只判 `competitorCount >= 20`、`reviewSampleCount >= 15`，所有内容字段一个都没进判定 |
 | 经济模型是内部自证 | `calculateEconomics`（`ai-sourcing.ts:448-455`）用自己确认的售价 × 自己的落地成本算毛利，售价不受任何市场数据约束 |
 | 文档与代码不一致 | `docs/current-plan.md` §2.1／2.2／2.4 把「竞品评论分析」标为已落地，实际只有录入 + 计数 |

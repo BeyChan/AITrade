@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { getDb } from "../db.ts";
+import { isDemoMode, resolveAppMode, type ModeOptions } from "../app-mode.ts";
 import { attachResearchPriority, generateHypotheses } from "../ai-provider.ts";
 import {
   validateEvidenceUrl,
@@ -58,6 +59,7 @@ class DuplicateAISourcingRequestError extends Error {}
 async function findExistingAISourcingRun(
   db: AppDatabase,
   requestKey: string,
+  demo: boolean,
 ): Promise<ExistingAISourcingRun | null> {
   const result = await db.query<{
     run_id: string;
@@ -67,9 +69,9 @@ async function findExistingAISourcingRun(
   }>(
     `SELECT r.id AS run_id, r.brief_id, r.provider, r.response_summary
      FROM ai_sourcing_runs r
-     WHERE r.request_key = $1
+     WHERE r.request_key = $1 AND r.is_demo = $2
      LIMIT 1`,
-    [requestKey],
+    [requestKey, demo],
   );
   const row = result.rows[0];
   if (!row) return null;
@@ -92,14 +94,16 @@ export async function createAISourcingBatch(input: {
   fxSourceUrl?: string | null;
   requestKey?: string | null;
   constraints?: SourcingConstraints | null;
-}) {
+}, options?: ModeOptions) {
   const db = await getDb();
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const requestKey = input.requestKey?.trim() || null;
   if (requestKey && requestKey.length > 128) {
     throw new Error("研究请求标识无效，请刷新页面后重试");
   }
   if (requestKey) {
-    const existing = await findExistingAISourcingRun(db, requestKey);
+    const existing = await findExistingAISourcingRun(db, requestKey, demo);
     if (existing) return existing;
   }
   const site = await db.query<{ market_name: string; currency: string; platform_name: string }>(
@@ -166,17 +170,17 @@ export async function createAISourcingBatch(input: {
     await db.transaction(async (tx) => {
       await tx.query(
         `INSERT INTO sourcing_briefs
-          (id, market_code, platform_code, category, brief, currency, fx_rate_to_usd, fx_source_url, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [briefId, input.marketCode, input.platformCode, category, brief, row.currency, fxRate, fxSourceUrl, actor],
+          (id, market_code, platform_code, category, brief, currency, fx_rate_to_usd, fx_source_url, created_by, is_demo)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [briefId, input.marketCode, input.platformCode, category, brief, row.currency, fxRate, fxSourceUrl, actor, demo],
       );
       const insertedRun = await tx.query<{ id: string }>(
         `INSERT INTO ai_sourcing_runs
-          (id, brief_id, provider, model, request_key, status, response_summary, completed_at)
-         VALUES ($1, $2, $3, $4, $5, 'completed', $6::jsonb, NOW())
+          (id, brief_id, provider, model, request_key, status, response_summary, completed_at, is_demo)
+         VALUES ($1, $2, $3, $4, $5, 'completed', $6::jsonb, NOW(), $7)
          ON CONFLICT DO NOTHING
          RETURNING id`,
-        [runId, briefId, generated.provider, generated.model, requestKey, JSON.stringify(generated.responseSummary)],
+        [runId, briefId, generated.provider, generated.model, requestKey, JSON.stringify(generated.responseSummary), demo],
       );
       if (insertedRun.rows.length === 0) throw new DuplicateAISourcingRequestError();
       for (const [index, item] of scored.entries()) {
@@ -251,8 +255,8 @@ export async function createAISourcingBatch(input: {
         }
       }
       await tx.query(
-        `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-         VALUES ($1, $2, 'ai_sourcing.batch_created', 'ai_sourcing_run', $3, $4::jsonb)`,
+        `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+         VALUES ($1, $2, 'ai_sourcing.batch_created', 'ai_sourcing_run', $3, $4::jsonb, $5)`,
         [
           randomUUID(),
           actor,
@@ -266,12 +270,13 @@ export async function createAISourcingBatch(input: {
             evidenceCreated: 0,
             requestKeyPresent: Boolean(requestKey),
           }),
+          demo,
         ],
       );
     });
   } catch (error) {
     if (error instanceof DuplicateAISourcingRequestError && requestKey) {
-      const existing = await findExistingAISourcingRun(db, requestKey);
+      const existing = await findExistingAISourcingRun(db, requestKey, demo);
       if (existing) return existing;
     }
     throw error;
@@ -287,10 +292,15 @@ export async function createAISourcingBatch(input: {
   };
 }
 
-export async function listAISourcingBatches(marketCode?: string, platformCode?: string): Promise<AISourcingBatchSummary[]> {
+export async function listAISourcingBatches(
+  marketCode?: string,
+  platformCode?: string,
+  options?: ModeOptions,
+): Promise<AISourcingBatchSummary[]> {
   const db = await getDb();
-  const conditions: string[] = [];
-  const values: string[] = [];
+  const mode = await resolveAppMode(options?.mode);
+  const conditions: string[] = ["r.is_demo = $1", "b.is_demo = $1"];
+  const values: Array<string | boolean> = [isDemoMode(mode)];
   if (marketCode) {
     values.push(marketCode);
     conditions.push(`b.market_code = $${values.length}`);
@@ -307,8 +317,10 @@ export async function listAISourcingBatches(marketCode?: string, platformCode?: 
   return result.rows.map(mapBatch);
 }
 
-export async function deleteAISourcingBatch(runId: string, actor: string) {
+export async function deleteAISourcingBatch(runId: string, actor: string, options?: ModeOptions) {
   const db = await getDb();
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const normalizedRunId = runId.trim();
   const deletedBy = actor.trim() || "运营人员";
   if (!normalizedRunId) throw new Error("缺少研究批次 ID");
@@ -324,9 +336,9 @@ export async function deleteAISourcingBatch(runId: string, actor: string) {
       `SELECT r.id, r.brief_id, b.market_code, b.platform_code, b.category
        FROM ai_sourcing_runs r
        JOIN sourcing_briefs b ON b.id = r.brief_id
-       WHERE r.id = $1
+       WHERE r.id = $1 AND r.is_demo = $2 AND b.is_demo = $2
        FOR UPDATE OF r, b`,
-      [normalizedRunId],
+      [normalizedRunId, demo],
     );
     const batch = batchResult.rows[0];
     if (!batch) throw new Error("研究批次不存在或已被删除");
@@ -347,8 +359,8 @@ export async function deleteAISourcingBatch(runId: string, actor: string) {
     const preservedProductCaseCount = Number(counts?.preserved_product_case_count ?? 0);
 
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'ai_sourcing.batch_deleted', 'ai_sourcing_run', $3, $4::jsonb)`,
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'ai_sourcing.batch_deleted', 'ai_sourcing_run', $3, $4::jsonb, $5)`,
       [
         randomUUID(),
         deletedBy,
@@ -363,12 +375,13 @@ export async function deleteAISourcingBatch(runId: string, actor: string) {
           productCasesPreserved: true,
           externalActions: "none",
         }),
+        demo,
       ],
     );
 
     const deleted = await tx.query<{ id: string }>(
-      "DELETE FROM sourcing_briefs WHERE id = $1 RETURNING id",
-      [batch.brief_id],
+      "DELETE FROM sourcing_briefs WHERE id = $1 AND is_demo = $2 RETURNING id",
+      [batch.brief_id, demo],
     );
     if (deleted.rows.length === 0) throw new Error("研究批次删除失败");
 
@@ -384,11 +397,13 @@ export async function deleteAISourcingBatch(runId: string, actor: string) {
   });
 }
 
-export async function getAISourcingBatch(runId: string): Promise<AISourcingBatchDetail | null> {
+export async function getAISourcingBatch(runId: string, options?: ModeOptions): Promise<AISourcingBatchDetail | null> {
   const db = await getDb();
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const batchResult = await db.query<BatchJoinRow>(`${batchSelect}
-    WHERE r.id = $1
-    GROUP BY r.id, b.id, m.name, p.name`, [runId]);
+    WHERE r.id = $1 AND r.is_demo = $2 AND b.is_demo = $2
+    GROUP BY r.id, b.id, m.name, p.name`, [runId, demo]);
   const batch = batchResult.rows[0];
   if (!batch) return null;
 

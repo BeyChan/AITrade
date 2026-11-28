@@ -1,4 +1,5 @@
 import { listAISourcingBatches } from "./ai-sourcing-repository.ts";
+import type { AppMode } from "./app-mode.ts";
 import { deriveCaseWorkflowSnapshot } from "./case-stage.ts";
 import { listCasesForSite } from "./repository.ts";
 import type { EnrichedCase } from "./types.ts";
@@ -10,6 +11,7 @@ export { findWorkContextItem } from "./work-context-types.ts";
 export type WorkContextScope = {
   marketCode: string;
   platformCode: string;
+  mode: AppMode;
 };
 
 /**
@@ -77,8 +79,8 @@ export async function loadWorkContext(scope: WorkContextScope): Promise<WorkCont
   const platformCode = scope.platformCode.toLowerCase();
 
   const [batches, cases] = await Promise.allSettled([
-    listAISourcingBatches(marketCode, platformCode),
-    listCasesForSite(marketCode, platformCode),
+    listAISourcingBatches(marketCode, platformCode, { mode: scope.mode }),
+    listCasesForSite(marketCode, platformCode, { mode: scope.mode }),
   ]);
 
   const batchItems: WorkContextItem[] = (batches.status === "fulfilled" ? batches.value : [])
@@ -96,7 +98,7 @@ export async function loadWorkContext(scope: WorkContextScope): Promise<WorkCont
 
   const scopedCases = filterCasesForWorkContextScope(
     cases.status === "fulfilled" ? cases.value : [],
-    { marketCode, platformCode },
+    { marketCode, platformCode, mode: scope.mode },
   );
 
   const caseItems: WorkContextItem[] = scopedCases

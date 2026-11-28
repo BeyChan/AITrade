@@ -1,11 +1,8 @@
 import { applyAiInboxTask } from "@/lib/ai-inbox/apply";
-import { apiError, readJsonObject, stringField } from "@/lib/api-http";
+import { readJsonObject, stringField, withApiRoute } from "@/lib/api-http";
 
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ taskId: string }> },
-) {
-  try {
+export const POST = withApiRoute(
+  async (request: Request, { params }: { params: Promise<{ taskId: string }> }) => {
     const { taskId } = await params;
     const body = await readJsonObject(request);
     const task = await applyAiInboxTask({
@@ -13,7 +10,5 @@ export async function POST(
       actor: stringField(body, "actor", { required: true, maxLength: 80 }),
     });
     return Response.json({ task });
-  } catch (error) {
-    return apiError(error);
-  }
-}
+  },
+);

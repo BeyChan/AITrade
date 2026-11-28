@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
 import { promoteAutoCandidateToCase, unpromoteAutoCandidate } from "@/lib/auto-pipeline/repository";
+import { getAppMode } from "@/lib/app-mode";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function POST(
   _request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
   try {
+    const mode = await getAppMode();
     const { id } = await context.params;
-    const result = await promoteAutoCandidateToCase(id, "运营人员");
+    const result = await promoteAutoCandidateToCase(id, "运营人员", { mode });
     return NextResponse.json({
       ok: true,
       caseId: result.caseId,
@@ -30,8 +30,9 @@ export async function DELETE(
   context: { params: Promise<{ id: string }> },
 ) {
   try {
+    const mode = await getAppMode();
     const { id } = await context.params;
-    const result = await unpromoteAutoCandidate(id, "运营人员");
+    const result = await unpromoteAutoCandidate(id, "运营人员", { mode });
     return NextResponse.json({
       ok: true,
       caseId: result.caseId,

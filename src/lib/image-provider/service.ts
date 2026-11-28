@@ -6,6 +6,7 @@ import {
   validateBaseUrl,
   type ImageProviderConfig,
 } from "../app-settings.ts";
+import type { ModeOptions } from "../app-mode.ts";
 import { httpFailure, safeProviderError } from "../providers/http.ts";
 import {
   generateWithAnthropicCompatible,
@@ -32,15 +33,16 @@ import {
   type ImageProviderTestResult,
 } from "./types.ts";
 
-export async function getImageProviderStatus(): Promise<ImageProviderStatus> {
-  return imageStatusFromConfig(await loadImageProviderConfig());
+export async function getImageProviderStatus(options?: ModeOptions): Promise<ImageProviderStatus> {
+  return imageStatusFromConfig(await loadImageProviderConfig(options));
 }
 
 export async function testImageProviderConnection(
   input: ImageProviderTestInput,
   fetchImpl: typeof fetch = fetch,
+  options?: ModeOptions,
 ): Promise<ImageProviderTestResult> {
-  const current = await loadImageProviderConfig();
+  const current = await loadImageProviderConfig(options);
   const provider = normalizeImageProvider(input.provider);
   const baseUrl = (
     input.baseUrl.trim() ||
@@ -147,8 +149,9 @@ export async function generateImagesWithProvider(
   input: GenerateProductImagesInput,
   fetchImpl: typeof fetch = fetch,
   overrideConfig?: ImageProviderConfig,
+  options?: ModeOptions,
 ): Promise<GenerateProductImagesResult> {
-  const config = overrideConfig ?? (await loadImageProviderConfig());
+  const config = overrideConfig ?? (await loadImageProviderConfig(options));
   const status = imageStatusFromConfig(config);
   const count = Math.max(1, Math.min(2, Math.round(input.count || 1)));
 

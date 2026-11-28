@@ -1,5 +1,6 @@
 import { generateStructuredJSON } from "../ai-provider.ts";
 import { loadAIProviderConfig } from "../app-settings.ts";
+import type { AppMode } from "../app-mode.ts";
 import {
   DOCUMENT_TYPE_LABELS,
   detectDocumentType,
@@ -19,6 +20,7 @@ export type ExtractEvidenceInput = {
   sourceKind: AiEvidenceSourceKind;
   fileName?: string | null;
   targetCurrency?: string;
+  mode?: AppMode;
 };
 
 export type ExtractionMode = "model" | "deterministic" | "deterministic_fallback";
@@ -65,7 +67,7 @@ export async function extractEvidence(input: ExtractEvidenceInput): Promise<Extr
   let model = "deterministic-v1";
 
   try {
-    const config = await loadAIProviderConfig();
+    const config = await loadAIProviderConfig({ mode: input.mode });
     provider = config.provider;
     model = config.model || "未配置模型";
     if (config.provider === "template") {
@@ -82,11 +84,16 @@ export async function extractEvidence(input: ExtractEvidenceInput): Promise<Extr
       };
     }
 
-    const result = await generateStructuredJSON({
-      systemPrompt: EXTRACTION_SCHEMA_PROMPT,
-      userPrompt: buildExtractionUserPrompt(input, deterministic.documentType),
-      maxTokens: 3_000,
-    });
+    const result = await generateStructuredJSON(
+      {
+        systemPrompt: EXTRACTION_SCHEMA_PROMPT,
+        userPrompt: buildExtractionUserPrompt(input, deterministic.documentType),
+        maxTokens: 3_000,
+      },
+      fetch,
+      undefined,
+      { mode: input.mode },
+    );
     provider = result.provider;
     model = result.model;
     const extraction = parseModelExtraction(result.content, deterministic.documentType);

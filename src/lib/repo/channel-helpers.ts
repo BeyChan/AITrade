@@ -95,18 +95,18 @@ export async function ensureChannelFoundation(
   const accountName = `${platform.name} ${market.name} · ${productCase.asin} 测试店铺`;
   let accountResult = await tx.query<ChannelAccountRow>(
     `SELECT * FROM channel_accounts
-     WHERE platform_code = $1 AND market_code = $2
+     WHERE platform_code = $1 AND market_code = $2 AND is_demo = $3
      ORDER BY created_at ASC
      LIMIT 1`,
-    [platform.code, market.code],
+    [platform.code, market.code, productCase.is_demo],
   );
   let account = accountResult.rows[0];
   if (!account) {
     accountResult = await tx.query<ChannelAccountRow>(
       `INSERT INTO channel_accounts
         (id, platform_code, market_code, name, currency, locale, status, is_demo)
-       VALUES ($1, $2, $3, $4, $5, $6, 'unconfigured', TRUE)
-       ON CONFLICT (platform_code, market_code, name) DO NOTHING
+       VALUES ($1, $2, $3, $4, $5, $6, 'unconfigured', $7)
+       ON CONFLICT (platform_code, market_code, name, is_demo) DO NOTHING
        RETURNING *`,
       [
         `account-${productCase.id}-${platform.code}-${market.code.toLowerCase()}-${randomUUID().slice(0, 8)}`,
@@ -115,14 +115,15 @@ export async function ensureChannelFoundation(
         accountName,
         market.currency,
         market.locale,
+        productCase.is_demo,
       ],
     );
     account = accountResult.rows[0] ??
       (await tx.query<ChannelAccountRow>(
         `SELECT * FROM channel_accounts
-         WHERE platform_code = $1 AND market_code = $2 AND name = $3
+         WHERE platform_code = $1 AND market_code = $2 AND name = $3 AND is_demo = $4
          LIMIT 1`,
-        [platform.code, market.code, accountName],
+        [platform.code, market.code, accountName, productCase.is_demo],
       )).rows[0];
   }
   if (!account) throw new Error("无法创建渠道店铺");
@@ -244,10 +245,13 @@ export async function saveChannelVersionWithExecutor(
     );
   }
 
-  await tx.query("UPDATE product_cases SET updated_at = NOW() WHERE id = $1", [productCase.id]);
+  await tx.query("UPDATE product_cases SET updated_at = NOW() WHERE id = $1 AND is_demo = $2", [
+    productCase.id,
+    productCase.is_demo,
+  ]);
   await tx.query(
-    `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-     VALUES ($1, $2, $3, 'product_case', $4, $5::jsonb)`,
+    `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+     VALUES ($1, $2, $3, 'product_case', $4, $5::jsonb, $6)`,
     [
       randomUUID(),
       actor,
@@ -268,6 +272,7 @@ export async function saveChannelVersionWithExecutor(
         warningCount: preflight.warningCount,
         externalActions: "none",
       }),
+      productCase.is_demo,
     ],
   );
 
@@ -357,8 +362,8 @@ export async function approveChannelVersionWithExecutor(
   }
 
   await tx.query(
-    `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-     VALUES ($1, $2, $3, 'product_case', $4, $5::jsonb)`,
+    `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+     VALUES ($1, $2, $3, 'product_case', $4, $5::jsonb, $6)`,
     [
       randomUUID(),
       reviewer,
@@ -378,6 +383,7 @@ export async function approveChannelVersionWithExecutor(
         humanDecision: true,
         externalActions: "none",
       }),
+      productCase.is_demo,
     ],
   );
 

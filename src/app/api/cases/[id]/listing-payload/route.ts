@@ -4,39 +4,33 @@ import { evaluateFlatFileExportGate } from "@/lib/export-gates";
 import { emptyListingContent, normalizeListingContent } from "@/lib/listing";
 import { buildSemiAutoListingPayload } from "@/lib/listing-delivery";
 import { recordAuditLog } from "@/lib/audit-logs";
+import { corsHeaders } from "@/lib/api-http";
+import { getAppMode } from "@/lib/app-mode";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
-function corsHeaders(request: Request): Record<string, string> {
-  const origin = request.headers.get("origin");
-  return {
-    "Access-Control-Allow-Origin": origin || "*",
-    "Access-Control-Allow-Methods": "GET, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-    Vary: "Origin",
-  };
-}
 
 export async function OPTIONS(request: Request) {
-  return new Response(null, { status: 204, headers: corsHeaders(request) });
+  return new Response(null, {
+    status: 204,
+    headers: corsHeaders(request, { methods: "GET, OPTIONS" }),
+  });
 }
 
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const headers = corsHeaders(request);
+  const headers = corsHeaders(request, { methods: "GET, OPTIONS" });
+  const mode = await getAppMode();
   const { id } = await params;
   const { searchParams } = new URL(request.url);
   const platformCode = (searchParams.get("platform") || "amazon").trim().toLowerCase();
 
-  const detail = await getCaseDetail(id);
+  const detail = await getCaseDetail(id, { mode });
   if (!detail) {
     return NextResponse.json({ error: "商品案卷不存在" }, { status: 404, headers });
   }
 
-  const contentDetail = await getContentDetail(id);
+  const contentDetail = await getContentDetail(id, { mode });
   const gate = evaluateFlatFileExportGate({
     caseStatus: detail.productCase.status,
     hasSelection: Boolean(contentDetail?.selection ?? detail.hasSupplierSelection),
@@ -86,11 +80,12 @@ export async function GET(
   });
 
   await recordAuditLog({
+    mode,
     actor: "运营人员",
     action: "case.listing_payload_fetched",
     entityType: "product_case",
     entityId: id,
-    details: { platformCode, marketCode, sku: payload.fields.sku },
+    details: { platformCode, marketCode, sku: payload.fields.sku, mode },
   }).catch(() => {});
 
   return NextResponse.json({ ok: true, payload }, { headers });

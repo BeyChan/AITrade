@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { getDb } from "../db.ts";
+import { isDemoMode, resolveAppMode, type ModeOptions } from "../app-mode.ts";
 import {
   DEFAULT_SOURCING_THRESHOLDS,
   evaluateSourcingDecision,
@@ -24,9 +25,14 @@ import {
   type QuoteRow,
 } from "./types.ts";
 
-export async function refreshAISelectionDecision(hypothesisId: string): Promise<AISelectionDecision> {
+export async function refreshAISelectionDecision(
+  hypothesisId: string,
+  options?: ModeOptions,
+): Promise<AISelectionDecision> {
   const db = await getDb();
-  const context = await loadHypothesisContext(hypothesisId);
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
+  const context = await loadHypothesisContext(hypothesisId, { mode });
   if (!context) throw new Error("机会假设不存在");
   const [counts, reviews, quotes, patent, logistics, rfqDrafts] = await Promise.all([
     db.query<{ competitors: string | number; synthetic_competitors: string | number; suppliers: string | number; quotes: string | number }>(
@@ -70,18 +76,18 @@ export async function refreshAISelectionDecision(hypothesisId: string): Promise<
       [hypothesisId],
     ),
     db.query<{ draft_count: string | number }>(
-      "SELECT COUNT(*) AS draft_count FROM ai_supplier_drafts WHERE hypothesis_id = $1",
-      [hypothesisId],
+      "SELECT COUNT(*) AS draft_count FROM ai_supplier_drafts WHERE hypothesis_id = $1 AND is_demo = $2",
+      [hypothesisId, isDemoMode(mode)],
     ),
   ]);
 
   const count = counts.rows[0];
   const [comparisonReport, costSheet] = await Promise.all([
     context.hypothesis.comparisonReportId
-      ? getComparisonReportById(context.hypothesis.comparisonReportId)
+      ? getComparisonReportById(context.hypothesis.comparisonReportId, { mode })
       : Promise.resolve(null),
     context.hypothesis.costSheetId
-      ? getCostSheet(context.hypothesis.costSheetId)
+      ? getCostSheet(context.hypothesis.costSheetId, { mode })
       : Promise.resolve(null),
   ]);
   const comparisonReportScopeMatches = Boolean(
@@ -90,7 +96,7 @@ export async function refreshAISelectionDecision(hypothesisId: string): Promise<
       comparisonReport.platformCode.toLowerCase() === context.batch.platformCode.toLowerCase() &&
       comparisonReport.currency.toUpperCase() === context.batch.currency.toUpperCase(),
   );
-  const costSheetIsLatest = costSheet ? await isLatestCostSheetVersion(costSheet.id) : false;
+  const costSheetIsLatest = costSheet ? await isLatestCostSheetVersion(costSheet.id, { mode }) : false;
   const costSheetScopeMatches = Boolean(
     costSheet &&
       costSheet.hypothesisId === hypothesisId &&
@@ -197,14 +203,14 @@ export async function refreshAISelectionDecision(hypothesisId: string): Promise<
       ],
     );
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, 'system', 'ai_sourcing.decision_evaluated', 'opportunity_hypothesis', $2, $3::jsonb)`,
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, 'system', 'ai_sourcing.decision_evaluated', 'opportunity_hypothesis', $2, $3::jsonb, $4)`,
       [randomUUID(), hypothesisId, JSON.stringify({
         decision: decision.decision,
         evidenceCompleteness: decision.evidenceCompleteness,
         verifiedCompetitors: Number(count?.competitors ?? 0),
         syntheticCompetitorsExcluded: Number(count?.synthetic_competitors ?? 0),
-      })],
+      }), demo],
     );
   });
 
@@ -219,16 +225,18 @@ export async function refreshAISelectionDecision(hypothesisId: string): Promise<
 export async function promoteHypothesisToProductCase(
   hypothesisId: string,
   actor: string,
-  options?: { provisional?: boolean },
+  options?: ModeOptions & { provisional?: boolean },
 ) {
   const provisional = Boolean(options?.provisional);
   const db = await getDb();
-  const context = await loadHypothesisContext(hypothesisId);
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
+  const context = await loadHypothesisContext(hypothesisId, { mode });
   if (!context) throw new Error("机会假设不存在");
   if (!context.hypothesis.selectedForValidation) throw new Error("请先把机会加入验证");
   if (context.hypothesis.productCaseId) return { caseId: context.hypothesis.productCaseId, created: false };
 
-  const decision = await refreshAISelectionDecision(hypothesisId);
+  const decision = await refreshAISelectionDecision(hypothesisId, { mode });
   if (!provisional && decision.decision !== "GO") {
     throw new Error("确定性门禁尚未给出 GO，不能正式立项（可补齐红项，或选择「先建待验证案卷」）");
   }
@@ -248,9 +256,9 @@ export async function promoteHypothesisToProductCase(
   const asin = `AI-${hypothesisId.replace(/-/g, "").slice(0, 12).toUpperCase()}`;
   const [comparisonReport, costSheet] = await Promise.all([
     context.hypothesis.comparisonReportId
-      ? getComparisonReportById(context.hypothesis.comparisonReportId)
+      ? getComparisonReportById(context.hypothesis.comparisonReportId, { mode })
       : Promise.resolve(null),
-    context.hypothesis.costSheetId ? getCostSheet(context.hypothesis.costSheetId) : Promise.resolve(null),
+    context.hypothesis.costSheetId ? getCostSheet(context.hypothesis.costSheetId, { mode }) : Promise.resolve(null),
   ]);
   const comparisonReportConfirmed = Boolean(
     comparisonReport?.reviewStatus === "confirmed" &&
@@ -265,7 +273,7 @@ export async function promoteHypothesisToProductCase(
       costSheet.marketCode.toUpperCase() === context.batch.marketCode.toUpperCase() &&
       costSheet.platformCode.toLowerCase() === context.batch.platformCode.toLowerCase() &&
       costSheet.currency.toUpperCase() === context.batch.currency.toUpperCase() &&
-      (await isLatestCostSheetVersion(costSheet.id)),
+      (await isLatestCostSheetVersion(costSheet.id, { mode })),
   );
   if (!provisional) {
     if (!comparisonReportConfirmed) throw new Error("正式立项要求绑定并人工确认同站点、同平台、同币种的竞品研报");
@@ -312,19 +320,14 @@ export async function promoteHypothesisToProductCase(
 
   await db.transaction(async (tx) => {
     const guard = await tx.query<{ product_case_id: string | null }>(
-      "SELECT product_case_id FROM opportunity_hypotheses WHERE id = $1 FOR UPDATE",
-      [hypothesisId],
+      `SELECT h.product_case_id
+       FROM opportunity_hypotheses h
+       JOIN ai_sourcing_runs r ON r.id = h.run_id
+       WHERE h.id = $1 AND r.is_demo = $2
+       FOR UPDATE OF h`,
+      [hypothesisId, demo],
     );
     if (guard.rows[0]?.product_case_id) return;
-
-    let isDemo = false;
-    try {
-      const { getAppMode } = await import("@/lib/app-mode");
-      const mode = await getAppMode();
-      isDemo = mode === "sandbox";
-    } catch {
-      isDemo = false;
-    }
 
     await tx.query(
       `INSERT INTO product_cases
@@ -345,7 +348,7 @@ export async function promoteHypothesisToProductCase(
         decision.evidenceCompleteness,
         hypothesisId,
         context.batch.currency,
-        isDemo,
+        demo,
         caseStatus,
       ],
     );
@@ -376,8 +379,8 @@ export async function promoteHypothesisToProductCase(
       };
       await tx.query(
         `INSERT INTO suppliers
-          (id, name, platform, url, contact, country, notes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          (id, name, platform, url, contact, country, notes, is_demo)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
         [
           supplierId,
           quote.supplier_name,
@@ -386,6 +389,7 @@ export async function promoteHypothesisToProductCase(
           quote.supplier_contact,
           quote.supplier_country,
           `AI 选品转立项；产品匹配：${quote.product_match}`,
+          demo,
         ],
       );
       await tx.query(
@@ -451,20 +455,26 @@ export async function promoteHypothesisToProductCase(
       );
     }
     await tx.query(
-      "UPDATE opportunity_hypotheses SET product_case_id = $1 WHERE id = $2",
-      [caseId, hypothesisId],
+      `UPDATE opportunity_hypotheses h
+       SET product_case_id = $1
+       WHERE h.id = $2
+         AND EXISTS (
+           SELECT 1 FROM ai_sourcing_runs r
+           WHERE r.id = h.run_id AND r.is_demo = $3
+         )`,
+      [caseId, hypothesisId, demo],
     );
     if (reusableCostSheet) {
       const linked = await tx.query(
         `UPDATE cost_sheets SET case_id = $1, updated_at = NOW()
-         WHERE id = $2 AND (case_id IS NULL OR case_id = $1)`,
-        [caseId, reusableCostSheet.id],
+         WHERE id = $2 AND is_demo = $3 AND (case_id IS NULL OR case_id = $1)`,
+        [caseId, reusableCostSheet.id, demo],
       );
       if (linked.rowCount !== 1) throw new Error("成本核算单已关联其他商品案卷");
     }
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'ai_sourcing.promoted_to_case', 'product_case', $3, $4::jsonb)`,
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'ai_sourcing.promoted_to_case', 'product_case', $3, $4::jsonb, $5)`,
       [
         randomUUID(),
         owner,
@@ -480,6 +490,7 @@ export async function promoteHypothesisToProductCase(
           costSheetMarginRate: reusableCostSheet?.results.marginRate ?? null,
           externalActions: "none",
         }),
+        demo,
       ],
     );
   });

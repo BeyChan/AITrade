@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getAppMode } from "@/lib/app-mode";
 import { getAIProviderStatus } from "@/lib/ai-provider";
 import { buildAiProposalDigest, loadPendingAiProposals } from "@/lib/ai-proposals/digest";
 import { listAISourcingBatches } from "@/lib/ai-sourcing-repository";
@@ -31,6 +32,7 @@ type PageProps = {
 };
 
 export default async function DashboardPage({ searchParams }: PageProps) {
+  const mode = await getAppMode();
   const [query, options] = await Promise.all([searchParams, getSiteOptions()]);
   const siteScope = await resolvePersistedSiteScope(query.market, query.platform);
 
@@ -59,25 +61,25 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     fxSnapshot,
     opsBatches,
   ] = await Promise.all([
-    listCasesForSite(selectedMarket.code, selectedPlatform.code),
-    listAISourcingBatches(selectedMarket.code, selectedPlatform.code),
-    listSourcingCases(),
-    getAIProviderStatus(),
+    listCasesForSite(selectedMarket.code, selectedPlatform.code, { mode }),
+    listAISourcingBatches(selectedMarket.code, selectedPlatform.code, { mode }),
+    listSourcingCases({ mode }),
+    getAIProviderStatus({ mode }),
     // AI 提案只是首页的补充信息；取数失败时降级为空，不阻塞工作台。
-    loadPendingAiProposals({ limit: 4 }).catch(() =>
+    loadPendingAiProposals({ limit: 4, mode }).catch(() =>
       buildAiProposalDigest([], { warnings: ["AI 提案暂时不可用"] }),
     ),
-    listTerminatedCases(),
-    getComparisonReports(),
-    getMarketIntelSnapshot().catch(() => ({
+    listTerminatedCases({ mode }),
+    getComparisonReports({ mode }),
+    getMarketIntelSnapshot({ mode }).catch(() => ({
       items: [],
       updatedAt: null,
       isStale: true,
       sourcesChecked: 4,
       sourcesSucceeded: 0,
     })),
-    getFxRatesSnapshot(),
-    listOperationsBatches(5).catch(() => []),
+    getFxRatesSnapshot({ mode }),
+    listOperationsBatches(5, { mode }).catch(() => []),
   ]);
 
   const siteLabel = `${selectedMarket.name}站 · ${selectedPlatform.name}`;

@@ -1,7 +1,17 @@
 export type AppMode = "sandbox" | "live";
+export type ModeOptions = { mode?: AppMode };
 
 export const APP_MODE_COOKIE = "aitrade_mode";
 export const DEFAULT_APP_MODE: AppMode = "sandbox";
+
+/** sandbox 与演示数据一一对应；live 与真实数据一一对应。 */
+export function isDemoMode(mode: AppMode): boolean {
+  return mode === "sandbox";
+}
+
+export async function resolveAppMode(explicitMode?: AppMode): Promise<AppMode> {
+  return explicitMode ?? (await getAppMode());
+}
 
 /**
  * 读取当前应用模式（RSC / Server Action / Route Handler 均可用）

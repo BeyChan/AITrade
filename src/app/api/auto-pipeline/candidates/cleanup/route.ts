@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { deleteAutoCandidates } from "@/lib/auto-pipeline/repository";
 import type { AutoGrade } from "@/lib/auto-pipeline/types";
+import { getAppMode } from "@/lib/app-mode";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const ALLOWED_GRADES = new Set<AutoGrade>(["S", "A", "B", "HOLD", "ELIMINATED"]);
 
 export async function POST(request: Request) {
   try {
+    const mode = await getAppMode();
     const body = (await request.json()) as {
       ids?: string[];
       runId?: string;
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
       runId: typeof body.runId === "string" ? body.runId : "",
       grade,
       actor: typeof body.actor === "string" && body.actor.trim() ? body.actor.trim() : "运营人员",
-    });
+    }, { mode });
 
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {

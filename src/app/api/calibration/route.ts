@@ -3,16 +3,16 @@ import {
   getCalibrationForCase,
   getCalibrationSuggestionForScope,
 } from "@/lib/calibration-repository";
+import { getAppMode } from "@/lib/app-mode";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
+    const mode = await getAppMode();
     const { searchParams } = new URL(request.url);
     const caseId = searchParams.get("caseId")?.trim();
     if (caseId) {
-      const ctx = await getCalibrationForCase(caseId);
+      const ctx = await getCalibrationForCase(caseId, { mode });
       if (!ctx) {
         return NextResponse.json({ error: "未找到商品案卷" }, { status: 404 });
       }
@@ -27,15 +27,18 @@ export async function GET(request: Request) {
     const platformCode = searchParams.get("platformCode")?.trim() || "amazon";
     const salePriceCents = Math.max(100, Number(searchParams.get("salePriceCents") || 2499));
 
-    const suggestion = await getCalibrationSuggestionForScope({
-      marketplace,
-      currency,
-      category,
-      asin,
-      sku,
-      platformCode,
-      salePriceCents,
-    });
+    const suggestion = await getCalibrationSuggestionForScope(
+      {
+        marketplace,
+        currency,
+        category,
+        asin,
+        sku,
+        platformCode,
+        salePriceCents,
+      },
+      { mode },
+    );
 
     return NextResponse.json({ ok: true, suggestion });
   } catch (err) {

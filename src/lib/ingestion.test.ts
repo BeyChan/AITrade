@@ -42,12 +42,12 @@ const quoteCsv = [
 test("ingestion is traceable, guarded and idempotent", async () => {
   const db = await getDb();
 
-  const firstCandidate = await importCandidatesCsv(candidateCsv, { fileName: "candidates.csv" });
+  const firstCandidate = await importCandidatesCsv(candidateCsv, { fileName: "candidates.csv", mode: "live" });
   assert.equal(firstCandidate.imported, 1);
   assert.equal(firstCandidate.snapshots, 1);
   assert.equal(firstCandidate.status, "completed");
 
-  const duplicateCandidate = await importCandidatesCsv(candidateCsv, { fileName: "candidates.csv" });
+  const duplicateCandidate = await importCandidatesCsv(candidateCsv, { fileName: "candidates.csv", mode: "live" });
   assert.equal(duplicateCandidate.skipped, 1);
   assert.equal(duplicateCandidate.snapshots, 0);
 
@@ -55,6 +55,7 @@ test("ingestion is traceable, guarded and idempotent", async () => {
     fileName: "candidates-tiktok.csv",
     marketOverride: "US",
     platformCode: "tiktok_shop",
+    mode: "live",
   });
   assert.equal(sameProductOnTikTok.updated, 1);
   assert.equal(sameProductOnTikTok.imported, 0);
@@ -77,11 +78,11 @@ test("ingestion is traceable, guarded and idempotent", async () => {
   );
   assert.equal(tiktokGbScope.rows.length, 0);
 
-  const firstSupplier = await importSuppliersCsv(supplierCsv, { fileName: "suppliers.csv" });
+  const firstSupplier = await importSuppliersCsv(supplierCsv, { fileName: "suppliers.csv", mode: "live" });
   assert.equal(firstSupplier.imported, 1);
   assert.equal(firstSupplier.snapshots, 1);
 
-  const updatedSupplier = await importSuppliersCsv(updatedSupplierCsv, { fileName: "suppliers.csv" });
+  const updatedSupplier = await importSuppliersCsv(updatedSupplierCsv, { fileName: "suppliers.csv", mode: "live" });
   assert.equal(updatedSupplier.updated, 1);
   assert.equal(updatedSupplier.snapshots, 1);
 
@@ -91,11 +92,11 @@ test("ingestion is traceable, guarded and idempotent", async () => {
   assert.ok(product.rows[0]?.id);
   assert.equal(product.rows[0]?.status, "approved");
 
-  const firstQuote = await importQuotesCsv(quoteCsv, { fileName: "quotes.csv" });
+  const firstQuote = await importQuotesCsv(quoteCsv, { fileName: "quotes.csv", mode: "live" });
   assert.equal(firstQuote.imported, 1);
   assert.equal(firstQuote.snapshots, 1);
 
-  const duplicateQuote = await importQuotesCsv(quoteCsv, { fileName: "quotes.csv" });
+  const duplicateQuote = await importQuotesCsv(quoteCsv, { fileName: "quotes.csv", mode: "live" });
   assert.equal(duplicateQuote.skipped, 1);
   assert.equal(duplicateQuote.snapshots, 0);
 
@@ -103,7 +104,7 @@ test("ingestion is traceable, guarded and idempotent", async () => {
   delete process.env.KEEPA_API_KEY;
   try {
     await assert.rejects(
-      importKeepaByAsins({ asins: ["B0INGEST001"], marketplace: "US" }),
+      importKeepaByAsins({ asins: ["B0INGEST001"], marketplace: "US", mode: "live" }),
       /Keepa 尚未配置凭证/,
     );
   } finally {
@@ -117,7 +118,7 @@ test("ingestion is traceable, guarded and idempotent", async () => {
   assert.equal(failedKeepaRun.rows[0]?.error_count, 1);
   assert.match(failedKeepaRun.rows[0]?.error_message ?? "", /尚未配置凭证/);
 
-  const dashboard = await getDataSourcesDashboard();
+  const dashboard = await getDataSourcesDashboard({ mode: "live" });
   assert.equal(dashboard.stats.realCandidateCount, 1);
   assert.equal(dashboard.stats.supplierCount, 1);
   assert.equal(dashboard.stats.quoteCount, 1);

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { getDb } from "../db.ts";
+import { isDemoMode, resolveAppMode, type ModeOptions } from "../app-mode.ts";
 import type { EvidenceDocumentType, NormalizedFieldValue } from "./schema.ts";
 import type { AiFieldRiskLevel, AiFieldStatus } from "./validator.ts";
 
@@ -205,14 +206,19 @@ type FieldRow = {
 const MAX_CONTENT_CHARS = 250_000;
 const MAX_FILE_NAME_CHARS = 180;
 
-export async function createAiInboxTask(input: CreateAiInboxTaskInput) {
+export async function createAiInboxTask(
+  input: CreateAiInboxTaskInput,
+  options?: ModeOptions,
+) {
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const content = normalizeContent(input.content);
   const sourceKind = normalizeSourceKind(input.sourceKind);
   const requestedBy = requireActor(input.requestedBy);
   const targetHypothesisId = input.targetHypothesisId.trim();
   if (!targetHypothesisId) throw new Error("请选择要写入的目标机会");
 
-  const hypothesis = await getTargetHypothesis(targetHypothesisId);
+  const hypothesis = await getTargetHypothesis(targetHypothesisId, { mode });
   if (!hypothesis) throw new Error("目标机会不存在");
   if (!hypothesis.selectedForValidation) throw new Error("请先把目标机会加入验证，再提交 AI 证据");
 
@@ -221,24 +227,31 @@ export async function createAiInboxTask(input: CreateAiInboxTaskInput) {
     .update(JSON.stringify(["ai-inbox-v1", sourceKind, targetHypothesisId, content]))
     .digest("hex");
   const contentHash = createHash("sha256").update(content).digest("hex");
-  const existing = await db.query<{ id: string }>("SELECT id FROM ai_tasks WHERE request_hash = $1", [requestHash]);
-  if (existing.rows[0]?.id) return getAiInboxTask(existing.rows[0].id);
+  const existing = await db.query<{ id: string }>(
+    "SELECT id FROM ai_tasks WHERE request_hash = $1 AND is_demo = $2",
+    [requestHash, demo],
+  );
+  if (existing.rows[0]?.id) return getAiInboxTask(existing.rows[0].id, { mode });
 
   const taskId = randomUUID();
   const artifactId = randomUUID();
   const fileName = input.fileName?.trim().slice(0, MAX_FILE_NAME_CHARS) || null;
   const mimeType = input.mimeType?.trim().slice(0, 120) || null;
 
+  let effectiveTaskId: string = taskId;
   await db.transaction(async (tx) => {
     await tx.query(
       `INSERT INTO ai_tasks
-        (id, task_type, status, source_kind, target_hypothesis_id, request_hash, requested_by)
-       VALUES ($1, 'evidence_extraction', 'queued', $2, $3, $4, $5)
-       ON CONFLICT (request_hash) DO NOTHING`,
-      [taskId, sourceKind, targetHypothesisId, requestHash, requestedBy],
+        (id, task_type, status, source_kind, target_hypothesis_id, request_hash, requested_by, is_demo)
+       VALUES ($1, 'evidence_extraction', 'queued', $2, $3, $4, $5, $6)
+       ON CONFLICT (request_hash, is_demo) DO NOTHING`,
+      [taskId, sourceKind, targetHypothesisId, requestHash, requestedBy, demo],
     );
-    const inserted = await tx.query<{ id: string }>("SELECT id FROM ai_tasks WHERE request_hash = $1", [requestHash]);
-    const effectiveTaskId = inserted.rows[0]?.id ?? taskId;
+    const inserted = await tx.query<{ id: string }>(
+      "SELECT id FROM ai_tasks WHERE request_hash = $1 AND is_demo = $2",
+      [requestHash, demo],
+    );
+    effectiveTaskId = inserted.rows[0]?.id ?? taskId;
     await tx.query(
       `INSERT INTO ai_task_artifacts
         (id, task_id, artifact_type, file_name, mime_type, content_text, content_hash, metadata)
@@ -257,8 +270,8 @@ export async function createAiInboxTask(input: CreateAiInboxTaskInput) {
     );
     if (effectiveTaskId === taskId) {
       await tx.query(
-        `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-         VALUES ($1, $2, 'ai_inbox.task_created', 'ai_task', $3, $4::jsonb)`,
+        `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+         VALUES ($1, $2, 'ai_inbox.task_created', 'ai_task', $3, $4::jsonb, $5)`,
         [
           randomUUID(),
           requestedBy,
@@ -271,12 +284,13 @@ export async function createAiInboxTask(input: CreateAiInboxTaskInput) {
             targetHypothesisId,
             externalActions: "none",
           }),
+          demo,
         ],
       );
     }
   });
 
-  const task = await getAiInboxTask(taskId);
+  const task = await getAiInboxTask(effectiveTaskId, { mode });
   if (!task) throw new Error("AI 证据任务创建失败");
   return task;
 }
@@ -286,10 +300,13 @@ export async function listAiInboxTasks(input: {
   sourceKind?: AiInboxSourceKind | "all";
   targetHypothesisId?: string;
   limit?: number;
-} = {}): Promise<AiInboxTaskSummary[]> {
+} = {}, options?: ModeOptions): Promise<AiInboxTaskSummary[]> {
   const db = await getDb();
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const conditions: string[] = [];
-  const params: unknown[] = [];
+  const params: unknown[] = [demo];
+  conditions.push("t.is_demo = $1");
   if (input.status && input.status !== "all") {
     params.push(normalizeTaskStatus(input.status));
     conditions.push(`t.status = $${params.length}`);
@@ -314,8 +331,8 @@ export async function listAiInboxTasks(input: {
               WHERE f.task_id = t.id AND f.status IN ('extracted', 'needs_review', 'missing')) AS unresolved_count
      FROM ai_tasks t
      LEFT JOIN opportunity_hypotheses h ON h.id = t.target_hypothesis_id
-     LEFT JOIN ai_sourcing_runs r ON r.id = h.run_id
-     LEFT JOIN sourcing_briefs b ON b.id = r.brief_id
+     LEFT JOIN ai_sourcing_runs r ON r.id = h.run_id AND r.is_demo = t.is_demo
+     LEFT JOIN sourcing_briefs b ON b.id = r.brief_id AND b.is_demo = r.is_demo
      LEFT JOIN LATERAL (
        SELECT file_name, COALESCE(metadata->>'contentChars', char_length(content_text)::text) AS content_chars
        FROM ai_task_artifacts WHERE task_id = t.id ORDER BY created_at DESC LIMIT 1
@@ -334,16 +351,21 @@ export async function listAiInboxTasks(input: {
   }));
 }
 
-export async function getAiInboxTask(taskId: string): Promise<AiInboxTaskDetail | null> {
+export async function getAiInboxTask(
+  taskId: string,
+  options?: ModeOptions,
+): Promise<AiInboxTaskDetail | null> {
   const db = await getDb();
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const taskResult = await db.query<TaskRow>(
     `SELECT t.*, r.id AS target_run_id, h.concept AS target_hypothesis_concept, b.currency AS target_currency
      FROM ai_tasks t
      LEFT JOIN opportunity_hypotheses h ON h.id = t.target_hypothesis_id
-     LEFT JOIN ai_sourcing_runs r ON r.id = h.run_id
-     LEFT JOIN sourcing_briefs b ON b.id = r.brief_id
-     WHERE t.id = $1`,
-    [taskId],
+     LEFT JOIN ai_sourcing_runs r ON r.id = h.run_id AND r.is_demo = t.is_demo
+     LEFT JOIN sourcing_briefs b ON b.id = r.brief_id AND b.is_demo = r.is_demo
+     WHERE t.id = $1 AND t.is_demo = $2`,
+    [taskId, demo],
   );
   const taskRow = taskResult.rows[0];
   if (!taskRow) return null;
@@ -458,8 +480,10 @@ export type AiInboxHypothesisTaskCounts = {
   applied: number;
 };
 
-export async function listAiInboxTaskCountsByRun(runId: string) {
+export async function listAiInboxTaskCountsByRun(runId: string, options?: ModeOptions) {
   const db = await getDb();
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const result = await db.query<{
     hypothesis_id: string;
     total: string | number;
@@ -476,9 +500,11 @@ export async function listAiInboxTaskCountsByRun(runId: string) {
             COUNT(*) FILTER (WHERE t.status = 'applied') AS applied
      FROM ai_tasks t
      JOIN opportunity_hypotheses h ON h.id = t.target_hypothesis_id
-     WHERE h.run_id = $1
+     JOIN ai_sourcing_runs r ON r.id = h.run_id AND r.is_demo = t.is_demo
+     JOIN sourcing_briefs b ON b.id = r.brief_id AND b.is_demo = r.is_demo
+     WHERE h.run_id = $1 AND t.is_demo = $2 AND r.is_demo = $2
      GROUP BY t.target_hypothesis_id`,
-    [runId],
+    [runId, demo],
   );
 
   return new Map<string, AiInboxHypothesisTaskCounts>(
@@ -495,8 +521,9 @@ export async function listAiInboxTaskCountsByRun(runId: string) {
   );
 }
 
-export async function getAiInboxTargetContext(hypothesisId: string) {
-  return getTargetHypothesis(hypothesisId);
+export async function getAiInboxTargetContext(hypothesisId: string, options?: ModeOptions) {
+  const mode = await resolveAppMode(options?.mode);
+  return getTargetHypothesis(hypothesisId, { mode });
 }
 
 export function normalizeSourceKind(value: string): AiInboxSourceKind {
@@ -531,8 +558,10 @@ function requireActor(value: string) {
   return actor;
 }
 
-async function getTargetHypothesis(hypothesisId: string) {
+async function getTargetHypothesis(hypothesisId: string, options?: ModeOptions) {
   const db = await getDb();
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const result = await db.query<{
     id: string;
     run_id: string;
@@ -548,8 +577,8 @@ async function getTargetHypothesis(hypothesisId: string) {
      FROM opportunity_hypotheses h
      JOIN ai_sourcing_runs r ON r.id = h.run_id
      JOIN sourcing_briefs b ON b.id = r.brief_id
-     WHERE h.id = $1`,
-    [hypothesisId],
+     WHERE h.id = $1 AND r.is_demo = $2 AND b.is_demo = $2`,
+    [hypothesisId, demo],
   );
   const row = result.rows[0];
   if (!row) return null;

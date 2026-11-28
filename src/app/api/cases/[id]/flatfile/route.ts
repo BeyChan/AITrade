@@ -4,21 +4,23 @@ import { evaluateFlatFileExportGate } from "@/lib/export-gates";
 import { emptyListingContent, normalizeListingContent } from "@/lib/listing";
 import { buildPlatformFeedExport } from "@/lib/listing-delivery";
 import { recordAuditLog } from "@/lib/audit-logs";
+import { getAppMode } from "@/lib/app-mode";
 
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const mode = await getAppMode();
   const { id } = await params;
   const { searchParams } = new URL(request.url);
   const platformCode = (searchParams.get("platform") || "amazon").trim().toLowerCase();
 
-  const detail = await getCaseDetail(id);
+  const detail = await getCaseDetail(id, { mode });
   if (!detail) {
     return NextResponse.json({ error: "商品案卷不存在" }, { status: 404 });
   }
 
-  const contentDetail = await getContentDetail(id);
+  const contentDetail = await getContentDetail(id, { mode });
   const gate = evaluateFlatFileExportGate({
     caseStatus: detail.productCase.status,
     hasSelection: Boolean(contentDetail?.selection ?? detail.hasSupplierSelection),
@@ -59,6 +61,7 @@ export async function GET(
   });
 
   await recordAuditLog({
+    mode,
     actor: "运营人员",
     action: "case.flat_file_exported",
     entityType: "product_case",
@@ -69,6 +72,7 @@ export async function GET(
       currency,
       price,
       format: `${exported.platformCode}_${exported.format}`,
+      mode,
     },
   }).catch(() => {});
 

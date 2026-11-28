@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { getAppMode, isDemoMode, type ModeOptions } from "./app-mode.ts";
 import { getDb } from "./db.ts";
 import { resolveStoredAssetPath } from "./storage.ts";
 import type { VideoAspectRatio, VideoDurationSec, VideoProviderId, VideoTemplateId } from "./video-provider.ts";
@@ -34,30 +35,42 @@ export type VideoGenerationJob = {
   updated_at: string;
 };
 
-export async function createVideoJob(input: {
-  caseId: string;
-  sourceAssetId: string;
-  templateId: VideoTemplateId;
-  aspectRatio: VideoAspectRatio;
-  durationSec: VideoDurationSec;
-  provider: VideoProviderId;
-  model: string;
-  prompt: string;
-  negativePrompt: string;
-  status: VideoJobStatus;
-  externalTaskId: string;
-  pollUrl: string;
-  estimatedCostUsd: number;
-  actor: string;
-}): Promise<VideoGenerationJob> {
+export async function createVideoJob(
+  input: {
+    caseId: string;
+    sourceAssetId: string;
+    templateId: VideoTemplateId;
+    aspectRatio: VideoAspectRatio;
+    durationSec: VideoDurationSec;
+    provider: VideoProviderId;
+    model: string;
+    prompt: string;
+    negativePrompt: string;
+    status: VideoJobStatus;
+    externalTaskId: string;
+    pollUrl: string;
+    estimatedCostUsd: number;
+    actor: string;
+  },
+  options?: ModeOptions,
+): Promise<VideoGenerationJob> {
   const db = await getDb();
+  const mode = options?.mode ?? (await getAppMode());
+  const demo = isDemoMode(mode);
+  if (input.caseId !== "standalone") {
+    const caseRes = await db.query<{ id: string }>(
+      `SELECT id FROM product_cases WHERE id = $1 AND is_demo = $2`,
+      [input.caseId, demo],
+    );
+    if (!caseRes.rows[0]) throw new Error("商品机会不存在");
+  }
   const id = randomUUID();
   const result = await db.query<VideoGenerationJob>(
     `INSERT INTO video_generation_jobs (
       id, case_id, source_asset_id, template_id, aspect_ratio, duration_sec,
       provider, model, prompt, negative_prompt, status, external_task_id,
-      poll_url, estimated_cost_usd, created_by
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+      poll_url, estimated_cost_usd, created_by, is_demo
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
     RETURNING *`,
     [
       id,
@@ -75,23 +88,34 @@ export async function createVideoJob(input: {
       input.pollUrl,
       input.estimatedCostUsd,
       input.actor || "本机管理员",
+      demo,
     ],
   );
   return normalizeJobRow(result.rows[0]!);
 }
 
-export async function getVideoJob(jobId: string): Promise<VideoGenerationJob | null> {
+export async function getVideoJob(jobId: string, options?: ModeOptions): Promise<VideoGenerationJob | null> {
   const db = await getDb();
-  const result = await db.query<VideoGenerationJob>(`SELECT * FROM video_generation_jobs WHERE id = $1`, [jobId]);
+  const mode = options?.mode ?? (await getAppMode());
+  const result = await db.query<VideoGenerationJob>(
+    `SELECT * FROM video_generation_jobs WHERE id = $1 AND is_demo = $2`,
+    [jobId, isDemoMode(mode)],
+  );
   const row = result.rows[0];
   return row ? normalizeJobRow(row) : null;
 }
 
-export async function listVideoJobsForCase(caseId: string): Promise<VideoGenerationJob[]> {
+export async function listVideoJobsForCase(
+  caseId: string,
+  options?: ModeOptions,
+): Promise<VideoGenerationJob[]> {
   const db = await getDb();
+  const mode = options?.mode ?? (await getAppMode());
   const result = await db.query<VideoGenerationJob>(
-    `SELECT * FROM video_generation_jobs WHERE case_id = $1 ORDER BY created_at DESC LIMIT 30`,
-    [caseId],
+    `SELECT * FROM video_generation_jobs
+     WHERE case_id = $1 AND is_demo = $2
+     ORDER BY created_at DESC LIMIT 30`,
+    [caseId, isDemoMode(mode)],
   );
   return result.rows.map(normalizeJobRow);
 }
@@ -103,25 +127,31 @@ export async function updateVideoJob(
     resultAssetId?: string | null;
     errorMessage?: string | null;
   },
+  options?: ModeOptions,
 ): Promise<VideoGenerationJob | null> {
   const db = await getDb();
+  const mode = options?.mode ?? (await getAppMode());
   const result = await db.query<VideoGenerationJob>(
     `UPDATE video_generation_jobs
      SET status = $2,
          result_asset_id = COALESCE($3, result_asset_id),
          error_message = $4,
          updated_at = NOW()
-     WHERE id = $1
+     WHERE id = $1 AND is_demo = $5
      RETURNING *`,
-    [jobId, patch.status, patch.resultAssetId ?? null, patch.errorMessage ?? null],
+    [jobId, patch.status, patch.resultAssetId ?? null, patch.errorMessage ?? null, isDemoMode(mode)],
   );
   const row = result.rows[0];
   return row ? normalizeJobRow(row) : null;
 }
 
-export async function deleteVideoJob(jobId: string): Promise<void> {
+export async function deleteVideoJob(jobId: string, options?: ModeOptions): Promise<void> {
   const db = await getDb();
-  await db.query(`DELETE FROM video_generation_jobs WHERE id = $1`, [jobId]);
+  const mode = options?.mode ?? (await getAppMode());
+  await db.query(`DELETE FROM video_generation_jobs WHERE id = $1 AND is_demo = $2`, [
+    jobId,
+    isDemoMode(mode),
+  ]);
 }
 
 function normalizeJobRow(row: VideoGenerationJob): VideoGenerationJob {

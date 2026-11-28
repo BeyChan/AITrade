@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { getDb } from "../db.ts";
+import { isDemoMode, resolveAppMode, type ModeOptions } from "../app-mode.ts";
 import { OFFICIAL_FX_CONFIG } from "../currency.ts";
 import { getFxRatesSnapshot } from "../fx-rates.ts";
 import { recordAuditLog } from "../audit-logs.ts";
@@ -13,11 +14,11 @@ import type {
   NormalizedCandidateSeed,
 } from "./types.ts";
 
-async function resolveFxToCny(currency: string): Promise<number> {
+async function resolveFxToCny(currency: string, mode: "sandbox" | "live"): Promise<number> {
   const code = (currency || "USD").trim().toUpperCase();
   if (code === "CNY" || code === "RMB") return 1;
   try {
-    const snap = await getFxRatesSnapshot();
+    const snap = await getFxRatesSnapshot({ mode });
     const item = snap.byCurrency[code];
     if (item && item.rateToRmb > 0) return item.rateToRmb;
   } catch {
@@ -38,11 +39,13 @@ export async function runAutoSourcingPipeline(input: {
   sourceLabel?: string;
   seeds: NormalizedCandidateSeed[];
   actor?: string;
-}): Promise<{
+}, options?: ModeOptions): Promise<{
   run: AutoPipelineRunSummary;
   candidates: AutoCandidateResult[];
 }> {
   const config = await getPlatformConfig(input.platformCode, input.marketCode);
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const runId = randomUUID();
   const actor = input.actor || "运营人员";
   const sourceLabel = input.sourceLabel?.trim() || `${input.sourceType}:${config.platformCode}-${config.marketCode}`;
@@ -66,13 +69,13 @@ export async function runAutoSourcingPipeline(input: {
 
   await db.query(
     `INSERT INTO auto_pipeline_runs
-     (id, platform_code, market_code, source_type, source_label, status, total_seeds, created_by, created_at)
-     VALUES ($1, $2, $3, $4, $5, 'running', $6, $7, NOW())`,
-    [runId, config.platformCode, config.marketCode, input.sourceType, sourceLabel, dedupedSeeds.length, actor],
+     (id, platform_code, market_code, source_type, source_label, status, total_seeds, created_by, is_demo, created_at)
+     VALUES ($1, $2, $3, $4, $5, 'running', $6, $7, $8, NOW())`,
+    [runId, config.platformCode, config.marketCode, input.sourceType, sourceLabel, dedupedSeeds.length, actor, demo],
   );
 
   try {
-    const fxToCny = await resolveFxToCny(config.currency);
+    const fxToCny = await resolveFxToCny(config.currency, mode);
     const batchContext = computeBatchMarketContext(dedupedSeeds);
 
     const results: AutoCandidateResult[] = [];
@@ -95,9 +98,9 @@ export async function runAutoSourcingPipeline(input: {
          (id, run_id, platform_code, market_code, external_id, title, brand, category, url, currency,
           price_cents, monthly_sales_estimate, review_count, rating, grade, verdict, score,
           estimated_margin_rate, max_landed_cost_cents, max_landed_cost_cny, pricing_source,
-          evidence_source, reasons, metrics, observed_at, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb,$24::jsonb,$25,NOW(),NOW())
-         ON CONFLICT (platform_code, market_code, external_id) DO UPDATE SET
+          evidence_source, reasons, metrics, observed_at, is_demo, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb,$24::jsonb,$25,$26,NOW(),NOW())
+         ON CONFLICT (platform_code, market_code, external_id, is_demo) DO UPDATE SET
            run_id = EXCLUDED.run_id,
            title = EXCLUDED.title,
            brand = EXCLUDED.brand,
@@ -147,6 +150,7 @@ export async function runAutoSourcingPipeline(input: {
           JSON.stringify(evaluated.reasons),
           JSON.stringify(evaluated.metrics),
           evaluated.observedAt,
+          demo,
         ],
       );
 
@@ -159,8 +163,8 @@ export async function runAutoSourcingPipeline(input: {
          (id, run_id, candidate_id, platform_code, market_code, external_id, title, brand, category, url, currency,
           price_cents, monthly_sales_estimate, review_count, rating, grade, verdict, score,
           estimated_margin_rate, max_landed_cost_cents, max_landed_cost_cny, pricing_source,
-          evidence_source, reasons, metrics, promoted_case_id, observed_at, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24::jsonb,$25::jsonb,$26,$27,NOW(),NOW())
+          evidence_source, reasons, metrics, is_demo, promoted_case_id, observed_at, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24::jsonb,$25::jsonb,$26,$27,$28,NOW(),NOW())
          ON CONFLICT (run_id, external_id) DO UPDATE SET
            candidate_id = EXCLUDED.candidate_id,
            title = EXCLUDED.title,
@@ -211,6 +215,7 @@ export async function runAutoSourcingPipeline(input: {
           evaluated.evidenceSource,
           JSON.stringify(evaluated.reasons),
           JSON.stringify(evaluated.metrics),
+          demo,
           promotedCaseId,
           evaluated.observedAt,
         ],
@@ -234,7 +239,7 @@ export async function runAutoSourcingPipeline(input: {
            s_count = $1, a_count = $2, b_count = $3, hold_count = $4, eliminated_count = $5,
            summary = $6::jsonb,
            completed_at = NOW()
-       WHERE id = $7`,
+       WHERE id = $7 AND is_demo = $8`,
       [
         counts.S,
         counts.A,
@@ -247,10 +252,12 @@ export async function runAutoSourcingPipeline(input: {
           configId: config.id,
         }),
         runId,
+        demo,
       ],
     );
 
     await recordAuditLog({
+      mode,
       actor,
       action: "auto_pipeline.run_completed",
       entityType: "auto_pipeline_run",
@@ -261,6 +268,7 @@ export async function runAutoSourcingPipeline(input: {
         sourceType: input.sourceType,
         totalSeeds: dedupedSeeds.length,
         counts,
+        mode,
       },
     }).catch(() => {});
 
@@ -287,8 +295,8 @@ export async function runAutoSourcingPipeline(input: {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await db.query(
-      `UPDATE auto_pipeline_runs SET status = 'failed', error_message = $1, completed_at = NOW() WHERE id = $2`,
-      [message.slice(0, 500), runId],
+      `UPDATE auto_pipeline_runs SET status = 'failed', error_message = $1, completed_at = NOW() WHERE id = $2 AND is_demo = $3`,
+      [message.slice(0, 500), runId, demo],
     );
     throw error;
   }

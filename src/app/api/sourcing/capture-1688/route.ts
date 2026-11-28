@@ -4,22 +4,15 @@ import { recordAuditLog } from "@/lib/audit-logs";
 import { getDb } from "@/lib/db";
 import { getEffectiveFxRate } from "@/lib/fx-rates";
 import { getComparisonReportById, saveComparisonReport } from "@/lib/competitor-compare/storage";
+import { corsHeaders } from "@/lib/api-http";
+import { getAppMode, isDemoMode } from "@/lib/app-mode";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
-function corsHeaders(request: Request): Record<string, string> {
-  const origin = request.headers.get("origin");
-  return {
-    "Access-Control-Allow-Origin": origin || "*",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-    Vary: "Origin",
-  };
-}
 
 export async function OPTIONS(request: Request) {
-  return new Response(null, { status: 204, headers: corsHeaders(request) });
+  return new Response(null, {
+    status: 204,
+    headers: corsHeaders(request, { methods: "POST, OPTIONS" }),
+  });
 }
 
 type Captured1688Item = {
@@ -60,7 +53,7 @@ function parseMoq(raw: unknown): number {
 }
 
 export async function POST(request: Request) {
-  const headers = corsHeaders(request);
+  const headers = corsHeaders(request, { methods: "POST, OPTIONS" });
   try {
     const body = (await request.json()) as {
       caseId?: string;
@@ -82,7 +75,8 @@ export async function POST(request: Request) {
         caseId = null;
       }
     }
-    const defaultUsdFx = await getEffectiveFxRate("USD");
+    const mode = await getAppMode();
+    const defaultUsdFx = await getEffectiveFxRate("USD", { mode });
     const fxRate = Number(body.fxRate) > 0 ? Number(body.fxRate) : defaultUsdFx;
     const rawList = Array.isArray(body.candidates) ? body.candidates.slice(0, 30) : [];
 
@@ -91,6 +85,22 @@ export async function POST(request: Request) {
     }
 
     const db = await getDb();
+    const demo = isDemoMode(mode);
+    if (caseId) {
+      const targetCase = await db.query<{ id: string }>(
+        `SELECT id FROM product_cases WHERE id = $1 AND is_demo = $2 LIMIT 1`,
+        [caseId, demo],
+      );
+      if (!targetCase.rows[0]) {
+        return NextResponse.json({ error: "目标商品不属于当前模式" }, { status: 404, headers });
+      }
+    }
+    if (reportId) {
+      const targetReport = await getComparisonReportById(reportId, { mode });
+      if (!targetReport) {
+        return NextResponse.json({ error: "目标竞品研报不属于当前模式" }, { status: 404, headers });
+      }
+    }
     let importedSuppliers = 0;
     let importedQuotes = 0;
     const collectedOffers: Array<{ cny: number; supplierName: string; offerUrl: string }> = [];
@@ -105,8 +115,8 @@ export async function POST(request: Request) {
 
       // 1. 按名称查重或写入全局 1688 工厂库
       const existing = await db.query<{ id: string }>(
-        `SELECT id FROM suppliers WHERE LOWER(name) = LOWER($1) LIMIT 1`,
-        [supplierName],
+        `SELECT id FROM suppliers WHERE LOWER(name) = LOWER($1) AND is_demo = $2 LIMIT 1`,
+        [supplierName, demo],
       );
       let supplierId = existing.rows[0]?.id;
       const noteText = item.title
@@ -122,8 +132,8 @@ export async function POST(request: Request) {
       if (!supplierId) {
         supplierId = `sup-${randomUUID().slice(0, 12)}`;
         await db.query(
-          `INSERT INTO suppliers (id, name, platform, url, country, rating, notes, profile)
-           VALUES ($1, $2, '1688', $3, $4, 4.6, $5, $6::jsonb)`,
+          `INSERT INTO suppliers (id, name, platform, url, country, rating, notes, profile, is_demo)
+           VALUES ($1, $2, '1688', $3, $4, 4.6, $5, $6::jsonb, $7)`,
           [
             supplierId,
             supplierName,
@@ -131,13 +141,14 @@ export async function POST(request: Request) {
             location || "CN",
             noteText,
             profileJson,
+            demo,
           ],
         );
         importedSuppliers += 1;
       } else if (cny > 0) {
         await db.query(
-          `UPDATE suppliers SET profile = COALESCE(profile, '{}'::jsonb) || $2::jsonb WHERE id = $1`,
-          [supplierId, profileJson],
+          `UPDATE suppliers SET profile = COALESCE(profile, '{}'::jsonb) || $2::jsonb WHERE id = $1 AND is_demo = $3`,
+          [supplierId, profileJson, demo],
         ).catch(() => {});
       }
 
@@ -185,7 +196,7 @@ export async function POST(request: Request) {
     let backfilledMarket = "";
     let backfilledPlatform = "";
     if (reportId && competitorAsin && collectedOffers.length > 0) {
-      const report = await getComparisonReportById(reportId, { mode: "sandbox" });
+      const report = await getComparisonReportById(reportId, { mode });
       if (report) {
         const sorted = [...collectedOffers].sort((a, b) => a.cny - b.cny);
         const median = sorted[Math.floor(sorted.length / 2)]!;
@@ -211,17 +222,18 @@ export async function POST(request: Request) {
           };
         });
         if (backfilledCompetitor) {
-          await saveComparisonReport({ ...report, competitors: updatedCompetitors });
+          await saveComparisonReport({ ...report, competitors: updatedCompetitors }, { mode });
           // 回补完成后自动移出待回补列表，不再重复出现在 Chrome 扩展下拉框
           await db.query(
-            `DELETE FROM competitor_sourcing_targets WHERE id = $1`,
-            [`${reportId}:${competitorAsin}`],
+            `DELETE FROM competitor_sourcing_targets WHERE id = $1 AND is_demo = $2`,
+            [`${reportId}:${competitorAsin}`, demo],
           ).catch(() => {});
         }
       }
     }
 
     await recordAuditLog({
+      mode,
       actor: "Chrome 采集扩展",
       action: "sourcing.1688_captured",
       entityType: caseId ? "product_case" : "supplier",

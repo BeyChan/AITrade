@@ -1,14 +1,14 @@
 import { recordAuditLog } from "@/lib/audit-logs";
+import { getAppMode } from "@/lib/app-mode";
 import { isSupportedImageSlot } from "@/lib/image-skills";
 import { deleteAssetRecord, getAssetRecord } from "@/lib/repository";
 import { deleteStoredImage, readStoredImage } from "@/lib/storage";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const mode = await getAppMode();
   const { id } = await params;
-  const asset = await getAssetRecord(id);
+  const asset = await getAssetRecord(id, { mode });
   if (!asset || (!isSupportedImageSlot(asset.asset_type) && asset.asset_type !== "product_video")) {
     return new Response("Not found", { status: 404 });
   }
@@ -65,14 +65,16 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 }
 
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const mode = await getAppMode();
   const { id } = await params;
-  const deleted = await deleteAssetRecord(id);
+  const deleted = await deleteAssetRecord(id, "运营人员", { mode });
   if (!deleted) return Response.json({ error: "素材不存在" }, { status: 404 });
   const storageKey = typeof deleted.metadata?.storageKey === "string" ? deleted.metadata.storageKey : "";
   if (storageKey) {
     await deleteStoredImage(storageKey);
   }
   await recordAuditLog({
+    mode,
     actor: "运营人员",
     action: "asset.deleted",
     entityType: "product_case",

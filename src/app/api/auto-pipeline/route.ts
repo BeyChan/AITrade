@@ -15,27 +15,21 @@ import {
 import { runAutoSourcingPipeline } from "@/lib/auto-pipeline/orchestrator";
 import { listEliminatedHypotheses } from "@/lib/ai-sourcing-repository";
 import type { AutoGrade, AutoSourceType } from "@/lib/auto-pipeline/types";
+import { corsHeaders } from "@/lib/api-http";
+import { getAppMode } from "@/lib/app-mode";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
-function corsHeaders(request: Request): Record<string, string> {
-  const origin = request.headers.get("origin");
-  return {
-    "Access-Control-Allow-Origin": origin || "*",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-    Vary: "Origin",
-  };
-}
 
 export async function OPTIONS(request: Request) {
-  return new Response(null, { status: 204, headers: corsHeaders(request) });
+  return new Response(null, {
+    status: 204,
+    headers: corsHeaders(request, { methods: "GET, POST, OPTIONS" }),
+  });
 }
 
 export async function GET(request: Request) {
-  const headers = corsHeaders(request);
+  const headers = corsHeaders(request, { methods: "GET, POST, OPTIONS" });
   try {
+    const mode = await getAppMode();
     const { searchParams } = new URL(request.url);
     const platformCode = searchParams.get("platform") || "ALL";
     const marketCode = searchParams.get("market") || "ALL";
@@ -44,9 +38,12 @@ export async function GET(request: Request) {
 
     const [configs, runs, candidates, eliminatedHistory] = await Promise.all([
       listPlatformConfigs(),
-      listAutoPipelineRuns({ limit: 50 }),
-      listAutoCandidates({ platformCode, marketCode, grade, runId, limit: runId && runId !== "ALL" ? 500 : 300 }),
-      listEliminatedHypotheses(),
+      listAutoPipelineRuns({ limit: 50 }, { mode }),
+      listAutoCandidates(
+        { platformCode, marketCode, grade, runId, limit: runId && runId !== "ALL" ? 500 : 300 },
+        { mode },
+      ),
+      listEliminatedHypotheses(undefined, { mode }),
     ]);
 
     return NextResponse.json({ configs, runs, candidates, eliminatedHistory }, { headers });
@@ -59,8 +56,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const headers = corsHeaders(request);
+  const headers = corsHeaders(request, { methods: "GET, POST, OPTIONS" });
   try {
+    const mode = await getAppMode();
     const body = (await request.json()) as Record<string, unknown>;
     const platformCode = String(body.platformCode || "amazon").trim().toLowerCase();
     const marketCode = String(body.marketCode || "US").trim().toUpperCase();
@@ -133,7 +131,7 @@ export async function POST(request: Request) {
       sourceLabel,
       seeds,
       actor,
-    });
+    }, { mode });
 
     if (sourceType === "inbox" && typeof extraMeta.inboxDir === "string" && Array.isArray(extraMeta.filesRead)) {
       const archivedFiles = await archiveInboxCsvFiles(

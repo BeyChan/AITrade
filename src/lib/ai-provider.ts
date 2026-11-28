@@ -20,6 +20,7 @@ import {
   type AIProviderConfig,
   type AIProviderId,
 } from "./app-settings.ts";
+import type { ModeOptions } from "./app-mode.ts";
 import { httpFailure, maskApiKey, safeProviderError } from "./providers/http.ts";
 
 export type { AIProviderId } from "./app-settings.ts";
@@ -92,16 +93,17 @@ const CATEGORY_SYSTEM_PROMPT = `你是跨境电商选品研究的类目筛选助
 输出结构：
 {"recommendations":[{"category":"类目名称","reason":"为什么这是值得验证的方向假设，不得写成市场事实","firstValidation":"在该国家与平台执行的第一步人工核验","riskNote":"首轮最需要核对的风险","searchKeywords":["搜索词1","搜索词2"]}]}`;
 
-export async function getAIProviderStatus(): Promise<AIProviderStatus> {
-  return statusFromConfig(await loadAIProviderConfig());
+export async function getAIProviderStatus(options?: ModeOptions): Promise<AIProviderStatus> {
+  return statusFromConfig(await loadAIProviderConfig(options));
 }
 
 export async function generateHypotheses(
   input: HypothesisGenerationInput,
   fetchImpl: typeof fetch = fetch,
   overrideConfig?: AIProviderConfig,
+  options?: ModeOptions,
 ): Promise<HypothesisGenerationResult> {
-  const config = overrideConfig ?? (await loadAIProviderConfig());
+  const config = overrideConfig ?? (await loadAIProviderConfig(options));
   const status = statusFromConfig(config);
   if (!status.configured || status.provider === "template") return templateResult(input);
 
@@ -128,8 +130,9 @@ export async function generateCategoryRecommendations(
   context: CategoryRecommendationContext,
   fetchImpl: typeof fetch = fetch,
   overrideConfig?: AIProviderConfig,
+  options?: ModeOptions,
 ): Promise<CategoryRecommendationResult> {
-  const config = overrideConfig ?? (await loadAIProviderConfig());
+  const config = overrideConfig ?? (await loadAIProviderConfig(options));
   const status = statusFromConfig(config);
   if (!status.configured || status.provider === "template") return templateCategoryResult(context);
 
@@ -155,8 +158,9 @@ export async function generateCategoryRecommendations(
 export async function testAIProviderConnection(
   input: AIProviderTestInput,
   fetchImpl: typeof fetch = fetch,
+  options?: ModeOptions,
 ): Promise<AIProviderTestResult> {
-  const current = await loadAIProviderConfig();
+  const current = await loadAIProviderConfig(options);
   const provider = normalizeAIProvider(input.provider);
   const baseUrl = (input.baseUrl.trim() || (provider === current.provider ? current.baseUrl : defaultAIBaseUrl(provider))).replace(/\/+$/, "");
   const model = input.model.trim() || (provider === current.provider ? current.model : defaultAIModel(provider));
@@ -243,8 +247,9 @@ export async function generateStructuredJSON(
   input: StructuredGenerationInput,
   fetchImpl: typeof fetch = fetch,
   overrideConfig?: AIProviderConfig,
+  options?: ModeOptions,
 ): Promise<StructuredGenerationResult> {
-  const config = overrideConfig ?? (await loadAIProviderConfig());
+  const config = overrideConfig ?? (await loadAIProviderConfig(options));
   const status = statusFromConfig(config);
   if (!status.configured || config.provider === "template") {
     throw new Error("当前为免 Key 模板模式，未调用外部模型");

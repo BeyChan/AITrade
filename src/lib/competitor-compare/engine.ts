@@ -1,5 +1,6 @@
 import { generateStructuredJSON } from "../ai-provider.ts";
 import { loadAIProviderConfig } from "../app-settings.ts";
+import type { AppMode } from "../app-mode.ts";
 import { extractTitleFromUrl, inferBrandFromTitle, parseCompetitorInputs } from "./parser.ts";
 import { calculateProductIndex } from "./competitiveness.ts";
 import {
@@ -398,6 +399,7 @@ export async function analyzeCompetitors(input: {
   capturedInputs?: CompetitorInputItem[];
   /** 采集到的搜索词等上下文文本，只作为分析素材，不参与条目拆分 */
   evidenceText?: string;
+  mode?: AppMode;
 }): Promise<CompetitorComparisonReport> {
   const marketCode = (input.marketCode || "US").toUpperCase();
   const platformCode = (input.platformCode || "amazon").toLowerCase();
@@ -451,7 +453,7 @@ export async function analyzeCompetitors(input: {
   // 1. 交给 AI 进行端到端智能识别与对比（按 ASIN 严格隔离各自证据，绝不串台）
   const isTest = process.env.NODE_ENV === "test";
   const shouldTryModel = !input.skipModel && !isTest;
-  const config = await loadAIProviderConfig();
+  const config = await loadAIProviderConfig({ mode: input.mode });
 
   if (shouldTryModel && config.provider !== "template") {
     try {
@@ -555,7 +557,7 @@ export async function analyzeCompetitors(input: {
         }),
         timeoutMs: 35_000,
         maxTokens: 4_500,
-      });
+      }, fetch, undefined, { mode: input.mode });
 
       const parsedJson = JSON.parse(aiResponse.content) as Partial<CompetitorComparisonReport> & {
         category?: string;
@@ -781,6 +783,7 @@ export async function reanalyzeExistingReport(
   options?: {
     excludeAsins?: string[];
     skipModel?: boolean;
+    mode?: AppMode;
   },
 ): Promise<CompetitorComparisonReport> {
   const excluded = new Set((options?.excludeAsins ?? []).map((a) => a.trim().toUpperCase()).filter(Boolean));
@@ -832,6 +835,7 @@ export async function reanalyzeExistingReport(
     currency: existing.currency,
     capturedInputs,
     skipModel: options?.skipModel,
+    mode: options?.mode,
   });
 
   const targetBenchmarkStillExists = existing.targetBenchmarkAsin

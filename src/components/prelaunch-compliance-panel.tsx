@@ -7,14 +7,16 @@ import {
   type ProductComplianceAttribute,
 } from "@/lib/prelaunch-compliance";
 import { convertForeignCentsToRmb } from "@/lib/currency";
+import type { AppMode } from "@/lib/app-mode";
 
 type Props = {
   marketCode: string;
   productTitle: string;
   category: string;
+  mode: AppMode;
 };
 
-export function PrelaunchCompliancePanel({ marketCode, productTitle, category }: Props) {
+export function PrelaunchCompliancePanel({ marketCode, productTitle, category, mode }: Props) {
   const [selected, setSelected] = useState<ProductComplianceAttribute[]>([]);
   const [patentChecked, setPatentChecked] = useState(false);
 
@@ -39,7 +41,7 @@ export function PrelaunchCompliancePanel({ marketCode, productTitle, category }:
       : assessment.riskLevel === "medium"
         ? "中等认证要求"
         : "常规低风险";
-  const estRmb = convertForeignCentsToRmb(assessment.totalEstimatedCostUsd * 100, "USD");
+  const estRmb = convertForeignCentsToRmb(assessment.totalEstimatedCostUsd * 100, "USD", mode);
 
   return (
     <section className="section">

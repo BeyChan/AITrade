@@ -142,7 +142,7 @@ test("应用证据会事务写入业务事实、重算确定性门禁并保持�
   const target = await createTarget("成功写入");
   const taskId = await createReadyTask(target);
 
-  const applied = await applyAiInboxTask({ taskId, actor: "测试审核员" });
+  const applied = await applyAiInboxTask({ taskId, actor: "测试审核员" }, { mode: "live" });
   assert.equal(applied.task.status, "applied");
   assert.equal(applied.task.appliedEntityType, "competitor_snapshot");
   assert.ok(applied.task.appliedEntityId);
@@ -170,7 +170,7 @@ test("应用证据会事务写入业务事实、重算确定性门禁并保持�
   assert.equal(audit.rows.length, 1);
   assert.equal(audit.rows[0]?.details.externalActions, "none");
 
-  const repeated = await applyAiInboxTask({ taskId, actor: "测试审核员" });
+  const repeated = await applyAiInboxTask({ taskId, actor: "测试审核员" }, { mode: "live" });
   assert.equal(repeated.task.status, "applied");
   const counts = await db.query<{ snapshots: string; apply_actions: string }>(
     `SELECT
@@ -192,7 +192,7 @@ test("业务写入失败会回滚整个事务，修复后可重新应用", async
   );
   try {
     await assert.rejects(
-      applyAiInboxTask({ taskId, actor: "测试审核员" }),
+      applyAiInboxTask({ taskId, actor: "测试审核员" }, { mode: "live" }),
       /ai_inbox_test_forced_failure|check constraint/i,
     );
   } finally {
@@ -210,7 +210,7 @@ test("业务写入失败会回滚整个事务，修复后可重新应用", async
   assert.equal(afterFailure.rows[0]?.status, "ready");
   assert.ok(afterFailure.rows[0]?.error_message);
 
-  const recovered = await applyAiInboxTask({ taskId, actor: "测试审核员" });
+  const recovered = await applyAiInboxTask({ taskId, actor: "测试审核员" }, { mode: "live" });
   assert.equal(recovered.task.status, "applied");
   const evidence = await db.query<{ count: string }>(
     "SELECT COUNT(*)::text AS count FROM opportunity_evidence WHERE hypothesis_id = $1",
@@ -229,8 +229,8 @@ test("相同目标与原文重复提交返回同一任务，artifact 不重复",
     requestedBy: "测试用户",
   };
 
-  const first = await createAiInboxTask(input);
-  const second = await createAiInboxTask(input);
+  const first = await createAiInboxTask(input, { mode: "live" });
+  const second = await createAiInboxTask(input, { mode: "live" });
   assert.ok(first);
   assert.ok(second);
   assert.equal(first.task.id, second.task.id);

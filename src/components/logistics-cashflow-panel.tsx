@@ -9,9 +9,11 @@ import {
   type ShippingMethod,
 } from "@/lib/logistics-cashflow";
 import { moneyIn, percent } from "@/lib/format";
+import type { AppMode } from "@/lib/app-mode";
 
 type Props = {
   marketCode: string;
+  mode: AppMode;
   currency: string;
   salePriceCents: number;
   landedCostCents: number;
@@ -21,6 +23,7 @@ type Props = {
 
 export function LogisticsCashflowPanel({
   marketCode,
+  mode,
   currency,
   salePriceCents,
   landedCostCents,
@@ -47,8 +50,8 @@ export function LogisticsCashflowPanel({
   );
 
   const freight = useMemo(
-    () => calculateVolumetricFreight(lengthCm, widthCm, heightCm, weightG, shippingMethod, currency),
-    [lengthCm, widthCm, heightCm, weightG, shippingMethod, currency],
+    () => calculateVolumetricFreight(lengthCm, widthCm, heightCm, weightG, shippingMethod, currency, mode),
+    [lengthCm, widthCm, heightCm, weightG, shippingMethod, currency, mode],
   );
 
   const vat = useMemo(
@@ -67,8 +70,8 @@ export function LogisticsCashflowPanel({
         launchAdExtraCents: Math.round(launchAdUsd * 100),
         monthlySalesEstimate: Math.max(100, monthlySalesEstimate || 400),
         steadyNetProfitCents,
-      }),
-    [currency, moq, landedCostCents, sampleAndMoldUsd, certUsd, launchAdUsd, monthlySalesEstimate, steadyNetProfitCents],
+      }, mode),
+    [currency, moq, landedCostCents, sampleAndMoldUsd, certUsd, launchAdUsd, monthlySalesEstimate, steadyNetProfitCents, mode],
   );
 
   const maxAbsCurve = useMemo(

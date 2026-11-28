@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { generateStructuredJSON } from "./ai-provider.ts";
 import { loadAIProviderConfig } from "./app-settings.ts";
+import type { ModeOptions } from "./app-mode.ts";
 
 export type SiteCompetitorImportScope = {
   marketCode: string;
@@ -152,6 +153,7 @@ export function marketplaceProductUrl(
 
 export async function generateSiteCompetitorPack(
   input: SiteCompetitorImportInput,
+  options?: ModeOptions,
 ): Promise<SiteCompetitorPackResult> {
   const targetCount = Math.min(30, Math.max(5, Math.round(input.targetCount ?? 20)));
   const observedAt = input.observedAt || new Date().toISOString();
@@ -159,7 +161,7 @@ export async function generateSiteCompetitorPack(
   const deterministic = buildDeterministicSitePack(input, queryUsed, targetCount, observedAt);
 
   try {
-    const config = await loadAIProviderConfig();
+    const config = await loadAIProviderConfig(options);
     if (config.provider === "template") {
       return deterministic;
     }
@@ -209,7 +211,7 @@ export async function generateSiteCompetitorPack(
       }),
       timeoutMs: 25_000,
       maxTokens: 3_500,
-    });
+    }, fetch, undefined, options);
 
     const parsed = JSON.parse(aiResult.content) as {
       competitors?: Array<Record<string, unknown>>;

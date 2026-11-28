@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isDemoMode, resolveAppMode, type ModeOptions } from "./app-mode.ts";
 import { getDb } from "./db.ts";
 import {
   getConnectorDiagnosticDefinition,
@@ -13,7 +14,10 @@ export async function checkConnectorConnection(
   code: string,
   actor = "系统管理员",
   env: ConnectorEnv = process.env,
+  options?: ModeOptions,
 ): Promise<ConnectorDiagnosticResult> {
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const definition = getConnectorDiagnosticDefinition(code);
   if (!definition) throw new Error(`不支持的连接器：${code}`);
   if (!actor.trim()) throw new Error("请填写检查人");
@@ -24,8 +28,8 @@ export async function checkConnectorConnection(
   await db.transaction(async (tx) => {
     await tx.query(
       `INSERT INTO connector_health_checks
-        (id, source_code, status, verification_level, message, duration_ms, details, checked_by, checked_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)`,
+        (id, source_code, status, verification_level, message, duration_ms, details, checked_by, checked_at, is_demo)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)`,
       [
         checkId,
         result.sourceCode,
@@ -36,11 +40,12 @@ export async function checkConnectorConnection(
         JSON.stringify(result.details),
         actor.trim(),
         result.checkedAt,
+        demo,
       ],
     );
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'connector.health_checked', 'data_source', $3, $4::jsonb)`,
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'connector.health_checked', 'data_source', $3, $4::jsonb, $5)`,
       [
         randomUUID(),
         actor.trim(),
@@ -52,18 +57,21 @@ export async function checkConnectorConnection(
           externalActions: result.externalActions,
           credentialsExposed: false,
         }),
+        demo,
       ],
     );
   });
   return result;
 }
 
-export async function getLatestConnectorHealthChecks(): Promise<ConnectorHealthCheckRow[]> {
+export async function getLatestConnectorHealthChecks(options?: ModeOptions): Promise<ConnectorHealthCheckRow[]> {
+  const mode = await resolveAppMode(options?.mode);
   const db = await getDb();
   const result = await db.query<ConnectorHealthCheckRow>(`
     SELECT DISTINCT ON (source_code) *
     FROM connector_health_checks
+    WHERE is_demo = $1
     ORDER BY source_code, checked_at DESC
-  `);
+  `, [isDemoMode(mode)]);
   return result.rows;
 }

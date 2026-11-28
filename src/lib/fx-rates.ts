@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isDemoMode, resolveAppMode, type AppMode, type ModeOptions } from "./app-mode.ts";
 import { getDb } from "./db.ts";
 import {
   OFFICIAL_FX_CONFIG,
@@ -23,6 +24,7 @@ export type FxRateItem = {
 };
 
 export type FxRatesSnapshot = {
+  mode: AppMode;
   items: FxRateItem[];
   byCurrency: Record<string, FxRateItem>;
   liveUpdatedAt: string | null;
@@ -65,14 +67,14 @@ function parseJsonSafe<T>(raw: string | undefined): T | null {
   }
 }
 
-async function readStoredFxSettings(): Promise<{
+async function readStoredFxSettings(mode: AppMode): Promise<{
   live: StoredLiveRates | null;
   manual: StoredManualMap;
 }> {
   const db = await getDb();
   const result = await db.query<{ key: string; value: string }>(
-    `SELECT key, value FROM app_settings WHERE key = ANY($1::text[])`,
-    [[LIVE_RATES_KEY, MANUAL_OVERRIDES_KEY]],
+    `SELECT key, value FROM app_settings WHERE key = ANY($1::text[]) AND is_demo = $2`,
+    [[LIVE_RATES_KEY, MANUAL_OVERRIDES_KEY], isDemoMode(mode)],
   );
   const map = new Map(result.rows.map((row) => [row.key, row.value]));
   const live = parseJsonSafe<StoredLiveRates>(map.get(LIVE_RATES_KEY));
@@ -80,7 +82,7 @@ async function readStoredFxSettings(): Promise<{
   return { live, manual };
 }
 
-function buildSnapshot(live: StoredLiveRates | null, manual: StoredManualMap): FxRatesSnapshot {
+function buildSnapshot(live: StoredLiveRates | null, manual: StoredManualMap, mode: AppMode): FxRatesSnapshot {
   const items: FxRateItem[] = [];
   const byCurrency: Record<string, FxRateItem> = {};
   const runtimeMap: Record<string, number> = {};
@@ -131,12 +133,13 @@ function buildSnapshot(live: StoredLiveRates | null, manual: StoredManualMap): F
     runtimeMap[code] = rateToRmb;
   }
 
-  setRuntimeFxRates(runtimeMap);
+  setRuntimeFxRates(runtimeMap, mode);
 
   const liveTimestamp = live?.updatedAt ? Date.parse(live.updatedAt) : Number.NaN;
   const isLiveStale = !Number.isFinite(liveTimestamp) || Date.now() - liveTimestamp > LIVE_STALE_MS;
 
   return {
+    mode,
     items,
     byCurrency,
     liveUpdatedAt: live?.updatedAt ?? null,
@@ -145,14 +148,15 @@ function buildSnapshot(live: StoredLiveRates | null, manual: StoredManualMap): F
   };
 }
 
-export async function getFxRatesSnapshot(): Promise<FxRatesSnapshot> {
-  const { live, manual } = await readStoredFxSettings();
-  return buildSnapshot(live, manual);
+export async function getFxRatesSnapshot(options?: ModeOptions): Promise<FxRatesSnapshot> {
+  const mode = await resolveAppMode(options?.mode);
+  const { live, manual } = await readStoredFxSettings(mode);
+  return buildSnapshot(live, manual, mode);
 }
 
-export async function getEffectiveFxRate(currency: string): Promise<number> {
+export async function getEffectiveFxRate(currency: string, options?: ModeOptions): Promise<number> {
   const code = (currency || "USD").trim().toUpperCase();
-  const snapshot = await getFxRatesSnapshot();
+  const snapshot = await getFxRatesSnapshot(options);
   return snapshot.byCurrency[code]?.rateToRmb ?? OFFICIAL_FX_CONFIG[code]?.rateToRmb ?? 7.22;
 }
 
@@ -218,11 +222,14 @@ async function fetchFromFrankfurter(): Promise<{ provider: string; rates: Record
 export async function refreshLiveFxRates(
   actorInput = "本机管理员",
   recordAudit = true,
+  options?: ModeOptions,
 ): Promise<{
   snapshot: FxRatesSnapshot;
   refreshed: boolean;
   error?: string;
 }> {
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const actor = actorInput.trim().slice(0, 80) || "本机管理员";
   let fetched: { provider: string; rates: Record<string, number> } | null = null;
   let lastError = "";
@@ -239,7 +246,7 @@ export async function refreshLiveFxRates(
   }
 
   if (!fetched) {
-    const snapshot = await getFxRatesSnapshot();
+    const snapshot = await getFxRatesSnapshot({ mode });
     return {
       snapshot,
       refreshed: false,
@@ -257,15 +264,15 @@ export async function refreshLiveFxRates(
   const db = await getDb();
   await db.transaction(async (tx) => {
     await tx.query(
-      `INSERT INTO app_settings (key, value, updated_by, updated_at)
-       VALUES ($1, $2, $3, NOW())
-       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
-      [LIVE_RATES_KEY, JSON.stringify(payload), actor],
+      `INSERT INTO app_settings (key, value, updated_by, updated_at, is_demo)
+       VALUES ($1, $2, $3, NOW(), $4)
+       ON CONFLICT (key, is_demo) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+      [LIVE_RATES_KEY, JSON.stringify(payload), actor, demo],
     );
     if (recordAudit) {
       await tx.query(
-        `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-         VALUES ($1, $2, 'fx.live_rates_refreshed', 'fx_rate', 'ALL', $3::jsonb)`,
+        `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+         VALUES ($1, $2, 'fx.live_rates_refreshed', 'fx_rate', 'ALL', $3::jsonb, $4)`,
         [
           randomUUID(),
           actor,
@@ -274,14 +281,15 @@ export async function refreshLiveFxRates(
             count: Object.keys(fetched.rates).length,
             usdRateToRmb: fetched.rates.USD ?? null,
           }),
+          demo,
         ],
       );
     }
   });
 
-  const { manual } = await readStoredFxSettings();
+  const { manual } = await readStoredFxSettings(mode);
   return {
-    snapshot: buildSnapshot(payload, manual),
+    snapshot: buildSnapshot(payload, manual, mode),
     refreshed: true,
   };
 }
@@ -290,7 +298,9 @@ export async function setManualFxRate(input: {
   currency: string;
   rateToRmb: number;
   actor?: string;
-}): Promise<FxRatesSnapshot> {
+}, options?: ModeOptions): Promise<FxRatesSnapshot> {
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const code = normalizeCurrency(input.currency);
   const rawRate = Number(input.rateToRmb);
   if (!Number.isFinite(rawRate) || rawRate <= 0 || rawRate > 10000) {
@@ -299,8 +309,8 @@ export async function setManualFxRate(input: {
   const rateToRmb = roundFxRate(code, rawRate);
   const actor = (input.actor || "本机管理员").trim().slice(0, 80) || "本机管理员";
 
-  const { live, manual } = await readStoredFxSettings();
-  const previousSnapshot = buildSnapshot(live, manual);
+  const { live, manual } = await readStoredFxSettings(mode);
+  const previousSnapshot = buildSnapshot(live, manual, mode);
   const previousRateToRmb = previousSnapshot.byCurrency[code]?.rateToRmb ?? OFFICIAL_FX_CONFIG[code].rateToRmb;
   const nextManual: StoredManualMap = {
     ...manual,
@@ -314,45 +324,47 @@ export async function setManualFxRate(input: {
   const db = await getDb();
   await db.transaction(async (tx) => {
     await tx.query(
-      `INSERT INTO app_settings (key, value, updated_by, updated_at)
-       VALUES ($1, $2, $3, NOW())
-       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
-      [MANUAL_OVERRIDES_KEY, JSON.stringify(nextManual), actor],
+      `INSERT INTO app_settings (key, value, updated_by, updated_at, is_demo)
+       VALUES ($1, $2, $3, NOW(), $4)
+       ON CONFLICT (key, is_demo) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+      [MANUAL_OVERRIDES_KEY, JSON.stringify(nextManual), actor, demo],
     );
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'fx.manual_rate_set', 'fx_rate', $3, $4::jsonb)`,
-      [randomUUID(), actor, code, JSON.stringify({ currency: code, previousRateToRmb, rateToRmb })],
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'fx.manual_rate_set', 'fx_rate', $3, $4::jsonb, $5)`,
+      [randomUUID(), actor, code, JSON.stringify({ currency: code, previousRateToRmb, rateToRmb }), demo],
     );
   });
 
-  return buildSnapshot(live, nextManual);
+  return buildSnapshot(live, nextManual, mode);
 }
 
 export async function clearManualFxRate(input: {
   currency: string;
   actor?: string;
-}): Promise<FxRatesSnapshot> {
+}, options?: ModeOptions): Promise<FxRatesSnapshot> {
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const code = normalizeCurrency(input.currency);
   const actor = (input.actor || "本机管理员").trim().slice(0, 80) || "本机管理员";
 
-  const { live, manual } = await readStoredFxSettings();
+  const { live, manual } = await readStoredFxSettings(mode);
   const previousManualRateToRmb = manual[code]?.rateToRmb ?? null;
   const nextManual: StoredManualMap = { ...manual };
   delete nextManual[code];
-  const nextSnapshot = buildSnapshot(live, nextManual);
+  const nextSnapshot = buildSnapshot(live, nextManual, mode);
 
   const db = await getDb();
   await db.transaction(async (tx) => {
     await tx.query(
-      `INSERT INTO app_settings (key, value, updated_by, updated_at)
-       VALUES ($1, $2, $3, NOW())
-       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
-      [MANUAL_OVERRIDES_KEY, JSON.stringify(nextManual), actor],
+      `INSERT INTO app_settings (key, value, updated_by, updated_at, is_demo)
+       VALUES ($1, $2, $3, NOW(), $4)
+       ON CONFLICT (key, is_demo) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+      [MANUAL_OVERRIDES_KEY, JSON.stringify(nextManual), actor, demo],
     );
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'fx.manual_rate_cleared', 'fx_rate', $3, $4::jsonb)`,
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'fx.manual_rate_cleared', 'fx_rate', $3, $4::jsonb, $5)`,
       [
         randomUUID(),
         actor,
@@ -362,6 +374,7 @@ export async function clearManualFxRate(input: {
           previousRateToRmb: previousManualRateToRmb,
           rateToRmb: nextSnapshot.byCurrency[code]?.rateToRmb ?? OFFICIAL_FX_CONFIG[code].rateToRmb,
         }),
+        demo,
       ],
     );
   });

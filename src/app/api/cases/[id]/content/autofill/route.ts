@@ -2,9 +2,8 @@ import { NextResponse } from "next/server";
 import { generateStructuredJSON } from "@/lib/ai-provider";
 import { recordAuditLog } from "@/lib/audit-logs";
 import { getCaseDetail, getContentDetail } from "@/lib/repository";
+import { getAppMode } from "@/lib/app-mode";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 type AutofillTarget = "definition" | "listing";
 
@@ -141,6 +140,7 @@ export async function POST(
   context: { params: Promise<{ id: string }> },
 ) {
   try {
+    const mode = await getAppMode();
     const { id } = await context.params;
     const body = (await request.json().catch(() => ({}))) as {
       target?: AutofillTarget;
@@ -149,8 +149,8 @@ export async function POST(
     const target: AutofillTarget = body.target === "listing" ? "listing" : "definition";
 
     const [caseDetail, contentDetail] = await Promise.all([
-      getCaseDetail(id),
-      getContentDetail(id),
+      getCaseDetail(id, { mode }),
+      getContentDetail(id, { mode }),
     ]);
     if (!caseDetail || !contentDetail) {
       return NextResponse.json({ error: "商品案卷不存在" }, { status: 404 });
@@ -208,7 +208,7 @@ export async function POST(
           ),
           timeoutMs: 25_000,
           maxTokens: 1000,
-        });
+        }, fetch, undefined, { mode });
         const parsed = parseJsonObject(aiResult.content);
         if (parsed) {
           fields = {
@@ -228,11 +228,12 @@ export async function POST(
       }
 
       await recordAuditLog({
+        mode,
         actor: "本机用户",
         action: "content.ai_autofill_generated",
         entityType: "product_case",
         entityId: id,
-        details: { target, source, provider, model },
+        details: { target, source, provider, model, mode },
       }).catch(() => {});
 
       return NextResponse.json({ ok: true, target, source, provider, model, fields });
@@ -278,7 +279,7 @@ export async function POST(
         ),
         timeoutMs: 30_000,
         maxTokens: 1600,
-      });
+      }, fetch, undefined, { mode });
       const parsed = parseJsonObject(aiResult.content);
       if (parsed) {
         const rawBullets = Array.isArray(parsed.bullets)
@@ -301,6 +302,7 @@ export async function POST(
     }
 
     await recordAuditLog({
+      mode,
       actor: "本机用户",
       action: "content.ai_autofill_generated",
       entityType: "product_case",

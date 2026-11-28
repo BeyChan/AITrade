@@ -68,7 +68,7 @@ test("auto-pipeline retains per-batch snapshots, supports rename/delete, and pre
         rating: 3.8,
       },
     ],
-  });
+  }, { mode: "live" });
 
   // 第 2 批：B0SHARED01 价格更新 + 新商品 B0ONLYRUN2
   const run2 = await runAutoSourcingPipeline({
@@ -104,12 +104,12 @@ test("auto-pipeline retains per-batch snapshots, supports rename/delete, and pre
         rating: 4.4,
       },
     ],
-  });
+  }, { mode: "live" });
 
   // 1. 每批各自保留独立快照
-  const run1List = await listAutoCandidates({ platformCode: "amazon", marketCode: "US", runId: run1.run.id });
-  const run2List = await listAutoCandidates({ platformCode: "amazon", marketCode: "US", runId: run2.run.id });
-  const poolList = await listAutoCandidates({ platformCode: "amazon", marketCode: "US" });
+  const run1List = await listAutoCandidates({ platformCode: "amazon", marketCode: "US", runId: run1.run.id }, { mode: "live" });
+  const run2List = await listAutoCandidates({ platformCode: "amazon", marketCode: "US", runId: run2.run.id }, { mode: "live" });
+  const poolList = await listAutoCandidates({ platformCode: "amazon", marketCode: "US" }, { mode: "live" });
 
   assert.equal(run1List.length, 2);
   assert.equal(run2List.length, 2);
@@ -121,29 +121,29 @@ test("auto-pipeline retains per-batch snapshots, supports rename/delete, and pre
   // 2. 从第 2 批快照推进正式案卷，状态同步到第 1 批快照和汇总池
   const sharedRun2Snap = run2List.find((c) => c.externalId === "B0SHARED01");
   assert.ok(sharedRun2Snap);
-  const promoted = await promoteAutoCandidateToCase(sharedRun2Snap.id);
+  const promoted = await promoteAutoCandidateToCase(sharedRun2Snap.id, "运营人员", { mode: "live" });
   assert.ok(promoted.caseId);
 
-  const run1AfterPromote = await listAutoCandidates({ runId: run1.run.id });
+  const run1AfterPromote = await listAutoCandidates({ runId: run1.run.id }, { mode: "live" });
   assert.equal(
     run1AfterPromote.find((c) => c.externalId === "B0SHARED01")?.promotedCaseId,
     promoted.caseId,
   );
 
   // 3. 重命名第 1 批
-  const renamed = await renameAutoPipelineRun(run1.run.id, "蒸汽拖把-首轮");
+  const renamed = await renameAutoPipelineRun(run1.run.id, "蒸汽拖把-首轮", "运营人员", { mode: "live" });
   assert.equal(renamed.sourceLabel, "蒸汽拖把-首轮");
 
   // 4. 删除第 2 批：B0ONLYRUN2 应被移除，B0SHARED01 回迁到第 1 批快照且正式案卷不受影响
-  const delRunRes = await deleteAutoPipelineRun(run2.run.id);
+  const delRunRes = await deleteAutoPipelineRun(run2.run.id, "运营人员", { mode: "live" });
   assert.equal(delRunRes.deletedRunId, run2.run.id);
   assert.equal(delRunRes.deletedCandidates, 2);
 
-  const runsAfterDel = await listAutoPipelineRuns({ platformCode: "amazon", marketCode: "US" });
+  const runsAfterDel = await listAutoPipelineRuns({ platformCode: "amazon", marketCode: "US" }, { mode: "live" });
   assert.equal(runsAfterDel.length, 1);
   assert.equal(runsAfterDel[0]?.id, run1.run.id);
 
-  const poolAfterDelRun2 = await listAutoCandidates({ platformCode: "amazon", marketCode: "US" });
+  const poolAfterDelRun2 = await listAutoCandidates({ platformCode: "amazon", marketCode: "US" }, { mode: "live" });
   assert.equal(poolAfterDelRun2.length, 2);
   assert.equal(poolAfterDelRun2.find((c) => c.externalId === "B0ONLYRUN2"), undefined);
   assert.equal(poolAfterDelRun2.find((c) => c.externalId === "B0SHARED01")?.priceCents, 6999);
@@ -158,25 +158,25 @@ test("auto-pipeline retains per-batch snapshots, supports rename/delete, and pre
   const cleanupRes = await deleteAutoCandidates({
     runId: run1.run.id,
     grade: "ELIMINATED",
-  });
+  }, { mode: "live" });
   assert.equal(cleanupRes.deletedCount, 1);
 
-  const run1AfterCleanup = await listAutoCandidates({ runId: run1.run.id });
+  const run1AfterCleanup = await listAutoCandidates({ runId: run1.run.id }, { mode: "live" });
   assert.equal(run1AfterCleanup.length, 1);
   assert.equal(run1AfterCleanup[0]?.externalId, "B0SHARED01");
 
-  const runsAfterCleanup = await listAutoPipelineRuns({ platformCode: "amazon", marketCode: "US" });
+  const runsAfterCleanup = await listAutoPipelineRuns({ platformCode: "amazon", marketCode: "US" }, { mode: "live" });
   assert.equal(runsAfterCleanup[0]?.totalSeeds, 1);
   assert.equal(runsAfterCleanup[0]?.eliminatedCount, 0);
 
   // 6. 取消推进刚创建的空白案卷：解除关联并自动删除空案卷
   const sharedRun1Snap = run1AfterCleanup[0];
   assert.ok(sharedRun1Snap);
-  const unpromoted = await unpromoteAutoCandidate(sharedRun1Snap.id);
+  const unpromoted = await unpromoteAutoCandidate(sharedRun1Snap.id, "运营人员", { mode: "live" });
   assert.equal(unpromoted.caseId, promoted.caseId);
   assert.equal(unpromoted.caseDeleted, true);
 
-  const run1AfterUnpromote = await listAutoCandidates({ runId: run1.run.id });
+  const run1AfterUnpromote = await listAutoCandidates({ runId: run1.run.id }, { mode: "live" });
   assert.equal(run1AfterUnpromote[0]?.promotedCaseId, null);
 
   const caseCheckAfterUnpromote = await db.query<{ id: string }>(
@@ -220,36 +220,36 @@ test("auto-pipeline supports adopting candidates to Kanban, eliminating to unifi
         rating: 4.3,
       },
     ],
-  });
+  }, { mode: "live" });
 
-  const list = await listAutoCandidates({ runId: run.run.id });
+  const list = await listAutoCandidates({ runId: run.run.id }, { mode: "live" });
   const toAdopt = list.find((c) => c.externalId === "B0ADOPT001");
   const toEliminate = list.find((c) => c.externalId === "B0BLACK001");
   assert.ok(toAdopt && toEliminate);
 
   // 1. 采纳进推进看板（幂等）
-  const firstAdopt = await adoptAutoCandidatesToKanban({ candidateIds: [toAdopt.id] });
+  const firstAdopt = await adoptAutoCandidatesToKanban({ candidateIds: [toAdopt.id] }, { mode: "live" });
   assert.equal(firstAdopt.adoptedCount, 1);
   assert.equal(firstAdopt.reusedCount, 0);
   assert.ok(firstAdopt.items[0]?.runId);
   assert.ok(firstAdopt.items[0]?.hypothesisId);
 
-  const secondAdopt = await adoptAutoCandidatesToKanban({ candidateIds: [toAdopt.id] });
+  const secondAdopt = await adoptAutoCandidatesToKanban({ candidateIds: [toAdopt.id] }, { mode: "live" });
   assert.equal(secondAdopt.adoptedCount, 0);
   assert.equal(secondAdopt.reusedCount, 1);
   assert.equal(secondAdopt.items[0]?.hypothesisId, firstAdopt.items[0]?.hypothesisId);
 
-  const refreshed = await listAutoCandidates({ runId: run.run.id });
+  const refreshed = await listAutoCandidates({ runId: run.run.id }, { mode: "live" });
   assert.equal(
     refreshed.find((c) => c.externalId === "B0ADOPT001")?.adoptedHypothesisId,
     firstAdopt.items[0]?.hypothesisId,
   );
 
   // 1b. 取消采纳空白看板候选 → 解除关联并自动清理空白候选
-  const unadopted = await unadoptAutoCandidate(toAdopt.id);
+  const unadopted = await unadoptAutoCandidate(toAdopt.id, "运营人员", { mode: "live" });
   assert.equal(unadopted.hypothesisId, firstAdopt.items[0]?.hypothesisId);
   assert.equal(unadopted.hypothesisDeleted, true);
-  const afterUnadopt = await listAutoCandidates({ runId: run.run.id });
+  const afterUnadopt = await listAutoCandidates({ runId: run.run.id }, { mode: "live" });
   assert.equal(afterUnadopt.find((c) => c.externalId === "B0ADOPT001")?.adoptedHypothesisId, null);
 
   // 2. 淘汰入统一避坑库，且能被 listEliminatedHypotheses 查到
@@ -257,10 +257,10 @@ test("auto-pipeline supports adopting candidates to Kanban, eliminating to unifi
     candidateIds: [toEliminate.id],
     reason: "专利/品牌垄断",
     note: "检索到美国外观专利",
-  });
+  }, { mode: "live" });
   assert.equal(elimRes.eliminatedCount, 1);
 
-  const blacklist = await listEliminatedHypotheses();
+  const blacklist = await listEliminatedHypotheses(undefined, { mode: "live" });
   const hit = blacklist.find((item) => item.concept.includes("B0BLACK001"));
   assert.ok(hit, "淘汰记录应同步沉淀至统一避坑库");
   assert.equal(hit?.eliminationReason, "专利/品牌垄断");

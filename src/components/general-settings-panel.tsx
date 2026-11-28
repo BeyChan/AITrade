@@ -18,7 +18,11 @@ export function GeneralSettingsPanel({ currentMode }: GeneralSettingsPanelProps)
   function switchMode(targetMode: AppMode) {
     if (targetMode === currentMode) return;
     startTransition(async () => {
-      await setAppModeAction(targetMode);
+      const result = await setAppModeAction(targetMode);
+      if (result.success) {
+        // 模式切换会影响全局 RSC、API 查询和客户端状态，必须整页重载。
+        window.location.reload();
+      }
     });
   }
 
@@ -26,6 +30,7 @@ export function GeneralSettingsPanel({ currentMode }: GeneralSettingsPanelProps)
     startResetTransition(async () => {
       await resetDemoDataAction();
       setShowConfirm(false);
+      window.location.reload();
     });
   }
 

@@ -1,4 +1,5 @@
 import { ApiInputError, apiError, readJsonObject, stringField } from "@/lib/api-http";
+import { getAppMode } from "@/lib/app-mode";
 import { loadCaseCompetitorBenchmark } from "@/lib/ai-sourcing-repository";
 import { recordAuditLog } from "@/lib/audit-logs";
 import {
@@ -19,19 +20,18 @@ import {
   submitVideoGenerationJob,
 } from "@/lib/video-provider";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
+    const mode = await getAppMode();
     const { searchParams } = new URL(request.url);
     const caseId = searchParams.get("caseId")?.trim() || "";
     if (!caseId) throw new ApiInputError("缺少 caseId 参数", 400);
 
     const [detail, jobs, providerStatus, ffmpegReady] = await Promise.all([
-      getContentDetail(caseId),
-      listVideoJobsForCase(caseId),
-      getVideoProviderStatus(),
+      getContentDetail(caseId, { mode }),
+      listVideoJobsForCase(caseId, { mode }),
+      getVideoProviderStatus({ mode }),
       isFfmpegAvailable(),
     ]);
     if (!detail) throw new ApiInputError("商品机会不存在", 404);
@@ -51,6 +51,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const mode = await getAppMode();
     const body = await readJsonObject(request);
     const caseId = stringField(body, "caseId", { required: true, maxLength: 120 });
     const rawAction = stringField(body, "action", { maxLength: 24 }) || "preview";
@@ -62,11 +63,11 @@ export async function POST(request: Request) {
         : "rejected";
       const reviewer = stringField(body, "reviewer", { required: true, maxLength: 80 });
       const notes = stringField(body, "notes", { maxLength: 500 });
-      const updated = await reviewVideoAsset(caseId, assetId, decision, reviewer, notes);
+      const updated = await reviewVideoAsset(caseId, assetId, decision, reviewer, notes, { mode });
       return Response.json({ ok: true, asset: updated });
     }
 
-    const detail = await getContentDetail(caseId);
+    const detail = await getContentDetail(caseId, { mode });
     if (!detail) throw new ApiInputError("商品机会不存在", 404);
     if (detail.productCase.status !== "approved") {
       throw new ApiInputError("只有已立项商品可以进入商品视频工作台", 400);
@@ -88,8 +89,8 @@ export async function POST(request: Request) {
     const actor = stringField(body, "actor", { maxLength: 80 });
 
     const [providerStatus, benchmarkLookup] = await Promise.all([
-      getVideoProviderStatus(),
-      loadCaseCompetitorBenchmark(caseId).catch(() => null),
+      getVideoProviderStatus({ mode }),
+      loadCaseCompetitorBenchmark(caseId, null, { mode }).catch(() => null),
     ]);
 
     const topPainPoints =
@@ -132,7 +133,7 @@ export async function POST(request: Request) {
       throw new ApiInputError("必须选择一张已有商品图片作为首帧底图（禁止无底图纯文生视频）", 400);
     }
 
-    const sourceAsset = await getAssetRecord(sourceAssetId);
+    const sourceAsset = await getAssetRecord(sourceAssetId, { mode });
     if (!sourceAsset || sourceAsset.case_id !== caseId) {
       throw new ApiInputError("所选参考底图不存在或不属于当前商品", 400);
     }
@@ -145,17 +146,21 @@ export async function POST(request: Request) {
     const finalPrompt = promptOverride || preview.prompt;
     const finalNegative = negativePromptOverride || preview.negativePrompt;
 
-    const submitted = await submitVideoGenerationJob({
-      prompt: finalPrompt,
-      negativePrompt: finalNegative,
-      aspectRatio: preview.aspectRatio,
-      durationSec: preview.durationSec,
-      referenceImage: {
-        bytes: refBytes,
-        mimeType: typeof sourceAsset.metadata.mimeType === "string" ? sourceAsset.metadata.mimeType : "image/png",
-        fileName: typeof sourceAsset.metadata.originalName === "string" ? sourceAsset.metadata.originalName : "hero.png",
+    const submitted = await submitVideoGenerationJob(
+      {
+        prompt: finalPrompt,
+        negativePrompt: finalNegative,
+        aspectRatio: preview.aspectRatio,
+        durationSec: preview.durationSec,
+        referenceImage: {
+          bytes: refBytes,
+          mimeType: typeof sourceAsset.metadata.mimeType === "string" ? sourceAsset.metadata.mimeType : "image/png",
+          fileName: typeof sourceAsset.metadata.originalName === "string" ? sourceAsset.metadata.originalName : "hero.png",
+        },
       },
-    });
+      fetch,
+      { mode },
+    );
 
     if (submitted.mode === "prompt_only") {
       return Response.json({
@@ -191,6 +196,7 @@ export async function POST(request: Request) {
           },
         },
         actor,
+        { mode },
       );
       resultAssetId = record.assetId;
       jobStatus = "succeeded";
@@ -211,9 +217,10 @@ export async function POST(request: Request) {
       pollUrl: submitted.pollUrl,
       estimatedCostUsd: submitted.estimatedCostUsd,
       actor,
-    });
+    }, { mode });
 
     await recordAuditLog({
+      mode,
       actor,
       action: "asset.video_job_submitted",
       entityType: "product_case",

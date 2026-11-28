@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { resolveAppMode, type AppMode, type ModeOptions } from "./app-mode.ts";
 import { getDb } from "./db.ts";
 import { calculateEconomics } from "./economics.ts";
 import {
@@ -41,7 +42,7 @@ export type IngestionSummary = ImportCounts & {
   apiCalls?: ConnectorApiCall[];
 };
 
-type IngestionOptions = {
+type IngestionOptions = ModeOptions & {
   actor?: string;
   fileName?: string;
   query?: Record<string, unknown>;
@@ -74,12 +75,13 @@ export async function importCandidatesCsv(csv: string, options: IngestionOptions
       actor: options.actor ?? "运营人员",
       fileName: options.fileName,
       query: options.query,
+      mode: options.mode,
     },
-    async (runId) => {
+    async (runId, isDemo) => {
       const connector = readCandidateCsv(csv, { marketplace: options.marketOverride });
       return importCandidateConnector(connector, runId, {
         platformCode: options.platformCode || "amazon",
-      });
+      }, isDemo);
     },
   );
 }
@@ -92,10 +94,11 @@ export async function importSuppliersCsv(csv: string, options: IngestionOptions 
       actor: options.actor ?? "采购人员",
       fileName: options.fileName,
       query: options.query,
+      mode: options.mode,
     },
-    async (runId) => {
+    async (runId, isDemo) => {
       const connector = readSupplierCsv(csv);
-      return importSupplierConnector(connector, runId);
+      return importSupplierConnector(connector, runId, isDemo);
     },
   );
 }
@@ -108,10 +111,11 @@ export async function importQuotesCsv(csv: string, options: IngestionOptions = {
       actor: options.actor ?? "采购人员",
       fileName: options.fileName,
       query: options.query,
+      mode: options.mode,
     },
-    async (runId) => {
+    async (runId, isDemo) => {
       const connector = readQuoteCsv(csv);
-      return importQuoteConnector(connector, runId);
+      return importQuoteConnector(connector, runId, isDemo);
     },
   );
 }
@@ -122,6 +126,7 @@ export async function importKeepaByAsins(input: {
   actor?: string;
   runId?: string;
   fetchOptions?: KeepaFetchOptions;
+  mode?: AppMode;
 }) {
   return withIngestionRun(
     {
@@ -130,14 +135,15 @@ export async function importKeepaByAsins(input: {
       actor: input.actor ?? "运营人员",
       query: { asins: input.asins, marketplace: input.marketplace },
       runId: input.runId,
+      mode: input.mode,
     },
-    async (runId) => {
+    async (runId, isDemo) => {
       const connector = await fetchKeepaCandidates({
         asins: input.asins,
         marketplace: input.marketplace,
         fetchOptions: input.fetchOptions,
       });
-      const result = await importCandidateConnector(connector, runId, { platformCode: "amazon" });
+      const result = await importCandidateConnector(connector, runId, { platformCode: "amazon" }, isDemo);
       return {
         ...result,
         warnings: [...connector.warnings, ...result.warnings],
@@ -147,12 +153,17 @@ export async function importKeepaByAsins(input: {
   );
 }
 
-export async function getDataSourcesDashboard(): Promise<DataSourcesDashboard> {
+export async function getDataSourcesDashboard(options?: ModeOptions): Promise<DataSourcesDashboard> {
   const db = await getDb();
+  const mode = await resolveAppMode(options?.mode);
+  const isDemo = mode === "sandbox";
   const [sourcesResult, runsResult, statsResult, snapshotsBySource, suppliersBySource, quotesBySource] =
     await Promise.all([
       db.query<DataSourceRow>("SELECT * FROM data_sources ORDER BY created_at ASC"),
-      db.query<IngestionRunRow>("SELECT * FROM ingestion_runs ORDER BY started_at DESC LIMIT 20"),
+      db.query<IngestionRunRow>(
+        "SELECT * FROM ingestion_runs WHERE is_demo = $1 ORDER BY started_at DESC LIMIT 20",
+        [isDemo],
+      ),
       db.query<{
         real_candidate_count: string;
         supplier_count: string;
@@ -160,19 +171,31 @@ export async function getDataSourcesDashboard(): Promise<DataSourcesDashboard> {
         snapshot_count: string;
       }>(`
         SELECT
-          (SELECT COUNT(*) FROM product_cases WHERE is_demo = FALSE)::text AS real_candidate_count,
-          (SELECT COUNT(*) FROM suppliers)::text AS supplier_count,
-          (SELECT COUNT(*) FROM quotes)::text AS quote_count,
-          (SELECT COUNT(*) FROM evidence_snapshots)::text AS snapshot_count
-      `),
+          (SELECT COUNT(*) FROM product_cases WHERE is_demo = $1)::text AS real_candidate_count,
+          (SELECT COUNT(*) FROM suppliers WHERE is_demo = $1)::text AS supplier_count,
+          (SELECT COUNT(*)
+           FROM quotes q
+           JOIN rfqs r ON r.id = q.rfq_id
+           JOIN product_cases pc ON pc.id = r.case_id
+           WHERE pc.is_demo = $1)::text AS quote_count,
+          (SELECT COUNT(*) FROM evidence_snapshots WHERE is_demo = $1)::text AS snapshot_count
+      `, [isDemo]),
       db.query<{ source_code: string; count: string }>(
-        "SELECT source_code, COUNT(*)::text AS count FROM evidence_snapshots GROUP BY source_code",
+        "SELECT source_code, COUNT(*)::text AS count FROM evidence_snapshots WHERE is_demo = $1 GROUP BY source_code",
+        [isDemo],
       ),
       db.query<{ source_code: string; count: string }>(
-        "SELECT source_code, COUNT(DISTINCT supplier_id)::text AS count FROM supplier_external_ids GROUP BY source_code",
+        "SELECT source_code, COUNT(DISTINCT supplier_id)::text AS count FROM supplier_external_ids WHERE is_demo = $1 GROUP BY source_code",
+        [isDemo],
       ),
       db.query<{ source_code: string; count: string }>(
-        "SELECT source_code, COUNT(*)::text AS count FROM quotes WHERE source_code IS NOT NULL GROUP BY source_code",
+        `SELECT q.source_code, COUNT(*)::text AS count
+         FROM quotes q
+         JOIN rfqs r ON r.id = q.rfq_id
+         JOIN product_cases pc ON pc.id = r.case_id
+         WHERE q.source_code IS NOT NULL AND pc.is_demo = $1
+         GROUP BY q.source_code`,
+        [isDemo],
       ),
     ]);
 
@@ -219,28 +242,38 @@ async function withIngestionRun(
     fileName?: string;
     query?: Record<string, unknown>;
     runId?: string;
+    mode?: AppMode;
   },
-  work: (runId: string) => Promise<ImportCounts & { apiCalls?: ConnectorApiCall[] }>,
+  work: (runId: string, isDemo: boolean) => Promise<ImportCounts & { apiCalls?: ConnectorApiCall[] }>,
 ): Promise<IngestionSummary> {
   const db = await getDb();
+  const isDemo = (await resolveAppMode(input.mode)) === "sandbox";
   const runId = input.runId ?? randomUUID();
   const actor = input.actor.trim() || "系统";
   await db.query(
     `INSERT INTO ingestion_runs
-      (id, source_code, import_kind, status, requested_by, file_name, query)
-     VALUES ($1, $2, $3, 'running', $4, $5, $6::jsonb)`,
-    [runId, input.sourceCode, input.importKind, actor, input.fileName?.trim() || null, JSON.stringify(input.query ?? {})],
+      (id, source_code, import_kind, status, requested_by, file_name, query, is_demo)
+     VALUES ($1, $2, $3, 'running', $4, $5, $6::jsonb, $7)`,
+    [
+      runId,
+      input.sourceCode,
+      input.importKind,
+      actor,
+      input.fileName?.trim() || null,
+      JSON.stringify(input.query ?? {}),
+      isDemo,
+    ],
   );
 
   try {
-    const counts = await work(runId);
+    const counts = await work(runId, isDemo);
     const status: "completed" | "partial" = counts.errors > 0 || counts.warnings.length > 0 ? "partial" : "completed";
     await db.transaction(async (tx) => {
       await tx.query(
         `UPDATE ingestion_runs
          SET status = $1, imported_count = $2, updated_count = $3, skipped_count = $4,
              error_count = $5, snapshot_count = $6, warnings = $7::jsonb, completed_at = NOW()
-         WHERE id = $8`,
+         WHERE id = $8 AND is_demo = $9`,
         [
           status,
           counts.imported,
@@ -250,12 +283,13 @@ async function withIngestionRun(
           counts.snapshots,
           JSON.stringify(counts.warnings.slice(0, MAX_WARNINGS)),
           runId,
+          isDemo,
         ],
       );
       await tx.query("UPDATE data_sources SET last_synced_at = NOW() WHERE code = $1", [input.sourceCode]);
       await tx.query(
-        `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-         VALUES ($1, $2, 'ingestion.completed', 'data_source', $3, $4::jsonb)`,
+        `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+         VALUES ($1, $2, 'ingestion.completed', 'data_source', $3, $4::jsonb, $5)`,
         [
           randomUUID(),
           actor,
@@ -271,6 +305,7 @@ async function withIngestionRun(
             snapshots: counts.snapshots,
             externalActions: input.sourceCode === "keepa" ? "read_only" : "none",
           }),
+          isDemo,
         ],
       );
     });
@@ -280,12 +315,12 @@ async function withIngestionRun(
     await db.query(
       `UPDATE ingestion_runs
        SET status = 'failed', error_count = 1, error_message = $1, completed_at = NOW()
-       WHERE id = $2`,
-      [message.slice(0, 1000), runId],
+       WHERE id = $2 AND is_demo = $3`,
+      [message.slice(0, 1000), runId, isDemo],
     );
     await db.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'ingestion.failed', 'data_source', $3, $4::jsonb)`,
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'ingestion.failed', 'data_source', $3, $4::jsonb, $5)`,
       [
         randomUUID(),
         actor,
@@ -295,6 +330,7 @@ async function withIngestionRun(
           error: message,
           externalActions: input.sourceCode === "keepa" ? "read_only" : "none",
         }),
+        isDemo,
       ],
     );
     throw error;
@@ -305,6 +341,7 @@ async function importCandidateConnector(
   connector: ConnectorResult<CandidateImportRow>,
   runId: string,
   siteScope: { platformCode: string },
+  isDemo: boolean,
 ): Promise<ImportCounts> {
   const db = await getDb();
   const counts = emptyCounts(connector.warnings);
@@ -327,9 +364,9 @@ async function importCandidateConnector(
            monthly_sales_estimate, review_count, rating, notes, owner, evidence_score, is_demo,
            source_code, source_record_id, source_observed_at, currency, monthly_sales_min,
            monthly_sales_max, bsr, keyword, keyword_search_volume, seller_count, variation_count)
-         VALUES ($1, $2, $3, $4, $5, $6, 'approved', $7, $8, $9, $10, $11, $12, $13, FALSE,
-                 $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
-         ON CONFLICT (asin, marketplace) DO NOTHING
+         VALUES ($1, $2, $3, $4, $5, $6, 'approved', $7, $8, $9, $10, $11, $12, $13, $14,
+                 $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
+         ON CONFLICT (asin, marketplace, is_demo) DO NOTHING
          RETURNING id`,
         [
           caseId,
@@ -345,6 +382,7 @@ async function importCandidateConnector(
           row.notes,
           connector.sourceCode,
           evidenceScore,
+          isDemo,
           connector.sourceCode,
           row.sourceRecordId,
           row.observedAt,
@@ -362,8 +400,8 @@ async function importCandidateConnector(
       let targetCaseId = inserted.rows[0]?.id;
       if (!targetCaseId) {
         const existing = await tx.query<{ id: string }>(
-          "SELECT id FROM product_cases WHERE asin = $1 AND marketplace = $2 LIMIT 1",
-          [row.asin, row.marketplace],
+          "SELECT id FROM product_cases WHERE asin = $1 AND marketplace = $2 AND is_demo = $3 LIMIT 1",
+          [row.asin, row.marketplace, isDemo],
         );
         targetCaseId = existing.rows[0]?.id;
       }
@@ -406,8 +444,8 @@ async function importCandidateConnector(
           ],
         );
         await tx.query(
-          `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-           VALUES ($1, 'connector', 'case.imported', 'product_case', $2, $3::jsonb)`,
+          `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+           VALUES ($1, 'connector', 'case.imported', 'product_case', $2, $3::jsonb, $4)`,
           [
             randomUUID(),
             targetCaseId,
@@ -420,14 +458,15 @@ async function importCandidateConnector(
               observedAt: row.observedAt,
               externalActions: "none",
             }),
+            isDemo,
           ],
         );
         counts.imported += 1;
       } else if (siteLink.rows[0]) {
         counts.updated += 1;
         await tx.query(
-          `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-           VALUES ($1, 'connector', 'case.site_linked', 'product_case', $2, $3::jsonb)`,
+          `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+           VALUES ($1, 'connector', 'case.site_linked', 'product_case', $2, $3::jsonb, $4)`,
           [
             randomUUID(),
             targetCaseId,
@@ -439,6 +478,7 @@ async function importCandidateConnector(
               platformCode,
               externalActions: "none",
             }),
+            isDemo,
           ],
         );
       } else {
@@ -452,6 +492,7 @@ async function importCandidateConnector(
           sourceCode: connector.sourceCode,
           evidenceType: "candidate_market",
           item,
+          isDemo,
         })
       ) {
         counts.snapshots += 1;
@@ -466,6 +507,7 @@ async function importCandidateConnector(
           sourceCode: connector.sourceCode,
           evidenceType: "connector_additional_evidence",
           item,
+          isDemo,
         })
       ) {
         counts.snapshots += 1;
@@ -479,6 +521,7 @@ async function importCandidateConnector(
 async function importSupplierConnector(
   connector: ConnectorResult<SupplierImportRow>,
   runId: string,
+  isDemo: boolean,
 ): Promise<ImportCounts> {
   const db = await getDb();
   const counts = emptyCounts(connector.warnings);
@@ -486,7 +529,7 @@ async function importSupplierConnector(
   await db.transaction(async (tx) => {
     for (const item of connector.records) {
       const identity: SupplierIdentity = item.record;
-      const outcome = await ensureSupplier(tx, identity, connector.sourceCode);
+      const outcome = await ensureSupplier(tx, identity, connector.sourceCode, isDemo);
       if (outcome.created) counts.imported += 1;
       else if (outcome.updated) counts.updated += 1;
       else counts.skipped += 1;
@@ -498,14 +541,15 @@ async function importSupplierConnector(
           sourceCode: connector.sourceCode,
           evidenceType: "supplier_profile",
           item,
+          isDemo,
         })
       ) {
         counts.snapshots += 1;
       }
       if (outcome.created || outcome.updated) {
         await tx.query(
-          `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-           VALUES ($1, 'connector', $2, 'supplier', $3, $4::jsonb)`,
+          `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+           VALUES ($1, 'connector', $2, 'supplier', $3, $4::jsonb, $5)`,
           [
             randomUUID(),
             outcome.created ? "supplier.imported" : "supplier.updated",
@@ -516,6 +560,7 @@ async function importSupplierConnector(
               identityKey: outcome.identityKey,
               externalActions: "none",
             }),
+            isDemo,
           ],
         );
       }
@@ -528,6 +573,7 @@ async function importSupplierConnector(
 async function importQuoteConnector(
   connector: ConnectorResult<QuoteImportRow>,
   runId: string,
+  isDemo: boolean,
 ): Promise<ImportCounts> {
   const db = await getDb();
   const counts = emptyCounts(connector.warnings);
@@ -536,10 +582,13 @@ async function importQuoteConnector(
     for (const item of connector.records) {
       const row = item.record;
       const productResult = row.caseId
-        ? await tx.query<{ id: string; status: string }>("SELECT id, status FROM product_cases WHERE id = $1 LIMIT 1", [row.caseId])
+        ? await tx.query<{ id: string; status: string }>(
+            "SELECT id, status FROM product_cases WHERE id = $1 AND is_demo = $2 LIMIT 1",
+            [row.caseId, isDemo],
+          )
         : await tx.query<{ id: string; status: string }>(
-            "SELECT id, status FROM product_cases WHERE asin = $1 AND marketplace = $2 LIMIT 1",
-            [row.asin, row.marketplace],
+            "SELECT id, status FROM product_cases WHERE asin = $1 AND marketplace = $2 AND is_demo = $3 LIMIT 1",
+            [row.asin, row.marketplace, isDemo],
           );
       const product = productResult.rows[0];
       if (!product) {
@@ -579,6 +628,7 @@ async function importQuoteConnector(
           certifications: row.certifications,
         },
         connector.sourceCode,
+        isDemo,
       );
 
       let rfqResult = await tx.query<{ id: string }>(
@@ -681,8 +731,8 @@ async function importQuoteConnector(
           ],
         );
         await tx.query(
-          `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-           VALUES ($1, 'connector', 'quote.imported', 'product_case', $2, $3::jsonb)`,
+          `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+           VALUES ($1, 'connector', 'quote.imported', 'product_case', $2, $3::jsonb, $4)`,
           [
             randomUUID(),
             product.id,
@@ -696,6 +746,7 @@ async function importQuoteConnector(
               externalActions: "none",
               rfqSent: false,
             }),
+            isDemo,
           ],
         );
         counts.imported += 1;
@@ -708,6 +759,7 @@ async function importQuoteConnector(
           sourceCode: connector.sourceCode,
           evidenceType: "supplier_quote",
           item,
+          isDemo,
         })
       ) {
         counts.snapshots += 1;
@@ -718,12 +770,21 @@ async function importQuoteConnector(
   return counts;
 }
 
-async function ensureSupplier(tx: SqlExecutor, input: SupplierIdentity, sourceCode: string) {
+async function ensureSupplier(
+  tx: SqlExecutor,
+  input: SupplierIdentity,
+  sourceCode: string,
+  isDemo: boolean,
+) {
   const identityKey = supplierIdentityKey(input);
   const normalizedUrl = normalizeSupplierUrl(input.url);
   const mapping = await tx.query<{ supplier_id: string }>(
-    "SELECT supplier_id FROM supplier_external_ids WHERE identity_key = $1 LIMIT 1",
-    [identityKey],
+    `SELECT sei.supplier_id
+     FROM supplier_external_ids sei
+     JOIN suppliers s ON s.id = sei.supplier_id AND s.is_demo = sei.is_demo
+     WHERE sei.identity_key = $1 AND sei.is_demo = $2
+     LIMIT 1`,
+    [identityKey, isDemo],
   );
   let supplierId = mapping.rows[0]?.supplier_id;
 
@@ -731,17 +792,19 @@ async function ensureSupplier(tx: SqlExecutor, input: SupplierIdentity, sourceCo
     const urlMatch = await tx.query<{ supplier_id: string }>(
       `SELECT sei.supplier_id
        FROM supplier_external_ids sei
-       JOIN suppliers s ON s.id = sei.supplier_id
-       WHERE sei.normalized_url = $1 AND lower(s.platform) = lower($2)
+       JOIN suppliers s ON s.id = sei.supplier_id AND s.is_demo = sei.is_demo
+       WHERE sei.normalized_url = $1 AND lower(s.platform) = lower($2) AND sei.is_demo = $3
        LIMIT 1`,
-      [normalizedUrl, input.platform],
+      [normalizedUrl, input.platform, isDemo],
     );
     supplierId = urlMatch.rows[0]?.supplier_id;
   }
   if (!supplierId) {
     const nameMatch = await tx.query<{ id: string }>(
-      "SELECT id FROM suppliers WHERE lower(name) = lower($1) AND lower(platform) = lower($2) ORDER BY created_at ASC LIMIT 1",
-      [input.name, input.platform],
+      `SELECT id FROM suppliers
+       WHERE lower(name) = lower($1) AND lower(platform) = lower($2) AND is_demo = $3
+       ORDER BY created_at ASC LIMIT 1`,
+      [input.name, input.platform, isDemo],
     );
     supplierId = nameMatch.rows[0]?.id;
   }
@@ -749,8 +812,8 @@ async function ensureSupplier(tx: SqlExecutor, input: SupplierIdentity, sourceCo
   if (!supplierId) {
     supplierId = randomUUID();
     await tx.query(
-      `INSERT INTO suppliers (id, name, platform, url, contact, country, rating, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      `INSERT INTO suppliers (id, name, platform, url, contact, country, rating, notes, is_demo)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [
         supplierId,
         input.name.trim(),
@@ -760,12 +823,13 @@ async function ensureSupplier(tx: SqlExecutor, input: SupplierIdentity, sourceCo
         input.country.trim() || null,
         input.rating,
         supplierNotes(input),
+        isDemo,
       ],
     );
     await tx.query(
       `INSERT INTO supplier_external_ids
-        (id, supplier_id, source_code, external_id, normalized_url, identity_key, metadata, last_seen_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, NOW())`,
+        (id, supplier_id, source_code, external_id, normalized_url, identity_key, metadata, last_seen_at, is_demo)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, NOW(), $8)`,
       [
         randomUUID(),
         supplierId,
@@ -774,6 +838,7 @@ async function ensureSupplier(tx: SqlExecutor, input: SupplierIdentity, sourceCo
         normalizedUrl || null,
         identityKey,
         JSON.stringify(supplierMetadata(input, sourceCode)),
+        isDemo,
       ],
     );
     return { supplierId, identityKey, created: true, updated: false };
@@ -787,7 +852,10 @@ async function ensureSupplier(tx: SqlExecutor, input: SupplierIdentity, sourceCo
     country: string | null;
     rating: string | number | null;
     notes: string;
-  }>("SELECT name, platform, url, contact, country, rating, notes FROM suppliers WHERE id = $1", [supplierId]);
+  }>(
+    "SELECT name, platform, url, contact, country, rating, notes FROM suppliers WHERE id = $1 AND is_demo = $2",
+    [supplierId, isDemo],
+  );
   const current = currentResult.rows[0];
   if (!current) throw new Error("供应商去重记录失效");
   const next = {
@@ -811,15 +879,15 @@ async function ensureSupplier(tx: SqlExecutor, input: SupplierIdentity, sourceCo
     await tx.query(
       `UPDATE suppliers
        SET name = $1, platform = $2, url = $3, contact = $4, country = $5, rating = $6, notes = $7, updated_at = NOW()
-       WHERE id = $8`,
-      [next.name, next.platform, next.url, next.contact, next.country, next.rating, next.notes, supplierId],
+       WHERE id = $8 AND is_demo = $9`,
+      [next.name, next.platform, next.url, next.contact, next.country, next.rating, next.notes, supplierId, isDemo],
     );
   }
   await tx.query(
     `INSERT INTO supplier_external_ids
-      (id, supplier_id, source_code, external_id, normalized_url, identity_key, metadata, last_seen_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, NOW())
-     ON CONFLICT (identity_key) DO UPDATE
+      (id, supplier_id, source_code, external_id, normalized_url, identity_key, metadata, last_seen_at, is_demo)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, NOW(), $8)
+     ON CONFLICT (identity_key, is_demo) DO UPDATE
        SET last_seen_at = NOW(), metadata = EXCLUDED.metadata`,
     [
       randomUUID(),
@@ -829,6 +897,7 @@ async function ensureSupplier(tx: SqlExecutor, input: SupplierIdentity, sourceCo
       normalizedUrl || null,
       identityKey,
       JSON.stringify(supplierMetadata(input, sourceCode)),
+      isDemo,
     ],
   );
   return { supplierId, identityKey, created: false, updated };
@@ -842,6 +911,7 @@ async function insertSnapshot(
     sourceCode: string;
     evidenceType: string;
     item: ConnectorRecord<unknown>;
+    isDemo: boolean;
   },
 ) {
   const contentHash = hashPayload({
@@ -851,9 +921,9 @@ async function insertSnapshot(
   const inserted = await tx.query<{ id: string }>(
     `INSERT INTO evidence_snapshots
       (id, ingestion_run_id, case_id, source_code, source_record_id, evidence_type, source_url,
-       raw_payload, normalized_payload, content_hash, observed_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10, $11)
-     ON CONFLICT (source_code, source_record_id, evidence_type, content_hash) DO NOTHING
+       raw_payload, normalized_payload, content_hash, observed_at, is_demo)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10, $11, $12)
+     ON CONFLICT (source_code, source_record_id, evidence_type, content_hash, is_demo) DO NOTHING
      RETURNING id`,
     [
       randomUUID(),
@@ -867,6 +937,7 @@ async function insertSnapshot(
       JSON.stringify(input.item.normalizedPayload),
       contentHash,
       input.item.observedAt,
+      input.isDemo,
     ],
   );
   return Boolean(inserted.rows[0]);

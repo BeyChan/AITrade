@@ -1,8 +1,6 @@
 import { generateCategoryRecommendations } from "@/lib/ai-provider";
 import { getSiteOptions } from "@/lib/repository";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   let payload: { marketCode?: unknown; platformCode?: unknown };

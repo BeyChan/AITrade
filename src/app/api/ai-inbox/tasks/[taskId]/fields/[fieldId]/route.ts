@@ -1,11 +1,11 @@
 import { reviewAiInboxField } from "@/lib/ai-inbox/apply";
-import { apiError, readJsonObject, stringField } from "@/lib/api-http";
+import { readJsonObject, stringField, withApiRoute } from "@/lib/api-http";
 
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ taskId: string; fieldId: string }> },
-) {
-  try {
+export const POST = withApiRoute(
+  async (
+    request: Request,
+    { params }: { params: Promise<{ taskId: string; fieldId: string }> },
+  ) => {
     const { taskId, fieldId } = await params;
     const body = await readJsonObject(request);
     const action = stringField(body, "action", { required: true, maxLength: 20 });
@@ -21,7 +21,5 @@ export async function POST(
       notes: stringField(body, "notes", { maxLength: 500 }),
     });
     return Response.json({ task });
-  } catch (error) {
-    return apiError(error);
-  }
-}
+  },
+);

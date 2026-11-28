@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getAppMode } from "@/lib/app-mode";
 import { deriveCaseWorkflowSnapshot } from "@/lib/case-stage";
 import { listCases } from "@/lib/repository";
 import { money, percent } from "@/lib/format";
@@ -16,8 +17,8 @@ type PageProps = {
 };
 
 export default async function ProductCasesPage({ searchParams }: PageProps) {
-  const query = await searchParams;
-  const cases = await listCases();
+  const [query, mode] = await Promise.all([searchParams, getAppMode()]);
+  const cases = await listCases({ mode });
 
   const currentView = query.status === "archived" ? "archived" : "active";
   const currentMarket = query.market || "all";

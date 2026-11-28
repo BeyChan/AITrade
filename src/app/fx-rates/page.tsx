@@ -1,11 +1,13 @@
 import { FxRatesManager } from "@/components/fx-rates-manager";
 import { PageHeader } from "@/components/ui";
+import { getAppMode } from "@/lib/app-mode";
 import { getFxRatesSnapshot } from "@/lib/fx-rates";
 
 export const dynamic = "force-dynamic";
 
 export default async function FxRatesPage() {
-  const fxSnapshot = await getFxRatesSnapshot();
+  const mode = await getAppMode();
+  const fxSnapshot = await getFxRatesSnapshot({ mode });
 
   return (
     <div className="page fx-rates-page">

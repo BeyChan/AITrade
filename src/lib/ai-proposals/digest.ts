@@ -11,6 +11,7 @@
  * buildAiProposalDigest() 是可以在无数据库环境下测试的纯函数。
  */
 
+import { getAppMode, isDemoMode, type ModeOptions } from "../app-mode.ts";
 import { getDb } from "../db.ts";
 import type { ProposalGeneration, ProposalTarget } from "./contract.ts";
 
@@ -335,9 +336,11 @@ export function normalizeProposalRows(rows: {
  * 也不让首页因为 AI 数据不可用而整页报错。
  */
 export async function loadPendingAiProposals(
-  options: { limit?: number; perSourceLimit?: number } = {},
+  options: { limit?: number; perSourceLimit?: number } & ModeOptions = {},
 ): Promise<AiProposalDigest> {
   const db = await getDb();
+  const mode = options.mode ?? (await getAppMode());
+  const demo = isDemoMode(mode);
   const perSourceLimit = Math.min(100, Math.max(1, Math.round(options.perSourceLimit ?? 50)));
   const warnings: string[] = [];
 
@@ -350,14 +353,19 @@ export async function loadPendingAiProposals(
                 WHERE f.task_id = t.id AND f.status IN ('extracted', 'needs_review', 'missing')) AS unresolved_count
        FROM ai_tasks t
        LEFT JOIN opportunity_hypotheses h ON h.id = t.target_hypothesis_id
-       LEFT JOIN ai_sourcing_runs r ON r.id = h.run_id
+       LEFT JOIN ai_sourcing_runs r ON r.id = h.run_id AND r.is_demo = $2
        LEFT JOIN LATERAL (
-         SELECT file_name FROM ai_task_artifacts WHERE task_id = t.id ORDER BY created_at DESC LIMIT 1
+         SELECT a.file_name
+         FROM ai_task_artifacts a
+         JOIN ai_tasks artifact_task ON artifact_task.id = a.task_id AND artifact_task.is_demo = $2
+         WHERE a.task_id = t.id
+         ORDER BY a.created_at DESC
+         LIMIT 1
        ) a ON TRUE
-       WHERE t.status IN ('needs_review', 'ready', 'failed')
+       WHERE t.status IN ('needs_review', 'ready', 'failed') AND t.is_demo = $2
        ORDER BY t.created_at DESC
        LIMIT $1`,
-      [perSourceLimit],
+      [perSourceLimit, demo],
     ),
     db.query<DraftRow>(
       `SELECT d.id, d.draft_type, d.subject, d.missing_fields, d.generation_mode,
@@ -365,22 +373,22 @@ export async function loadPendingAiProposals(
               h.concept AS hypothesis_concept, r.id AS run_id
        FROM ai_supplier_drafts d
        JOIN opportunity_hypotheses h ON h.id = d.hypothesis_id
-       LEFT JOIN ai_sourcing_runs r ON r.id = h.run_id
-       WHERE d.status = 'draft'
+       LEFT JOIN ai_sourcing_runs r ON r.id = h.run_id AND r.is_demo = $2
+       WHERE d.status = 'draft' AND d.is_demo = $2 AND r.is_demo = $2
        ORDER BY d.created_at DESC
        LIMIT $1`,
-      [perSourceLimit],
+      [perSourceLimit, demo],
     ),
     db.query<CandidateRow>(
       `SELECT c.id, c.title, c.supplier_name, c.score, c.created_at, c.hypothesis_id,
               h.concept AS hypothesis_concept, r.id AS run_id
        FROM supplier_candidates c
        JOIN opportunity_hypotheses h ON h.id = c.hypothesis_id
-       LEFT JOIN ai_sourcing_runs r ON r.id = h.run_id
+       JOIN ai_sourcing_runs r ON r.id = h.run_id AND r.is_demo = $2
        WHERE c.status = 'candidate'
        ORDER BY c.score DESC, c.created_at DESC
        LIMIT $1`,
-      [perSourceLimit],
+      [perSourceLimit, demo],
     ),
   ]);
 

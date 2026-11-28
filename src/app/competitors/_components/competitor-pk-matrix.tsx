@@ -5,6 +5,7 @@ import {
   type CompetitorComparisonReport,
   type CompetitorProfile,
 } from "@/lib/competitor-compare/types";
+import type { AppMode } from "@/lib/app-mode";
 import { OFFICIAL_FX_CONFIG } from "@/lib/currency";
 import {
   calcItemProfitEstimate,
@@ -15,6 +16,7 @@ import {
 
 type Props = {
   currentReport: CompetitorComparisonReport;
+  mode: AppMode;
   isSingleProduct: boolean;
   isReanalyzing: boolean;
   removingAsin: string | null;
@@ -45,6 +47,7 @@ type Props = {
 
 export function CompetitorPkMatrix({
   currentReport,
+  mode,
   isSingleProduct,
   isReanalyzing,
   removingAsin,
@@ -430,7 +433,7 @@ export function CompetitorPkMatrix({
                         const basisRmb = hasRealCost
                           ? item.sourcingCost!.actualCny
                           : Number((((totalBuyerCents / 100) * 0.25) * fxRate).toFixed(1));
-                        const est = calcItemProfitEstimate(totalBuyerCents, basisRmb, itemCurr, currentReport.platformCode);
+                        const est = calcItemProfitEstimate(totalBuyerCents, basisRmb, itemCurr, currentReport.platformCode, mode);
                         const isHealthy = est.marginPct >= 18;
                         const hasShipping = Boolean(item.shippingCents && item.shippingCents > 0);
                         return (
@@ -496,6 +499,7 @@ export function CompetitorPkMatrix({
                           totalBuyerCents,
                           item.currency || currentReport.currency,
                           currentReport.platformCode,
+                          mode,
                         );
                         const cost = item.sourcingCost;
                         const realMarginPct = cost?.actualCny
@@ -504,6 +508,7 @@ export function CompetitorPkMatrix({
                               cost.actualCny,
                               item.currency || currentReport.currency,
                               currentReport.platformCode,
+                              mode,
                             )
                           : null;
                         const passedGate = realMarginPct !== null && realMarginPct >= 18;

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isDemoMode, resolveAppMode, type AppMode, type ModeOptions } from "./app-mode.ts";
 import { decryptSecret, encryptSecret } from "./app-settings.ts";
 import { getDb } from "./db.ts";
 import type { ConnectorEnv } from "./connectors/diagnostics.ts";
@@ -53,18 +54,19 @@ function assertKnownConnector(code: string) {
   return definition;
 }
 
-async function readSettingRows(): Promise<SettingRow[]> {
+async function readSettingRows(mode: AppMode): Promise<SettingRow[]> {
   const db = await getDb();
   const result = await db.query<SettingRow>(
-    "SELECT key, value FROM app_settings WHERE key LIKE $1",
-    [`${KEY_PREFIX}%`],
+    "SELECT key, value FROM app_settings WHERE key LIKE $1 AND is_demo = $2",
+    [`${KEY_PREFIX}%`, isDemoMode(mode)],
   );
   return result.rows;
 }
 
 /** 合并后的凭证视图：界面配置覆盖同名环境变量，供 readiness 与只读诊断使用 */
-export async function loadConnectorEnv(): Promise<ConnectorEnv> {
-  const rows = await readSettingRows();
+export async function loadConnectorEnv(options?: ModeOptions): Promise<ConnectorEnv> {
+  const mode = await resolveAppMode(options?.mode);
+  const rows = await readSettingRows(mode);
   const merged: Record<string, string | undefined> = { ...process.env };
   const runtimeSecrets: string[] = [];
   for (const row of rows) {
@@ -81,8 +83,9 @@ export async function loadConnectorEnv(): Promise<ConnectorEnv> {
 }
 
 /** 页面展示用：只返回是否已配置与来源，不返回任何凭证值 */
-export async function getConnectorSettingsStatus(): Promise<Map<string, ConnectorSettingsStatus>> {
-  const rows = await readSettingRows();
+export async function getConnectorSettingsStatus(options?: ModeOptions): Promise<Map<string, ConnectorSettingsStatus>> {
+  const mode = await resolveAppMode(options?.mode);
+  const rows = await readSettingRows(mode);
   const uiKeys = new Set(rows.map((row) => row.key));
   const result = new Map<string, ConnectorSettingsStatus>();
   for (const definition of knownConnectorCodes()) {
@@ -109,7 +112,10 @@ export async function saveConnectorSettings(
   code: string,
   values: Record<string, string | undefined>,
   actor: string,
+  options?: ModeOptions,
 ): Promise<number> {
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const definition = assertKnownConnector(code);
   const entries = definition.credentialEnv
     .map((name) => ({ name, value: String(values[name] ?? "").trim() }))
@@ -123,20 +129,21 @@ export async function saveConnectorSettings(
     for (const entry of entries) {
       const encrypted = await encryptSecret(entry.value);
       await tx.query(
-        `INSERT INTO app_settings (key, value, updated_by, updated_at)
-         VALUES ($1, $2, $3, NOW())
-         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
-        [settingKey(code, entry.name), encrypted, operator],
+        `INSERT INTO app_settings (key, value, updated_by, updated_at, is_demo)
+         VALUES ($1, $2, $3, NOW(), $4)
+         ON CONFLICT (key, is_demo) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+        [settingKey(code, entry.name), encrypted, operator, demo],
       );
     }
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'connector.settings_saved', 'data_source', $3, $4::jsonb)`,
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'connector.settings_saved', 'data_source', $3, $4::jsonb, $5)`,
       [
         randomUUID(),
         operator,
         code,
         JSON.stringify({ fields: entries.map((entry) => entry.name), credentialsExposed: false }),
+        demo,
       ],
     );
   });
@@ -144,23 +151,26 @@ export async function saveConnectorSettings(
 }
 
 /** 清除某个连接器的界面配置，回到环境变量 / 未配置状态 */
-export async function clearConnectorSettings(code: string, actor: string): Promise<number> {
+export async function clearConnectorSettings(code: string, actor: string, options?: ModeOptions): Promise<number> {
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   assertKnownConnector(code);
   const operator = actor.trim() || "本机管理员";
   const db = await getDb();
   const removed = await db.query<{ key: string }>(
-    "DELETE FROM app_settings WHERE key LIKE $1 RETURNING key",
-    [`${settingKey(code, "")}%`],
+    "DELETE FROM app_settings WHERE key LIKE $1 AND is_demo = $2 RETURNING key",
+    [`${settingKey(code, "")}%`, demo],
   );
   if (removed.rows.length === 0) throw new Error("当前没有界面保存的配置");
   await db.query(
-    `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-     VALUES ($1, $2, 'connector.settings_cleared', 'data_source', $3, $4::jsonb)`,
+    `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+     VALUES ($1, $2, 'connector.settings_cleared', 'data_source', $3, $4::jsonb, $5)`,
     [
       randomUUID(),
       operator,
       code,
       JSON.stringify({ fieldsRemoved: removed.rows.length, credentialsExposed: false }),
+      demo,
     ],
   );
   return removed.rows.length;

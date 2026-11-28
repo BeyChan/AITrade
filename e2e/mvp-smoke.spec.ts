@@ -102,7 +102,7 @@ test.describe("AITrade MVP 核心闭环冒烟测试", () => {
     expect(rawText).not.toMatch(/sk-[A-Za-z0-9]{16,}/);
 
     const backupJson = JSON.parse(rawText) as { schemaVersion?: number; tables?: Record<string, unknown[]> };
-    expect(backupJson.schemaVersion).toBe(1);
+    expect(backupJson.schemaVersion).toBe(3);
     expect(backupJson.tables).toBeTruthy();
 
     const dryRunRes = await request.post("/api/settings/backup?dryRun=true", { data: backupJson });
@@ -126,6 +126,9 @@ test.describe("AITrade MVP 核心闭环冒烟测试", () => {
   });
 
   test("7. 选品初筛 → 采纳入选品看板 → 淘汰入统一避坑库闭环", async ({ page, request }) => {
+    // Next.js 开发模式首次编译该路由可能超过默认 45 秒；提高本用例上限，但保留全部断言。
+    test.setTimeout(120_000);
+
     // 1. 侧边栏精简校验：无独立「新建选品」二级菜单，含「选品初筛」与「选品看板」
     await page.goto("/auto-pipeline", { waitUntil: "domcontentloaded" });
     const sidebar = page.locator("aside.sidebar");

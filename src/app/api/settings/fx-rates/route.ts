@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getAppMode } from "@/lib/app-mode";
 import {
   clearManualFxRate,
   getFxRatesSnapshot,
@@ -6,22 +7,22 @@ import {
   setManualFxRate,
 } from "@/lib/fx-rates";
 
-export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
+    const mode = await getAppMode();
     const url = new URL(request.url);
     const forceRefresh = url.searchParams.get("refresh") === "1";
     const autoRefresh = url.searchParams.get("auto") === "1";
 
     if (forceRefresh) {
-      const result = await refreshLiveFxRates("手动刷新");
+      const result = await refreshLiveFxRates("手动刷新", true, { mode });
       return NextResponse.json(result);
     }
 
-    const current = await getFxRatesSnapshot();
+    const current = await getFxRatesSnapshot({ mode });
     if (autoRefresh && current.isLiveStale) {
-      const result = await refreshLiveFxRates("自动同步", false);
+      const result = await refreshLiveFxRates("自动同步", false, { mode });
       return NextResponse.json(result);
     }
 
@@ -34,6 +35,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const mode = await getAppMode();
     const body = (await request.json()) as {
       action?: "refresh" | "set_manual" | "clear_manual";
       currency?: string;
@@ -44,7 +46,7 @@ export async function POST(request: Request) {
     const actor = typeof body.actor === "string" && body.actor.trim() ? body.actor.trim() : "本机管理员";
 
     if (body.action === "refresh") {
-      const result = await refreshLiveFxRates(actor);
+      const result = await refreshLiveFxRates(actor, true, { mode });
       return NextResponse.json(result);
     }
 
@@ -56,7 +58,7 @@ export async function POST(request: Request) {
         currency: body.currency,
         rateToRmb: Number(body.rateToRmb),
         actor,
-      });
+      }, { mode });
       return NextResponse.json({ snapshot, refreshed: false });
     }
 
@@ -67,7 +69,7 @@ export async function POST(request: Request) {
       const snapshot = await clearManualFxRate({
         currency: body.currency,
         actor,
-      });
+      }, { mode });
       return NextResponse.json({ snapshot, refreshed: false });
     }
 

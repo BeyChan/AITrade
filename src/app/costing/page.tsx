@@ -63,9 +63,9 @@ export default async function CostingPage({ searchParams }: PageProps) {
   const demoMode = appMode === "sandbox";
   const [options, sheets, confirmedSheets, rawRequestedSheet] = await Promise.all([
     getSiteOptions(),
-    listCostSheets(),
-    listConfirmedCostSheets(),
-    query.id ? getCostSheet(query.id) : Promise.resolve(null),
+    listCostSheets({ mode: appMode }),
+    listConfirmedCostSheets({ mode: appMode }),
+    query.id ? getCostSheet(query.id, { mode: appMode }) : Promise.resolve(null),
   ]);
 
   const hypothesisId = query.hypothesisId || rawRequestedSheet?.hypothesisId || null;
@@ -86,8 +86,8 @@ export default async function CostingPage({ searchParams }: PageProps) {
        FROM opportunity_hypotheses h
        JOIN ai_sourcing_runs r ON r.id = h.run_id
        JOIN sourcing_briefs b ON b.id = r.brief_id
-       WHERE h.id = $1`,
-      [hypothesisId],
+       WHERE h.id = $1 AND r.is_demo = $2 AND b.is_demo = $2`,
+      [hypothesisId, demoMode],
     );
     const row = result.rows[0];
     if (row) {

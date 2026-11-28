@@ -2,8 +2,6 @@ import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { applyCalibrationToCase } from "@/lib/calibration-repository";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function POST(
   request: Request,

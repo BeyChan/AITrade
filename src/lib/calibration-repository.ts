@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { getAppMode, isDemoMode, type ModeOptions } from "./app-mode.ts";
 import { recordAuditLog } from "./audit-logs.ts";
 import {
   computeCalibrationSuggestion,
@@ -22,11 +23,13 @@ import { getCaseDetail } from "./repository.ts";
 export async function loadCalibrationSnapshots(params: {
   marketplace?: string;
   windowDays?: number;
-} = {}): Promise<CalibrationSnapshotRow[]> {
+} = {}, options?: ModeOptions): Promise<CalibrationSnapshotRow[]> {
   const db = await getDb();
+  const mode = options?.mode ?? (await getAppMode());
+  const demo = isDemoMode(mode);
   const windowDays = Math.max(7, Math.min(365, params.windowDays ?? 90));
-  const queryParams: unknown[] = [windowDays];
-  const marketClause = params.marketplace ? `AND UPPER(b.marketplace) = UPPER($2)` : "";
+  const queryParams: unknown[] = [windowDays, demo];
+  const marketClause = params.marketplace ? `AND UPPER(b.marketplace) = UPPER($3)` : "";
   if (params.marketplace) queryParams.push(params.marketplace);
 
   const res = await db.query<{
@@ -59,8 +62,9 @@ export async function loadCalibrationSnapshots(params: {
             s.ad_spend_cents, s.ad_attribution, s.storage_fee_cents
      FROM operations_sku_snapshots s
      JOIN operations_settlement_batches b ON b.id = s.batch_id
-     LEFT JOIN product_cases pc ON pc.id = s.case_id
+     LEFT JOIN product_cases pc ON pc.id = s.case_id AND pc.is_demo = b.is_demo
      WHERE b.created_at >= NOW() - ($1::int || ' days')::interval
+       AND b.is_demo = $2
        ${marketClause}
      ORDER BY b.created_at DESC`,
     queryParams,
@@ -92,11 +96,12 @@ export async function loadCalibrationSnapshots(params: {
 
 export async function getCalibrationSuggestionForScope(
   options: ComputeCalibrationOptions & { windowDays?: number },
+  modeOptions?: ModeOptions,
 ): Promise<CalibrationSuggestion> {
   const rows = await loadCalibrationSnapshots({
     marketplace: options.marketplace,
     windowDays: options.windowDays,
-  });
+  }, modeOptions);
   return computeCalibrationSuggestion(rows, options);
 }
 
@@ -106,8 +111,12 @@ export type CaseCalibrationContext = {
   preview: CalibrationImpactPreview | null;
 };
 
-export async function getCalibrationForCase(caseId: string): Promise<CaseCalibrationContext | null> {
-  const detail = await getCaseDetail(caseId);
+export async function getCalibrationForCase(
+  caseId: string,
+  options?: ModeOptions,
+): Promise<CaseCalibrationContext | null> {
+  const mode = options?.mode ?? (await getAppMode());
+  const detail = await getCaseDetail(caseId, { mode });
   if (!detail) return null;
 
   const { productCase, costModel } = detail;
@@ -122,7 +131,7 @@ export async function getCalibrationForCase(caseId: string): Promise<CaseCalibra
     asin: productCase.asin,
     platformCode: "amazon",
     salePriceCents,
-  });
+  }, { mode });
 
   const preview = assumptions
     ? previewCalibrationImpact({
@@ -145,19 +154,21 @@ export async function applyCalibrationToCase(params: {
   actor: string;
   action: "apply" | "dismiss";
   reason?: string;
-}): Promise<{
+}, options?: ModeOptions): Promise<{
   ok: boolean;
   action: "apply" | "dismiss";
   newVersion: number | null;
   preview: CalibrationImpactPreview | null;
 }> {
-  const ctx = await getCalibrationForCase(params.caseId);
+  const mode = options?.mode ?? (await getAppMode());
+  const ctx = await getCalibrationForCase(params.caseId, { mode });
   if (!ctx) throw new Error("未找到对应商品案卷");
   const { suggestion, preview } = ctx;
   const actor = params.actor.trim() || "本机用户";
 
   if (params.action === "dismiss") {
     await recordAuditLog({
+      mode,
       actor,
       action: "calibration.dismissed",
       entityType: "product_case",
@@ -213,9 +224,13 @@ export async function applyCalibrationToCase(params: {
     ],
   );
 
-  await db.query(`UPDATE product_cases SET updated_at = NOW() WHERE id = $1`, [params.caseId]);
+  await db.query(
+    `UPDATE product_cases SET updated_at = NOW() WHERE id = $1 AND is_demo = $2`,
+    [params.caseId, isDemoMode(mode)],
+  );
 
   await recordAuditLog({
+    mode,
     actor,
     action: "calibration.applied",
     entityType: "product_case",

@@ -17,10 +17,11 @@ type PageProps = { params: Promise<{ id: string }> };
 
 export default async function CaseExecutiveReportPage({ params }: PageProps) {
   const { id } = await params;
-  const [detail, appMode] = await Promise.all([getCaseDetail(id), getAppMode()]);
+  const appMode = await getAppMode();
+  const detail = await getCaseDetail(id, { mode: appMode });
   if (!detail) notFound();
 
-  const contentDetail = await getContentDetail(id);
+  const contentDetail = await getContentDetail(id, { mode: appMode });
   const currentListing = contentDetail?.listing
     ? normalizeListingContent(contentDetail.listing.content)
     : emptyListingContent();

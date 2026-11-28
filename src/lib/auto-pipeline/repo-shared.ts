@@ -173,7 +173,11 @@ export function rowToCandidate(row: CandidateRow): AutoCandidateResult {
 
 export type DbClient = Awaited<ReturnType<typeof getDb>>;
 
-export async function recalculateRunCounts(db: DbClient, runIds: Iterable<string>): Promise<void> {
+export async function recalculateRunCounts(
+  db: DbClient,
+  runIds: Iterable<string>,
+  demo: boolean,
+): Promise<void> {
   const uniqueIds = Array.from(new Set(Array.from(runIds).filter(Boolean)));
   for (const runId of uniqueIds) {
     const res = await db.query<{
@@ -192,8 +196,8 @@ export async function recalculateRunCounts(db: DbClient, runIds: Iterable<string
          COUNT(*) FILTER (WHERE grade = 'HOLD')::int AS hold_count,
          COUNT(*) FILTER (WHERE grade = 'ELIMINATED')::int AS eliminated_count
        FROM auto_run_candidates
-       WHERE run_id = $1`,
-      [runId],
+       WHERE run_id = $1 AND is_demo = $2`,
+      [runId, demo],
     );
     const counts = res.rows[0];
     if (!counts) continue;
@@ -205,7 +209,7 @@ export async function recalculateRunCounts(db: DbClient, runIds: Iterable<string
            b_count = $4,
            hold_count = $5,
            eliminated_count = $6
-       WHERE id = $7`,
+       WHERE id = $7 AND is_demo = $8`,
       [
         counts.total,
         counts.s_count,
@@ -214,6 +218,7 @@ export async function recalculateRunCounts(db: DbClient, runIds: Iterable<string
         counts.hold_count,
         counts.eliminated_count,
         runId,
+        demo,
       ],
     );
   }
@@ -223,6 +228,7 @@ export async function syncPooledCandidatesFromSnapshots(
   db: DbClient,
   keys: Array<{ platformCode: string; marketCode: string; externalId: string }>,
   excludeRunId?: string,
+  demo = false,
 ): Promise<void> {
   const seen = new Set<string>();
   for (const item of keys) {
@@ -233,17 +239,18 @@ export async function syncPooledCandidatesFromSnapshots(
     const fallbackRes = excludeRunId
       ? await db.query<CandidateRow>(
           `SELECT * FROM auto_run_candidates
-           WHERE platform_code = $1 AND market_code = $2 AND external_id = $3 AND run_id <> $4
+           WHERE platform_code = $1 AND market_code = $2 AND external_id = $3
+             AND run_id <> $4 AND is_demo = $5
            ORDER BY created_at DESC, updated_at DESC
            LIMIT 1`,
-          [item.platformCode, item.marketCode, item.externalId, excludeRunId],
+          [item.platformCode, item.marketCode, item.externalId, excludeRunId, demo],
         )
       : await db.query<CandidateRow>(
           `SELECT * FROM auto_run_candidates
-           WHERE platform_code = $1 AND market_code = $2 AND external_id = $3
+           WHERE platform_code = $1 AND market_code = $2 AND external_id = $3 AND is_demo = $4
            ORDER BY created_at DESC, updated_at DESC
            LIMIT 1`,
-          [item.platformCode, item.marketCode, item.externalId],
+          [item.platformCode, item.marketCode, item.externalId, demo],
         );
 
     const latest = fallbackRes.rows[0];
@@ -273,7 +280,7 @@ export async function syncPooledCandidatesFromSnapshots(
              promoted_case_id = COALESCE(promoted_case_id, $21),
              observed_at = $22,
              updated_at = NOW()
-         WHERE platform_code = $23 AND market_code = $24 AND external_id = $25`,
+         WHERE platform_code = $23 AND market_code = $24 AND external_id = $25 AND is_demo = $26`,
         [
           latest.run_id,
           latest.title,
@@ -300,25 +307,30 @@ export async function syncPooledCandidatesFromSnapshots(
           item.platformCode,
           item.marketCode,
           item.externalId,
+          demo,
         ],
       );
     } else {
       await db.query(
         `DELETE FROM auto_candidates
-         WHERE platform_code = $1 AND market_code = $2 AND external_id = $3`,
-        [item.platformCode, item.marketCode, item.externalId],
+         WHERE platform_code = $1 AND market_code = $2 AND external_id = $3 AND is_demo = $4`,
+        [item.platformCode, item.marketCode, item.externalId, demo],
       );
     }
   }
 }
 
 
-export async function resolveCandidatesByIds(db: DbClient, candidateIds: string[]): Promise<CandidateRow[]> {
+export async function resolveCandidatesByIds(
+  db: DbClient,
+  candidateIds: string[],
+  demo: boolean,
+): Promise<CandidateRow[]> {
   const uniqueIds = Array.from(new Set(candidateIds.map((s) => s.trim()).filter(Boolean)));
   if (uniqueIds.length === 0) return [];
   const runRows = await db.query<CandidateRow>(
-    `SELECT * FROM auto_run_candidates WHERE id = ANY($1::text[])`,
-    [uniqueIds],
+    `SELECT * FROM auto_run_candidates WHERE id = ANY($1::text[]) AND is_demo = $2`,
+    [uniqueIds, demo],
   );
   const found = new Map<string, CandidateRow>();
   for (const row of runRows.rows) found.set(row.id, row);
@@ -326,8 +338,8 @@ export async function resolveCandidatesByIds(db: DbClient, candidateIds: string[
   const missing = uniqueIds.filter((id) => !found.has(id));
   if (missing.length > 0) {
     const poolRows = await db.query<CandidateRow>(
-      `SELECT * FROM auto_candidates WHERE id = ANY($1::text[])`,
-      [missing],
+      `SELECT * FROM auto_candidates WHERE id = ANY($1::text[]) AND is_demo = $2`,
+      [missing, demo],
     );
     for (const row of poolRows.rows) found.set(row.id, row);
   }

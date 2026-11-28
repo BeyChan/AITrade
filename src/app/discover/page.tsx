@@ -7,6 +7,7 @@ import { getComparisonReports } from "@/lib/competitor-compare/storage";
 import { listConfirmedCostSheets } from "@/lib/cost-sheets-repository";
 import { getSiteOptions } from "@/lib/repository";
 import { resolvePersistedSiteScope } from "@/lib/site-scope";
+import { getAppMode } from "@/lib/app-mode";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,7 @@ type PageProps = {
 };
 
 export default async function DiscoverPage({ searchParams }: PageProps) {
-  const [query, options] = await Promise.all([searchParams, getSiteOptions()]);
+  const [query, options, mode] = await Promise.all([searchParams, getSiteOptions(), getAppMode()]);
   const scope = await resolvePersistedSiteScope(query.market, query.platform);
   const market =
     options.markets.find((m) => m.code === scope.marketCode) ??
@@ -36,10 +37,10 @@ export default async function DiscoverPage({ searchParams }: PageProps) {
   const platformCode = platform?.code ?? "amazon";
 
   const [allReports, confirmedCostSheets, savedConstraints, eliminatedHistory] = await Promise.all([
-    getComparisonReports(),
-    listConfirmedCostSheets(),
+    getComparisonReports({ mode }),
+    listConfirmedCostSheets({ mode }),
     loadSourcingConstraints(),
-    listEliminatedHypotheses(),
+    listEliminatedHypotheses(undefined, { mode }),
   ]);
 
   const siteReports = allReports.filter(

@@ -1,10 +1,9 @@
 import { loadAIProviderConfig, validateBaseUrl } from "@/lib/app-settings";
 import { ANTHROPIC_API_VERSION, anthropicMessagesEndpoint, extractAnthropicText } from "@/lib/ai-provider";
+import { getAppMode } from "@/lib/app-mode";
 import { recordAuditLog } from "@/lib/audit-logs";
 import { detectImageType } from "@/lib/storage";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const MAX_BYTES = 8 * 1024 * 1024;
 
@@ -16,6 +15,7 @@ const SYSTEM_PROMPT = `你是跨境电商采购报价单结构化提取助手。
 4. unitPrice / freightPerUnit / sampleFee 请输出纯数字字符串（例如 "12.50"），moq / leadTimeDays 输出整数字符串。`;
 
 export async function POST(request: Request) {
+  const mode = await getAppMode();
   try {
     const formData = await request.formData();
     const file = formData.get("file");
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "仅支持真实 PNG、JPG 或 WebP 图片文件" }, { status: 400 });
     }
 
-    const config = await loadAIProviderConfig();
+    const config = await loadAIProviderConfig({ mode });
     if (config.provider === "template" || (!config.apiKey && config.provider !== "ollama")) {
       return Response.json(
         {
@@ -162,6 +162,7 @@ export async function POST(request: Request) {
     }
 
     await recordAuditLog({
+      mode,
       actor: "采购人员",
       action: "sourcing.quote_image_extracted",
       entityType: "supplier",

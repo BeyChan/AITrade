@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { resolveAppMode, type AppMode, type ModeOptions } from "./app-mode.ts";
 import { getDb } from "./db.ts";
 import type { KeepaFetchOptions } from "./connectors/keepa.ts";
 import { sanitizeConnectorError } from "./connectors/security.ts";
@@ -21,6 +22,7 @@ export type KeepaSyncInput = {
   marketplace: string;
   actor?: string;
   triggerType?: "manual" | "scheduled";
+  mode?: AppMode;
 };
 
 export type ConnectorSyncRunResult = {
@@ -30,7 +32,7 @@ export type ConnectorSyncRunResult = {
   errorCode?: string;
 };
 
-type InternalRunOptions = {
+type InternalRunOptions = ModeOptions & {
   fetchOptions?: KeepaFetchOptions;
 };
 
@@ -42,10 +44,12 @@ type EnqueueSyncJobInput = {
   actor?: string;
   triggerType?: "manual" | "scheduled";
   auditDetails: Record<string, unknown>;
+  isDemo: boolean;
 };
 
 export async function enqueueKeepaSync(input: KeepaSyncInput): Promise<ConnectorSyncJobRow> {
   const normalized = normalizeKeepaInput(input);
+  const mode = await resolveAppMode(input.mode);
   return enqueueSyncJob({
     sourceCode: "keepa",
     marketplace: normalized.marketplace,
@@ -66,6 +70,7 @@ export async function enqueueKeepaSync(input: KeepaSyncInput): Promise<Connector
       marketplace: normalized.marketplace,
       asinCount: normalized.asins.length,
     },
+    isDemo: mode === "sandbox",
   });
 }
 
@@ -74,7 +79,10 @@ export async function createAndRunKeepaSync(
   options: InternalRunOptions = {},
 ): Promise<ConnectorSyncRunResult> {
   const job = await enqueueKeepaSync(input);
-  return runConnectorSyncJob(job.id, options);
+  return runConnectorSyncJob(job.id, {
+    ...options,
+    mode: job.is_demo ? "sandbox" : "live",
+  });
 }
 
 export async function runConnectorSyncJob(
@@ -82,17 +90,19 @@ export async function runConnectorSyncJob(
   options: InternalRunOptions = {},
 ): Promise<ConnectorSyncRunResult> {
   const db = await getDb();
+  const mode = await resolveAppMode(options.mode);
+  const isDemo = mode === "sandbox";
   const claimed = await db.query<ConnectorSyncJobRow>(
     `UPDATE connector_sync_jobs
      SET status = 'running', started_at = COALESCE(started_at, NOW()), completed_at = NULL,
          error_message = NULL, next_run_at = NULL, updated_at = NOW()
-     WHERE id = $1 AND status = 'queued'
+     WHERE id = $1 AND status = 'queued' AND is_demo = $2
      RETURNING *`,
-    [jobId],
+    [jobId, isDemo],
   );
   const job = claimed.rows[0];
   if (!job) {
-    const current = await getJob(jobId);
+    const current = await getJob(jobId, { mode });
     if (!current) throw new Error("同步任务不存在");
     return { job: current };
   }
@@ -135,6 +145,7 @@ async function runKeepaSync(
       actor: job.requested_by,
       runId,
       fetchOptions,
+      mode: job.is_demo ? "sandbox" : "live",
     });
     const completed = await succeedJob(job, ingestion, apiCallCount, Date.now() - startedAt);
     return { job: completed, ingestion };
@@ -174,7 +185,9 @@ export async function retryConnectorSyncJob(
   options: InternalRunOptions = {},
 ): Promise<ConnectorSyncRunResult> {
   const db = await getDb();
-  const current = await getJob(jobId);
+  const mode = await resolveAppMode(options.mode);
+  const isDemo = mode === "sandbox";
+  const current = await getJob(jobId, { mode });
   if (!current) throw new Error("同步任务不存在");
   if (current.status !== "failed") throw new Error("只有失败任务可以重试");
   if (current.attempt >= current.max_attempts) throw new Error("该任务已达到最大重试次数");
@@ -183,15 +196,15 @@ export async function retryConnectorSyncJob(
     `UPDATE connector_sync_jobs
      SET status = 'queued', attempt = attempt + 1, error_message = NULL,
          next_run_at = NULL, completed_at = NULL, summary = '{}'::jsonb, updated_at = NOW()
-     WHERE id = $1 AND status = 'failed' AND attempt < max_attempts
+     WHERE id = $1 AND status = 'failed' AND attempt < max_attempts AND is_demo = $2
      RETURNING *`,
-    [jobId],
+    [jobId, isDemo],
   );
   const job = requeued.rows[0];
   if (!job) throw new Error("任务状态已变化，请刷新后重试");
   await db.query(
-    `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-     VALUES ($1, $2, 'connector_sync.retry_queued', 'connector_sync_job', $3, $4::jsonb)`,
+    `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+     VALUES ($1, $2, 'connector_sync.retry_queued', 'connector_sync_job', $3, $4::jsonb, $5)`,
     [
       randomUUID(),
       job.requested_by,
@@ -202,19 +215,27 @@ export async function retryConnectorSyncJob(
         maxAttempts: job.max_attempts,
         externalActions: "read_only",
       }),
+      job.is_demo,
     ],
   );
-  return runConnectorSyncJob(job.id, options);
+  return runConnectorSyncJob(job.id, { ...options, mode });
 }
 
-export async function getConnectorSyncDashboard(now = new Date()): Promise<ConnectorSyncDashboard> {
+export async function getConnectorSyncDashboard(
+  options: ModeOptions & { now?: Date } = {},
+): Promise<ConnectorSyncDashboard> {
   const db = await getDb();
+  const mode = await resolveAppMode(options.mode);
+  const isDemo = mode === "sandbox";
+  const now = options.now ?? new Date();
   const [jobsResult, cursorsResult] = await Promise.all([
     db.query<ConnectorSyncJobRow>(
-      "SELECT * FROM connector_sync_jobs ORDER BY created_at DESC LIMIT 20",
+      "SELECT * FROM connector_sync_jobs WHERE is_demo = $1 ORDER BY created_at DESC LIMIT 20",
+      [isDemo],
     ),
     db.query<Omit<ConnectorSyncDashboard["cursors"][number], "freshness">>(
-      "SELECT * FROM connector_sync_cursors ORDER BY source_code, marketplace",
+      "SELECT * FROM connector_sync_cursors WHERE is_demo = $1 ORDER BY source_code, marketplace",
+      [isDemo],
     ),
   ]);
   const cursors = cursorsResult.rows.map((cursor) => ({
@@ -245,9 +266,9 @@ async function enqueueSyncJob(input: EnqueueSyncJobInput): Promise<ConnectorSync
   const triggerType = input.triggerType ?? "manual";
   const active = await db.query<ConnectorSyncJobRow>(
     `SELECT * FROM connector_sync_jobs
-     WHERE source_code = $1 AND request_hash = $2 AND status IN ('queued', 'running')
+     WHERE source_code = $1 AND request_hash = $2 AND status IN ('queued', 'running') AND is_demo = $3
      ORDER BY created_at DESC LIMIT 1`,
-    [input.sourceCode, input.requestHash],
+    [input.sourceCode, input.requestHash, input.isDemo],
   );
   if (active.rows[0]) return active.rows[0];
 
@@ -256,8 +277,8 @@ async function enqueueSyncJob(input: EnqueueSyncJobInput): Promise<ConnectorSync
     const inserted = await db.query<ConnectorSyncJobRow>(
       `INSERT INTO connector_sync_jobs
         (id, source_code, marketplace, status, trigger_type, requested_by, attempt, max_attempts,
-         request_hash, request_payload)
-       VALUES ($1, $2, $3, 'queued', $4, $5, 1, 3, $6, $7::jsonb)
+         request_hash, request_payload, is_demo)
+       VALUES ($1, $2, $3, 'queued', $4, $5, 1, 3, $6, $7::jsonb, $8)
        RETURNING *`,
       [
         id,
@@ -267,13 +288,14 @@ async function enqueueSyncJob(input: EnqueueSyncJobInput): Promise<ConnectorSync
         actor,
         input.requestHash,
         JSON.stringify(input.requestPayload),
+        input.isDemo,
       ],
     );
     const job = inserted.rows[0];
     if (!job) throw new Error("创建同步任务失败");
     await db.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'connector_sync.queued', 'connector_sync_job', $3, $4::jsonb)`,
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'connector_sync.queued', 'connector_sync_job', $3, $4::jsonb, $5)`,
       [
         randomUUID(),
         actor,
@@ -283,6 +305,7 @@ async function enqueueSyncJob(input: EnqueueSyncJobInput): Promise<ConnectorSync
           triggerType,
           externalActions: "read_only",
         }),
+        input.isDemo,
       ],
     );
     return job;
@@ -290,9 +313,9 @@ async function enqueueSyncJob(input: EnqueueSyncJobInput): Promise<ConnectorSync
     if (!isUniqueViolation(error)) throw error;
     const existing = await db.query<ConnectorSyncJobRow>(
       `SELECT * FROM connector_sync_jobs
-       WHERE source_code = $1 AND request_hash = $2 AND status IN ('queued', 'running')
+       WHERE source_code = $1 AND request_hash = $2 AND status IN ('queued', 'running') AND is_demo = $3
        ORDER BY created_at DESC LIMIT 1`,
-      [input.sourceCode, input.requestHash],
+      [input.sourceCode, input.requestHash, input.isDemo],
     );
     if (existing.rows[0]) return existing.rows[0];
     throw error;
@@ -364,14 +387,14 @@ async function succeedJob(
       `UPDATE connector_sync_jobs
        SET status = $1, summary = $2::jsonb, run_id = $3, error_message = NULL,
            next_run_at = NULL, completed_at = NOW(), updated_at = NOW()
-       WHERE id = $4`,
-      [status, JSON.stringify(summary), ingestion.runId, job.id],
+       WHERE id = $4 AND is_demo = $5`,
+      [status, JSON.stringify(summary), ingestion.runId, job.id, job.is_demo],
     );
     await tx.query(
       `INSERT INTO connector_sync_cursors
-        (id, source_code, marketplace, cursor, last_success_at, last_attempt_at, consecutive_failures, updated_at)
-       VALUES ($1, $2, $3, $4::jsonb, NOW(), NOW(), 0, NOW())
-       ON CONFLICT (source_code, marketplace) DO UPDATE SET
+        (id, source_code, marketplace, cursor, last_success_at, last_attempt_at, consecutive_failures, updated_at, is_demo)
+       VALUES ($1, $2, $3, $4::jsonb, NOW(), NOW(), 0, NOW(), $5)
+       ON CONFLICT (source_code, marketplace, is_demo) DO UPDATE SET
          cursor = EXCLUDED.cursor,
          last_success_at = NOW(),
          last_attempt_at = NOW(),
@@ -387,11 +410,12 @@ async function succeedJob(
           lastSnapshotCount: ingestion.snapshots,
           lastMode: typeof job.request_payload.mode === "string" ? job.request_payload.mode : null,
         }),
+        job.is_demo,
       ],
     );
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'connector_sync.completed', 'connector_sync_job', $3, $4::jsonb)`,
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'connector_sync.completed', 'connector_sync_job', $3, $4::jsonb, $5)`,
       [
         randomUUID(),
         job.requested_by,
@@ -406,10 +430,11 @@ async function succeedJob(
           snapshots: ingestion.snapshots,
           externalActions: "read_only",
         }),
+        job.is_demo,
       ],
     );
   });
-  const completed = await getJob(job.id);
+  const completed = await getJob(job.id, { mode: job.is_demo ? "sandbox" : "live" });
   if (!completed) throw new Error("同步任务完成状态读取失败");
   return completed;
 }
@@ -437,28 +462,29 @@ async function failJob(
       `UPDATE connector_sync_jobs
        SET status = 'failed', summary = $1::jsonb, run_id = COALESCE($2, run_id),
            error_message = $3, next_run_at = $4, completed_at = NOW(), updated_at = NOW()
-       WHERE id = $5`,
+       WHERE id = $5 AND is_demo = $6`,
       [
         JSON.stringify(summary),
         extra.runId ?? null,
         safeMessage.slice(0, MAX_JOB_ERROR_LENGTH),
         nextRunAt,
         job.id,
+        job.is_demo,
       ],
     );
     await tx.query(
       `INSERT INTO connector_sync_cursors
-        (id, source_code, marketplace, last_attempt_at, consecutive_failures, updated_at)
-       VALUES ($1, $2, $3, NOW(), 1, NOW())
-       ON CONFLICT (source_code, marketplace) DO UPDATE SET
+        (id, source_code, marketplace, last_attempt_at, consecutive_failures, updated_at, is_demo)
+       VALUES ($1, $2, $3, NOW(), 1, NOW(), $4)
+       ON CONFLICT (source_code, marketplace, is_demo) DO UPDATE SET
          last_attempt_at = NOW(),
          consecutive_failures = connector_sync_cursors.consecutive_failures + 1,
          updated_at = NOW()`,
-      [randomUUID(), job.source_code, job.marketplace],
+      [randomUUID(), job.source_code, job.marketplace, job.is_demo],
     );
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'connector_sync.failed', 'connector_sync_job', $3, $4::jsonb)`,
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'connector_sync.failed', 'connector_sync_job', $3, $4::jsonb, $5)`,
       [
         randomUUID(),
         job.requested_by,
@@ -471,17 +497,22 @@ async function failJob(
           error: safeMessage,
           externalActions: "read_only",
         }),
+        job.is_demo,
       ],
     );
   });
-  const failed = await getJob(job.id);
+  const failed = await getJob(job.id, { mode: job.is_demo ? "sandbox" : "live" });
   if (!failed) throw new Error("同步任务失败状态读取失败");
   return failed;
 }
 
-async function getJob(id: string) {
+async function getJob(id: string, options?: ModeOptions) {
   const db = await getDb();
-  const result = await db.query<ConnectorSyncJobRow>("SELECT * FROM connector_sync_jobs WHERE id = $1 LIMIT 1", [id]);
+  const mode = await resolveAppMode(options?.mode);
+  const result = await db.query<ConnectorSyncJobRow>(
+    "SELECT * FROM connector_sync_jobs WHERE id = $1 AND is_demo = $2 LIMIT 1",
+    [id, mode === "sandbox"],
+  );
   return result.rows[0] ?? null;
 }
 

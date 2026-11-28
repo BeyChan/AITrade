@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { getDb } from "../db.ts";
 import { calculateEconomics, type EconomicsAssumptions } from "../economics.ts";
 import { recordAuditLog } from "../audit-logs.ts";
+import { isDemoMode, resolveAppMode, type ModeOptions } from "../app-mode.ts";
 import {
   SELECTION_STATUS,
   deriveAutoCandidateSelectionStatus,
@@ -20,29 +21,33 @@ export async function renameAutoPipelineRun(
   runId: string,
   sourceLabel: string,
   actor = "运营人员",
+  options?: ModeOptions,
 ): Promise<AutoPipelineRunSummary> {
   const trimmed = sourceLabel.trim();
   if (!trimmed) {
     throw new Error("批次名称不能为空");
   }
   const db = await getDb();
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const res = await db.query<RunRow>(
     `UPDATE auto_pipeline_runs
      SET source_label = $1
-     WHERE id = $2
+     WHERE id = $2 AND is_demo = $3
      RETURNING *`,
-    [trimmed.slice(0, 120), runId],
+    [trimmed.slice(0, 120), runId, demo],
   );
   const row = res.rows[0];
   if (!row) {
     throw new Error("未找到对应的自动选品批次");
   }
   await recordAuditLog({
+    mode,
     actor,
     action: "auto_pipeline.run_renamed",
     entityType: "auto_pipeline_run",
     entityId: runId,
-    details: { sourceLabel: trimmed.slice(0, 120) },
+    details: { sourceLabel: trimmed.slice(0, 120), mode },
   }).catch(() => {});
   return rowToRun(row);
 }
@@ -56,11 +61,14 @@ export async function renameAutoPipelineRun(
 export async function deleteAutoPipelineRun(
   runId: string,
   actor = "运营人员",
+  options?: ModeOptions,
 ): Promise<{ deletedRunId: string; deletedCandidates: number }> {
   const db = await getDb();
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const runRes = await db.query<RunRow>(
-    `SELECT * FROM auto_pipeline_runs WHERE id = $1 LIMIT 1`,
-    [runId],
+    `SELECT * FROM auto_pipeline_runs WHERE id = $1 AND is_demo = $2 LIMIT 1`,
+    [runId, demo],
   );
   const run = runRes.rows[0];
   if (!run) {
@@ -74,8 +82,8 @@ export async function deleteAutoPipelineRun(
   }>(
     `SELECT platform_code, market_code, external_id
      FROM auto_candidates
-     WHERE run_id = $1`,
-    [runId],
+     WHERE run_id = $1 AND is_demo = $2`,
+    [runId, demo],
   );
 
   // 先把仍存在于其他历史批次的汇总记录回迁到剩余最新快照，防止被 ON DELETE CASCADE 误删
@@ -88,18 +96,20 @@ export async function deleteAutoPipelineRun(
         externalId: r.external_id,
       })),
       runId,
+      demo,
     );
   }
 
   const snapCountRes = await db.query<{ count: number }>(
-    `SELECT COUNT(*)::int AS count FROM auto_run_candidates WHERE run_id = $1`,
-    [runId],
+    `SELECT COUNT(*)::int AS count FROM auto_run_candidates WHERE run_id = $1 AND is_demo = $2`,
+    [runId, demo],
   );
   const deletedCandidates = snapCountRes.rows[0]?.count ?? 0;
 
-  await db.query(`DELETE FROM auto_pipeline_runs WHERE id = $1`, [runId]);
+  await db.query(`DELETE FROM auto_pipeline_runs WHERE id = $1 AND is_demo = $2`, [runId, demo]);
 
   await recordAuditLog({
+    mode,
     actor,
     action: "auto_pipeline.run_deleted",
     entityType: "auto_pipeline_run",
@@ -109,6 +119,7 @@ export async function deleteAutoPipelineRun(
       marketCode: run.market_code,
       sourceLabel: run.source_label,
       deletedCandidates,
+      mode,
     },
   }).catch(() => {});
 
@@ -124,8 +135,10 @@ export async function deleteAutoCandidates(input: {
   runId: string;
   grade?: AutoGrade;
   actor?: string;
-}): Promise<{ deletedCount: number; affectedRunIds: string[] }> {
+}, options?: ModeOptions): Promise<{ deletedCount: number; affectedRunIds: string[] }> {
   const db = await getDb();
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const actor = input.actor || "运营人员";
   const runId = input.runId?.trim();
   const ids = Array.isArray(input.ids) ? input.ids.map((s) => s.trim()).filter(Boolean) : [];
@@ -137,8 +150,8 @@ export async function deleteAutoCandidates(input: {
     throw new Error("请指定要删除的候选记录或清理条件");
   }
 
-  const clauses: string[] = [`run_id = $1`];
-  const params: unknown[] = [runId];
+  const clauses: string[] = [`run_id = $1`, `is_demo = $2`];
+  const params: unknown[] = [runId, demo];
 
   if (ids.length > 0) {
     params.push(ids);
@@ -166,7 +179,10 @@ export async function deleteAutoCandidates(input: {
   }
 
   const targetIds = targets.rows.map((r) => r.id);
-  await db.query(`DELETE FROM auto_run_candidates WHERE id = ANY($1::text[])`, [targetIds]);
+  await db.query(
+    `DELETE FROM auto_run_candidates WHERE id = ANY($1::text[]) AND is_demo = $2`,
+    [targetIds, demo],
+  );
 
   await syncPooledCandidatesFromSnapshots(
     db,
@@ -175,10 +191,13 @@ export async function deleteAutoCandidates(input: {
       marketCode: r.market_code,
       externalId: r.external_id,
     })),
+    undefined,
+    demo,
   );
-  await recalculateRunCounts(db, [runId]);
+  await recalculateRunCounts(db, [runId], demo);
 
   await recordAuditLog({
+    mode,
     actor,
     action: "auto_pipeline.candidates_deleted",
     entityType: "auto_pipeline_run",
@@ -186,6 +205,7 @@ export async function deleteAutoCandidates(input: {
     details: {
       grade: input.grade ?? null,
       deletedCount: targetIds.length,
+      mode,
     },
   }).catch(() => {});
 
@@ -196,16 +216,22 @@ export async function deleteAutoCandidates(input: {
  * 人工确认将候选池条目推进为正式商品案卷（仍保持 HOLD/provisional，等补真实工厂报价定标后才转 GO）。
  * 兼容传入 auto_candidates.id 或 auto_run_candidates.id。
  */
-export async function promoteAutoCandidateToCase(candidateId: string, actor = "运营人员"): Promise<{ caseId: string; alreadyExisted: boolean }> {
+export async function promoteAutoCandidateToCase(
+  candidateId: string,
+  actor = "运营人员",
+  options?: ModeOptions,
+): Promise<{ caseId: string; alreadyExisted: boolean }> {
   const db = await getDb();
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   let res = await db.query<CandidateRow>(
-    `SELECT * FROM auto_candidates WHERE id = $1 LIMIT 1`,
-    [candidateId],
+    `SELECT * FROM auto_candidates WHERE id = $1 AND is_demo = $2 LIMIT 1`,
+    [candidateId, demo],
   );
   if (!res.rows[0]) {
     res = await db.query<CandidateRow>(
-      `SELECT * FROM auto_run_candidates WHERE id = $1 LIMIT 1`,
-      [candidateId],
+      `SELECT * FROM auto_run_candidates WHERE id = $1 AND is_demo = $2 LIMIT 1`,
+      [candidateId, demo],
     );
   }
   const candidate = res.rows[0];
@@ -217,14 +243,14 @@ export async function promoteAutoCandidateToCase(candidateId: string, actor = "�
     await db.query(
       `UPDATE auto_candidates
        SET promoted_case_id = $1, selection_status = $2, updated_at = NOW()
-       WHERE platform_code = $3 AND market_code = $4 AND external_id = $5`,
-      [caseId, SELECTION_STATUS.PROMOTED_CASE, candidate.platform_code, candidate.market_code, candidate.external_id],
+       WHERE platform_code = $3 AND market_code = $4 AND external_id = $5 AND is_demo = $6`,
+      [caseId, SELECTION_STATUS.PROMOTED_CASE, candidate.platform_code, candidate.market_code, candidate.external_id, demo],
     );
     await db.query(
       `UPDATE auto_run_candidates
        SET promoted_case_id = $1, selection_status = $2, updated_at = NOW()
-       WHERE platform_code = $3 AND market_code = $4 AND external_id = $5`,
-      [caseId, SELECTION_STATUS.PROMOTED_CASE, candidate.platform_code, candidate.market_code, candidate.external_id],
+       WHERE platform_code = $3 AND market_code = $4 AND external_id = $5 AND is_demo = $6`,
+      [caseId, SELECTION_STATUS.PROMOTED_CASE, candidate.platform_code, candidate.market_code, candidate.external_id, demo],
     );
   };
 
@@ -235,8 +261,8 @@ export async function promoteAutoCandidateToCase(candidateId: string, actor = "�
 
   // 检查是否已存在相同 ASIN/external_id + marketplace 的案卷
   const existingCase = await db.query<{ id: string }>(
-    `SELECT id FROM product_cases WHERE asin = $1 AND marketplace = $2 LIMIT 1`,
-    [candidate.external_id, candidate.market_code],
+    `SELECT id FROM product_cases WHERE asin = $1 AND marketplace = $2 AND is_demo = $3 LIMIT 1`,
+    [candidate.external_id, candidate.market_code, demo],
   );
   if (existingCase.rows[0]) {
     const existingId = existingCase.rows[0].id;
@@ -274,8 +300,8 @@ export async function promoteAutoCandidateToCase(candidateId: string, actor = "�
 
   await db.query(
     `INSERT INTO product_cases
-     (id, asin, marketplace, category, title, url, status, competitor_price_cents, monthly_sales_estimate, review_count, rating, notes, owner, evidence_score, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, 'researching', $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())`,
+     (id, asin, marketplace, category, title, url, status, competitor_price_cents, monthly_sales_estimate, review_count, rating, notes, owner, evidence_score, is_demo, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, 'researching', $7, $8, $9, $10, $11, $12, $13, $14, NOW(), NOW())`,
     [
       caseId,
       candidate.external_id,
@@ -290,6 +316,7 @@ export async function promoteAutoCandidateToCase(candidateId: string, actor = "�
       notes,
       actor,
       70,
+      demo,
     ],
   );
 
@@ -302,6 +329,7 @@ export async function promoteAutoCandidateToCase(candidateId: string, actor = "�
   await syncPromotedCase(caseId);
 
   await recordAuditLog({
+    mode,
     actor,
     action: "auto_pipeline.candidate_promoted",
     entityType: "product_case",
@@ -312,6 +340,7 @@ export async function promoteAutoCandidateToCase(candidateId: string, actor = "�
       marketCode: candidate.market_code,
       externalId: candidate.external_id,
       grade: candidate.grade,
+      mode,
     },
   }).catch(() => {});
 
@@ -327,16 +356,19 @@ export async function promoteAutoCandidateToCase(candidateId: string, actor = "�
 export async function unpromoteAutoCandidate(
   candidateId: string,
   actor = "运营人员",
+  options?: ModeOptions,
 ): Promise<{ caseId: string | null; caseDeleted: boolean }> {
   const db = await getDb();
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   let res = await db.query<CandidateRow>(
-    `SELECT * FROM auto_candidates WHERE id = $1 LIMIT 1`,
-    [candidateId],
+    `SELECT * FROM auto_candidates WHERE id = $1 AND is_demo = $2 LIMIT 1`,
+    [candidateId, demo],
   );
   if (!res.rows[0]) {
     res = await db.query<CandidateRow>(
-      `SELECT * FROM auto_run_candidates WHERE id = $1 LIMIT 1`,
-      [candidateId],
+      `SELECT * FROM auto_run_candidates WHERE id = $1 AND is_demo = $2 LIMIT 1`,
+      [candidateId, demo],
     );
   }
   const candidate = res.rows[0];
@@ -354,21 +386,21 @@ export async function unpromoteAutoCandidate(
   await db.query(
     `UPDATE auto_candidates
      SET promoted_case_id = NULL, selection_status = $1, updated_at = NOW()
-     WHERE platform_code = $2 AND market_code = $3 AND external_id = $4`,
-    [nextStatusAfterUnpromote, candidate.platform_code, candidate.market_code, candidate.external_id],
+     WHERE platform_code = $2 AND market_code = $3 AND external_id = $4 AND is_demo = $5`,
+    [nextStatusAfterUnpromote, candidate.platform_code, candidate.market_code, candidate.external_id, demo],
   );
   await db.query(
     `UPDATE auto_run_candidates
      SET promoted_case_id = NULL, selection_status = $1, updated_at = NOW()
-     WHERE platform_code = $2 AND market_code = $3 AND external_id = $4`,
-    [nextStatusAfterUnpromote, candidate.platform_code, candidate.market_code, candidate.external_id],
+     WHERE platform_code = $2 AND market_code = $3 AND external_id = $4 AND is_demo = $5`,
+    [nextStatusAfterUnpromote, candidate.platform_code, candidate.market_code, candidate.external_id, demo],
   );
 
   let caseDeleted = false;
   if (caseId) {
     const caseRes = await db.query<{ status: string }>(
-      `SELECT status FROM product_cases WHERE id = $1 LIMIT 1`,
-      [caseId],
+      `SELECT status FROM product_cases WHERE id = $1 AND is_demo = $2 LIMIT 1`,
+      [caseId, demo],
     );
     const caseRow = caseRes.rows[0];
     if (caseRow && caseRow.status === "researching") {
@@ -393,13 +425,14 @@ export async function unpromoteAutoCandidate(
       );
       const work = workRes.rows[0];
       if (work && work.extra_records === 0 && work.cost_model_count <= 1) {
-        await db.query(`DELETE FROM product_cases WHERE id = $1`, [caseId]);
+        await db.query(`DELETE FROM product_cases WHERE id = $1 AND is_demo = $2`, [caseId, demo]);
         caseDeleted = true;
       }
     }
   }
 
   await recordAuditLog({
+    mode,
     actor,
     action: "auto_pipeline.candidate_unpromoted",
     entityType: "product_case",
@@ -410,6 +443,7 @@ export async function unpromoteAutoCandidate(
       marketCode: candidate.market_code,
       externalId: candidate.external_id,
       caseDeleted,
+      mode,
     },
   }).catch(() => {});
 

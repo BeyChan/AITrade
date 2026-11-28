@@ -40,12 +40,11 @@ function resolveCaseDetailTab(value: string | undefined): CaseDetailTab {
 }
 
 export default async function CaseDetailPage({ params, searchParams }: PageProps) {
-  const [{ id }, query] = await Promise.all([params, searchParams]);
+  const [{ id }, query, appMode] = await Promise.all([params, searchParams, getAppMode()]);
   const activeTab = resolveCaseDetailTab(query.tab);
-  const [detail, calibrationCtx, appMode] = await Promise.all([
-    getCaseDetail(id),
-    getCalibrationForCase(id).catch(() => null),
-    getAppMode(),
+  const [detail, calibrationCtx] = await Promise.all([
+    getCaseDetail(id, { mode: appMode }),
+    getCalibrationForCase(id, { mode: appMode }).catch(() => null),
   ]);
   if (!detail) notFound();
 
@@ -344,6 +343,7 @@ export default async function CaseDetailPage({ params, searchParams }: PageProps
           {assumptions && result ? (
             <LogisticsCashflowPanel
               marketCode={productCase.marketplace || "US"}
+              mode={appMode}
               currency={productCase.currency || assumptions.currency || "USD"}
               salePriceCents={assumptions.salePriceCents}
               landedCostCents={assumptions.landedCostCents}
@@ -354,6 +354,7 @@ export default async function CaseDetailPage({ params, searchParams }: PageProps
 
           <PrelaunchCompliancePanel
             marketCode={productCase.marketplace || "US"}
+            mode={appMode}
             productTitle={productCase.title}
             category={productCase.category}
           />

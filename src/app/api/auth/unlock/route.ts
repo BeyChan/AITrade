@@ -8,12 +8,12 @@ import {
   recordUnlockFailure,
   verifyAccessPin,
 } from "@/lib/access-pin";
+import { getAppMode } from "@/lib/app-mode";
 import { recordAuditLog } from "@/lib/audit-logs";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  const mode = await getAppMode();
   const configuredPin = process.env.APP_ACCESS_PIN?.trim();
   if (!configuredPin) {
     return NextResponse.json({ ok: true });
@@ -36,6 +36,7 @@ export async function POST(request: Request) {
   if (!verifyAccessPin(pin, configuredPin)) {
     const failure = recordUnlockFailure(clientKey);
     await recordAuditLog({
+      mode,
       actor: "访客",
       action: "auth.pin_failed",
       entityType: "auth_access",
@@ -56,6 +57,7 @@ export async function POST(request: Request) {
 
   clearUnlockFailures(clientKey);
   await recordAuditLog({
+    mode,
     actor: "本机用户",
     action: "auth.pin_unlocked",
     entityType: "auth_access",

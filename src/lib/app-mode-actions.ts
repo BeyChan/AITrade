@@ -19,6 +19,7 @@ export async function setAppModeAction(mode: AppMode) {
   });
 
   await recordAuditLog({
+    mode,
     actor: "本地操作员",
     action: "app.mode_switched",
     entityType: "app_mode",
@@ -37,6 +38,7 @@ export async function resetDemoDataAction() {
   const { resetDemoData } = await import("@/lib/db");
   await resetDemoData();
   await recordAuditLog({
+    mode: "sandbox",
     actor: "本地操作员",
     action: "app.demo_reset",
     entityType: "app_mode",

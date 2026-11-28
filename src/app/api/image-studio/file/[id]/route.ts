@@ -1,13 +1,13 @@
 import { recordAuditLog } from "@/lib/audit-logs";
+import { getAppMode } from "@/lib/app-mode";
 import { deleteStandaloneStudioAsset, getStandaloneStudioAsset } from "@/lib/standalone-image-studio";
 import { deleteStoredImage, readStoredImage } from "@/lib/storage";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const asset = await getStandaloneStudioAsset(id);
+  const mode = await getAppMode();
+  const asset = await getStandaloneStudioAsset(id, { mode });
   if (!asset) return new Response("Not found", { status: 404 });
 
   const url = new URL(request.url);
@@ -32,12 +32,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const deleted = await deleteStandaloneStudioAsset(id);
+  const mode = await getAppMode();
+  const deleted = await deleteStandaloneStudioAsset(id, { mode });
   if (!deleted) return Response.json({ error: "图片不存在" }, { status: 404 });
   if (deleted.storageKey) {
     await deleteStoredImage(deleted.storageKey);
   }
   await recordAuditLog({
+    mode,
     actor: deleted.actor || "本地操作员",
     action: "image_studio.asset_deleted",
     entityType: "studio_image",

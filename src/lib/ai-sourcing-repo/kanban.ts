@@ -1,4 +1,5 @@
 import { getDb } from "../db.ts";
+import { isDemoMode, resolveAppMode, type ModeOptions } from "../app-mode.ts";
 import type { ProductComplianceAttribute } from "../prelaunch-compliance.ts";
 import {
   deriveCandidateKanbanStage,
@@ -42,10 +43,15 @@ export type KanbanCandidateItem = {
   kanban: DerivedKanbanState;
 };
 
-export async function listKanbanCandidates(marketCode?: string, platformCode?: string): Promise<KanbanCandidateItem[]> {
+export async function listKanbanCandidates(
+  marketCode?: string,
+  platformCode?: string,
+  options?: ModeOptions,
+): Promise<KanbanCandidateItem[]> {
   const db = await getDb();
-  const conditions: string[] = [];
-  const values: string[] = [];
+  const mode = await resolveAppMode(options?.mode);
+  const conditions: string[] = ["r.is_demo = $1", "b.is_demo = $1"];
+  const values: Array<string | boolean> = [isDemoMode(mode)];
   if (marketCode) {
     values.push(marketCode);
     conditions.push(`b.market_code = $${values.length}`);
@@ -102,7 +108,9 @@ export async function listKanbanCandidates(marketCode?: string, platformCode?: s
        cs.results->>'marginRate' AS cost_sheet_margin_rate, cs.version AS cost_sheet_version,
        COALESCE(cs.id IS NOT NULL AND NOT EXISTS (
          SELECT 1 FROM cost_sheets newer
-         WHERE newer.group_id = cs.group_id AND newer.version > cs.version
+         WHERE newer.group_id = cs.group_id
+           AND newer.is_demo = cs.is_demo
+           AND newer.version > cs.version
        ), FALSE) AS cost_sheet_is_latest,
        COALESCE(cs.hypothesis_id = h.id
          AND cs.market_code = b.market_code
@@ -127,8 +135,8 @@ export async function listKanbanCandidates(marketCode?: string, platformCode?: s
      JOIN markets m ON m.code = b.market_code
      JOIN platforms p ON p.code = b.platform_code
      LEFT JOIN selection_decisions d ON d.hypothesis_id = h.id
-     LEFT JOIN cost_sheets cs ON cs.id = h.cost_sheet_id
-     LEFT JOIN competitor_comparison_reports cr ON cr.id = h.comparison_report_id
+     LEFT JOIN cost_sheets cs ON cs.id = h.cost_sheet_id AND cs.is_demo = $1
+     LEFT JOIN competitor_comparison_reports cr ON cr.id = h.comparison_report_id AND cr.is_demo = $1
      ${where}
      ORDER BY h.created_at DESC, h.position ASC`,
     values,
@@ -210,9 +218,13 @@ export async function listKanbanCandidates(marketCode?: string, platformCode?: s
   });
 }
 
-export async function listEliminatedHypotheses(marketCode?: string): Promise<EliminatedHistoryRecord[]> {
+export async function listEliminatedHypotheses(
+  marketCode?: string,
+  options?: ModeOptions,
+): Promise<EliminatedHistoryRecord[]> {
   const db = await getDb();
-  const values: string[] = [];
+  const mode = await resolveAppMode(options?.mode);
+  const values: Array<string | boolean> = [isDemoMode(mode)];
   const marketClause = marketCode ? (values.push(marketCode), `AND b.market_code = $${values.length}`) : "";
   const res = await db.query<{
     id: string;
@@ -230,7 +242,10 @@ export async function listEliminatedHypotheses(marketCode?: string): Promise<Eli
      FROM opportunity_hypotheses h
      JOIN ai_sourcing_runs r ON r.id = h.run_id
      JOIN sourcing_briefs b ON b.id = r.brief_id
-     WHERE h.eliminated_at IS NOT NULL ${marketClause}
+     WHERE h.eliminated_at IS NOT NULL
+       AND r.is_demo = $1
+       AND b.is_demo = $1
+       ${marketClause}
      ORDER BY h.eliminated_at DESC
      LIMIT 200`,
     values,

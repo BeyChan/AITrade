@@ -1,5 +1,6 @@
 import { generateStructuredJSON } from "../ai-provider.ts";
 import { loadAIProviderConfig } from "../app-settings.ts";
+import type { ModeOptions } from "../app-mode.ts";
 import type { CompetitorComparisonReport } from "./types.ts";
 
 export type AntiListingBullet = {
@@ -115,13 +116,14 @@ function buildPlaceholderDraft(report: CompetitorComparisonReport): AntiListingR
 
 export async function generateAntiListingContent(
   report: CompetitorComparisonReport,
+  options?: ModeOptions,
 ): Promise<AntiListingResult> {
   const category = report.hypothesisBridge?.category || report.title;
   const weaknesses = report.summary.commonWeaknesses;
   const attackVector = report.summary.attackVector;
   const commonStrengths = report.summary.commonStrengths;
 
-  const config = await loadAIProviderConfig();
+  const config = await loadAIProviderConfig(options);
 
   if (config.provider !== "template") {
     try {
@@ -173,7 +175,7 @@ export async function generateAntiListingContent(
         }),
         timeoutMs: 30_000,
         maxTokens: 3_000,
-      });
+      }, fetch, undefined, options);
 
       const parsed = JSON.parse(aiResponse.content) as AntiListingResult;
       if (parsed.antiTitle && Array.isArray(parsed.bullets) && parsed.bullets.length > 0) {

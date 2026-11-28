@@ -3,6 +3,7 @@ import { listSourcingCases, listSupplierDirectory } from "@/lib/repository";
 import { createSupplierDirectoryEntryAction } from "@/app/actions";
 import { SupplierDirectoryClient } from "@/components/supplier-directory-client";
 import { PageHeader } from "@/components/ui";
+import { getAppMode } from "@/lib/app-mode";
 
 export const dynamic = "force-dynamic";
 
@@ -12,9 +13,10 @@ export default async function SourcingPage({
   searchParams: Promise<{ notice?: string; error?: string }>;
 }) {
   const query = await searchParams;
+  const mode = await getAppMode();
   const [{ suppliers, stats }, cases] = await Promise.all([
-    listSupplierDirectory(),
-    listSourcingCases(),
+    listSupplierDirectory({ mode }),
+    listSourcingCases({ mode }),
   ]);
 
   return (

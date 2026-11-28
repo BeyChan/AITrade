@@ -24,17 +24,21 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   // PGlite is process-local and must not be opened by parallel build workers.
   await connection();
   // 先解析持久化站点 scope，再按站点加载顶部对象条，避免跨站点串数据
-  const [options, mode, persistedScope, cookieStore, fxSnapshot] = await Promise.all([
+  const [options, mode, persistedScope, cookieStore] = await Promise.all([
     getSiteOptions(),
     getAppMode(),
     resolvePersistedSiteScope(),
     cookies(),
-    getFxRatesSnapshot(),
   ]);
-  const workContext = await loadWorkContext({
-    marketCode: persistedScope.marketCode,
-    platformCode: persistedScope.platformCode,
-  }).catch(() => []);
+  // 两项查询彼此独立；模式解析完成后再并行读取，避免每次导航串行等待两轮数据库查询。
+  const [fxSnapshot, workContext] = await Promise.all([
+    getFxRatesSnapshot({ mode }),
+    loadWorkContext({
+      marketCode: persistedScope.marketCode,
+      platformCode: persistedScope.platformCode,
+      mode,
+    }).catch(() => []),
+  ]);
   const initialTheme: AppTheme = cookieStore.get("aitrade_theme")?.value === "dark" ? "dark" : "light";
   const markets = options.markets.map(({ code, name, currency }) => ({ code, name, currency }));
   const platforms = options.platforms.map(({ code, name }) => ({ code, name }));

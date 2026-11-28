@@ -35,6 +35,7 @@ export type AuditLogSummary = {
 };
 
 export type AuditLogQuery = {
+  mode: AppMode;
   q?: string;
   module?: AuditLogModule;
   level?: AuditLogLevel | "all";
@@ -71,3 +72,4 @@ export const AUDIT_LEVEL_OPTIONS: Array<{ value: AuditLogLevel | "all"; label: s
   { value: "warn", label: "敏感变更" },
   { value: "danger", label: "异常 / 删除" },
 ];
+import type { AppMode } from "./app-mode.ts";

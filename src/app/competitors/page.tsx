@@ -22,7 +22,7 @@ type PageProps = {
 export default async function CompetitorsPage({ searchParams }: PageProps) {
   const [query, appMode] = await Promise.all([searchParams, getAppMode()]);
   const demoMode = appMode === "sandbox";
-  const reports = await getComparisonReports();
+  const reports = await getComparisonReports({ mode: appMode });
   const targetById = query.id ? reports.find((r) => r.id === query.id) : undefined;
 
   let candidateContext: CandidateContext | null = null;
@@ -42,8 +42,8 @@ export default async function CompetitorsPage({ searchParams }: PageProps) {
        FROM opportunity_hypotheses h
        JOIN ai_sourcing_runs r ON r.id = h.run_id
        JOIN sourcing_briefs b ON b.id = r.brief_id
-       WHERE h.id = $1`,
-      [query.returnHypothesisId],
+       WHERE h.id = $1 AND r.is_demo = $2 AND b.is_demo = $2`,
+      [query.returnHypothesisId, demoMode],
     );
     const row = result.rows[0];
     const returnTab =
@@ -122,6 +122,7 @@ export default async function CompetitorsPage({ searchParams }: PageProps) {
         currentPlatform={currentPlatform}
         candidateContext={candidateContext}
         demoMode={demoMode}
+        mode={appMode}
       />
     </div>
   );

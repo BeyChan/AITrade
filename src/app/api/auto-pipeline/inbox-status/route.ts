@@ -2,8 +2,6 @@ import { NextResponse } from "next/server";
 import { getPlatformConfig } from "@/lib/auto-pipeline/repository";
 import { listInboxPendingCsvFiles } from "@/lib/auto-pipeline/providers";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {

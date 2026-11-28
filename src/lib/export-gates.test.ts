@@ -170,6 +170,7 @@ test("顶部对象条站点隔离：AU 站点不混入 US 案卷，且阶段统�
   const auOnly = filterCasesForWorkContextScope([usCase, auCase], {
     marketCode: "AU",
     platformCode: "amazon",
+    mode: "sandbox",
   });
   assert.equal(auOnly.length, 1);
   assert.equal(auOnly[0].id, "au-1");

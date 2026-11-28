@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
+import type { AppMode } from "@/lib/app-mode";
 import {
   MAX_COMPARISON_REPORTS,
   type CompetitorComparisonReport,
@@ -60,9 +61,10 @@ type Props = {
   currentPlatform: string;
   candidateContext?: CandidateContext | null;
   demoMode: boolean;
+  mode: AppMode;
 };
 
-export function CompetitorClient({ initialReports, initialReportId, currentMarket, currentPlatform, candidateContext, demoMode }: Props) {
+export function CompetitorClient({ initialReports, initialReportId, currentMarket, currentPlatform, candidateContext, demoMode, mode }: Props) {
   const [reports, setReports] = useState<CompetitorComparisonReport[]>(initialReports);
   const siteReports = reports.filter((report) =>
     report.marketCode.toUpperCase() === currentMarket.toUpperCase()
@@ -308,6 +310,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
       getBuyerTotalPriceCents(singleItem),
       singleItem.currency || currentReport.currency,
       currentReport.platformCode,
+      mode,
     );
     fetch("/api/competitors/sourcing-target", {
       method: "POST",
@@ -545,7 +548,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
   };
 
   // 1. 到岸成本计算（采购单价按官方权威汇率折算外币 + 25% 头程海运预估）
-  const purchaseCostCents = convertRmbToForeignCents(quoteCostRmb, currency);
+  const purchaseCostCents = convertRmbToForeignCents(quoteCostRmb, currency, mode);
   const estFreightCents = Math.round(purchaseCostCents * 0.25);
   const landedCostCents = purchaseCostCents + estFreightCents;
   const targetPriceCents = Math.round(targetPriceVal * 100);
@@ -1005,6 +1008,7 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
 
           <CompetitorPkMatrix
             currentReport={currentReport}
+            mode={mode}
             isSingleProduct={isSingleProduct}
             isReanalyzing={isReanalyzing}
             removingAsin={removingAsin}

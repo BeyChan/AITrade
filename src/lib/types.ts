@@ -416,6 +416,7 @@ export type IngestionRunRow = {
   error_message: string | null;
   started_at: string;
   completed_at: string | null;
+  is_demo: boolean;
 };
 
 export type ConnectorHealthCheckRow = {
@@ -428,6 +429,7 @@ export type ConnectorHealthCheckRow = {
   details: Record<string, unknown>;
   checked_by: string;
   checked_at: string;
+  is_demo: boolean;
 };
 
 export type DataSourceDashboardItem = DataSourceRow & {
@@ -489,6 +491,7 @@ export type ConnectorSyncJobRow = {
   completed_at: string | null;
   created_at: string;
   updated_at: string;
+  is_demo: boolean;
 };
 
 export type ConnectorSyncCursorRow = {
@@ -500,6 +503,7 @@ export type ConnectorSyncCursorRow = {
   last_attempt_at: string | null;
   consecutive_failures: number;
   updated_at: string;
+  is_demo: boolean;
 };
 
 export type ConnectorSyncDashboard = {

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { SampleLogRecord, SampleLogStatus } from "@/app/api/cases/[id]/samples/route";
+import type { AppMode } from "@/lib/app-mode";
 import { getFxRate } from "@/lib/currency";
 import { shortDate } from "@/lib/format";
 import { FX_UPDATED_EVENT } from "./topbar-fx-widget";
@@ -23,27 +24,29 @@ const SHIPPING_MODES = [
 export function SourcingPracticalTools({
   caseId,
   initialSamples = [],
+  mode,
 }: {
   caseId: string;
   initialSamples?: SampleLogRecord[];
+  mode: AppMode;
 }) {
   // 1. 人民币与箱规头程快捷换算器
   const [unitPriceCny, setUnitPriceCny] = useState("28");
-  const [fxRate, setFxRate] = useState(() => String(getFxRate("USD")));
+  const [fxRate, setFxRate] = useState(() => String(getFxRate("USD", mode)));
   const [fxTouched, setFxTouched] = useState(false);
 
   useEffect(() => {
     function onFxUpdated() {
       if (!fxTouched) {
-        setFxRate(String(getFxRate("USD")));
+        setFxRate(String(getFxRate("USD", mode)));
       }
     }
     if (!fxTouched) {
-      setFxRate(String(getFxRate("USD")));
+      setFxRate(String(getFxRate("USD", mode)));
     }
     window.addEventListener(FX_UPDATED_EVENT, onFxUpdated);
     return () => window.removeEventListener(FX_UPDATED_EVENT, onFxUpdated);
-  }, [fxTouched]);
+  }, [fxTouched, mode]);
   const [weightKg, setWeightKg] = useState("0.45");
   const [lengthCm, setLengthCm] = useState("22");
   const [widthCm, setWidthCm] = useState("18");

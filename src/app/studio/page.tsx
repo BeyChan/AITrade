@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getAppMode } from "@/lib/app-mode";
 import { UnifiedStudioClient, type StudioTabKey } from "@/components/unified-studio-client";
 import { PageHeader } from "@/components/ui";
 import { getImageProviderStatus } from "@/lib/image-provider";
@@ -23,6 +24,7 @@ function resolveTab(raw?: string): StudioTabKey {
 }
 
 export default async function UnifiedStudioPage({ searchParams }: PageProps) {
+  const mode = await getAppMode();
   const [
     query,
     options,
@@ -39,19 +41,19 @@ export default async function UnifiedStudioPage({ searchParams }: PageProps) {
     searchParams,
     getSiteOptions(),
     listAvailableImageSkills(),
-    getImageProviderStatus(),
-    listStandaloneStudioAssets(),
+    getImageProviderStatus({ mode }),
+    listStandaloneStudioAssets({ mode }),
     listAvailableVideoSkills(),
-    getVideoProviderStatus(),
-    listStandaloneVideoAssets(),
-    listVideoJobsForCase("standalone").catch(() => []),
+    getVideoProviderStatus({ mode }),
+    listStandaloneVideoAssets({ mode }),
+    listVideoJobsForCase("standalone", { mode }).catch(() => []),
     isFfmpegAvailable(),
-    listSourcingCases(),
+    listSourcingCases({ mode }),
   ]);
 
   const tab = resolveTab(query.tab);
   const caseId = query.caseId?.trim() || "";
-  const linkedCaseDetail = caseId ? await getContentDetail(caseId).catch(() => null) : null;
+  const linkedCaseDetail = caseId ? await getContentDetail(caseId, { mode }).catch(() => null) : null;
   const siteScope = await resolvePersistedSiteScope(query.market, query.platform);
   const selectedMarket =
     options.markets.find((market) => market.code === siteScope.marketCode) ??

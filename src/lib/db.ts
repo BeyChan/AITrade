@@ -4,6 +4,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, write
 import path from "node:path";
 import { calculateEconomics, type EconomicsAssumptions } from "./economics.ts";
 import { runMigrations } from "./db-migrations.ts";
+import type { AutoCandidateReason, AutoCandidateVerdict, AutoGrade } from "./auto-pipeline/types.ts";
 
 type DbLock = {
   path: string;
@@ -204,6 +205,7 @@ async function initializeDb() {
     registerDbShutdownHooks();
     await runMigrations(db);
     await seedDemoData(db);
+    await seedDemoAutoPipelineData(db);
     return db;
   } catch (error) {
     if (globalThis.__aitradeDbInstance) await closeDb();
@@ -353,6 +355,259 @@ const demoCases: DemoCase[] = [
   },
 ];
 
+type DemoAutoPipelineCandidate = {
+  externalId: string;
+  title: string;
+  brand: string;
+  category: string;
+  priceCents: number;
+  monthlySalesEstimate: number;
+  reviewCount: number;
+  rating: number;
+  grade: AutoGrade;
+  verdict: AutoCandidateVerdict;
+  score: number;
+  estimatedMarginRate: number;
+  maxLandedCostCents: number;
+  maxLandedCostCny: number;
+  marketStatus: "pass" | "hold" | "fail";
+  complianceStatus: "pass" | "hold";
+};
+
+const demoAutoPipelineCandidates: DemoAutoPipelineCandidate[] = [
+  {
+    externalId: "B0DEMO0001",
+    title: "不锈钢静音水泵宠物饮水器",
+    brand: "DemoPet",
+    category: "宠物饮水器",
+    priceCents: 3999,
+    monthlySalesEstimate: 1800,
+    reviewCount: 860,
+    rating: 4.3,
+    grade: "S",
+    verdict: "PENDING",
+    score: 86,
+    estimatedMarginRate: 0.284,
+    maxLandedCostCents: 1270,
+    maxLandedCostCny: 91.7,
+    marketStatus: "pass",
+    complianceStatus: "pass",
+  },
+  {
+    externalId: "B0DEMO0002",
+    title: "长毛宠物一键自清洁梳毛刷",
+    brand: "DemoPet",
+    category: "宠物清洁",
+    priceCents: 2499,
+    monthlySalesEstimate: 2400,
+    reviewCount: 2180,
+    rating: 4.5,
+    grade: "A",
+    verdict: "PENDING",
+    score: 77,
+    estimatedMarginRate: 0.261,
+    maxLandedCostCents: 670,
+    maxLandedCostCny: 48.3,
+    marketStatus: "pass",
+    complianceStatus: "pass",
+  },
+  {
+    externalId: "B0DEMO0003",
+    title: "超大号封闭式除臭猫砂盆",
+    brand: "DemoPet",
+    category: "猫砂盆",
+    priceCents: 5999,
+    monthlySalesEstimate: 900,
+    reviewCount: 430,
+    rating: 4.2,
+    grade: "B",
+    verdict: "PENDING",
+    score: 68,
+    estimatedMarginRate: 0.235,
+    maxLandedCostCents: 1780,
+    maxLandedCostCny: 128.5,
+    marketStatus: "pass",
+    complianceStatus: "hold",
+  },
+  {
+    externalId: "B0DEMO0004",
+    title: "防漏锁扣便携宠物外出饮水杯",
+    brand: "DemoPet",
+    category: "户外宠物",
+    priceCents: 1999,
+    monthlySalesEstimate: 3200,
+    reviewCount: 5600,
+    rating: 4.4,
+    grade: "HOLD",
+    verdict: "HOLD",
+    score: 52,
+    estimatedMarginRate: 0.179,
+    maxLandedCostCents: 420,
+    maxLandedCostCny: 30.3,
+    marketStatus: "hold",
+    complianceStatus: "pass",
+  },
+  {
+    externalId: "B0DEMO0005",
+    title: "专利结构宠物慢食碗",
+    brand: "DemoPet",
+    category: "宠物餐具",
+    priceCents: 1599,
+    monthlySalesEstimate: 450,
+    reviewCount: 310,
+    rating: 4.1,
+    grade: "ELIMINATED",
+    verdict: "NO-GO",
+    score: 38,
+    estimatedMarginRate: 0.082,
+    maxLandedCostCents: 180,
+    maxLandedCostCny: 13,
+    marketStatus: "fail",
+    complianceStatus: "hold",
+  },
+];
+
+function buildDemoReasons(candidate: DemoAutoPipelineCandidate): AutoCandidateReason[] {
+  const reasons: AutoCandidateReason[] = [
+    {
+      code: "DEMO_PRICE",
+      severity: "pass",
+      message: `演示价格 ${(candidate.priceCents / 100).toFixed(2)} USD，仅用于验证流程`,
+    },
+    {
+      code: "DEMO_MARKET",
+      severity:
+        candidate.marketStatus === "pass"
+          ? "pass"
+          : candidate.marketStatus === "hold"
+            ? "warn"
+            : "fail",
+      message: candidate.marketStatus === "pass" ? "演示竞品格局通过" : "演示竞品格局需要人工复核",
+    },
+    {
+      code: "DEMO_COMPLIANCE",
+      severity: candidate.complianceStatus === "pass" ? "pass" : "warn",
+      message: candidate.complianceStatus === "pass" ? "演示合规检查通过" : "演示合规风险需要人工复核",
+    },
+  ];
+  if (candidate.grade === "ELIMINATED") {
+    reasons.push({ code: "DEMO_PATENT", severity: "fail", message: "演示淘汰：结构疑似存在专利风险" });
+  } else {
+    reasons.push({
+      code: "TARGET_LANDED_CAP",
+      severity: "pass",
+      message: `演示净利率 ${(candidate.estimatedMarginRate * 100).toFixed(1)}% · 最高允许到岸成本 ${(candidate.maxLandedCostCents / 100).toFixed(2)} USD`,
+    });
+  }
+  return reasons;
+}
+
+async function seedDemoAutoPipelineData(db: PGlite) {
+  const requestKey = "demo-seed:kitchen-pet:v1";
+  const existing = await db.query<{ id: string }>(
+    "SELECT id FROM auto_pipeline_runs WHERE request_key = $1 AND is_demo = TRUE LIMIT 1",
+    [requestKey],
+  );
+  if (existing.rows.length > 0) return;
+
+  const runId = "demo-auto-run-kitchen-pet-v1";
+  const counts = {
+    S: demoAutoPipelineCandidates.filter((item) => item.grade === "S").length,
+    A: demoAutoPipelineCandidates.filter((item) => item.grade === "A").length,
+    B: demoAutoPipelineCandidates.filter((item) => item.grade === "B").length,
+    HOLD: demoAutoPipelineCandidates.filter((item) => item.grade === "HOLD").length,
+    ELIMINATED: demoAutoPipelineCandidates.filter((item) => item.grade === "ELIMINATED").length,
+  };
+
+  await db.transaction(async (tx) => {
+    await tx.query(
+      `INSERT INTO auto_pipeline_runs
+        (id, platform_code, market_code, source_type, source_label, request_key, status,
+         total_seeds, s_count, a_count, b_count, hold_count, eliminated_count, summary,
+         created_by, is_demo, created_at, completed_at)
+       VALUES ($1, 'amazon', 'US', 'csv', '演示批次 · 厨房与宠物精选', $2, 'completed',
+               $3, $4, $5, $6, $7, $8, $9::jsonb, '演示数据', TRUE,
+               NOW() - INTERVAL '2 hours', NOW() - INTERVAL '2 hours')`,
+      [
+        runId,
+        requestKey,
+        demoAutoPipelineCandidates.length,
+        counts.S,
+        counts.A,
+        counts.B,
+        counts.HOLD,
+        counts.ELIMINATED,
+        JSON.stringify({ demo: true, note: "测试账号示例数据，不代表真实市场结论" }),
+      ],
+    );
+
+    for (const [index, candidate] of demoAutoPipelineCandidates.entries()) {
+      const candidateId = `demo-auto-candidate-${index + 1}`;
+      const snapshotId = `demo-auto-snapshot-${index + 1}`;
+      const metrics = {
+        netProfitCents: Math.round(candidate.priceCents * candidate.estimatedMarginRate),
+        stressProfitCents: Math.round(candidate.priceCents * candidate.estimatedMarginRate * 0.55),
+        breakEvenAcos: 0.35,
+        competitorCount: 18,
+        hhi: null,
+        brandCr3Percent: null,
+        medianReviews: candidate.reviewCount,
+        complianceCostUsd: 0,
+        complianceStatus: candidate.complianceStatus,
+        marketStatus: candidate.marketStatus,
+      };
+      const reasons = JSON.stringify(buildDemoReasons(candidate));
+      const candidateParams = [
+        candidateId,
+        runId,
+        candidate.externalId,
+        candidate.title,
+        candidate.brand,
+        candidate.category,
+        `https://www.amazon.com/dp/${candidate.externalId}`,
+        candidate.priceCents,
+        candidate.monthlySalesEstimate,
+        candidate.reviewCount,
+        candidate.rating,
+        candidate.grade,
+        candidate.verdict,
+        candidate.score,
+        candidate.estimatedMarginRate,
+        candidate.maxLandedCostCents,
+        candidate.maxLandedCostCny,
+        reasons,
+        JSON.stringify(metrics),
+      ];
+
+      await tx.query(
+        `INSERT INTO auto_candidates
+          (id, run_id, platform_code, market_code, external_id, title, brand, category, url, currency,
+           price_cents, monthly_sales_estimate, review_count, rating, grade, verdict, score,
+           estimated_margin_rate, max_landed_cost_cents, max_landed_cost_cny, pricing_source,
+           evidence_source, reasons, metrics, observed_at, is_demo, created_at, updated_at)
+         VALUES ($1, $2, 'amazon', 'US', $3, $4, $5, $6, $7, 'USD',
+                 $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, 'estimated',
+                 'ai_generated', $18::jsonb, $19::jsonb, NOW() - INTERVAL '2 hours', TRUE,
+                 NOW() - INTERVAL '2 hours', NOW() - INTERVAL '2 hours')`,
+        candidateParams,
+      );
+
+      await tx.query(
+        `INSERT INTO auto_run_candidates
+          (id, run_id, candidate_id, platform_code, market_code, external_id, title, brand, category, url, currency,
+           price_cents, monthly_sales_estimate, review_count, rating, grade, verdict, score,
+           estimated_margin_rate, max_landed_cost_cents, max_landed_cost_cny, pricing_source,
+           evidence_source, reasons, metrics, observed_at, is_demo, created_at, updated_at)
+         VALUES ($1, $2, $3, 'amazon', 'US', $4, $5, $6, $7, $8, 'USD',
+                 $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, 'estimated',
+                 'ai_generated', $19::jsonb, $20::jsonb, NOW() - INTERVAL '2 hours', TRUE,
+                 NOW() - INTERVAL '2 hours', NOW() - INTERVAL '2 hours')`,
+        [snapshotId, runId, candidateId, ...candidateParams.slice(2)],
+      );
+    }
+  });
+}
+
 async function seedDemoData(db: PGlite) {
   const countResult = await db.query<{ count: string }>(
     "SELECT COUNT(*)::text AS count FROM product_cases WHERE is_demo = TRUE",
@@ -431,8 +686,8 @@ async function seedDemoData(db: PGlite) {
         [id],
       );
       await tx.query(
-        `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-         VALUES ($1, 'system', 'case.seeded', 'product_case', $2, $3::jsonb)`,
+        `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+         VALUES ($1, 'system', 'case.seeded', 'product_case', $2, $3::jsonb, TRUE)`,
         [randomUUID(), id, JSON.stringify({ isDemo: true, version: 1 })],
       );
     }
@@ -448,7 +703,9 @@ export async function resetDemoData(): Promise<void> {
   const db = await getDb();
   await db.transaction(async (tx) => {
     await tx.query("DELETE FROM product_cases WHERE is_demo = TRUE");
+    await tx.query("DELETE FROM auto_pipeline_runs WHERE is_demo = TRUE");
   });
   await seedDemoData(db);
+  await seedDemoAutoPipelineData(db);
 }
 

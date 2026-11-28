@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { eliminateAutoCandidatesToBlacklist } from "@/lib/auto-pipeline/repository";
+import { getAppMode } from "@/lib/app-mode";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
+    const mode = await getAppMode();
     const body = (await request.json()) as {
       candidateId?: string;
       candidateIds?: string[];
@@ -24,7 +24,7 @@ export async function POST(request: Request) {
       reason,
       note: typeof body.note === "string" ? body.note.trim() : undefined,
       actor: typeof body.actor === "string" && body.actor.trim() ? body.actor.trim() : "运营人员",
-    });
+    }, { mode });
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     return NextResponse.json(

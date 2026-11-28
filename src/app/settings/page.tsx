@@ -41,13 +41,13 @@ const TAB_META: Record<SettingsTab, { title: string; eyebrow: string; descriptio
 };
 
 export default async function SettingsPage({ searchParams }: PageProps) {
-  const [query, provider, imageProvider, videoProvider, profiles, mode] = await Promise.all([
+  const mode = await getAppMode();
+  const [query, provider, imageProvider, videoProvider, profiles] = await Promise.all([
     searchParams,
-    getAIProviderStatus(),
-    getImageProviderStatus(),
-    getVideoProviderStatus(),
-    listModelProfiles(),
-    getAppMode(),
+    getAIProviderStatus({ mode }),
+    getImageProviderStatus({ mode }),
+    getVideoProviderStatus({ mode }),
+    listModelProfiles({ mode }),
   ]);
   const activeTab = resolveTab(query.tab);
   const meta = TAB_META[activeTab];

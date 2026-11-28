@@ -11,6 +11,7 @@ process.env.PGLITE_DATA_DIR = dataDir;
 const { getAppMode, DEFAULT_APP_MODE } = await import("./app-mode.ts");
 const { listCases, listSourcingCases, importCandidates } = await import("./repository.ts");
 const { resetDemoData } = await import("./db.ts");
+const { listAutoCandidates, listAutoPipelineRuns } = await import("./auto-pipeline/repository.ts");
 
 function createMockCandidate(asin: string, title: string): CandidateImportRow {
   return {
@@ -108,4 +109,23 @@ test("app-mode: resetDemoData cleans demo modifications and reseeds original dem
   await resetDemoData();
   const cases = await listCases({ mode: "sandbox" });
   assert.equal(cases.filter((c) => c.is_demo).length, 4, "should reseed exactly 4 demo cases");
+});
+
+test("app-mode: resetDemoData seeds auto-pipeline only in sandbox", async () => {
+  await resetDemoData();
+  const sandboxRuns = await listAutoPipelineRuns({ limit: 50 }, { mode: "sandbox" });
+  const sandboxCandidates = await listAutoCandidates({}, { mode: "sandbox" });
+  assert.ok(
+    sandboxRuns.some((run) => run.sourceLabel === "演示批次 · 厨房与宠物精选"),
+    "sandbox auto-pipeline should include the built-in demo batch",
+  );
+  assert.ok(
+    sandboxCandidates.every((candidate) => candidate.externalId.startsWith("B0DEMO")),
+    "sandbox auto-pipeline candidates should use demo-only external ids",
+  );
+
+  const liveRuns = await listAutoPipelineRuns({ limit: 50 }, { mode: "live" });
+  const liveCandidates = await listAutoCandidates({}, { mode: "live" });
+  assert.equal(liveRuns.length, 0, "demo auto-pipeline batch must not leak into live mode");
+  assert.equal(liveCandidates.length, 0, "demo auto-pipeline candidates must not leak into live mode");
 });

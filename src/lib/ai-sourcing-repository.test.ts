@@ -14,6 +14,7 @@ const {
   attachComparisonReportToHypothesis,
   autoImportSiteCompetitors,
   createAISourcingBatch,
+  createQuickCandidateBatch,
   deleteAISourcingBatch,
   getAISourcingBatch,
   listAISourcingBatches,
@@ -525,6 +526,68 @@ test("comparison reports can only be attached within the candidate site scope", 
   assert.equal(boundHypothesis?.comparisonReportId, matchingReport.id);
   assert.equal(boundHypothesis?.selectedForValidation, true);
   assert.equal(boundHypothesis?.counts.competitors, 1);
+});
+
+test("quick candidates reject missing, cross-mode, unconfirmed, and cross-scope comparison reports", async () => {
+  const report = await analyzeCompetitors({
+    rawInputs: "https://www.amazon.com/dp/B0QUICK001",
+    marketCode: "US",
+    platformCode: "amazon",
+    currency: "USD",
+    skipModel: true,
+    capturedInputs: [
+      {
+        raw: "https://www.amazon.com/dp/B0QUICK001",
+        asin: "B0QUICK001",
+        captured: { priceCents: 3299, rating: 4.4, reviewCount: 180, currency: "USD" },
+      },
+    ],
+  });
+  report.id = `quick-candidate-${randomUUID()}`;
+  await saveComparisonReport(report, { mode: "sandbox" });
+
+  const input = {
+    marketCode: "US",
+    platformCode: "amazon",
+    category: "宠物清洁",
+    concept: "跨模式研报绑定测试",
+    sourceKind: "asin_scan" as const,
+    recommendedPriceCents: 3299,
+    comparisonReportId: report.id,
+    actor: "测试运营",
+  };
+
+  await assert.rejects(
+    () => createQuickCandidateBatch(input, { mode: "live" }),
+    /竞品研报不存在/,
+  );
+  await assert.rejects(
+    () => createQuickCandidateBatch(input, { mode: "sandbox" }),
+    /研报尚未人工确认/,
+  );
+
+  await confirmComparisonReport(report.id, { allowUnverified: true, mode: "sandbox" });
+  const created = await createQuickCandidateBatch(input, { mode: "sandbox" });
+  const batch = await getAISourcingBatch(created.runId, { mode: "sandbox" });
+  const hypothesis = batch?.hypotheses.find((item) => item.id === created.hypothesisId);
+  assert.equal(hypothesis?.comparisonReportId, report.id);
+
+  const crossScopeReport = {
+    ...report,
+    id: `quick-cross-scope-${randomUUID()}`,
+    marketCode: "DE",
+    currency: "EUR",
+    reviewStatus: "confirmed" as const,
+  };
+  await saveComparisonReport(crossScopeReport, { mode: "sandbox" });
+  await assert.rejects(
+    () => createQuickCandidateBatch({
+      ...input,
+      concept: "跨站点研报绑定测试",
+      comparisonReportId: crossScopeReport.id,
+    }, { mode: "sandbox" }),
+    /研报站点、平台或币种与候选不一致/,
+  );
 });
 
 

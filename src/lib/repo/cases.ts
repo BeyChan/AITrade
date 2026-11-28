@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { getAppMode, type AppMode } from "../app-mode.ts";
+import { getAppMode, isDemoMode, type AppMode } from "../app-mode.ts";
 import { getDb } from "../db.ts";
 import { calculateEconomics, opportunityScore, recommendationFor, type EconomicsAssumptions } from "../economics.ts";
 import type { CandidateImportRow } from "../csv.ts";
@@ -24,8 +24,10 @@ export async function setCaseLifecycle(input: {
   action: "archive" | "restore";
   actor: string;
   reason?: string;
-}): Promise<void> {
+}, options?: { mode?: AppMode }): Promise<void> {
   const db = await getDb();
+  const mode = await resolveCurrentMode(options?.mode);
+  const demo = isDemoMode(mode);
   const actor = input.actor.trim() || "运营人员";
   const reason = (input.reason ?? "").trim().slice(0, 300);
   if (input.action === "archive" && !reason) {
@@ -34,8 +36,8 @@ export async function setCaseLifecycle(input: {
 
   await db.transaction(async (tx) => {
     const current = await tx.query<{ id: string; status: string }>(
-      "SELECT id, status FROM product_cases WHERE id = $1 LIMIT 1",
-      [input.caseId],
+      "SELECT id, status FROM product_cases WHERE id = $1 AND is_demo = $2 LIMIT 1",
+      [input.caseId, demo],
     );
     const row = current.rows[0];
     if (!row) throw new Error("商品不存在");
@@ -44,12 +46,12 @@ export async function setCaseLifecycle(input: {
     if (input.action === "restore" && !terminated) throw new Error("只有已终止的商品可以恢复");
 
     await tx.query(
-      "UPDATE product_cases SET status = $1, updated_at = NOW() WHERE id = $2",
-      [input.action === "archive" ? "archived" : "approved", input.caseId],
+      "UPDATE product_cases SET status = $1, updated_at = NOW() WHERE id = $2 AND is_demo = $3",
+      [input.action === "archive" ? "archived" : "approved", input.caseId, demo],
     );
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, $3, 'product_case', $4, $5::jsonb)`,
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, $3, 'product_case', $4, $5::jsonb, $6)`,
       [
         randomUUID(),
         actor,
@@ -60,6 +62,7 @@ export async function setCaseLifecycle(input: {
             ? { reason, previousStatus: row.status }
             : { previousStatus: row.status, restoredTo: "approved" },
         ),
+        demo,
       ],
     );
   });
@@ -73,9 +76,11 @@ export type TerminatedCase = {
 };
 
 /** 已终止商品 + 最近一次终止原因，供首页「已终止」面板展示与恢复 */
-export async function listTerminatedCases(): Promise<TerminatedCase[]> {
+export async function listTerminatedCases(options?: { mode?: AppMode }): Promise<TerminatedCase[]> {
   const db = await getDb();
-  const cases = await listCases();
+  const mode = await resolveCurrentMode(options?.mode);
+  const demo = isDemoMode(mode);
+  const cases = await listCases(options);
   const terminated = cases.filter((item) => item.status === "archived" || item.status === "rejected");
   if (terminated.length === 0) return [];
 
@@ -87,8 +92,9 @@ export async function listTerminatedCases(): Promise<TerminatedCase[]> {
   }>(
     `SELECT DISTINCT ON (entity_id) entity_id, actor, details, created_at
      FROM audit_logs
-     WHERE entity_type = 'product_case' AND action = 'product_case.archived'
+     WHERE entity_type = 'product_case' AND action = 'product_case.archived' AND is_demo = $1
      ORDER BY entity_id, created_at DESC`,
+    [demo],
   );
   const byCase = new Map(logs.rows.map((row) => [row.entity_id, row]));
   return terminated.map((caseItem) => {
@@ -111,6 +117,20 @@ export async function resolveCurrentMode(explicitMode?: AppMode): Promise<AppMod
   }
 }
 
+/** 所有按 ID 进入案卷的仓储操作都必须通过此入口做模式校验。 */
+export async function getCaseForMode(
+  caseId: string,
+  options?: { mode?: AppMode },
+): Promise<ProductCaseRow | null> {
+  const db = await getDb();
+  const mode = await resolveCurrentMode(options?.mode);
+  const result = await db.query<ProductCaseRow>(
+    "SELECT * FROM product_cases WHERE id = $1 AND is_demo = $2 LIMIT 1",
+    [caseId, isDemoMode(mode)],
+  );
+  return result.rows[0] ?? null;
+}
+
 function parseNoGoException(row: { details: Record<string, unknown> | null; actor: string; created_at: string } | undefined): NoGoExceptionRecord | null {
   if (!row) return null;
   const details = row.details ?? {};
@@ -127,7 +147,7 @@ export async function recordCaseNoGoException(input: {
   reason: string;
   riskNote: string;
   approver: string;
-}): Promise<NoGoExceptionRecord> {
+}, options?: { mode?: AppMode }): Promise<NoGoExceptionRecord> {
   const reason = input.reason.trim();
   const riskNote = input.riskNote.trim();
   const approver = input.approver.trim();
@@ -136,8 +156,8 @@ export async function recordCaseNoGoException(input: {
   if (!approver) throw new Error("申请 NO-GO 例外必须填写审批人");
 
   const db = await getDb();
-  const existing = await db.query<ProductCaseRow>("SELECT * FROM product_cases WHERE id = $1 LIMIT 1", [input.caseId]);
-  const productCase = existing.rows[0];
+  const mode = await resolveCurrentMode(options?.mode);
+  const productCase = await getCaseForMode(input.caseId, { mode });
   if (!productCase) throw new Error("商品案卷不存在");
   if (productCase.status === "archived" || productCase.status === "rejected") {
     throw new Error("已归档或已否决的商品不能申请例外，请先恢复状态");
@@ -146,8 +166,8 @@ export async function recordCaseNoGoException(input: {
   const createdAt = new Date().toISOString();
   await db.transaction(async (tx) => {
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'case.exception_created', 'product_case', $3, $4::jsonb)`,
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'case.exception_created', 'product_case', $3, $4::jsonb, $5)`,
       [
         randomUUID(),
         approver,
@@ -159,15 +179,19 @@ export async function recordCaseNoGoException(input: {
           gateRecommendation: "NO-GO",
           previousStatus: productCase.status,
         }),
+        isDemoMode(mode),
       ],
     );
-    await tx.query("UPDATE product_cases SET updated_at = NOW() WHERE id = $1", [input.caseId]);
+    await tx.query(
+      "UPDATE product_cases SET updated_at = NOW() WHERE id = $1 AND is_demo = $2",
+      [input.caseId, isDemoMode(mode)],
+    );
   });
 
   return { reason, riskNote, approver, createdAt };
 }
 
-export async function getCaseWorkflowFacts(caseId: string): Promise<{
+export async function getCaseWorkflowFacts(caseId: string, options?: { mode?: AppMode }): Promise<{
   quoteCount: number;
   validQuoteCount: number;
   hasApprovedContent: boolean;
@@ -178,6 +202,21 @@ export async function getCaseWorkflowFacts(caseId: string): Promise<{
   noGoException: NoGoExceptionRecord | null;
 }> {
   const db = await getDb();
+  const mode = await resolveCurrentMode(options?.mode);
+  const demo = isDemoMode(mode);
+  const productCase = await getCaseForMode(caseId, { mode });
+  if (!productCase) {
+    return {
+      quoteCount: 0,
+      validQuoteCount: 0,
+      hasApprovedContent: false,
+      approvedMainImageCount: 0,
+      hasFlatFileExported: false,
+      hasMediaPackExported: false,
+      hasNoGoException: false,
+      noGoException: null,
+    };
+  }
   const [quotes, approvedListings, mainImages, exportLogs, exceptionLogs] = await Promise.all([
     db.query<{ total: string; valid: string }>(
       `SELECT
@@ -201,18 +240,20 @@ export async function getCaseWorkflowFacts(caseId: string): Promise<{
        FROM audit_logs
        WHERE entity_type = 'product_case'
          AND entity_id = $1
+         AND is_demo = $2
          AND action IN ('case.flat_file_exported', 'case.flatfile_exported', 'case.media_pack_exported')`,
-      [caseId],
+      [caseId, demo],
     ),
     db.query<{ actor: string; details: Record<string, unknown> | null; created_at: string }>(
       `SELECT actor, details, created_at
        FROM audit_logs
        WHERE entity_type = 'product_case'
          AND entity_id = $1
+         AND is_demo = $2
          AND action = 'case.exception_created'
        ORDER BY created_at DESC
        LIMIT 1`,
-      [caseId],
+      [caseId, demo],
     ),
   ]);
 
@@ -234,39 +275,65 @@ export async function getCaseWorkflowFacts(caseId: string): Promise<{
 export async function listCases(options?: { mode?: AppMode }): Promise<EnrichedCase[]> {
   const db = await getDb();
   const mode = await resolveCurrentMode(options?.mode);
-  const casesQuery = mode === "live"
-    ? "SELECT * FROM product_cases WHERE is_demo = FALSE ORDER BY created_at DESC"
-    : "SELECT * FROM product_cases ORDER BY created_at DESC";
+  const demo = isDemoMode(mode);
+  const casesQuery = "SELECT * FROM product_cases WHERE is_demo = $1 ORDER BY created_at DESC";
 
   const [cases, costs, approvedListings, quoteCounts, selections, mainImages, exportLogs, exceptionLogs] = await Promise.all([
-    db.query<ProductCaseRow>(casesQuery),
-    db.query<CostModelRow>("SELECT DISTINCT ON (case_id) * FROM cost_models ORDER BY case_id, version DESC"),
+    db.query<ProductCaseRow>(casesQuery, [demo]),
+    db.query<CostModelRow>(
+      `SELECT DISTINCT ON (cm.case_id) cm.*
+       FROM cost_models cm
+       JOIN product_cases pc ON pc.id = cm.case_id
+       WHERE pc.is_demo = $1
+       ORDER BY cm.case_id, cm.version DESC`,
+      [demo],
+    ),
     db.query<{ case_id: string }>(
-      "SELECT DISTINCT case_id FROM listings WHERE status = 'content_approved' OR status = 'published'",
+      `SELECT DISTINCT l.case_id
+       FROM listings l
+       JOIN product_cases pc ON pc.id = l.case_id
+       WHERE pc.is_demo = $1 AND (l.status = 'content_approved' OR l.status = 'published')`,
+      [demo],
     ),
     db.query<{ case_id: string; count: string }>(
       `SELECT r.case_id, COUNT(q.id)::text AS count
        FROM quotes q
        JOIN rfqs r ON r.id = q.rfq_id
+       JOIN product_cases pc ON pc.id = r.case_id
+       WHERE pc.is_demo = $1
        GROUP BY r.case_id`,
+      [demo],
     ),
-    db.query<{ case_id: string }>("SELECT DISTINCT case_id FROM supplier_selections"),
+    db.query<{ case_id: string }>(
+      `SELECT DISTINCT ss.case_id
+       FROM supplier_selections ss
+       JOIN product_cases pc ON pc.id = ss.case_id
+       WHERE pc.is_demo = $1`,
+      [demo],
+    ),
     db.query<{ case_id: string; count: string }>(
-      `SELECT case_id, COUNT(*)::text AS count
-       FROM assets
-       WHERE asset_type = 'main_image' AND status = 'approved'
-       GROUP BY case_id`,
+      `SELECT a.case_id, COUNT(*)::text AS count
+       FROM assets a
+       JOIN product_cases pc ON pc.id = a.case_id
+       WHERE pc.is_demo = $1 AND a.asset_type = 'main_image' AND a.status = 'approved'
+       GROUP BY a.case_id`,
+      [demo],
     ),
     db.query<{ entity_id: string; action: string }>(
       `SELECT DISTINCT entity_id, action
        FROM audit_logs
        WHERE entity_type = 'product_case'
+         AND entity_id IN (SELECT id FROM product_cases WHERE is_demo = $1)
          AND action IN ('case.flat_file_exported', 'case.flatfile_exported', 'case.media_pack_exported')`,
+      [demo],
     ),
     db.query<{ entity_id: string }>(
       `SELECT DISTINCT entity_id
        FROM audit_logs
-       WHERE entity_type = 'product_case' AND action = 'case.exception_created'`,
+       WHERE entity_type = 'product_case'
+         AND entity_id IN (SELECT id FROM product_cases WHERE is_demo = $1)
+         AND action = 'case.exception_created'`,
+      [demo],
     ),
   ]);
   const costByCase = new Map(costs.rows.map((cost) => [cost.case_id, cost]));
@@ -350,20 +417,23 @@ export async function listCasesForSite(
   return cases.filter((item) => scopedCaseIds.has(item.id));
 }
 
-export async function getCaseDetail(caseId: string): Promise<CaseDetail | null> {
+export async function getCaseDetail(caseId: string, options?: { mode?: AppMode }): Promise<CaseDetail | null> {
   const db = await getDb();
-  const productCases = await db.query<ProductCaseRow>("SELECT * FROM product_cases WHERE id = $1", [caseId]);
-  const productCase = productCases.rows[0];
+  const mode = await resolveCurrentMode(options?.mode);
+  const productCase = await getCaseForMode(caseId, { mode });
   if (!productCase) return null;
 
   const [costs, evidence, selections, audits, workflowFacts] = await Promise.all([
     db.query<CostModelRow>("SELECT * FROM cost_models WHERE case_id = $1 ORDER BY version DESC LIMIT 1", [caseId]),
     db.query<EvidenceRow>("SELECT * FROM case_evidence WHERE case_id = $1 ORDER BY captured_at DESC", [caseId]),
     db.query<{ id: string }>("SELECT id FROM supplier_selections WHERE case_id = $1 LIMIT 1", [caseId]),
-    db.query<AuditRow>("SELECT * FROM audit_logs WHERE entity_type = 'product_case' AND entity_id = $1 ORDER BY created_at DESC LIMIT 12", [
-      caseId,
-    ]),
-    getCaseWorkflowFacts(caseId),
+    db.query<AuditRow>(
+      `SELECT * FROM audit_logs
+       WHERE entity_type = 'product_case' AND entity_id = $1 AND is_demo = $2
+       ORDER BY created_at DESC LIMIT 12`,
+      [caseId, isDemoMode(mode)],
+    ),
+    getCaseWorkflowFacts(caseId, { mode }),
   ]);
 
   return {
@@ -402,7 +472,7 @@ export async function importCandidates(
           (id, asin, marketplace, category, title, url, status, competitor_price_cents,
            monthly_sales_estimate, review_count, rating, notes, owner, evidence_score, is_demo)
          VALUES ($1, $2, $3, $4, $5, $6, 'approved', $7, $8, $9, $10, $11, $12, 0, $13)
-         ON CONFLICT (asin, marketplace) DO NOTHING
+         ON CONFLICT (asin, marketplace, is_demo) DO NOTHING
          RETURNING id`,
         [
           caseId,
@@ -431,9 +501,9 @@ export async function importCandidates(
         [randomUUID(), caseId, JSON.stringify(row.assumptions), JSON.stringify(results), actor],
       );
       await tx.query(
-        `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-         VALUES ($1, $2, 'case.imported', 'product_case', $3, $4::jsonb)`,
-        [randomUUID(), actor, caseId, JSON.stringify({ asin: row.asin, marketplace: row.marketplace })],
+        `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+         VALUES ($1, $2, 'case.imported', 'product_case', $3, $4::jsonb, $5)`,
+        [randomUUID(), actor, caseId, JSON.stringify({ asin: row.asin, marketplace: row.marketplace }), isDemo],
       );
       imported += 1;
     }
@@ -442,10 +512,16 @@ export async function importCandidates(
   return { imported, skipped, total: rows.length };
 }
 
-export async function createCostModelVersion(caseId: string, assumptions: EconomicsAssumptions, actor = "运营人员") {
+export async function createCostModelVersion(
+  caseId: string,
+  assumptions: EconomicsAssumptions,
+  actor = "运营人员",
+  options?: { mode?: AppMode },
+) {
   const db = await getDb();
-  const product = await db.query<ProductCaseRow>("SELECT * FROM product_cases WHERE id = $1", [caseId]);
-  if (!product.rows[0]) throw new Error("商品机会不存在");
+  const mode = await resolveCurrentMode(options?.mode);
+  const product = await getCaseForMode(caseId, { mode });
+  if (!product) throw new Error("商品机会不存在");
 
   const versionResult = await db.query<{ version: number }>(
     "SELECT COALESCE(MAX(version), 0) + 1 AS version FROM cost_models WHERE case_id = $1",
@@ -462,13 +538,13 @@ export async function createCostModelVersion(caseId: string, assumptions: Econom
       [modelId, caseId, version, JSON.stringify(assumptions), JSON.stringify(results), actor],
     );
     await tx.query(
-      "UPDATE product_cases SET competitor_price_cents = $1, updated_at = NOW() WHERE id = $2",
-      [assumptions.salePriceCents, caseId],
+      "UPDATE product_cases SET competitor_price_cents = $1, updated_at = NOW() WHERE id = $2 AND is_demo = $3",
+      [assumptions.salePriceCents, caseId, isDemoMode(mode)],
     );
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'cost_model.created', 'product_case', $3, $4::jsonb)`,
-      [randomUUID(), actor, caseId, JSON.stringify({ version, assumptions, results })],
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'cost_model.created', 'product_case', $3, $4::jsonb, $5)`,
+      [randomUUID(), actor, caseId, JSON.stringify({ version, assumptions, results }), isDemoMode(mode)],
     );
   });
 

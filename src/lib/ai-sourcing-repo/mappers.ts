@@ -1,4 +1,5 @@
 import { getDb } from "../db.ts";
+import { isDemoMode, resolveAppMode, type ModeOptions } from "../app-mode.ts";
 import {
   DEFAULT_SOURCING_THRESHOLDS,
   type AISourcingContext,
@@ -30,8 +31,10 @@ import type {
   TaskRow,
 } from "./types.ts";
 
-export async function loadHypothesisContext(hypothesisId: string) {
+export async function loadHypothesisContext(hypothesisId: string, options?: ModeOptions) {
   const db = await getDb();
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const result = await db.query<HypothesisRow & {
     market_code: string;
     market_name: string;
@@ -54,8 +57,8 @@ export async function loadHypothesisContext(hypothesisId: string) {
      JOIN sourcing_briefs b ON b.id = r.brief_id
      JOIN markets m ON m.code = b.market_code
      JOIN platforms p ON p.code = b.platform_code
-     WHERE h.id = $1`,
-    [hypothesisId],
+     WHERE h.id = $1 AND r.is_demo = $2 AND b.is_demo = $2`,
+    [hypothesisId, demo],
   );
   const row = result.rows[0];
   if (!row) return null;
@@ -487,11 +490,15 @@ export function groupBy<T>(rows: T[], key: (row: T) => string) {
   return map;
 }
 
-export async function assertSelected(hypothesisId: string) {
+export async function assertSelected(hypothesisId: string, options?: ModeOptions) {
   const db = await getDb();
+  const mode = await resolveAppMode(options?.mode);
   const result = await db.query<{ selected_for_validation: boolean }>(
-    "SELECT selected_for_validation FROM opportunity_hypotheses WHERE id = $1",
-    [hypothesisId],
+    `SELECT h.selected_for_validation
+     FROM opportunity_hypotheses h
+     JOIN ai_sourcing_runs r ON r.id = h.run_id
+     WHERE h.id = $1 AND r.is_demo = $2`,
+    [hypothesisId, isDemoMode(mode)],
   );
   if (!result.rows[0]) throw new Error("机会假设不存在");
   if (!result.rows[0].selected_for_validation) throw new Error("请先把机会加入验证，再录入证据");

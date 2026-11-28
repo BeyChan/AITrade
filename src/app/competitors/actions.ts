@@ -20,7 +20,7 @@ import { createListingDraft, getContentDetail, listCasesForSite } from "@/lib/re
 import { getDb } from "@/lib/db";
 import { generateStructuredJSON } from "@/lib/ai-provider";
 import { loadAIProviderConfig } from "@/lib/app-settings";
-import { getAppMode } from "@/lib/app-mode";
+import { getAppMode, isDemoMode } from "@/lib/app-mode";
 import type { ListingDraftContent } from "@/lib/listing";
 import type { CompetitorAIConclusion, CompetitorComparisonReport } from "@/lib/competitor-compare/types";
 
@@ -43,15 +43,18 @@ export async function runCompetitorAnalysisAction(
   }
 
   try {
+    const mode = await getAppMode();
     const report = await analyzeCompetitors({
       rawInputs,
       marketCode,
       platformCode,
       currency,
+      mode,
     });
 
-    await saveComparisonReport(report);
+    await saveComparisonReport(report, { mode });
     await recordAuditLog({
+      mode,
       actor: "竞品操盘手",
       action: "competitor.report_created",
       entityType: "competitor_report",
@@ -71,11 +74,17 @@ export async function runCompetitorAnalysisAction(
 export async function deleteComparisonReportAction(reportId: string) {
   if (!reportId) return { success: false };
   try {
-    await deleteComparisonReport(reportId);
+    const mode = await getAppMode();
+    const demo = isDemoMode(mode);
+    await deleteComparisonReport(reportId, { mode });
     // 同步清理已删除研报在 1688 扩展回补列表中的残留目标
     const db = await getDb();
-    await db.query(`DELETE FROM competitor_sourcing_targets WHERE report_id = $1`, [reportId]).catch(() => {});
+    await db.query(
+      `DELETE FROM competitor_sourcing_targets WHERE report_id = $1 AND is_demo = $2`,
+      [reportId, demo],
+    ).catch(() => {});
     await recordAuditLog({
+      mode,
       actor: "竞品操盘手",
       action: "competitor.report_deleted",
       entityType: "competitor_report",
@@ -99,7 +108,8 @@ export async function saveCompetitorManualCostAction(
     return { success: false, error: "请输入大于 0 的人民币进价" };
   }
   try {
-    const existing = await getComparisonReportById(reportId);
+    const mode = await getAppMode();
+    const existing = await getComparisonReportById(reportId, { mode });
     if (!existing) return { success: false, error: "未找到对应的竞品研报" };
 
     const targetAsin = asin.trim().toUpperCase();
@@ -130,12 +140,12 @@ export async function saveCompetitorManualCostAction(
       ...existing,
       competitors: updatedCompetitors,
     };
-    await saveComparisonReport(updated);
+    await saveComparisonReport(updated, { mode });
     if (actualCny !== null) {
       const db = await getDb();
       await db.query(
-        `DELETE FROM competitor_sourcing_targets WHERE id = $1`,
-        [`${reportId}:${targetAsin}`],
+        `DELETE FROM competitor_sourcing_targets WHERE id = $1 AND is_demo = $2`,
+        [`${reportId}:${targetAsin}`, isDemoMode(mode)],
       ).catch(() => {});
     }
     revalidatePath("/competitors");
@@ -159,7 +169,8 @@ export async function saveCompetitorItemShippingAction(
     return { success: false, error: "请输入不小于 0 的运费金额" };
   }
   try {
-    const existing = await getComparisonReportById(reportId);
+    const mode = await getAppMode();
+    const existing = await getComparisonReportById(reportId, { mode });
     if (!existing) return { success: false, error: "未找到对应的竞品研报" };
 
     const targetAsin = asin.trim().toUpperCase();
@@ -183,7 +194,7 @@ export async function saveCompetitorItemShippingAction(
       ...existing,
       competitors: updatedCompetitors,
     };
-    await saveComparisonReport(updated);
+    await saveComparisonReport(updated, { mode });
     revalidatePath("/competitors");
     return { success: true, report: updated };
   } catch (err) {
@@ -200,10 +211,11 @@ export async function generateCompetitorConclusionAction(
 ): Promise<AnalysisActionResult> {
   if (!reportId) return { success: false, error: "缺少研报 ID" };
   try {
-    const existing = await getComparisonReportById(reportId);
+    const mode = await getAppMode();
+    const existing = await getComparisonReportById(reportId, { mode });
     if (!existing) return { success: false, error: "未找到对应的竞品研报" };
 
-    const config = await loadAIProviderConfig();
+    const config = await loadAIProviderConfig({ mode });
     if (config.provider === "template") {
       return {
         success: false,
@@ -265,7 +277,7 @@ export async function generateCompetitorConclusionAction(
       }),
       timeoutMs: 60_000,
       maxTokens: 4_096,
-    });
+    }, fetch, undefined, { mode });
 
     const parsed = JSON.parse(aiResp.content) as Partial<CompetitorAIConclusion>;
     const verdict: CompetitorAIConclusion["verdict"] =
@@ -286,8 +298,9 @@ export async function generateCompetitorConclusionAction(
       ...existing,
       aiConclusion: conclusion,
     };
-    await saveComparisonReport(updated);
+    await saveComparisonReport(updated, { mode });
     await recordAuditLog({
+      mode,
       actor: "竞品操盘手",
       action: "competitor.conclusion_generated",
       entityType: "competitor_report",
@@ -311,14 +324,17 @@ export async function reanalyzeCompetitorReportAction(
 ): Promise<AnalysisActionResult> {
   if (!reportId) return { success: false, error: "缺少研报 ID" };
   try {
-    const existing = await getComparisonReportById(reportId);
+    const mode = await getAppMode();
+    const existing = await getComparisonReportById(reportId, { mode });
     if (!existing) return { success: false, error: "未找到对应的竞品研报" };
 
     const updated = await reanalyzeExistingReport(existing, {
       excludeAsins: excludeAsin ? [excludeAsin] : undefined,
+      mode,
     });
-    await saveComparisonReport(updated);
+    await saveComparisonReport(updated, { mode });
     await recordAuditLog({
+      mode,
       actor: "竞品操盘手",
       action: excludeAsin ? "competitor.report_item_removed_reanalyzed" : "competitor.report_reanalyzed",
       entityType: "competitor_report",
@@ -346,12 +362,14 @@ export async function confirmComparisonReportAction(
   actor: string,
 ): Promise<{ success: boolean; error?: string; provenance?: string }> {
   if (!actor.trim()) return { success: false, error: "请填写核对人" };
-  const report = await getComparisonReportById(reportId);
+  const mode = await getAppMode();
+  const report = await getComparisonReportById(reportId, { mode });
   if (!report) return { success: false, error: "未找到对应的竞品对比报告" };
-  const demoMode = (await getAppMode()) === "sandbox";
-  const updated = await confirmComparisonReport(reportId, { allowUnverified: demoMode });
+  const demoMode = isDemoMode(mode);
+  const updated = await confirmComparisonReport(reportId, { allowUnverified: demoMode, mode });
   if (!updated) return { success: false, error: "确认失败，请刷新后重试" };
   await recordAuditLog({
+    mode,
     actor: actor.trim(),
     action: "competitor.report_confirmed",
     entityType: "competitor_report",
@@ -364,17 +382,18 @@ export async function confirmComparisonReportAction(
 
 export async function convertReportToHypothesisAction(reportId: string) {
   try {
-    let report = await getComparisonReportById(reportId);
+    const mode = await getAppMode();
+    let report = await getComparisonReportById(reportId, { mode });
     if (!report) {
       return { success: false, error: "未找到对应的竞品对比报告" };
     }
     let demoConfirmed = false;
     if (report.reviewStatus !== "confirmed") {
-      const demoMode = (await getAppMode()) === "sandbox";
+      const demoMode = isDemoMode(mode);
       if (!demoMode) {
         return { success: false, error: "请先在研报中点击「我已核对，确认可用」，再转入选品池" };
       }
-      report = await confirmComparisonReport(reportId, { allowUnverified: true });
+      report = await confirmComparisonReport(reportId, { allowUnverified: true, mode });
       if (!report) {
         return { success: false, error: "演示模式自动确认失败，请刷新后重试" };
       }
@@ -397,14 +416,15 @@ export async function convertReportToHypothesisAction(reportId: string) {
       recommendedPriceCents: Math.round(report.priceStats.p50),
       comparisonReportId: report.id,
       actor: "竞品对比",
-    });
+    }, { mode });
     await attachComparisonReportToHypothesis({
       hypothesisId: result.hypothesisId,
       reportId: report.id,
       actor: "竞品对比",
-    });
+    }, { mode });
     if (demoConfirmed) {
       await recordAuditLog({
+        mode,
         actor: "竞品对比",
         action: "competitor.report_confirmed",
         entityType: "competitor_report",
@@ -434,12 +454,13 @@ export async function generateAntiListingAction(
   reportId: string,
 ): Promise<{ success: boolean; data?: AntiListingResult; error?: string }> {
   try {
-    const report = await getComparisonReportById(reportId);
+    const mode = await getAppMode();
+    const report = await getComparisonReportById(reportId, { mode });
     if (!report) {
       return { success: false, error: "未找到对应的竞品对比报告" };
     }
 
-    const content = await generateAntiListingContent(report);
+    const content = await generateAntiListingContent(report, { mode });
     return { success: true, data: content };
   } catch (err) {
     return {
@@ -453,12 +474,13 @@ export async function generateSupplierRfqAction(
   reportId: string,
 ): Promise<{ success: boolean; data?: SupplierRfqDraft; error?: string }> {
   try {
-    const report = await getComparisonReportById(reportId);
+    const mode = await getAppMode();
+    const report = await getComparisonReportById(reportId, { mode });
     if (!report) {
       return { success: false, error: "未找到对应的竞品对比报告" };
     }
 
-    const rfq = await generateSupplierRfqFromCompetitors(report);
+    const rfq = await generateSupplierRfqFromCompetitors(report, { mode });
     return { success: true, data: rfq };
   } catch (err) {
     return {
@@ -473,7 +495,8 @@ export async function getAvailableCasesAction(
   platformCode: string,
 ): Promise<Array<{ id: string; title: string; asin: string; status: string }>> {
   try {
-    const cases = await listCasesForSite(marketCode, platformCode);
+    const mode = await getAppMode();
+    const cases = await listCasesForSite(marketCode, platformCode, { mode });
     return cases.map((c) => ({
       id: c.id,
       title: c.title,
@@ -563,6 +586,7 @@ export async function translateTo1688KeywordAction(
   title: string,
   fallbackKeyword?: string,
 ): Promise<{ keyword: string; searchUrl: string; translated: boolean }> {
+  const mode = await getAppMode();
   const raw = (title || "").trim();
   const genericFallback = /^(跨境源头工厂|外贸现货批发|跨境现货批发)$/;
   if (fallbackKeyword && !genericFallback.test(fallbackKeyword.trim())) {
@@ -578,14 +602,14 @@ export async function translateTo1688KeywordAction(
   }
 
   try {
-    const config = await loadAIProviderConfig();
+    const config = await loadAIProviderConfig({ mode });
     if (config.provider !== "template" && raw) {
       const res = await generateStructuredJSON({
         systemPrompt: `你是 1688 跨境采购选品专家。将英文亚马逊商品标题翻译为最适合在 1688 搜同款工厂的精炼中文关键词（6~14个汉字，保留核心品类词+关键结构/材质词，去掉品牌名、数量词与英文废话）。只输出 JSON：{"keyword":"中文搜索词"}`,
         userPrompt: raw,
         timeoutMs: 12_000,
         maxTokens: 120,
-      });
+      }, fetch, undefined, { mode });
       const parsed = JSON.parse(res.content) as { keyword?: string };
       if (parsed.keyword && /[\u4e00-\u9fa5]/.test(parsed.keyword)) {
         const kw = parsed.keyword.trim().slice(0, 24);
@@ -618,13 +642,14 @@ export async function applyAntiListingToCaseAction(
   error?: string;
 }> {
   try {
-    const report = await getComparisonReportById(reportId);
+    const mode = await getAppMode();
+    const report = await getComparisonReportById(reportId, { mode });
     if (!report) return { success: false, error: "未找到对应的竞品对比报告" };
     if (report.reviewStatus !== "confirmed") {
       return { success: false, error: "请先在研报中点击「我已核对，确认可用」，再写入商品草稿" };
     }
 
-    const detail = await getContentDetail(caseId);
+    const detail = await getContentDetail(caseId, { mode });
     if (!detail) return { success: false, error: "目标商品不存在" };
     // 只覆盖标题、五点与描述；品牌与搜索词沿用现有草稿，避免被空值洗掉
     const existing = (detail.listing?.content ?? {}) as Partial<ListingDraftContent>;
@@ -643,6 +668,7 @@ export async function applyAntiListingToCaseAction(
         searchTerms: String(existing.searchTerms ?? "").trim(),
       },
       actor.trim() || "竞品对比工作台",
+      { mode },
     );
 
     const placeholders = countVerifyPlaceholders(antiListing);
@@ -654,6 +680,7 @@ export async function applyAntiListingToCaseAction(
       : [];
 
     await recordAuditLog({
+      mode,
       actor: actor.trim() || "竞品对比工作台",
       action: "competitor.anti_listing_applied",
       entityType: "product_case",

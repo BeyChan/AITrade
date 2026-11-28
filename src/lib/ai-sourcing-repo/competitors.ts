@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { getDb } from "../db.ts";
+import { isDemoMode, resolveAppMode, type ModeOptions } from "../app-mode.ts";
 import { normalizeObservedAt, validateEvidenceUrl } from "../ai-sourcing.ts";
 import {
   buildCompetitorBenchmark,
@@ -41,9 +42,10 @@ export async function recordOpportunityEvidence(input: {
   sentiment?: "negative" | "neutral" | "positive";
   riskLevel?: "clear" | "review" | "found";
   actor: string;
-}) {
+}, options?: ModeOptions) {
   const db = await getDb();
-  await assertSelected(input.hypothesisId);
+  const mode = await resolveAppMode(options?.mode);
+  await assertSelected(input.hypothesisId, { mode });
   const evidenceId = randomUUID();
   const observedAt = normalizeObservedAt(input.observedAt || new Date().toISOString());
   const rawUrl = input.sourceUrl.trim();
@@ -96,7 +98,7 @@ export async function recordOpportunityEvidence(input: {
       );
     }
   });
-  return refreshAISelectionDecision(input.hypothesisId);
+  return refreshAISelectionDecision(input.hypothesisId, { mode });
 }
 
 export async function recordCompetitorEvidence(input: {
@@ -114,9 +116,10 @@ export async function recordCompetitorEvidence(input: {
   variationCount?: number | null;
   observedAt: string;
   actor: string;
-}) {
+}, options?: ModeOptions) {
   const db = await getDb();
-  await assertSelected(input.hypothesisId);
+  const mode = await resolveAppMode(options?.mode);
+  await assertSelected(input.hypothesisId, { mode });
   const evidenceId = randomUUID();
   const sourceUrl = validateEvidenceUrl(input.sourceUrl.trim());
   const observedAt = normalizeObservedAt(input.observedAt);
@@ -169,7 +172,7 @@ export async function recordCompetitorEvidence(input: {
       ],
     );
   });
-  return refreshAISelectionDecision(input.hypothesisId);
+  return refreshAISelectionDecision(input.hypothesisId, { mode });
 }
 
 export async function autoImportSiteCompetitors(input: {
@@ -179,13 +182,15 @@ export async function autoImportSiteCompetitors(input: {
   includeReviews?: boolean;
   rawPayload?: string;
   actor: string;
-}) {
+}, options?: ModeOptions) {
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const actor = input.actor.trim().slice(0, 80) || "运营人员";
-  let context = await loadHypothesisContext(input.hypothesisId);
+  let context = await loadHypothesisContext(input.hypothesisId, { mode });
   if (!context) throw new Error("机会假设不存在");
   if (!context.hypothesis.selectedForValidation) {
-    await selectHypothesisForValidation(input.hypothesisId, actor);
-    context = await loadHypothesisContext(input.hypothesisId);
+    await selectHypothesisForValidation(input.hypothesisId, actor, { mode });
+    context = await loadHypothesisContext(input.hypothesisId, { mode });
     if (!context) throw new Error("机会假设不存在");
   }
 
@@ -231,7 +236,7 @@ export async function autoImportSiteCompetitors(input: {
         query: defaultQuery,
         targetCount: input.targetCount ?? 20,
         observedAt,
-      });
+      }, { mode });
 
   if (pack.competitors.length === 0) {
     throw new Error("未能从输入内容中识别出有效竞品记录，请核对格式或使用 AI 一键导入");
@@ -384,8 +389,8 @@ export async function autoImportSiteCompetitors(input: {
     }
 
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'ai_sourcing.competitors_auto_imported', 'opportunity_hypothesis', $3, $4::jsonb)`,
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'ai_sourcing.competitors_auto_imported', 'opportunity_hypothesis', $3, $4::jsonb, $5)`,
       [
         randomUUID(),
         actor,
@@ -403,11 +408,12 @@ export async function autoImportSiteCompetitors(input: {
           insertedReviews,
           externalActions: "none",
         }),
+        demo,
       ],
     );
   });
 
-  const decision = await refreshAISelectionDecision(input.hypothesisId);
+  const decision = await refreshAISelectionDecision(input.hypothesisId, { mode });
   return {
     insertedCompetitors,
     skippedDuplicateCompetitors,
@@ -443,8 +449,11 @@ export type CaseBenchmarkLookupResult = {
 export async function loadCaseCompetitorBenchmark(
   caseId: string,
   selectedHypothesisId?: string | null,
+  options?: ModeOptions,
 ): Promise<CaseBenchmarkLookupResult> {
   const db = await getDb();
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const hypRows = await db.query<
     HypothesisRow & {
       market_code: string;
@@ -456,13 +465,14 @@ export async function loadCaseCompetitorBenchmark(
      FROM opportunity_hypotheses h
      JOIN ai_sourcing_runs r ON r.id = h.run_id
      JOIN sourcing_briefs b ON b.id = r.brief_id
-     WHERE h.product_case_id = $1
-        OR h.id = (
+     WHERE (h.product_case_id = $1 OR h.id = (
           SELECT source_record_id FROM product_cases
-          WHERE id = $1 AND source_code = 'ai_sourcing'
-        )
+          WHERE id = $1 AND source_code = 'ai_sourcing' AND is_demo = $2
+        ))
+       AND r.is_demo = $2
+       AND b.is_demo = $2
      ORDER BY h.created_at DESC`,
-    [caseId],
+    [caseId, demo],
   );
 
   const candidates = hypRows.rows.map((row) => ({
@@ -547,12 +557,14 @@ export async function attachComparisonReportToHypothesis(input: {
   hypothesisId: string;
   reportId: string;
   actor?: string;
-}) {
+}, options?: ModeOptions) {
   const db = await getDb();
-  const context = await loadHypothesisContext(input.hypothesisId);
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
+  const context = await loadHypothesisContext(input.hypothesisId, { mode });
   if (!context) throw new Error("候选方向不存在");
 
-  const report = await getComparisonReportById(input.reportId);
+  const report = await getComparisonReportById(input.reportId, { mode });
   if (!report) throw new Error("未找到对应的竞品扫描研报");
   if (report.reviewStatus !== "confirmed") {
     throw new Error("研报尚未人工确认，不能建立正式候选");
@@ -567,7 +579,7 @@ export async function attachComparisonReportToHypothesis(input: {
 
   const actor = (input.actor ?? "").trim() || "运营人员";
   if (!context.hypothesis.selectedForValidation) {
-    await selectHypothesisForValidation(input.hypothesisId, actor);
+    await selectHypothesisForValidation(input.hypothesisId, actor, { mode });
   }
 
   const existingRows = await db.query<{ asin: string | null; source_url: string }>(
@@ -705,22 +717,32 @@ export async function attachComparisonReportToHypothesis(input: {
     const referencePriceCents = report.priceStats.p50 > 0 ? Math.round(report.priceStats.p50) : null;
     if (referencePriceCents) {
       await tx.query(
-        `UPDATE opportunity_hypotheses
+        `UPDATE opportunity_hypotheses h
          SET comparison_report_id = $2,
              recommended_price_cents = $3
-         WHERE id = $1`,
-        [input.hypothesisId, report.id, referencePriceCents],
+         WHERE h.id = $1
+           AND EXISTS (
+             SELECT 1 FROM ai_sourcing_runs r
+             WHERE r.id = h.run_id AND r.is_demo = $4
+           )`,
+        [input.hypothesisId, report.id, referencePriceCents, demo],
       );
     } else {
       await tx.query(
-        "UPDATE opportunity_hypotheses SET comparison_report_id = $2 WHERE id = $1",
-        [input.hypothesisId, report.id],
+        `UPDATE opportunity_hypotheses h
+         SET comparison_report_id = $2
+         WHERE h.id = $1
+           AND EXISTS (
+             SELECT 1 FROM ai_sourcing_runs r
+             WHERE r.id = h.run_id AND r.is_demo = $3
+           )`,
+        [input.hypothesisId, report.id, demo],
       );
     }
 
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'ai_sourcing.scan_report_attached', 'opportunity_hypothesis', $3, $4::jsonb)`,
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'ai_sourcing.scan_report_attached', 'opportunity_hypothesis', $3, $4::jsonb, $5)`,
       [
         randomUUID(),
         actor,
@@ -732,11 +754,12 @@ export async function attachComparisonReportToHypothesis(input: {
           addedReviewSamples,
           referencePriceCents,
         }),
+        demo,
       ],
     );
   });
 
-  const decision = await refreshAISelectionDecision(input.hypothesisId);
+  const decision = await refreshAISelectionDecision(input.hypothesisId, { mode });
   return {
     runId: context.hypothesis.runId,
     addedCompetitors,

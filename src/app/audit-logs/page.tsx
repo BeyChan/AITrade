@@ -5,6 +5,7 @@ import {
   type AuditLogLevel,
   type AuditLogModule,
 } from "@/lib/audit-logs";
+import { getAppMode } from "@/lib/app-mode";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,7 @@ type PageProps = {
 };
 
 export default async function AuditLogsPage({ searchParams }: PageProps) {
+  const mode = await getAppMode();
   const sp = await searchParams;
   const q = sp.q?.trim() ?? "";
   const rawModule = (sp.module ?? "all") as AuditLogModule;
@@ -34,6 +36,7 @@ export default async function AuditLogsPage({ searchParams }: PageProps) {
   const page = Number(sp.page ?? "1") || 1;
 
   const result = await queryAuditLogs({
+    mode,
     q,
     module: selectedModule,
     level,

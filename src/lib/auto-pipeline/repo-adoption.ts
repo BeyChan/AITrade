@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { getDb } from "../db.ts";
 import { recordAuditLog } from "../audit-logs.ts";
+import { isDemoMode, resolveAppMode, type ModeOptions } from "../app-mode.ts";
 import {
   SELECTION_STATUS,
   canTransitionSelectionStatus,
@@ -23,11 +24,12 @@ async function ensureKanbanRunForPool(
     brief: string;
     requestKey: string;
     actor: string;
+    demo: boolean;
   },
 ): Promise<{ runId: string; nextPosition: number }> {
   const existing = await db.query<{ id: string }>(
-    `SELECT id FROM ai_sourcing_runs WHERE request_key = $1 LIMIT 1`,
-    [opts.requestKey],
+    `SELECT id FROM ai_sourcing_runs WHERE request_key = $1 AND is_demo = $2 LIMIT 1`,
+    [opts.requestKey, opts.demo],
   );
   let runId = existing.rows[0]?.id;
   if (!runId) {
@@ -35,8 +37,8 @@ async function ensureKanbanRunForPool(
     runId = randomUUID();
     await db.query(
       `INSERT INTO sourcing_briefs
-        (id, market_code, platform_code, category, brief, currency, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        (id, market_code, platform_code, category, brief, currency, created_by, is_demo)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [
         briefId,
         opts.marketCode.toUpperCase(),
@@ -45,13 +47,14 @@ async function ensureKanbanRunForPool(
         opts.brief.slice(0, 1200),
         opts.currency || "USD",
         opts.actor,
+        opts.demo,
       ],
     );
     await db.query(
       `INSERT INTO ai_sourcing_runs
-        (id, brief_id, provider, model, request_key, status, response_summary, completed_at)
-       VALUES ($1, $2, 'auto_pool', 'pool_triage', $3, 'completed', '{}'::jsonb, NOW())`,
-      [runId, briefId, opts.requestKey],
+        (id, brief_id, provider, model, request_key, status, response_summary, completed_at, is_demo)
+       VALUES ($1, $2, 'auto_pool', 'pool_triage', $3, 'completed', '{}'::jsonb, NOW(), $4)`,
+      [runId, briefId, opts.requestKey, opts.demo],
     );
   }
   const posRes = await db.query<{ max_pos: number }>(
@@ -64,14 +67,16 @@ async function ensureKanbanRunForPool(
 export async function adoptAutoCandidatesToKanban(input: {
   candidateIds: string[];
   actor?: string;
-}): Promise<{
+}, options?: ModeOptions): Promise<{
   adoptedCount: number;
   reusedCount: number;
   items: Array<{ candidateId: string; runId: string; hypothesisId: string; alreadyExisted: boolean }>;
 }> {
   const db = await getDb();
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const actor = input.actor?.trim() || "运营人员";
-  const rows = await resolveCandidatesByIds(db, input.candidateIds);
+  const rows = await resolveCandidatesByIds(db, input.candidateIds, demo);
   if (rows.length === 0) {
     throw new Error("未找到要采纳的候选记录");
   }
@@ -103,8 +108,10 @@ export async function adoptAutoCandidatesToKanban(input: {
       // 检查是否已有有效关联
       if (candidate.adopted_run_id && candidate.adopted_hypothesis_id) {
         const check = await db.query<{ id: string }>(
-          `SELECT id FROM opportunity_hypotheses WHERE id = $1 LIMIT 1`,
-          [candidate.adopted_hypothesis_id],
+          `SELECT h.id FROM opportunity_hypotheses h
+           JOIN ai_sourcing_runs r ON r.id = h.run_id
+           WHERE h.id = $1 AND r.is_demo = $2 LIMIT 1`,
+          [candidate.adopted_hypothesis_id, demo],
         );
         if (check.rows[0]) {
           reusedCount += 1;
@@ -138,6 +145,7 @@ export async function adoptAutoCandidatesToKanban(input: {
           brief: `来自 ${platformCode.toUpperCase()} ${marketCode} 选品线索池初筛采纳的候选品，进入统一 4 步验证漏斗。`,
           requestKey,
           actor,
+          demo,
         });
         runIdCache = ensured.runId;
         nextPos = ensured.nextPosition;
@@ -188,14 +196,14 @@ export async function adoptAutoCandidatesToKanban(input: {
       await db.query(
         `UPDATE auto_candidates
          SET adopted_run_id = $1, adopted_hypothesis_id = $2, selection_status = $3, updated_at = NOW()
-         WHERE platform_code = $4 AND market_code = $5 AND external_id = $6`,
-        [runIdCache, hypothesisId, SELECTION_STATUS.KANBAN_CANDIDATE, candidate.platform_code, candidate.market_code, candidate.external_id],
+         WHERE platform_code = $4 AND market_code = $5 AND external_id = $6 AND is_demo = $7`,
+        [runIdCache, hypothesisId, SELECTION_STATUS.KANBAN_CANDIDATE, candidate.platform_code, candidate.market_code, candidate.external_id, demo],
       );
       await db.query(
         `UPDATE auto_run_candidates
          SET adopted_run_id = $1, adopted_hypothesis_id = $2, selection_status = $3, updated_at = NOW()
-         WHERE platform_code = $4 AND market_code = $5 AND external_id = $6`,
-        [runIdCache, hypothesisId, SELECTION_STATUS.KANBAN_CANDIDATE, candidate.platform_code, candidate.market_code, candidate.external_id],
+         WHERE platform_code = $4 AND market_code = $5 AND external_id = $6 AND is_demo = $7`,
+        [runIdCache, hypothesisId, SELECTION_STATUS.KANBAN_CANDIDATE, candidate.platform_code, candidate.market_code, candidate.external_id, demo],
       );
 
       adoptedCount += 1;
@@ -207,6 +215,7 @@ export async function adoptAutoCandidatesToKanban(input: {
       });
 
       await recordAuditLog({
+        mode,
         actor,
         action: "auto_pipeline.candidate_adopted",
         entityType: "opportunity_hypothesis",
@@ -218,6 +227,7 @@ export async function adoptAutoCandidatesToKanban(input: {
           marketCode,
           externalId: candidate.external_id,
           grade: candidate.grade,
+          mode,
         },
       }).catch(() => {});
     }
@@ -235,9 +245,12 @@ export async function adoptAutoCandidatesToKanban(input: {
 export async function unadoptAutoCandidate(
   candidateId: string,
   actor = "运营人员",
+  options?: ModeOptions,
 ): Promise<{ hypothesisId: string | null; hypothesisDeleted: boolean }> {
   const db = await getDb();
-  const rows = await resolveCandidatesByIds(db, [candidateId]);
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
+  const rows = await resolveCandidatesByIds(db, [candidateId], demo);
   const candidate = rows[0];
   if (!candidate) {
     throw new Error("未找到对应的初筛候选记录");
@@ -256,14 +269,14 @@ export async function unadoptAutoCandidate(
   await db.query(
     `UPDATE auto_candidates
      SET adopted_run_id = NULL, adopted_hypothesis_id = NULL, selection_status = $1, updated_at = NOW()
-     WHERE platform_code = $2 AND market_code = $3 AND external_id = $4`,
-    [nextStatusAfterUnadopt, candidate.platform_code, candidate.market_code, candidate.external_id],
+     WHERE platform_code = $2 AND market_code = $3 AND external_id = $4 AND is_demo = $5`,
+    [nextStatusAfterUnadopt, candidate.platform_code, candidate.market_code, candidate.external_id, demo],
   );
   await db.query(
     `UPDATE auto_run_candidates
      SET adopted_run_id = NULL, adopted_hypothesis_id = NULL, selection_status = $1, updated_at = NOW()
-     WHERE platform_code = $2 AND market_code = $3 AND external_id = $4`,
-    [nextStatusAfterUnadopt, candidate.platform_code, candidate.market_code, candidate.external_id],
+     WHERE platform_code = $2 AND market_code = $3 AND external_id = $4 AND is_demo = $5`,
+    [nextStatusAfterUnadopt, candidate.platform_code, candidate.market_code, candidate.external_id, demo],
   );
 
   let hypothesisDeleted = false;
@@ -291,9 +304,10 @@ export async function unadoptAutoCandidate(
            (SELECT COUNT(*) FROM selection_decisions WHERE hypothesis_id = $1)
          )::int AS extra_records
        FROM opportunity_hypotheses h
+       JOIN ai_sourcing_runs r ON r.id = h.run_id AND r.is_demo = $2
        WHERE h.id = $1
        LIMIT 1`,
-      [hypothesisId],
+      [hypothesisId, demo],
     );
     const hyp = hypRes.rows[0];
     if (
@@ -304,7 +318,12 @@ export async function unadoptAutoCandidate(
       !hyp.eliminated_at &&
       hyp.extra_records === 0
     ) {
-      await db.query(`DELETE FROM opportunity_hypotheses WHERE id = $1`, [hypothesisId]);
+      await db.query(
+        `DELETE FROM opportunity_hypotheses h
+         USING ai_sourcing_runs r
+         WHERE h.id = $1 AND h.run_id = r.id AND r.is_demo = $2`,
+        [hypothesisId, demo],
+      );
       hypothesisDeleted = true;
 
       // 如果所属“线索池采纳”批次下已无任何候选，顺手清理该空批次避免看板出现空批 pill
@@ -316,15 +335,21 @@ export async function unadoptAutoCandidate(
              r.brief_id,
              r.request_key
            FROM ai_sourcing_runs r
-           WHERE r.id = $1
+           WHERE r.id = $1 AND r.is_demo = $2
            LIMIT 1`,
-          [targetRunId],
+          [targetRunId, demo],
         );
         const remain = remainRes.rows[0];
         if (remain && remain.count === 0 && remain.request_key?.startsWith("pool_adopted:")) {
-          await db.query(`DELETE FROM ai_sourcing_runs WHERE id = $1`, [targetRunId]);
+          await db.query(
+            `DELETE FROM ai_sourcing_runs WHERE id = $1 AND is_demo = $2`,
+            [targetRunId, demo],
+          );
           if (remain.brief_id) {
-            await db.query(`DELETE FROM sourcing_briefs WHERE id = $1`, [remain.brief_id]);
+            await db.query(
+              `DELETE FROM sourcing_briefs WHERE id = $1 AND is_demo = $2`,
+              [remain.brief_id, demo],
+            );
           }
         }
       }
@@ -332,6 +357,7 @@ export async function unadoptAutoCandidate(
   }
 
   await recordAuditLog({
+    mode,
     actor,
     action: "auto_pipeline.candidate_unadopted",
     entityType: "opportunity_hypothesis",
@@ -342,6 +368,7 @@ export async function unadoptAutoCandidate(
       marketCode: candidate.market_code,
       externalId: candidate.external_id,
       hypothesisDeleted,
+      mode,
     },
   }).catch(() => {});
 
@@ -358,12 +385,14 @@ export async function eliminateAutoCandidatesToBlacklist(input: {
   reason: string;
   note?: string;
   actor?: string;
-}): Promise<{ eliminatedCount: number }> {
+}, options?: ModeOptions): Promise<{ eliminatedCount: number }> {
   const db = await getDb();
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const actor = input.actor?.trim() || "运营人员";
   const reason = input.reason?.trim() || "其他";
   const note = input.note?.trim() || null;
-  const rows = await resolveCandidatesByIds(db, input.candidateIds);
+  const rows = await resolveCandidatesByIds(db, input.candidateIds, demo);
   if (rows.length === 0) {
     throw new Error("未找到要淘汰的候选记录");
   }
@@ -381,23 +410,24 @@ export async function eliminateAutoCandidatesToBlacklist(input: {
     await db.query(
       `UPDATE auto_candidates
        SET grade = 'ELIMINATED', verdict = 'NO-GO', selection_status = $1, reasons = $2::jsonb, updated_at = NOW()
-       WHERE platform_code = $3 AND market_code = $4 AND external_id = $5`,
-      [SELECTION_STATUS.ELIMINATED, JSON.stringify(nextReasons), candidate.platform_code, candidate.market_code, candidate.external_id],
+       WHERE platform_code = $3 AND market_code = $4 AND external_id = $5 AND is_demo = $6`,
+      [SELECTION_STATUS.ELIMINATED, JSON.stringify(nextReasons), candidate.platform_code, candidate.market_code, candidate.external_id, demo],
     );
     await db.query(
       `UPDATE auto_run_candidates
        SET grade = 'ELIMINATED', verdict = 'NO-GO', selection_status = $1, reasons = $2::jsonb, updated_at = NOW()
-       WHERE platform_code = $3 AND market_code = $4 AND external_id = $5`,
-      [SELECTION_STATUS.ELIMINATED, JSON.stringify(nextReasons), candidate.platform_code, candidate.market_code, candidate.external_id],
+       WHERE platform_code = $3 AND market_code = $4 AND external_id = $5 AND is_demo = $6`,
+      [SELECTION_STATUS.ELIMINATED, JSON.stringify(nextReasons), candidate.platform_code, candidate.market_code, candidate.external_id, demo],
     );
 
     // 若已采纳进看板，直接把该看板记录标记为淘汰；否则写入统一的“线索池避坑沉淀”批次
     if (candidate.adopted_hypothesis_id) {
       await db.query(
-        `UPDATE opportunity_hypotheses
+        `UPDATE opportunity_hypotheses h
          SET eliminated_at = NOW(), elimination_reason = $1, elimination_note = $2
-         WHERE id = $3`,
-        [reason, note || `${candidate.platform_code}/${candidate.market_code} 线索池淘汰`, candidate.adopted_hypothesis_id],
+         FROM ai_sourcing_runs r
+         WHERE h.id = $3 AND h.run_id = r.id AND r.is_demo = $4`,
+        [reason, note || `${candidate.platform_code}/${candidate.market_code} 线索池淘汰`, candidate.adopted_hypothesis_id, demo],
       );
     } else {
       const platformCode = candidate.platform_code.toLowerCase();
@@ -411,6 +441,7 @@ export async function eliminateAutoCandidatesToBlacklist(input: {
         brief: `从 ${platformCode.toUpperCase()} ${marketCode} 选品线索池直接淘汰沉淀的避坑记录。`,
         requestKey: `pool_blacklist:${platformCode}:${marketCode}`,
         actor,
+        demo,
       });
 
       const hypId = randomUUID();
@@ -442,18 +473,19 @@ export async function eliminateAutoCandidatesToBlacklist(input: {
       await db.query(
         `UPDATE auto_candidates
          SET adopted_run_id = $1, adopted_hypothesis_id = $2, updated_at = NOW()
-         WHERE platform_code = $3 AND market_code = $4 AND external_id = $5`,
-        [ensured.runId, hypId, candidate.platform_code, candidate.market_code, candidate.external_id],
+         WHERE platform_code = $3 AND market_code = $4 AND external_id = $5 AND is_demo = $6`,
+        [ensured.runId, hypId, candidate.platform_code, candidate.market_code, candidate.external_id, demo],
       );
       await db.query(
         `UPDATE auto_run_candidates
          SET adopted_run_id = $1, adopted_hypothesis_id = $2, updated_at = NOW()
-         WHERE platform_code = $3 AND market_code = $4 AND external_id = $5`,
-        [ensured.runId, hypId, candidate.platform_code, candidate.market_code, candidate.external_id],
+         WHERE platform_code = $3 AND market_code = $4 AND external_id = $5 AND is_demo = $6`,
+        [ensured.runId, hypId, candidate.platform_code, candidate.market_code, candidate.external_id, demo],
       );
     }
 
     await recordAuditLog({
+      mode,
       actor,
       action: "auto_pipeline.candidate_eliminated",
       entityType: "auto_candidate",
@@ -464,11 +496,12 @@ export async function eliminateAutoCandidatesToBlacklist(input: {
         externalId: candidate.external_id,
         reason,
         note,
+        mode,
       },
     }).catch(() => {});
   }
 
-  await recalculateRunCounts(db, affectedRunIds);
+  await recalculateRunCounts(db, affectedRunIds, demo);
   return { eliminatedCount: rows.length };
 }
 

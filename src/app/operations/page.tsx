@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getAppMode } from "@/lib/app-mode";
 import { OperationsReviewClient } from "@/components/operations-review-client";
 import { PageHeader } from "@/components/ui";
 import { listChannelSkuMappings, listOperationsBatches } from "@/lib/operations-repository";
@@ -8,14 +9,15 @@ import { resolvePersistedSiteScope } from "@/lib/site-scope";
 export const dynamic = "force-dynamic";
 
 export default async function OperationsReviewPage() {
+  const mode = await getAppMode();
   const [options, scope, savedBatches, mappings] = await Promise.all([
     getSiteOptions(),
     resolvePersistedSiteScope(),
-    listOperationsBatches(30).catch(() => []),
-    listChannelSkuMappings().catch(() => []),
+    listOperationsBatches(30, { mode }).catch(() => []),
+    listChannelSkuMappings(undefined, { mode }).catch(() => []),
   ]);
   const market = options.markets.find((m) => m.code === scope.marketCode) ?? options.markets[0];
-  const siteCases = await listCasesForSite(market?.code ?? "US", "amazon").catch(() => []);
+  const siteCases = await listCasesForSite(market?.code ?? "US", "amazon", { mode }).catch(() => []);
   const caseOptions = siteCases.map((c) => ({
     id: c.id,
     asin: c.asin,

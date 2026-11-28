@@ -41,7 +41,7 @@ test("loads default official FX rates and supports manual override and reset", a
   assert.equal(afterReset.byCurrency.USD.manualRateToRmb, null);
   assert.equal(getFxRate("USD"), OFFICIAL_FX_CONFIG.USD.rateToRmb);
 
-  const logs = await queryAuditLogs({ module: "settings", pageSize: 10 });
+  const logs = await queryAuditLogs({ mode: "sandbox", module: "settings", pageSize: 10 });
   const setLog = logs.items.find((entry) => entry.action === "fx.manual_rate_set");
   const clearLog = logs.items.find((entry) => entry.action === "fx.manual_rate_cleared");
   assert.ok(setLog);

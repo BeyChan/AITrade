@@ -3,6 +3,7 @@ import {
   opportunityScore,
   recommendationFor,
 } from "./economics.ts";
+import { getAppMode, isDemoMode, type ModeOptions } from "./app-mode.ts";
 import { convertForeignCentsToRmb } from "./currency.ts";
 import { getComparisonReports } from "./competitor-compare/storage.ts";
 import { getDb } from "./db.ts";
@@ -63,7 +64,12 @@ const DEFAULT_PROMPTS: Array<{ label: string; prompt: string }> = [
   { label: "防侵权排查", prompt: "Listing 标题与外观如何规避专利与品牌侵权？" },
 ];
 
-export async function loadCopilotContext(pathname: string, search = ""): Promise<CopilotContext> {
+export async function loadCopilotContext(
+  pathname: string,
+  search = "",
+  options?: ModeOptions,
+): Promise<CopilotContext> {
+  const mode = options?.mode ?? await getAppMode();
   const [rawPath, embeddedQuery = ""] = (pathname || "/").split("?");
   const cleanPath = rawPath || "/";
   const queryStr = search ? search.replace(/^\?/, "") : embeddedQuery;
@@ -75,7 +81,7 @@ export async function loadCopilotContext(pathname: string, search = ""): Promise
     const caseId = decodeURIComponent(caseMatch[1]);
     const subStage = caseMatch[2] || "overview";
     try {
-      const detail = await getCaseDetail(caseId);
+      const detail = await getCaseDetail(caseId, { mode });
       if (detail) {
         const { productCase, costModel, hasSupplierSelection } = detail;
         const currency = productCase.currency || costModel?.assumptions.currency || "USD";
@@ -105,7 +111,7 @@ export async function loadCopilotContext(pathname: string, search = ""): Promise
             targetMarginRate: 0.18,
           });
           const landedGapCents = assumptions.landedCostCents - target18.maxLandedCostCents;
-          const landedGapRmb = convertForeignCentsToRmb(Math.abs(landedGapCents), currency);
+          const landedGapRmb = convertForeignCentsToRmb(Math.abs(landedGapCents), currency, mode);
           const riskReasons: string[] = [];
           if (!result.isProfitable) riskReasons.push("基准情景亏损");
           if (result.stressProfitCents <= 0) riskReasons.push("压力情景亏损");
@@ -229,8 +235,13 @@ export async function loadCopilotContext(pathname: string, search = ""): Promise
   if (cleanPath === "/cases") {
     try {
       const db = await getDb();
+      const demo = isDemoMode(mode);
       const res = await db.query<{ status: string; count: string }>(
-        `SELECT status, COUNT(*)::text AS count FROM product_cases GROUP BY status`,
+        `SELECT status, COUNT(*)::text AS count
+         FROM product_cases
+         WHERE is_demo = $1
+         GROUP BY status`,
+        [demo],
       );
       let total = 0;
       let approved = 0;
@@ -261,7 +272,7 @@ export async function loadCopilotContext(pathname: string, search = ""): Promise
   // 3. 竞品对比工作台（精准匹配当前 ?id= 研报）
   if (cleanPath.startsWith("/competitors")) {
     try {
-      const reports = await getComparisonReports();
+      const reports = await getComparisonReports({ mode });
       const targetId = searchParams.get("id");
       const activeReport = (targetId ? reports.find((r) => r.id === targetId) : null) ?? reports[0];
       if (activeReport) {
@@ -295,9 +306,16 @@ export async function loadCopilotContext(pathname: string, search = ""): Promise
   if (cleanPath.startsWith("/operations")) {
     try {
       const db = await getDb();
+      const demo = isDemoMode(mode);
       const [batchRes, mapRes] = await Promise.all([
-        db.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM operations_batches`).catch(() => ({ rows: [] })),
-        db.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM channel_sku_mappings`).catch(() => ({ rows: [] })),
+        db.query<{ count: string }>(
+          `SELECT COUNT(*)::text AS count FROM operations_settlement_batches WHERE is_demo = $1`,
+          [demo],
+        ).catch(() => ({ rows: [] })),
+        db.query<{ count: string }>(
+          `SELECT COUNT(*)::text AS count FROM channel_sku_mappings WHERE is_demo = $1`,
+          [demo],
+        ).catch(() => ({ rows: [] })),
       ]);
       const batchCount = Number(batchRes.rows[0]?.count ?? 0);
       const mapCount = Number(mapRes.rows[0]?.count ?? 0);

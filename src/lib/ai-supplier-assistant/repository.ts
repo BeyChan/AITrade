@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { getDb } from "../db.ts";
+import { isDemoMode, resolveAppMode, type ModeOptions } from "../app-mode.ts";
 import { generateSupplierDraft } from "./draft.ts";
 import {
   SUPPLIER_DRAFT_PROMPT_VERSION,
@@ -103,9 +104,11 @@ export async function createSupplierDraft(input: {
   supplierShortlistId?: string | null;
   quoteValidUntil?: string | null;
   actor: string;
-}) {
+}, options?: ModeOptions) {
   const db = await getDb();
-  const context = await loadContext(input.hypothesisId);
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
+  const context = await loadContext(input.hypothesisId, demo);
   if (!context) throw new Error("机会假设不存在");
   if (!context.selected_for_validation) throw new Error("请先把机会加入验证");
 
@@ -115,10 +118,10 @@ export async function createSupplierDraft(input: {
   }
 
   const supplier = supplierShortlistId
-    ? await loadSupplier(input.hypothesisId, supplierShortlistId)
+    ? await loadSupplier(input.hypothesisId, supplierShortlistId, demo)
     : null;
   if (supplierShortlistId && !supplier) throw new Error("供应商不在当前机会下");
-  const quote = supplier ? await loadLatestQuote(input.hypothesisId, supplier.id) : null;
+  const quote = supplier ? await loadLatestQuote(input.hypothesisId, supplier.id, demo) : null;
   if (input.draftType === "expiry_reminder" && !quote) {
     throw new Error("生成报价到期提醒前，请先录入该供应商的真实报价");
   }
@@ -168,10 +171,10 @@ export async function createSupplierDraft(input: {
     quoteValidUntil,
   };
   const idempotencyKey = draftIdempotencyKey(input.draftType, facts);
-  const existing = await findByIdempotencyKey(idempotencyKey);
+  const existing = await findByIdempotencyKey(idempotencyKey, demo);
   if (existing) return { draft: existing, reused: true };
 
-  const generated = await generateSupplierDraft({ draftType: input.draftType, facts });
+  const generated = await generateSupplierDraft({ draftType: input.draftType, facts }, { mode });
   const actor = input.actor.trim().slice(0, 80) || "采购人员";
   const id = randomUUID();
   let inserted: DraftRow | null = null;
@@ -181,10 +184,10 @@ export async function createSupplierDraft(input: {
       `INSERT INTO ai_supplier_drafts
         (id, hypothesis_id, supplier_shortlist_id, draft_type, subject, body,
          missing_fields, questions, facts_snapshot, generation_mode, generation_note,
-         provider, model, prompt_version, schema_version, idempotency_key, created_by)
+         provider, model, prompt_version, schema_version, idempotency_key, created_by, is_demo)
        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10, $11,
-               $12, $13, $14, $15, $16, $17)
-       ON CONFLICT (idempotency_key) DO NOTHING
+               $12, $13, $14, $15, $16, $17, $18)
+       ON CONFLICT (idempotency_key, is_demo) DO NOTHING
        RETURNING *`,
       [
         id,
@@ -204,14 +207,15 @@ export async function createSupplierDraft(input: {
         SUPPLIER_DRAFT_SCHEMA_VERSION,
         idempotencyKey,
         actor,
+        demo,
       ],
     );
     inserted = result.rows[0] ?? null;
     if (!inserted) return;
 
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'ai_supplier.draft_generated', 'ai_supplier_draft', $3, $4::jsonb)`,
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'ai_supplier.draft_generated', 'ai_supplier_draft', $3, $4::jsonb, $5)`,
       [
         randomUUID(),
         actor,
@@ -226,21 +230,28 @@ export async function createSupplierDraft(input: {
           missingFieldCount: generated.content.missingFields.length,
           externalActions: "none",
           sent: false,
+          mode,
         }),
+        demo,
       ],
     );
   });
 
   if (!inserted) {
-    const concurrent = await findByIdempotencyKey(idempotencyKey);
+    const concurrent = await findByIdempotencyKey(idempotencyKey, demo);
     if (!concurrent) throw new Error("供应商草稿保存失败");
     return { draft: concurrent, reused: true };
   }
   return { draft: mapDraft(inserted), reused: false };
 }
 
-export async function reviewSupplierDraft(input: { draftId: string; actor: string }) {
+export async function reviewSupplierDraft(
+  input: { draftId: string; actor: string },
+  options?: ModeOptions,
+) {
   const db = await getDb();
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const actor = input.actor.trim().slice(0, 80) || "采购人员";
   let reviewed: DraftRow | null = null;
   let changed = false;
@@ -249,91 +260,106 @@ export async function reviewSupplierDraft(input: { draftId: string; actor: strin
     const result = await tx.query<DraftRow>(
       `UPDATE ai_supplier_drafts
        SET status = 'reviewed', reviewed_at = NOW(), reviewed_by = $2, updated_at = NOW()
-       WHERE id = $1 AND status = 'draft'
+       WHERE id = $1 AND status = 'draft' AND is_demo = $3
        RETURNING *`,
-      [input.draftId, actor],
+      [input.draftId, actor, demo],
     );
     reviewed = result.rows[0] ?? null;
     if (!reviewed) return;
     changed = true;
     await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'ai_supplier.draft_reviewed', 'ai_supplier_draft', $3, $4::jsonb)`,
+      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details, is_demo)
+       VALUES ($1, $2, 'ai_supplier.draft_reviewed', 'ai_supplier_draft', $3, $4::jsonb, $5)`,
       [
         randomUUID(),
         actor,
         input.draftId,
-        JSON.stringify({ status: "reviewed", externalActions: "none", sent: false }),
+        JSON.stringify({ status: "reviewed", externalActions: "none", sent: false, mode }),
+        demo,
       ],
     );
   });
 
   if (reviewed) return { draft: mapDraft(reviewed), changed };
-  const existing = await db.query<DraftRow>("SELECT * FROM ai_supplier_drafts WHERE id = $1", [input.draftId]);
+  const existing = await db.query<DraftRow>(
+    "SELECT * FROM ai_supplier_drafts WHERE id = $1 AND is_demo = $2",
+    [input.draftId, demo],
+  );
   const row = existing.rows[0];
   if (!row) throw new Error("供应商草稿不存在");
   if (row.status !== "reviewed") throw new Error("草稿状态已变化，请刷新后重试");
   return { draft: mapDraft(row), changed: false };
 }
 
-export async function listSupplierDraftsByRun(runId: string) {
+export async function listSupplierDraftsByRun(runId: string, options?: ModeOptions) {
   const db = await getDb();
+  const mode = await resolveAppMode(options?.mode);
+  const demo = isDemoMode(mode);
   const result = await db.query<DraftRow>(
     `SELECT d.* FROM ai_supplier_drafts d
      JOIN opportunity_hypotheses h ON h.id = d.hypothesis_id
+     JOIN ai_sourcing_runs r ON r.id = h.run_id
+     JOIN sourcing_briefs b ON b.id = r.brief_id
      WHERE h.run_id = $1
+       AND d.is_demo = $2
+       AND r.is_demo = $2
+       AND b.is_demo = r.is_demo
      ORDER BY d.created_at DESC`,
-    [runId],
+    [runId, demo],
   );
   return result.rows.map(mapDraft);
 }
 
-async function loadContext(hypothesisId: string) {
+async function loadContext(hypothesisId: string, demo: boolean) {
   const db = await getDb();
   const result = await db.query<HypothesisContextRow>(
     `SELECT h.id, h.concept, h.target_user, h.pain_point, h.differentiator,
             h.main_risks, h.selected_for_validation,
             b.category, b.market_code, b.platform_code, b.currency
      FROM opportunity_hypotheses h
-     JOIN ai_sourcing_runs r ON r.id = h.run_id
-     JOIN sourcing_briefs b ON b.id = r.brief_id
+     JOIN ai_sourcing_runs r ON r.id = h.run_id AND r.is_demo = $2
+     JOIN sourcing_briefs b ON b.id = r.brief_id AND b.is_demo = r.is_demo
      WHERE h.id = $1`,
-    [hypothesisId],
+    [hypothesisId, demo],
   );
   return result.rows[0] ?? null;
 }
 
-async function loadSupplier(hypothesisId: string, supplierId: string) {
+async function loadSupplier(hypothesisId: string, supplierId: string, demo: boolean) {
   const db = await getDb();
   const result = await db.query<SupplierRow>(
-    `SELECT id, supplier_name, platform, supplier_url, country, product_match
-     FROM supplier_shortlists
-     WHERE id = $1 AND hypothesis_id = $2`,
-    [supplierId, hypothesisId],
+    `SELECT s.id, s.supplier_name, s.platform, s.supplier_url, s.country, s.product_match
+     FROM supplier_shortlists s
+     JOIN opportunity_hypotheses h ON h.id = s.hypothesis_id
+     JOIN ai_sourcing_runs r ON r.id = h.run_id
+     WHERE s.id = $1 AND s.hypothesis_id = $2 AND r.is_demo = $3`,
+    [supplierId, hypothesisId, demo],
   );
   return result.rows[0] ?? null;
 }
 
-async function loadLatestQuote(hypothesisId: string, supplierId: string) {
+async function loadLatestQuote(hypothesisId: string, supplierId: string, demo: boolean) {
   const db = await getDb();
   const result = await db.query<QuoteRow>(
-    `SELECT id, currency, unit_price_cents, freight_per_unit_cents, landed_cost_cents,
-            moq, lead_time_days, sample_fee_cents, certifications, payment_terms,
-            incoterm, observed_at
-     FROM sourcing_supplier_quotes
-     WHERE hypothesis_id = $1 AND supplier_shortlist_id = $2
-     ORDER BY observed_at DESC, created_at DESC
+    `SELECT q.id, q.currency, q.unit_price_cents, q.freight_per_unit_cents, q.landed_cost_cents,
+            q.moq, q.lead_time_days, q.sample_fee_cents, q.certifications, q.payment_terms,
+            q.incoterm, q.observed_at
+     FROM sourcing_supplier_quotes q
+     JOIN opportunity_hypotheses h ON h.id = q.hypothesis_id
+     JOIN ai_sourcing_runs r ON r.id = h.run_id
+     WHERE q.hypothesis_id = $1 AND q.supplier_shortlist_id = $2 AND r.is_demo = $3
+     ORDER BY q.observed_at DESC, q.created_at DESC
      LIMIT 1`,
-    [hypothesisId, supplierId],
+    [hypothesisId, supplierId, demo],
   );
   return result.rows[0] ?? null;
 }
 
-async function findByIdempotencyKey(key: string) {
+async function findByIdempotencyKey(key: string, demo: boolean) {
   const db = await getDb();
   const result = await db.query<DraftRow>(
-    "SELECT * FROM ai_supplier_drafts WHERE idempotency_key = $1",
-    [key],
+    "SELECT * FROM ai_supplier_drafts WHERE idempotency_key = $1 AND is_demo = $2",
+    [key, demo],
   );
   return result.rows[0] ? mapDraft(result.rows[0]) : null;
 }
