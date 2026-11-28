@@ -150,7 +150,7 @@ const ACTION_QUEUE_STAGE_META: Record<
   CaseActionQueueStage,
   { label: string; shortAction: string; priority: number }
 > = {
-  stage1: { label: "待补选品与门禁", shortAction: "处理门禁", priority: 1 },
+  stage1: { label: "待核对利润与立项", shortAction: "核对利润", priority: 1 },
   stage2: { label: "待录入工厂报价", shortAction: "录入报价", priority: 2 },
   stage3: { label: "待对比定标", shortAction: "对比定标", priority: 3 },
   stage4: { label: "待完成内容与视觉", shortAction: "制作内容", priority: 4 },
