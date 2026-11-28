@@ -154,9 +154,33 @@
     <div id="previewBox" class="preview" style="display:none;"></div>
     <div class="btn-row">
       <button id="addBasketBtn" class="primary-green" style="display:none;">+ 加入对比篮子</button>
+      <button id="pushAutoPoolBtn" class="primary-green" style="display:none;">推送到自动选品池</button>
       <button id="captureBtn" disabled>等待页面识别…</button>
     </div>
-    <div id="status" class="status">在 Amazon 搜索页可一键采 Top 20；在详情页可逐个加入对比篮子后批量对比。</div>
+    <div id="status" class="status">在 Amazon 搜索页可一键采 Top 20 或推送自动选品池；在卖家后台可半自动填表上架。</div>
+  </div>
+
+  <div id="autofillCard" class="card">
+    <div class="basket-header">
+      <span>半自动上架填表助手（多平台可配置）</span>
+    </div>
+    <label for="autofillPlatform">目标上架平台</label>
+    <select
+      id="autofillPlatform"
+      style="width:100%;padding:7px 9px;border-radius:7px;border:1px solid #ccd6ce;font-size:12px;margin-bottom:8px;background:#fff;color:#18221d;"
+    >
+      <option value="amazon">Amazon Seller Central</option>
+      <option value="shopify">Shopify Admin</option>
+      <option value="tiktok_shop">TikTok Shop Seller</option>
+    </select>
+    <label for="autofillCaseSelect">选择已终审商品案卷</label>
+    <select
+      id="autofillCaseSelect"
+      style="width:100%;padding:7px 9px;border-radius:7px;border:1px solid #ccd6ce;font-size:12px;margin-bottom:8px;background:#fff;color:#18221d;"
+    >
+      <option value="">正在读取商品案卷…</option>
+    </select>
+    <button id="autofillBtn" class="secondary" type="button">拉取已终审文案并填入当前后台页</button>
   </div>
 
   <div id="basketCard" class="card" style="display:none;">

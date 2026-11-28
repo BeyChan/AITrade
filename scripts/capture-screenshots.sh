@@ -36,10 +36,12 @@ else
   firstCaseId="${firstCaseId:-e237c6bd-1dc6-4602-9ff5-ada329fb1c59}"
 fi
 
-# 输出文件名 | 路由（白天 / 黑夜各一张）。
+# 输出文件名 | 路由（工作台与自动选品池白天 / 黑夜各一张）。
 shots=(
   "aitrade-workspace-light.png|/?theme=light"
   "aitrade-workspace-dark.png|/?theme=dark"
+  "aitrade-auto-pipeline-light.png|/auto-pipeline?theme=light"
+  "aitrade-auto-pipeline-dark.png|/auto-pipeline?theme=dark"
 )
 
 for spec in "${shots[@]}"; do

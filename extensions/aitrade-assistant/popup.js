@@ -7,7 +7,11 @@ const extraFieldWrap = document.getElementById("extraFieldWrap");
 const caseSelect = document.getElementById("caseSelect");
 const previewBox = document.getElementById("previewBox");
 const addBasketBtn = document.getElementById("addBasketBtn");
+const pushAutoPoolBtn = document.getElementById("pushAutoPoolBtn");
 const captureBtn = document.getElementById("captureBtn");
+const autofillPlatform = document.getElementById("autofillPlatform");
+const autofillCaseSelect = document.getElementById("autofillCaseSelect");
+const autofillBtn = document.getElementById("autofillBtn");
 const statusEl = document.getElementById("status");
 const basketCard = document.getElementById("basketCard");
 const basketTitle = document.getElementById("basketTitle");
@@ -179,15 +183,42 @@ async function loadCaseOptions(server, selectedId) {
   }
 }
 
+async function loadAutofillCases(server) {
+  if (!autofillCaseSelect) return;
+  try {
+    const resp = await fetch(`${server}/api/cases/options`);
+    const json = await resp.json().catch(() => ({}));
+    const list = Array.isArray(json.cases) ? json.cases : [];
+    autofillCaseSelect.innerHTML = "";
+    if (list.length === 0) {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "暂无可上架商品案卷";
+      autofillCaseSelect.appendChild(opt);
+      return;
+    }
+    for (const c of list) {
+      const opt = document.createElement("option");
+      opt.value = c.id;
+      opt.textContent = `[${c.marketplace}] ${c.asin} · ${(c.title || "").slice(0, 22)}`;
+      autofillCaseSelect.appendChild(opt);
+    }
+  } catch {
+    autofillCaseSelect.innerHTML = '<option value="">未连接到 AITrade 服务</option>';
+  }
+}
+
 async function init() {
   const stored = await chrome.storage.local.get(["aitradeServerUrl", "aitradeSelectedCaseId", BASKET_KEY]);
   serverInput.value = stored.aitradeServerUrl || DEFAULT_SERVER;
   basket = Array.isArray(stored[BASKET_KEY]) ? stored[BASKET_KEY] : [];
   renderBasket();
+  loadAutofillCases(normalizeServer(serverInput.value));
 
   serverInput.addEventListener("change", () => {
     const next = normalizeServer(serverInput.value);
     chrome.storage.local.set({ aitradeServerUrl: next });
+    loadAutofillCases(next);
     if (mode === "1688") loadCaseOptions(next, caseSelect.value);
   });
   caseSelect.addEventListener("change", () => {
@@ -198,7 +229,13 @@ async function init() {
   currentTab = tab || null;
   const url = tab?.url || "";
 
-  if (/https?:\/\/([^/]+\.)?amazon\./i.test(url)) {
+  if (autofillPlatform) {
+    if (/sellercentral\.amazon\./i.test(url)) autofillPlatform.value = "amazon";
+    else if (/(?:admin\.shopify\.com|myshopify\.com\/admin)/i.test(url)) autofillPlatform.value = "shopify";
+    else if (/seller[^/]*\.tiktok/i.test(url)) autofillPlatform.value = "tiktok_shop";
+  }
+
+  if (/https?:\/\/([^/]+\.)?amazon\./i.test(url) && !/sellercentral\.amazon\./i.test(url)) {
     mode = "amazon";
     try {
       preExtractedAmazon = await extractAmazonPage(tab.id);
@@ -212,8 +249,13 @@ async function init() {
       siteBadge.textContent = `Amazon 搜索页 · ${count} 款`;
       previewBox.style.display = "block";
       previewBox.textContent = `已识别搜索词「${preExtractedAmazon.keyword || "当前页"}」下 ${count} 款可见竞品（含真实售价、评分、评论数）。`;
-      captureBtn.textContent = `一键采集全部 ${count} 款生成格局图`;
+      captureBtn.textContent = `采集生成格局研报 (${count})`;
+      captureBtn.className = "secondary";
       captureBtn.disabled = count === 0;
+      if (pushAutoPoolBtn) {
+        pushAutoPoolBtn.style.display = count > 0 ? "block" : "none";
+        pushAutoPoolBtn.disabled = count === 0;
+      }
       addBasketBtn.style.display = "none";
     } else if (preExtractedAmazon?.asin) {
       const pCents = parsePriceToCents(preExtractedAmazon.price);
@@ -466,5 +508,111 @@ captureBtn.addEventListener("click", async () => {
     captureBtn.disabled = false;
   }
 });
+
+if (pushAutoPoolBtn) {
+  pushAutoPoolBtn.addEventListener("click", async () => {
+    if (!currentTab?.id || !preExtractedAmazon || preExtractedAmazon.mode !== "serp") return;
+    const server = normalizeServer(serverInput.value);
+    await chrome.storage.local.set({ aitradeServerUrl: server });
+
+    const items = (preExtractedAmazon.items || []).map((it) => ({
+      externalId: it.asin,
+      asin: it.asin,
+      title: it.title,
+      brand: it.brand || "",
+      url: it.url || "",
+      currency: preExtractedAmazon.currency || "USD",
+      priceCents: parsePriceToCents(it.price),
+      boughtPastMonth: it.boughtPastMonth || null,
+      reviewCount: firstNumber(it.reviewCount),
+      rating: firstNumber(it.rating),
+      isSponsored: Boolean(it.isSponsored),
+    }));
+    if (items.length === 0) {
+      setStatus("当前页未识别到有效商品卡片", "err");
+      return;
+    }
+
+    pushAutoPoolBtn.disabled = true;
+    setStatus(`正在将 ${items.length} 款真实样本推送至自动选品池并自动算账分级…`);
+    try {
+      const resp = await fetch(`${server}/api/auto-pipeline`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platformCode: "amazon",
+          marketCode: preExtractedAmazon.marketCode || "US",
+          sourceType: "extension",
+          sourceLabel: preExtractedAmazon.keyword || "Amazon 搜索页",
+          items,
+        }),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok || !json.ok) {
+        throw new Error(json.error || `HTTP ${resp.status}`);
+      }
+      setStatus(
+        `已自动入池 ${json.run?.totalSeeds ?? items.length} 款（S:${json.run?.sCount ?? 0} / A:${json.run?.aCount ?? 0} / 淘汰:${json.run?.eliminatedCount ?? 0}），正在打开选品池…`,
+        "ok",
+      );
+      chrome.tabs.create({ url: `${server}${json.redirectUrl || "/auto-pipeline"}` });
+    } catch (err) {
+      setStatus(`推送自动选品池失败：${err instanceof Error ? err.message : String(err)}`, "err");
+    } finally {
+      pushAutoPoolBtn.disabled = false;
+    }
+  });
+}
+
+if (autofillBtn) {
+  autofillBtn.addEventListener("click", async () => {
+    if (!currentTab?.id) return;
+    const caseId = autofillCaseSelect?.value;
+    const platform = autofillPlatform?.value || "amazon";
+    if (!caseId) {
+      setStatus("请先选择一个已完成内容终审的商品案卷", "err");
+      return;
+    }
+    const server = normalizeServer(serverInput.value);
+    await chrome.storage.local.set({ aitradeServerUrl: server });
+
+    autofillBtn.disabled = true;
+    setStatus(`正在从 AITrade 拉取 ${platform.toUpperCase()} 标准化上架文案…`);
+    try {
+      const resp = await fetch(
+        `${server}/api/cases/${encodeURIComponent(caseId)}/listing-payload?platform=${encodeURIComponent(platform)}`,
+      );
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok || !json.ok) {
+        throw new Error(json.error || `HTTP ${resp.status}`);
+      }
+
+      await chrome.scripting.executeScript({
+        target: { tabId: currentTab.id },
+        files: ["autofill-profiles.js"],
+      });
+      const execResults = await chrome.scripting.executeScript({
+        target: { tabId: currentTab.id },
+        func: (payload, platformCode) =>
+          typeof runConfigurableAutofill === "function"
+            ? runConfigurableAutofill(payload, platformCode)
+            : null,
+        args: [json.payload, platform],
+      });
+      const res = execResults?.[0]?.result;
+      if (!res?.ok) {
+        throw new Error("未能在当前页面注入填表脚本");
+      }
+      setStatus(
+        `已在 ${res.profile} 自动填入 ${res.filledKeys.length} 个字段，并打开右下角悬浮复制助手！请核对并上传图片后人工发布。`,
+        "ok",
+      );
+    } catch (err) {
+      setStatus(`半自动填表失败：${err instanceof Error ? err.message : String(err)}`, "err");
+    } finally {
+      autofillBtn.disabled = false;
+    }
+  });
+}
 
 init();

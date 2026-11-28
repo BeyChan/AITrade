@@ -1387,3 +1387,80 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_cost_sheets_group_version_unique
   ON cost_sheets(group_id, version);
 
 ALTER TABLE opportunity_hypotheses ADD COLUMN IF NOT EXISTS cost_sheet_id TEXT;
+
+-- 多平台可配置自动选品配置、批次运行与候选分级池
+CREATE TABLE IF NOT EXISTS auto_pipeline_configs (
+  id TEXT PRIMARY KEY,
+  platform_code TEXT NOT NULL,
+  market_code TEXT NOT NULL,
+  currency TEXT NOT NULL DEFAULT 'USD',
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  label TEXT NOT NULL,
+  economics_defaults JSONB NOT NULL DEFAULT '{}'::jsonb,
+  thresholds JSONB NOT NULL DEFAULT '{}'::jsonb,
+  delivery_methods JSONB NOT NULL DEFAULT '["flatfile_tsv","extension_autofill"]'::jsonb,
+  inbox_dir TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(platform_code, market_code)
+);
+
+CREATE TABLE IF NOT EXISTS auto_pipeline_runs (
+  id TEXT PRIMARY KEY,
+  platform_code TEXT NOT NULL,
+  market_code TEXT NOT NULL,
+  source_type TEXT NOT NULL,
+  source_label TEXT NOT NULL DEFAULT '',
+  request_key TEXT,
+  status TEXT NOT NULL DEFAULT 'running'
+    CHECK (status IN ('running', 'completed', 'failed')),
+  total_seeds INTEGER NOT NULL DEFAULT 0,
+  s_count INTEGER NOT NULL DEFAULT 0,
+  a_count INTEGER NOT NULL DEFAULT 0,
+  b_count INTEGER NOT NULL DEFAULT 0,
+  hold_count INTEGER NOT NULL DEFAULT 0,
+  eliminated_count INTEGER NOT NULL DEFAULT 0,
+  summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+  error_message TEXT,
+  created_by TEXT NOT NULL DEFAULT 'system',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  completed_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_auto_pipeline_runs_platform_created
+  ON auto_pipeline_runs(platform_code, market_code, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS auto_candidates (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES auto_pipeline_runs(id) ON DELETE CASCADE,
+  platform_code TEXT NOT NULL,
+  market_code TEXT NOT NULL,
+  external_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  brand TEXT NOT NULL DEFAULT '',
+  category TEXT NOT NULL DEFAULT '',
+  url TEXT NOT NULL DEFAULT '',
+  currency TEXT NOT NULL DEFAULT 'USD',
+  price_cents INTEGER NOT NULL DEFAULT 0,
+  monthly_sales_estimate INTEGER NOT NULL DEFAULT 0,
+  review_count INTEGER NOT NULL DEFAULT 0,
+  rating REAL,
+  grade TEXT NOT NULL CHECK (grade IN ('S', 'A', 'B', 'HOLD', 'ELIMINATED')),
+  verdict TEXT NOT NULL CHECK (verdict IN ('HOLD', 'NO-GO', 'PENDING')),
+  score INTEGER NOT NULL DEFAULT 0,
+  estimated_margin_rate REAL NOT NULL DEFAULT 0,
+  max_landed_cost_cents INTEGER NOT NULL DEFAULT 0,
+  max_landed_cost_cny REAL NOT NULL DEFAULT 0,
+  pricing_source TEXT NOT NULL DEFAULT 'estimated',
+  evidence_source TEXT NOT NULL DEFAULT 'real',
+  reasons JSONB NOT NULL DEFAULT '[]'::jsonb,
+  metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
+  promoted_case_id TEXT,
+  observed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(platform_code, market_code, external_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_auto_candidates_platform_grade
+  ON auto_candidates(platform_code, market_code, grade, score DESC);
+
