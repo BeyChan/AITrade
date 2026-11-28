@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import path from "node:path";
 import {
   decryptSecret,
   encryptSecret,
@@ -8,7 +10,7 @@ import {
   validateBaseUrl,
 } from "./app-settings.ts";
 import { testAIProviderConnection } from "./ai-provider.ts";
-import { getDb } from "./db.ts";
+import { checkpointDb, getDb } from "./db.ts";
 import { testImageProviderConnection } from "./image-provider.ts";
 import { testVideoProviderConnection } from "./video-provider.ts";
 
@@ -420,13 +422,125 @@ async function seedLegacySettingsIfEmpty() {
   }
 }
 
+const VAULT_FILE = path.resolve(/* turbopackIgnore: true */ process.cwd(), ".data", "model-profiles.vault.json");
+
+type VaultProfileRecord = {
+  id: string;
+  service_type: ModelServiceType;
+  vendor: string;
+  protocol: string;
+  name: string;
+  base_url: string;
+  api_key_encrypted: string;
+  models_json: string;
+  default_model: string;
+  submit_endpoint: string;
+  query_endpoint: string;
+  supports_multi_image: boolean;
+  is_default: boolean;
+};
+
+async function syncProfilesVault() {
+  try {
+    const db = await getDb();
+    const res = await db.query<ModelProfileRow>(
+      `SELECT * FROM model_provider_profiles ORDER BY is_default DESC, updated_at DESC`,
+    );
+    const records: VaultProfileRecord[] = res.rows.map((r) => ({
+      id: r.id,
+      service_type: r.service_type,
+      vendor: r.vendor,
+      protocol: r.protocol,
+      name: r.name,
+      base_url: r.base_url,
+      api_key_encrypted: r.api_key_encrypted,
+      models_json: r.models_json,
+      default_model: r.default_model,
+      submit_endpoint: r.submit_endpoint,
+      query_endpoint: r.query_endpoint,
+      supports_multi_image: r.supports_multi_image,
+      is_default: r.is_default,
+    }));
+    await mkdir(path.dirname(VAULT_FILE), { recursive: true });
+    const tmp = `${VAULT_FILE}.${randomUUID()}.tmp`;
+    await writeFile(tmp, JSON.stringify({ schema: "aitrade.model_vault.v1", updatedAt: new Date().toISOString(), profiles: records }, null, 2), {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+    await rename(tmp, VAULT_FILE);
+  } catch {
+    // 镜像写入失败不阻断主流程
+  }
+}
+
+async function restoreFromVaultIfNeeded() {
+  let vaultProfiles: VaultProfileRecord[] = [];
+  try {
+    const raw = await readFile(VAULT_FILE, "utf8");
+    const parsed = JSON.parse(raw) as { profiles?: VaultProfileRecord[] };
+    if (Array.isArray(parsed.profiles)) vaultProfiles = parsed.profiles;
+  } catch {
+    return;
+  }
+  if (vaultProfiles.length === 0) return;
+
+  const db = await getDb();
+  const current = (await db.query<ModelProfileRow>(`SELECT * FROM model_provider_profiles`)).rows;
+
+  if (current.length === 0) {
+    for (const v of vaultProfiles) {
+      await db.query(
+        `INSERT INTO model_provider_profiles (
+          id, service_type, vendor, protocol, name, base_url, api_key_encrypted,
+          models_json, default_model, submit_endpoint, query_endpoint, supports_multi_image, is_default
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+        ON CONFLICT (id) DO NOTHING`,
+        [
+          v.id,
+          v.service_type,
+          v.vendor,
+          v.protocol,
+          v.name,
+          v.base_url,
+          v.api_key_encrypted,
+          v.models_json,
+          v.default_model,
+          v.submit_endpoint,
+          v.query_endpoint,
+          v.supports_multi_image,
+          v.is_default,
+        ],
+      );
+    }
+    return;
+  }
+
+  // 如果某条记录存在但 api_key_encrypted 为空（如备份恢复后），从本地加密镜像自动回补
+  for (const row of current) {
+    if (row.api_key_encrypted) continue;
+    const match =
+      vaultProfiles.find((v) => v.id === row.id && v.api_key_encrypted) ||
+      vaultProfiles.find((v) => v.service_type === row.service_type && v.name === row.name && v.base_url === row.base_url && v.api_key_encrypted);
+    if (match?.api_key_encrypted) {
+      await db.query(
+        `UPDATE model_provider_profiles SET api_key_encrypted = $2, updated_at = NOW() WHERE id = $1`,
+        [row.id, match.api_key_encrypted],
+      );
+    }
+  }
+}
+
 export async function listModelProfiles(): Promise<ModelProfilePublic[]> {
   await ensureProfilesTable();
+  await restoreFromVaultIfNeeded();
   await seedLegacySettingsIfEmpty();
   const db = await getDb();
   const res = await db.query<ModelProfileRow>(
     `SELECT * FROM model_provider_profiles ORDER BY is_default DESC, updated_at DESC`,
   );
+  if (res.rows.some((r) => Boolean(r.api_key_encrypted))) {
+    void syncProfilesVault();
+  }
   const out: ModelProfilePublic[] = [];
   for (const row of res.rows) {
     out.push(await toPublicProfile(row));
@@ -562,6 +676,8 @@ export async function saveModelProfile(input: SaveModelProfileInput): Promise<Mo
   });
 
   const saved = (await db.query<ModelProfileRow>(`SELECT * FROM model_provider_profiles WHERE id = $1`, [id])).rows[0]!;
+  await syncProfilesVault();
+  await checkpointDb();
   return toPublicProfile(saved);
 }
 

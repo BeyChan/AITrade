@@ -1,8 +1,14 @@
 import { PGlite } from "@electric-sql/pglite";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { calculateEconomics, type EconomicsAssumptions } from "./economics.ts";
+
+type DbLock = {
+  path: string;
+  pid: number;
+  token: string;
+};
 
 declare global {
   // eslint-disable-next-line no-var
@@ -11,6 +17,10 @@ declare global {
   var __aitradeDbInstance: PGlite | undefined;
   // eslint-disable-next-line no-var
   var __aitradeDbShutdownHooked: boolean | undefined;
+  // eslint-disable-next-line no-var
+  var __aitradeDbLock: DbLock | undefined;
+  // eslint-disable-next-line no-var
+  var __aitradeDbClosePromise: Promise<void> | undefined;
 }
 
 export type DbEngineInfo = {
@@ -35,6 +45,78 @@ export function getDb() {
   return globalThis.__aitradeDbPromise;
 }
 
+function isErrno(error: unknown, code: string) {
+  return error instanceof Error && (error as NodeJS.ErrnoException).code === code;
+}
+
+function isProcessAlive(pid: number) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return isErrno(error, "EPERM");
+  }
+}
+
+function readDbLock(lockPath: string): DbLock | null {
+  try {
+    const parsed = JSON.parse(readFileSync(lockPath, "utf8")) as Partial<DbLock>;
+    if (typeof parsed.pid !== "number" || typeof parsed.token !== "string") return null;
+    return { path: lockPath, pid: parsed.pid, token: parsed.token };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * PGlite 不支持两个进程同时打开同一数据目录。锁文件必须位于数据目录之外，
+ * 因为损坏目录被人工移走后，锁仍应能准确指向当前 owner。
+ */
+function acquireDbLock(dataDir: string) {
+  const lockPath = `${dataDir}.lock`;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const token = randomUUID();
+    try {
+      const fd = openSync(lockPath, "wx", 0o600);
+      try {
+        writeFileSync(fd, JSON.stringify({ pid: process.pid, token, startedAt: new Date().toISOString() }));
+      } catch (error) {
+        closeSync(fd);
+        rmSync(lockPath, { force: true });
+        throw error;
+      }
+      closeSync(fd);
+      globalThis.__aitradeDbLock = { path: lockPath, pid: process.pid, token };
+      return;
+    } catch (error) {
+      if (!isErrno(error, "EEXIST")) throw error;
+      const owner = readDbLock(lockPath);
+      if (owner && owner.pid !== process.pid && isProcessAlive(owner.pid)) {
+        throw new Error(
+          `[AITrade] 数据库正被另一个进程（PID ${owner.pid}）使用。请先停止旧的 dev/E2E 服务，再启动当前服务；为避免损坏，本次不会自动清理或重建数据。`,
+        );
+      }
+      // 进程已经退出，或锁文件残留，清理后重试一次。仅持有锁的进程才可清理 postmaster.pid。
+      rmSync(lockPath, { force: true });
+    }
+  }
+  throw new Error(`[AITrade] 无法获取数据库独占锁：${lockPath}`);
+}
+
+function releaseDbLock() {
+  const lock = globalThis.__aitradeDbLock;
+  if (!lock) return;
+  try {
+    const owner = readDbLock(lock.path);
+    if (!owner || owner.token === lock.token) rmSync(lock.path, { force: true });
+  } catch {
+    // 锁文件清理失败不应覆盖主流程错误。
+  } finally {
+    globalThis.__aitradeDbLock = undefined;
+  }
+}
+
 function removeStalePostmasterPid(dataDir: string) {
   const pidFile = path.join(dataDir, "postmaster.pid");
   if (existsSync(pidFile)) {
@@ -49,54 +131,58 @@ function removeStalePostmasterPid(dataDir: string) {
 function registerDbShutdownHooks() {
   if (globalThis.__aitradeDbShutdownHooked) return;
   globalThis.__aitradeDbShutdownHooked = true;
-  const closeSafely = () => {
-    const inst = globalThis.__aitradeDbInstance;
-    if (inst && !inst.closed) {
-      globalThis.__aitradeDbInstance = undefined;
-      globalThis.__aitradeDbPromise = undefined;
-      void inst.close().catch(() => undefined);
-    }
-  };
-  process.once("beforeExit", closeSafely);
-  process.once("SIGINT", closeSafely);
-  process.once("SIGTERM", closeSafely);
+  process.once("beforeExit", () => void closeDb());
+  process.once("SIGINT", () => void closeDb());
+  process.once("SIGTERM", () => void closeDb());
+  process.once("exit", releaseDbLock);
 }
 
-async function openPGliteWithRecovery(dataDir: string): Promise<PGlite> {
-  // PGlite 是单进程嵌入式数据库；dev 重启/异常中断常残留 postmaster.pid 导致 WASM Aborted()
-  if (!globalThis.__aitradeDbInstance) {
-    removeStalePostmasterPid(dataDir);
-  }
+export async function checkpointDb(): Promise<void> {
+  const instance = globalThis.__aitradeDbInstance;
+  if (!instance || instance.closed) return;
   try {
-    const db = new PGlite(dataDir);
+    await instance.exec("CHECKPOINT;");
+  } catch {
+    // CHECKPOINT 失败不阻断业务主流程
+  }
+}
+
+function closeDb() {
+  if (globalThis.__aitradeDbClosePromise) return globalThis.__aitradeDbClosePromise;
+  globalThis.__aitradeDbClosePromise = (async () => {
+    const instance = globalThis.__aitradeDbInstance;
+    try {
+      if (instance && !instance.closed) {
+        await instance.exec("CHECKPOINT;").catch(() => undefined);
+        await instance.close();
+      }
+    } catch {
+      // 关闭失败时仍释放进程锁；尽快退出比留下半关闭实例更安全。
+    } finally {
+      globalThis.__aitradeDbInstance = undefined;
+      globalThis.__aitradeDbPromise = undefined;
+      globalThis.__aitradeDbClosePromise = undefined;
+      releaseDbLock();
+    }
+  })();
+  return globalThis.__aitradeDbClosePromise;
+}
+
+async function openPGlite(dataDir: string): Promise<PGlite> {
+  // 只有当前进程已经拿到独占锁，才能清理上次异常退出留下的 postmaster.pid。
+  removeStalePostmasterPid(dataDir);
+  const db = new PGlite(dataDir);
+  try {
     await db.waitReady;
     return db;
-  } catch (firstError) {
-    // 若仍启动失败，先清理 postmaster.pid 重试一次
-    removeStalePostmasterPid(dataDir);
-    try {
-      const retryDb = new PGlite(dataDir);
-      await retryDb.waitReady;
-      return retryDb;
-    } catch {
-      // WAL checkpoint 损坏（例如双开 dev 或强杀进程导致 PANIC: could not locate a valid checkpoint record）
-      // 自动将损坏目录备份移走并重建干净库，避免服务永久 500 卡死
-      const backupDir = `${dataDir}.corrupted-${Date.now()}`;
-      try {
-        if (existsSync(dataDir)) {
-          renameSync(dataDir, backupDir);
-        }
-        mkdirSync(dataDir, { recursive: true });
-        console.warn(
-          `[AITrade] 检测到本地 PGlite 数据目录损坏（WAL checkpoint 异常），已自动备份至 ${backupDir} 并重建干净数据库。`,
-        );
-        const freshDb = new PGlite(dataDir);
-        await freshDb.waitReady;
-        return freshDb;
-      } catch {
-        throw firstError;
-      }
-    }
+  } catch (error) {
+    await db.close().catch(() => undefined);
+    const reason = error instanceof Error ? error.message : String(error);
+    const wrapped = new Error(
+      `[AITrade] 本地数据库启动失败，数据目录已原样保留：${dataDir}。不再自动改名或重建空库。请先停止所有 dev/E2E 进程、备份 .data 后重试。原始错误：${reason}`,
+    );
+    (wrapped as Error & { cause?: unknown }).cause = error;
+    throw wrapped;
   }
 }
 
@@ -110,13 +196,20 @@ async function initializeDb() {
   // PGlite opens this path at runtime; it must not be traced into the server bundle.
   const dataDir = path.isAbsolute(configuredDir) ? configuredDir : path.resolve(/* turbopackIgnore: true */ process.cwd(), configuredDir);
   mkdirSync(dataDir, { recursive: true });
-  const db = await openPGliteWithRecovery(dataDir);
-  globalThis.__aitradeDbInstance = db;
-  registerDbShutdownHooks();
-  const schema = readFileSync(path.resolve(process.cwd(), "db/schema.sql"), "utf8");
-  await db.exec(schema);
-  await seedDemoData(db);
-  return db;
+  acquireDbLock(dataDir);
+  try {
+    const db = await openPGlite(dataDir);
+    globalThis.__aitradeDbInstance = db;
+    registerDbShutdownHooks();
+    const schema = readFileSync(path.resolve(process.cwd(), "db/schema.sql"), "utf8");
+    await db.exec(schema);
+    await seedDemoData(db);
+    return db;
+  } catch (error) {
+    if (globalThis.__aitradeDbInstance) await closeDb();
+    else releaseDbLock();
+    throw error;
+  }
 }
 
 type DemoCase = {
