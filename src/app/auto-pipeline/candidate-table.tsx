@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { AutoCandidateResult } from "@/lib/auto-pipeline/types";
 import type { EliminatedHistoryRecord } from "@/lib/sourcing-funnel";
-import { btn, gradeBadgeStyle } from "./ui-styles";
+import { btn, gradeBadgeStyle, resolveCandidateFunnelState } from "./ui-styles";
 
 export type SortField = "grade" | "score" | "price" | "margin" | "maxCost" | "reviews";
 export type SortDir = "asc" | "desc";
@@ -118,10 +118,7 @@ export function CandidateTable(props: {
             const checked = selectedIds.includes(item.id);
             const hit = props.blacklistMap.get(item.id);
             const failReasons = item.reasons.filter((r) => r.severity === "fail");
-            const isAdopted = Boolean(item.adoptedRunId && item.adoptedHypothesisId);
-            const kanbanHref = isAdopted
-              ? `/ai-sourcing/${encodeURIComponent(item.adoptedRunId!)}?hypothesisId=${encodeURIComponent(item.adoptedHypothesisId!)}`
-              : "";
+            const state = resolveCandidateFunnelState(item);
 
             return (
               <tr
@@ -169,7 +166,7 @@ export function CandidateTable(props: {
                       {item.brand && (
                         <span style={{ fontSize: 11, color: "var(--muted)" }}>· {item.brand}</span>
                       )}
-                      {item.promotedCaseId && (
+                      {state.kind === "promoted" && (
                         <span
                           style={{
                             fontSize: 11,
@@ -180,7 +177,21 @@ export function CandidateTable(props: {
                             fontWeight: 600,
                           }}
                         >
-                          已立项案卷
+                          {state.label}
+                        </span>
+                      )}
+                      {state.kind === "adopted" && (
+                        <span
+                          style={{
+                            fontSize: 11,
+                            padding: "1px 6px",
+                            borderRadius: 4,
+                            background: "var(--accent-soft)",
+                            color: "var(--accent)",
+                            fontWeight: 600,
+                          }}
+                        >
+                          {state.label}
                         </span>
                       )}
                     </div>
@@ -269,9 +280,13 @@ export function CandidateTable(props: {
                   onClick={(e) => e.stopPropagation()}
                 >
                   <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                    {isAdopted ? (
+                    {state.kind === "promoted" ? (
+                      <Link href={state.href} style={btn.subtleGood}>
+                        查看案卷 →
+                      </Link>
+                    ) : state.kind === "adopted" ? (
                       <>
-                        <Link href={kanbanHref} style={btn.subtleGood}>
+                        <Link href={state.href} style={btn.subtleGood}>
                           查看看板 →
                         </Link>
                         <button
@@ -284,15 +299,17 @@ export function CandidateTable(props: {
                           {props.unadoptingId === item.id ? "取消中…" : "取消采纳"}
                         </button>
                       </>
-                    ) : (
+                    ) : state.kind === "pending" ? (
                       <button
                         type="button"
-                        disabled={props.busy || props.adoptingId === item.id || item.grade === "ELIMINATED"}
+                        disabled={props.busy || props.adoptingId === item.id}
                         onClick={() => props.onAdopt(item.id)}
-                        style={item.grade === "ELIMINATED" ? btn.disabled : btn.subtleAccent}
+                        style={btn.subtleAccent}
                       >
                         {props.adoptingId === item.id ? "采纳中…" : "采纳进看板"}
                       </button>
+                    ) : (
+                      <span style={{ fontSize: 12, color: "var(--muted)", paddingRight: 4 }}>已淘汰</span>
                     )}
 
                     <button

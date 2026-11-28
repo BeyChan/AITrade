@@ -1,5 +1,39 @@
 import type { CSSProperties } from "react";
-import type { AutoGrade } from "@/lib/auto-pipeline/types";
+import type { AutoCandidateResult, AutoGrade } from "@/lib/auto-pipeline/types";
+
+export type CandidateFunnelState =
+  | { kind: "promoted"; label: "已进商品案卷"; href: string }
+  | { kind: "adopted"; label: "已进选品看板"; href: string }
+  | { kind: "eliminated"; label: "已淘汰" }
+  | { kind: "pending"; label: "待分诊" };
+
+/**
+ * 选品初筛候选项的唯一互斥漏斗状态（严格按下游优先于上游排序）：
+ * 1. promoted   → 已进入正式「我的商品」案卷（不再回流看板）
+ * 2. eliminated → 已淘汰（不可采纳或直达案卷）
+ * 3. adopted    → 已采纳入「选品看板」（可跳转看板或安全取消采纳）
+ * 4. pending    → 待分诊（可采纳进看板 / 淘汰入避坑库 / S·A 级快轨直达案卷）
+ */
+export function resolveCandidateFunnelState(item: AutoCandidateResult): CandidateFunnelState {
+  if (item.promotedCaseId) {
+    return {
+      kind: "promoted",
+      label: "已进商品案卷",
+      href: `/cases/${encodeURIComponent(item.promotedCaseId)}`,
+    };
+  }
+  if (item.grade === "ELIMINATED") {
+    return { kind: "eliminated", label: "已淘汰" };
+  }
+  if (item.adoptedRunId && item.adoptedHypothesisId) {
+    return {
+      kind: "adopted",
+      label: "已进选品看板",
+      href: `/ai-sourcing/${encodeURIComponent(item.adoptedRunId)}?hypothesisId=${encodeURIComponent(item.adoptedHypothesisId)}`,
+    };
+  }
+  return { kind: "pending", label: "待分诊" };
+}
 
 export const panelStyle: CSSProperties = {
   background: "var(--paper)",

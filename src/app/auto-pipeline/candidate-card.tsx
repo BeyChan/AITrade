@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { AutoCandidateResult } from "@/lib/auto-pipeline/types";
 import type { EliminatedHistoryRecord } from "@/lib/sourcing-funnel";
-import { btn, gradeBadgeStyle, rowBetweenStyle, rowStyle } from "./ui-styles";
+import { btn, gradeBadgeStyle, resolveCandidateFunnelState, rowBetweenStyle, rowStyle } from "./ui-styles";
 
 export function CandidateCard(props: {
   item: AutoCandidateResult;
@@ -24,10 +24,7 @@ export function CandidateCard(props: {
   onDelete: (item: AutoCandidateResult) => void;
 }) {
   const { item, blacklistHit } = props;
-  const isAdopted = Boolean(item.adoptedRunId && item.adoptedHypothesisId);
-  const kanbanHref = isAdopted
-    ? `/ai-sourcing/${encodeURIComponent(item.adoptedRunId!)}?hypothesisId=${encodeURIComponent(item.adoptedHypothesisId!)}`
-    : "";
+  const state = resolveCandidateFunnelState(item);
 
   return (
     <div
@@ -62,9 +59,18 @@ export function CandidateCard(props: {
         </div>
 
         <div style={rowStyle}>
-          {isAdopted ? (
+          {state.kind === "promoted" ? (
             <>
-              <Link href={kanbanHref} style={btn.subtleGood}>
+              <Link href={state.href} style={btn.subtleGood}>
+                查看案卷 →
+              </Link>
+              <button type="button" disabled={props.unpromoting || props.busy} onClick={() => props.onUnpromote(item)} style={btn.secondary}>
+                {props.unpromoting ? "取消中…" : "取消案卷"}
+              </button>
+            </>
+          ) : state.kind === "adopted" ? (
+            <>
+              <Link href={state.href} style={btn.subtleGood}>
                 查看看板 →
               </Link>
               <button
@@ -76,16 +82,27 @@ export function CandidateCard(props: {
                 {props.unadopting ? "取消中…" : "取消采纳"}
               </button>
             </>
-          ) : (
-            <button
-              type="button"
-              disabled={props.adopting || props.busy || item.grade === "ELIMINATED"}
-              onClick={() => props.onAdopt(item.id)}
-              style={item.grade === "ELIMINATED" ? btn.disabled : btn.subtleAccent}
-            >
-              {props.adopting ? "采纳中…" : "采纳进看板"}
-            </button>
-          )}
+          ) : state.kind === "pending" ? (
+            <>
+              <button
+                type="button"
+                disabled={props.adopting || props.busy}
+                onClick={() => props.onAdopt(item.id)}
+                style={btn.subtleAccent}
+              >
+                {props.adopting ? "采纳中…" : "采纳进看板"}
+              </button>
+              <button
+                type="button"
+                disabled={props.promoting || props.busy}
+                onClick={() => props.onPromote(item.id)}
+                style={btn.secondary}
+                title="快轨通道：直接创建正式商品案卷（初始 HOLD）"
+              >
+                {props.promoting ? "推进中…" : "快轨案卷"}
+              </button>
+            </>
+          ) : null}
 
           <button type="button" onClick={() => props.onOpenDrawer(item)} style={btn.secondary}>
             详情
@@ -94,27 +111,6 @@ export function CandidateCard(props: {
           <a href={`/api/sourcing/1688-search?q=${encodeURIComponent(item.title.slice(0, 40))}`} target="_blank" rel="noreferrer" style={btn.secondary}>
             1688 找厂
           </a>
-
-          {item.promotedCaseId ? (
-            <>
-              <Link href={`/cases/${item.promotedCaseId}`} style={btn.subtleGood}>
-                正式案卷 →
-              </Link>
-              <button type="button" disabled={props.unpromoting || props.busy} onClick={() => props.onUnpromote(item)} style={btn.secondary}>
-                {props.unpromoting ? "取消中…" : "取消直达"}
-              </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              disabled={props.promoting || props.busy || item.grade === "ELIMINATED"}
-              onClick={() => props.onPromote(item.id)}
-              style={item.grade === "ELIMINATED" ? btn.disabled : btn.secondary}
-              title="快轨通道：直接创建正式商品案卷（初始 HOLD）"
-            >
-              {props.promoting ? "推进中…" : "快轨案卷"}
-            </button>
-          )}
 
           <button type="button" disabled={props.deleting || props.busy} onClick={() => props.onDelete(item)} style={btn.danger}>
             {props.deleting ? "删除中…" : "删除"}

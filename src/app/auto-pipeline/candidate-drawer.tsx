@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import type { AutoCandidateResult } from "@/lib/auto-pipeline/types";
 import { ELIMINATION_REASONS, type EliminatedHistoryRecord } from "@/lib/sourcing-funnel";
-import { btn, gradeBadgeStyle, inputStyle, rowBetweenStyle, rowStyle } from "./ui-styles";
+import { btn, gradeBadgeStyle, inputStyle, resolveCandidateFunnelState, rowBetweenStyle, rowStyle } from "./ui-styles";
 
 export function CandidateDrawer(props: {
   item: AutoCandidateResult | null;
@@ -30,10 +30,7 @@ export function CandidateDrawer(props: {
 
   if (!item) return null;
 
-  const isAdopted = Boolean(item.adoptedRunId && item.adoptedHypothesisId);
-  const kanbanHref = isAdopted
-    ? `/ai-sourcing/${encodeURIComponent(item.adoptedRunId!)}?hypothesisId=${encodeURIComponent(item.adoptedHypothesisId!)}`
-    : "";
+  const state = resolveCandidateFunnelState(item);
 
   const metricBox: React.CSSProperties = {
     padding: "10px 12px",
@@ -138,12 +135,27 @@ export function CandidateDrawer(props: {
           }}
         >
           <div style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)" }}>
-            主流程推进（推荐先采纳进看板，完成 4 步验证后再签发 GO）
+            当前阶段：<strong style={{ color: "var(--ink)" }}>{state.label}</strong>
+            {state.kind === "pending" && " · 推荐先采纳进选品看板完成 4 步验证"}
           </div>
           <div style={rowStyle}>
-            {isAdopted ? (
+            {state.kind === "promoted" ? (
               <>
-                <Link href={kanbanHref} style={btn.subtleGood}>
+                <Link href={state.href} style={btn.subtleGood}>
+                  查看商品案卷 →
+                </Link>
+                <button
+                  type="button"
+                  disabled={props.unpromoting || props.busy}
+                  onClick={() => props.onUnpromote(item)}
+                  style={btn.secondary}
+                >
+                  {props.unpromoting ? "取消中…" : "取消案卷关联"}
+                </button>
+              </>
+            ) : state.kind === "adopted" ? (
+              <>
+                <Link href={state.href} style={btn.subtleGood}>
                   已采纳 · 打开选品看板 →
                 </Link>
                 <button
@@ -154,26 +166,39 @@ export function CandidateDrawer(props: {
                 >
                   {props.unadopting ? "取消中…" : "取消采纳"}
                 </button>
+                <button
+                  type="button"
+                  disabled={props.busy}
+                  onClick={() => setShowElimBox((v) => !v)}
+                  style={btn.danger}
+                >
+                  淘汰入避坑库
+                </button>
+              </>
+            ) : state.kind === "pending" ? (
+              <>
+                <button
+                  type="button"
+                  disabled={props.adopting || props.busy}
+                  onClick={() => props.onAdopt(item.id)}
+                  style={btn.primary}
+                >
+                  {props.adopting ? "采纳中…" : "采纳入选品看板"}
+                </button>
+                <button
+                  type="button"
+                  disabled={props.busy}
+                  onClick={() => setShowElimBox((v) => !v)}
+                  style={btn.danger}
+                >
+                  淘汰入避坑库
+                </button>
               </>
             ) : (
-              <button
-                type="button"
-                disabled={props.adopting || props.busy || item.grade === "ELIMINATED"}
-                onClick={() => props.onAdopt(item.id)}
-                style={item.grade === "ELIMINATED" ? btn.disabled : btn.primary}
-              >
-                {props.adopting ? "采纳中…" : "采纳入选品看板"}
-              </button>
+              <span style={{ fontSize: 12, color: "var(--red)" }}>
+                该线索已淘汰，不可采纳进看板或立项。
+              </span>
             )}
-
-            <button
-              type="button"
-              disabled={props.busy}
-              onClick={() => setShowElimBox((v) => !v)}
-              style={btn.danger}
-            >
-              淘汰入避坑库
-            </button>
           </div>
 
           {showElimBox && (
@@ -333,26 +358,12 @@ export function CandidateDrawer(props: {
 
           <div style={{ ...rowBetweenStyle, paddingTop: 8, borderTop: "1px dashed var(--line)" }}>
             <div style={rowStyle}>
-              {item.promotedCaseId ? (
-                <>
-                  <Link href={`/cases/${item.promotedCaseId}`} style={btn.subtleGood}>
-                    查看正式案卷 →
-                  </Link>
-                  <button
-                    type="button"
-                    disabled={props.unpromoting || props.busy}
-                    onClick={() => props.onUnpromote(item)}
-                    style={btn.secondary}
-                  >
-                    {props.unpromoting ? "取消中…" : "取消直达案卷"}
-                  </button>
-                </>
-              ) : (
+              {state.kind === "pending" && (
                 <button
                   type="button"
-                  disabled={props.promoting || props.busy || item.grade === "ELIMINATED"}
+                  disabled={props.promoting || props.busy}
                   onClick={() => props.onPromote(item.id)}
-                  style={item.grade === "ELIMINATED" ? btn.disabled : btn.secondary}
+                  style={btn.secondary}
                   title="S/A 级快轨通道：跳过看板直接创建待定标商品案卷（初始 HOLD）"
                 >
                   {props.promoting ? "推进中…" : "快轨直达商品案卷"}
