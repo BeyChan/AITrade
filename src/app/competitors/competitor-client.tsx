@@ -3,7 +3,6 @@
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import {
-  isVerifiedCompetitorField,
   MAX_COMPARISON_REPORTS,
   type CompetitorComparisonReport,
   type CompetitorProfile,
@@ -13,7 +12,7 @@ import type { SupplierRfqDraft } from "@/lib/competitor-compare/supplier-rfq";
 import { shortDate } from "@/lib/format";
 import { calculateEconomics, type EconomicsAssumptions } from "@/lib/economics";
 import { platformEconomicDefaults } from "@/lib/ai-sourcing";
-import { convertRmbToForeignCents, OFFICIAL_FX_CONFIG } from "@/lib/currency";
+import { convertRmbToForeignCents } from "@/lib/currency";
 import { attachComparisonReportAction } from "@/app/actions";
 import {
   applyAntiListingToCaseAction,
@@ -94,7 +93,6 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
   const [isConfirming, setIsConfirming] = useState(false);
   const [reviewer, setReviewer] = useState("");
   const [quoteCostRmb, setQuoteCostRmb] = useState<number>(25);
-  const [costSource, setCostSource] = useState<"estimated" | "manual" | "captured_1688">("estimated");
   const [targetPriceVal, setTargetPriceVal] = useState<number>(39.99);
   const [benchmarkAsin, setBenchmarkAsin] = useState<string | null>(null);
   const [isReanalyzing, setIsReanalyzing] = useState(false);
@@ -293,12 +291,8 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
     // 单品研报且已回补/手工录入了进价：自动联动顶部核算面板，零手工重复填写
     if (singleItem && singleItem.sourcingCost?.actualCny && singleItem.sourcingCost.actualCny > 0) {
       setQuoteCostRmb(singleItem.sourcingCost.actualCny);
-      setCostSource(singleItem.sourcingCost.bestSupplierName === "手工录入" ? "manual" : "captured_1688");
     } else if (currentReport.sourcingAction?.suggestedCostCents) {
       setQuoteCostRmb(Number((currentReport.sourcingAction.suggestedCostCents / 100).toFixed(1)));
-      setCostSource("estimated");
-    } else {
-      setCostSource("estimated");
     }
     if (singleItem && singleItem.priceCents > 0) {
       setTargetPriceVal(Number((getBuyerTotalPriceCents(singleItem) / 100).toFixed(2)));
@@ -330,8 +324,6 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
   }, [currentReport?.id, singleItem?.asin]);
 
   const currency = currentReport?.currency || "USD";
-  const fxDef = OFFICIAL_FX_CONFIG[currency] || OFFICIAL_FX_CONFIG.USD;
-  const currentFx = fxDef.rateToRmb;
 
   const isSingleProduct = (currentReport?.competitors.length ?? 0) <= 1;
 
@@ -1013,7 +1005,6 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
 
           <CompetitorPkMatrix
             currentReport={currentReport}
-            currency={currency}
             isSingleProduct={isSingleProduct}
             isReanalyzing={isReanalyzing}
             removingAsin={removingAsin}
@@ -1030,7 +1021,6 @@ export function CompetitorClient({ initialReports, initialReportId, currentMarke
             setEditingShippingVal={setEditingShippingVal}
             isSavingShipping={isSavingShipping}
             setQuoteCostRmb={setQuoteCostRmb}
-            setCostSource={setCostSource}
             setTargetPriceVal={setTargetPriceVal}
             setBenchmarkAsin={setBenchmarkAsin}
             setStatusMsg={setStatusMsg}

@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { calculateEconomics, type EconomicsAssumptions } from "./economics.ts";
+import { runMigrations } from "./db-migrations.ts";
 
 type DbLock = {
   path: string;
@@ -201,8 +202,7 @@ async function initializeDb() {
     const db = await openPGlite(dataDir);
     globalThis.__aitradeDbInstance = db;
     registerDbShutdownHooks();
-    const schema = readFileSync(path.resolve(process.cwd(), "db/schema.sql"), "utf8");
-    await db.exec(schema);
+    await runMigrations(db);
     await seedDemoData(db);
     return db;
   } catch (error) {

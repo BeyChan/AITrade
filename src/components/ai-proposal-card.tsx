@@ -1,4 +1,3 @@
-import Link from "next/link";
 import {
   clampConfidence,
   type ProposalGeneration,
@@ -45,58 +44,5 @@ export function ProposalMeta({
         </span>
       ) : null}
     </div>
-  );
-}
-
-export function ProposalCard({
-  kindLabel,
-  title,
-  count,
-  reason,
-  summary,
-  generation,
-  confidence,
-  sourceQuote,
-  targetLabel,
-  statusLabel,
-  href,
-  actionLabel = "去处理",
-}: {
-  kindLabel: string;
-  title: string;
-  count?: number;
-  reason?: string;
-  summary?: string;
-  generation: ProposalGeneration;
-  confidence?: number | null;
-  sourceQuote?: string | null;
-  targetLabel?: string;
-  statusLabel?: string;
-  href: string;
-  actionLabel?: string;
-}) {
-  return (
-    <article className="ai-proposal-card">
-      <div className="ai-proposal-card-head">
-        <div>
-          <span className="ai-proposal-kind">{kindLabel}</span>
-          <strong>{title}</strong>
-        </div>
-        {count && count > 0 ? <span className="badge badge-neutral">{count} 条</span> : null}
-      </div>
-      {reason ? <p className="ai-proposal-reason">{reason}</p> : null}
-      {summary ? <p className="ai-proposal-summary">{summary}</p> : null}
-      <ProposalMeta
-        generation={generation}
-        confidence={confidence}
-        sourceQuote={sourceQuote}
-        targetLabel={targetLabel}
-        statusLabel={statusLabel}
-      />
-      <div className="ai-proposal-card-actions">
-        <Link href={href} className="button secondary">{actionLabel}</Link>
-        <small>人工确认前不会写入业务表，系统不自动执行外部动作</small>
-      </div>
-    </article>
   );
 }

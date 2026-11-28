@@ -13,15 +13,12 @@ import {
 } from "../cost-sheets-repository.ts";
 import {
   loadHypothesisContext,
-  mapDecision,
   mapDecisionQuote,
-  mapEvidence,
   riskLevel,
 } from "./mappers.ts";
 import {
   SYNTHETIC_SOURCE_SQL,
   type AISelectionDecision,
-  type DecisionRow,
   type EvidenceRow,
   type PromotableQuoteRow,
   type QuoteRow,

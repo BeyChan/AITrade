@@ -16,24 +16,6 @@ function corsHeaders(request: Request): Record<string, string> {
   };
 }
 
-async function ensureTable() {
-  const db = await getDb();
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS competitor_sourcing_targets (
-      id TEXT PRIMARY KEY,
-      report_id TEXT NOT NULL,
-      asin TEXT NOT NULL,
-      title TEXT NOT NULL DEFAULT '',
-      market_code TEXT NOT NULL DEFAULT 'US',
-      target_max_cny NUMERIC(10, 2) NOT NULL DEFAULT 0,
-      competitor_count INTEGER NOT NULL DEFAULT 1,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    ALTER TABLE competitor_sourcing_targets ADD COLUMN IF NOT EXISTS competitor_count INTEGER NOT NULL DEFAULT 1;
-  `);
-  return db;
-}
-
 export async function OPTIONS(request: Request) {
   return new Response(null, { status: 204, headers: corsHeaders(request) });
 }
@@ -42,7 +24,7 @@ export async function OPTIONS(request: Request) {
 export async function GET(request: Request) {
   const headers = corsHeaders(request);
   try {
-    const db = await ensureTable();
+    const db = await getDb();
     const res = await db.query<{
       report_id: string;
       asin: string;
@@ -107,7 +89,7 @@ export async function POST(request: Request) {
     if (!reportId || !asin) {
       return NextResponse.json({ error: "缺少 reportId 或 asin" }, { status: 400, headers });
     }
-    const db = await ensureTable();
+    const db = await getDb();
     const id = `${reportId}:${asin}`;
     const targetMaxCny = Number.isFinite(Number(body.targetMaxCny)) ? Math.max(0, Number(body.targetMaxCny)) : 0;
     const competitorCount = Number.isFinite(Number(body.competitorCount)) && Number(body.competitorCount) > 0

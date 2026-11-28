@@ -12,7 +12,6 @@ import {
 } from "./schema.ts";
 import {
   getAiInboxTask,
-  type AiInboxField,
   type AiInboxTaskDetail,
 } from "./repository.ts";
 import type { AiFieldStatus } from "./validator.ts";

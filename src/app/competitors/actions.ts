@@ -16,13 +16,11 @@ import {
 } from "@/lib/ai-sourcing-repository";
 import { countVerifyPlaceholders, generateAntiListingContent, type AntiListingResult } from "@/lib/competitor-compare/anti-listing";
 import { generateSupplierRfqFromCompetitors, type SupplierRfqDraft } from "@/lib/competitor-compare/supplier-rfq";
-import { createListingDraft, getContentDetail, listCasesForSite, listSupplierDirectory } from "@/lib/repository";
+import { createListingDraft, getContentDetail, listCasesForSite } from "@/lib/repository";
 import { getDb } from "@/lib/db";
 import { generateStructuredJSON } from "@/lib/ai-provider";
 import { loadAIProviderConfig } from "@/lib/app-settings";
 import { getAppMode } from "@/lib/app-mode";
-import { platformEconomicDefaults } from "@/lib/ai-sourcing";
-import { convertRmbToForeignCents, getFxRate } from "@/lib/currency";
 import type { ListingDraftContent } from "@/lib/listing";
 import type { CompetitorAIConclusion, CompetitorComparisonReport } from "@/lib/competitor-compare/types";
 
@@ -487,16 +485,6 @@ export async function getAvailableCasesAction(
   }
 }
 
-export type SupplierPickerOption = {
-  id: string;
-  name: string;
-  platform: string;
-  url: string | null;
-  priceCny: number | null;
-  moq: number | null;
-  notes: string;
-};
-
 const COMMON_EN_TO_ZH_TERMS: Array<[RegExp, string]> = [
   [/\bsponge\s+mop\b/gi, "海绵拖把"],
   [/\bflat\s+mop\b/gi, "平板拖把"],
@@ -615,72 +603,6 @@ export async function translateTo1688KeywordAction(
     searchUrl: encode1688GbkSearchUrl(finalKw),
     translated: /[\u4e00-\u9fa5]/.test(localZh),
   };
-}
-
-/** 从 1688 工厂库拉取可用工厂与参考人民币单价，供竞品研报核算面板一键回填 */
-export async function getSupplierQuotesForPickerAction(): Promise<SupplierPickerOption[]> {
-  try {
-    const { suppliers } = await listSupplierDirectory();
-    const db = await getDb();
-    const quoteRes = await db.query<{
-      supplier_id: string;
-      unit_price_cents: number;
-      currency: string;
-      moq: number | null;
-      raw_payload: Record<string, unknown> | null;
-    }>(
-      `SELECT r.supplier_id, q.unit_price_cents, q.currency, q.moq, q.raw_payload
-       FROM quotes q
-       JOIN rfqs r ON r.id = q.rfq_id
-       WHERE r.supplier_id IS NOT NULL
-       ORDER BY q.created_at DESC`,
-    );
-
-    const latestBySupplier = new Map<string, { priceCny: number | null; moq: number | null }>();
-    for (const row of quoteRes.rows) {
-      if (latestBySupplier.has(row.supplier_id)) continue;
-      const rawCny = Number(row.raw_payload?.priceCny);
-      const fx = Number(row.raw_payload?.fxRate) || 7.25;
-      let priceCny: number | null = null;
-      if (Number.isFinite(rawCny) && rawCny > 0) {
-        priceCny = Number(rawCny.toFixed(2));
-      } else if (row.unit_price_cents > 0) {
-        priceCny = row.currency === "CNY"
-          ? Number((row.unit_price_cents / 100).toFixed(2))
-          : Number(((row.unit_price_cents / 100) * fx).toFixed(2));
-      }
-      latestBySupplier.set(row.supplier_id, {
-        priceCny,
-        moq: row.moq && row.moq > 0 ? row.moq : null,
-      });
-    }
-
-    return suppliers.slice(0, 30).map((s) => {
-      const profile = (s as unknown as { profile?: Record<string, unknown> }).profile;
-      const profileCny = Number(profile?.priceCny);
-      const profileMoq = Number(profile?.moq);
-      const fromQuote = latestBySupplier.get(s.id);
-      const noteMatch = (s.notes || "").match(/¥\s*(\d+(?:\.\d{1,2})?)/);
-      const fromNote = noteMatch ? Number(noteMatch[1]) : null;
-      const priceCny = (Number.isFinite(profileCny) && profileCny > 0 ? profileCny : null)
-        ?? fromQuote?.priceCny
-        ?? (fromNote && Number.isFinite(fromNote) ? fromNote : null);
-      const moq = (Number.isFinite(profileMoq) && profileMoq > 0 ? Math.round(profileMoq) : null)
-        ?? fromQuote?.moq
-        ?? null;
-      return {
-        id: s.id,
-        name: s.name,
-        platform: s.platform || "1688",
-        url: s.url || null,
-        priceCny,
-        moq,
-        notes: (s.notes || "").slice(0, 80),
-      };
-    });
-  } catch {
-    return [];
-  }
 }
 
 export async function applyAntiListingToCaseAction(

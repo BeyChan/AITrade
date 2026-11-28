@@ -1,5 +1,4 @@
 import fs from "node:fs/promises";
-import path from "node:path";
 import { getDb } from "../db.ts";
 import {
   COMPETITOR_NUMERIC_FIELDS,
@@ -12,8 +11,9 @@ import {
   type SnapshotDiff,
 } from "./types.ts";
 
-const DATA_DIR = path.join(process.cwd(), ".data");
-const LEGACY_STORAGE_FILE = path.join(DATA_DIR, "competitor-comparisons.json");
+import { getRuntimeDataPath } from "../runtime-paths.ts";
+
+const LEGACY_STORAGE_FILE = getRuntimeDataPath("competitor-comparisons.json");
 
 export { MAX_COMPARISON_REPORTS };
 
@@ -58,20 +58,6 @@ async function migrateLegacyJsonIfNeeded(): Promise<void> {
   if (!competitorTableReadyPromise) {
     competitorTableReadyPromise = (async () => {
       const db = await getDb();
-      await db.exec(`
-        CREATE TABLE IF NOT EXISTS competitor_comparison_reports (
-          id TEXT PRIMARY KEY,
-          market_code TEXT NOT NULL DEFAULT 'US',
-          platform_code TEXT NOT NULL DEFAULT 'amazon',
-          provenance TEXT NOT NULL DEFAULT 'unknown',
-          review_status TEXT NOT NULL DEFAULT 'pending',
-          payload JSONB NOT NULL,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-        CREATE INDEX IF NOT EXISTS idx_competitor_comparison_reports_site
-          ON competitor_comparison_reports(market_code, platform_code, created_at DESC);
-      `);
       try {
         const raw = await fs.readFile(LEGACY_STORAGE_FILE, "utf-8");
         const parsed: unknown = JSON.parse(raw);

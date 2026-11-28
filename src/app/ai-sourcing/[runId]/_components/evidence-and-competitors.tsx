@@ -1,127 +1,10 @@
-import type { CSSProperties } from "react";
 import {
   autoImportCompetitorsAction,
   recordAISupplierQuoteAction,
-  recordCompetitorAction,
-  recordOpportunityEvidenceAction,
 } from "@/app/actions";
 import type { AISourcingHypothesisDetail } from "@/lib/ai-sourcing-repository";
-import { compactNumber, moneyIn, percent, shortDate } from "@/lib/format";
-import { isSyntheticCompetitorSource } from "@/lib/competitor-insights";
-import { type BatchType, dateInputValue, dateTimeInputValue } from "./helpers";
-
-export function EvidenceEntryForms({
-  hypothesisId,
-  runId,
-  observedAt,
-  marketCode = "US",
-  conceptKeyword = "",
-}: {
-  hypothesisId: string;
-  runId: string;
-  observedAt: string;
-  marketCode?: string;
-  conceptKeyword?: string;
-}) {
-  const googlePatentUrl = `https://patents.google.com/?q=${encodeURIComponent(conceptKeyword || "product")}`;
-  const usptoUrl = `https://ppubs.uspto.gov/pubwebapp/static/pages/ppubsbasic.html`;
-  return (
-    <>
-      <details className="entry-panel card ai-entry-panel" id={`entry-review-${hypothesisId}`}>
-        <summary><span><strong>录入差评痛点</strong><small>主题 + 样本数 + 代表性原话</small></span><span>＋</span></summary>
-        <form action={recordOpportunityEvidenceAction} className="entry-form form-grid">
-          <input type="hidden" name="runId" value={runId} />
-          <input type="hidden" name="hypothesisId" value={hypothesisId} />
-          <input type="hidden" name="evidenceType" value="review_insight" />
-          <input type="hidden" name="sourceType" value="review_page" />
-          <input type="hidden" name="observedAt" value={observedAt} />
-          <input type="hidden" name="actor" value="运营人员" />
-          <div className="field"><label>差评主题</label><input name="title" required maxLength={240} placeholder="例如：粘胶不牢易脱落" /></div>
-          <div className="field">
-            <label>差评样本数</label>
-            <input name="reviewSampleSize" type="number" min="1" required placeholder="例如：25" />
-          </div>
-          <div className="field full">
-            <label>代表性原文 / 痛点归纳</label>
-            <textarea name="summary" rows={2} required maxLength={1500} placeholder="粘贴或归纳买家原话与可改进点" />
-          </div>
-          <div className="field full">
-            <label>评论来源链接（选填）</label>
-            <input name="sourceUrl" type="url" placeholder="https://www.amazon.com/product-reviews/..." />
-          </div>
-          <button className="button primary" type="submit">保存差评</button>
-        </form>
-      </details>
-
-      <details className="entry-panel card ai-entry-panel" id={`entry-patent-${hypothesisId}`}>
-        <summary><span><strong>专利与合规核验</strong><small>一键检索后直接点选结论</small></span><span>＋</span></summary>
-        <form action={recordOpportunityEvidenceAction} className="entry-form form-grid">
-          <input type="hidden" name="runId" value={runId} />
-          <input type="hidden" name="hypothesisId" value={hypothesisId} />
-          <input type="hidden" name="evidenceType" value="patent_check" />
-          <input type="hidden" name="sourceType" value="patent_search" />
-          <input type="hidden" name="observedAt" value={observedAt} />
-          <input type="hidden" name="actor" value="运营人员" />
-          <input type="hidden" name="title" value={`${marketCode} 专利检索核验`} />
-          <div className="field full button-row">
-            <a href={googlePatentUrl} target="_blank" rel="noreferrer" className="button secondary compact-button">
-              Google Patents 检索 ↗
-            </a>
-            <a href={usptoUrl} target="_blank" rel="noreferrer" className="button secondary compact-button">
-              USPTO 检索 ↗
-            </a>
-          </div>
-          <RiskLevelField />
-          <div className="field">
-            <label>检索链接（选填）</label>
-            <input name="sourceUrl" type="url" placeholder="选填，默认记检索页" />
-          </div>
-          <div className="field full">
-            <label>核验备注</label>
-            <input name="summary" required maxLength={1500} defaultValue="已完成外观与结构专利初筛，未发现阻断性侵权风险" />
-          </div>
-          <button className="button primary" type="submit">保存专利结论</button>
-        </form>
-      </details>
-
-      <details className="entry-panel card ai-entry-panel" id={`entry-logistics-${hypothesisId}`}>
-        <summary><span><strong>包装与物流核验</strong><small>体积重、限制与退货可执行性</small></span><span>＋</span></summary>
-        <form action={recordOpportunityEvidenceAction} className="entry-form form-grid">
-          <input type="hidden" name="runId" value={runId} />
-          <input type="hidden" name="hypothesisId" value={hypothesisId} />
-          <input type="hidden" name="evidenceType" value="logistics_check" />
-          <input type="hidden" name="sourceType" value="logistics_check" />
-          <input type="hidden" name="observedAt" value={observedAt} />
-          <input type="hidden" name="actor" value="运营人员" />
-          <input type="hidden" name="title" value={`${marketCode} 包装与物流核验`} />
-          <RiskLevelField />
-          <div className="field">
-            <label>测算链接（选填）</label>
-            <input name="sourceUrl" type="url" placeholder="选填" />
-          </div>
-          <div className="field full">
-            <label>物流结论备注</label>
-            <input name="summary" required maxLength={1500} defaultValue="标准件体积重可控，无危险品/超尺寸附加费限制" />
-          </div>
-          <button className="button primary" type="submit">保存物流结论</button>
-        </form>
-      </details>
-    </>
-  );
-}
-
-function RiskLevelField() {
-  return (
-    <div className="field">
-      <label>人工结论</label>
-      <select name="riskLevel" defaultValue="review" required>
-        <option value="clear">无明显风险 / 可执行</option>
-        <option value="review">仍需复核</option>
-        <option value="found">发现阻断风险</option>
-      </select>
-    </div>
-  );
-}
+import { compactNumber, moneyIn, percent } from "@/lib/format";
+import { type BatchType } from "./helpers";
 
 export function CompetitorBenchmarkPanel({
   batch,
@@ -343,42 +226,6 @@ export function AutoCompetitorImportCard({
           />
         </div>
         <button type="submit" className="button primary">批量解析并导入</button>
-      </form>
-    </details>
-  );
-}
-
-export function CompetitorEntryForm({
-  hypothesisId,
-  runId,
-  observedAt,
-  currency,
-}: {
-  hypothesisId: string;
-  runId: string;
-  observedAt: string;
-  currency: string;
-}) {
-  return (
-    <details className="entry-panel card ai-entry-panel" id={`competitor-entry-${hypothesisId}`}>
-      <summary><span><strong>录入真实竞品</strong><small>链接、价格、评论数、评分与观察时间</small></span><span>＋</span></summary>
-      <form action={recordCompetitorAction} className="entry-form form-grid">
-        <input type="hidden" name="runId" value={runId} />
-        <input type="hidden" name="hypothesisId" value={hypothesisId} />
-        <div className="field full"><label>竞品标题</label><input name="title" required maxLength={240} /></div>
-        <div className="field full"><label>竞品 URL</label><input name="sourceUrl" type="url" required placeholder="https://..." /></div>
-        <div className="field"><label>ASIN / 商品 ID</label><input name="asin" maxLength={80} /></div>
-        <div className="field"><label>价格（{currency}）</label><input name="price" type="number" min="0.01" step="0.01" required /></div>
-        <div className="field"><label>评分</label><input name="rating" type="number" min="0" max="5" step="0.01" /></div>
-        <div className="field"><label>评论数</label><input name="reviewCount" type="number" min="0" step="1" defaultValue="0" required /></div>
-        <div className="field"><label>BSR</label><input name="bsr" type="number" min="1" step="1" /></div>
-        <div className="field"><label>卖家数</label><input name="sellerCount" type="number" min="1" step="1" /></div>
-        <div className="field"><label>变体数</label><input name="variationCount" type="number" min="1" step="1" /></div>
-        <div className="field"><label>月销量下限（仅填平台可见值）</label><input name="monthlySalesMin" type="number" min="1" step="1" /></div>
-        <div className="field"><label>月销量上限（仅填平台可见值）</label><input name="monthlySalesMax" type="number" min="1" step="1" /></div>
-        <div className="field"><label>观察时间</label><input name="observedAt" type="datetime-local" defaultValue={observedAt} required /></div>
-        <div className="field full"><label>录入人</label><input name="actor" defaultValue="运营人员" required maxLength={80} /></div>
-        <button className="button primary" type="submit">记录竞品快照</button>
       </form>
     </details>
   );

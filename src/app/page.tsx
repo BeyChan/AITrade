@@ -102,9 +102,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       };
     }),
   );
-  const batchSelectedCount = batches.reduce((sum, batch) => sum + batch.selectedCount, 0);
   const batchGoCount = batches.reduce((sum, batch) => sum + batch.goCount, 0);
-  const pendingVerificationCount = Math.max(batchSelectedCount - batchGoCount, 0);
   const activeBatch = batches.find((batch) => batch.selectedCount > batch.goCount) ?? batches[0];
   const demoCount = activeCases.filter((item) => item.is_demo).length;
   const siteTerminatedCases = terminatedCases.filter(

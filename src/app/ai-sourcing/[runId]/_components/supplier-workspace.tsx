@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { CopyDraftButton } from "@/components/copy-draft-button";
 import { ProposalMeta } from "@/components/ai-proposal-card";
 import {
@@ -25,7 +24,7 @@ import {
 import type { SupplierDraft } from "@/lib/ai-supplier-assistant/repository";
 import { moneyIn, percent, shortDate } from "@/lib/format";
 import { buildSupplierLeads } from "@/lib/supplier-discovery";
-import { type BatchType, dateInputValue } from "./helpers";
+import { dateInputValue } from "./helpers";
 import { SupplierLeadQuickSearch } from "./supplier-lead-quick-search";
 
 export function SupplierDiscoveryWorkspace({
@@ -407,30 +406,6 @@ export function DecisionPanel({
         <span>报价 {hypothesis.counts.quotes}</span>
       </div>
     </section>
-  );
-}
-
-export function QueryGroup({
-  title,
-  items,
-  hrefFor,
-  actionLabel,
-}: {
-  title: string;
-  items: string[];
-  hrefFor: (item: string) => string;
-  actionLabel: string;
-}) {
-  return (
-    <div className="ai-query-group">
-      <strong>{title}</strong>
-      {items.map((item) => (
-        <a href={hrefFor(item)} target="_blank" rel="noreferrer" key={item}>
-          <span>{item}</span>
-          <small>{actionLabel}</small>
-        </a>
-      ))}
-    </div>
   );
 }
 

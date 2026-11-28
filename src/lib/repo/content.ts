@@ -1,14 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { getDb } from "../db.ts";
 import { isSupportedImageSlot, type ImageAssetSlot } from "../image-skills.ts";
-import { preflightListing, type ListingDraftContent } from "../listing.ts";
+import { type ListingDraftContent } from "../listing.ts";
 import {
   approveChannelVersionWithExecutor,
   ensureChannelFoundation,
   saveChannelVersionWithExecutor,
 } from "./channel-helpers.ts";
 import { getCaseWorkflowFacts } from "./cases.ts";
-import { getSourcingDetail } from "./sourcing.ts";
 import type {
   AssetRow,
   AuditRow,
@@ -18,7 +17,6 @@ import type {
   ListingReviewRow,
   ListingRow,
   ProductCaseRow,
-  ProductRow,
   SupplierSelectionRow,
 } from "../types.ts";
 

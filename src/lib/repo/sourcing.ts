@@ -3,12 +3,11 @@ import type { AppMode } from "../app-mode.ts";
 import { getDb } from "../db.ts";
 import { calculateEconomics, opportunityScore, recommendationFor, type EconomicsAssumptions } from "../economics.ts";
 import { analyzeSupplierQuotes } from "../sourcing.ts";
-import { getCaseDetail, getCaseWorkflowFacts, listCases, resolveCurrentMode } from "./cases.ts";
+import { getCaseWorkflowFacts, resolveCurrentMode } from "./cases.ts";
 import type {
   AuditRow,
   CostModelRow,
   ProductCaseRow,
-  ProductRow,
   QuoteRow,
   RfqRow,
   SourcingCaseSummary,
@@ -524,7 +523,6 @@ export async function listSupplierDirectory(): Promise<{
   };
 }> {
   const db = await getDb();
-  await db.exec(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS profile JSONB NOT NULL DEFAULT '{}'::jsonb;`);
 
   // 1. 如果供应商库为空，自动初始化 4 家 1688 核心产业带示范工厂
   const countRes = await db.query<{ count: string }>("SELECT COUNT(*) FROM suppliers");

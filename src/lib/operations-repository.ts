@@ -91,89 +91,6 @@ function classifyStockoutRisk(days: number | null): "critical" | "warning" | "he
   return "healthy";
 }
 
-let opsTablesReadyPromise: Promise<void> | null = null;
-
-export async function ensureOperationsTables(): Promise<void> {
-  if (!opsTablesReadyPromise) {
-    opsTablesReadyPromise = (async () => {
-      const db = await getDb();
-      await db.exec(`
-        CREATE TABLE IF NOT EXISTS operations_settlement_batches (
-          id TEXT PRIMARY KEY,
-          label TEXT NOT NULL,
-          marketplace TEXT NOT NULL DEFAULT 'US',
-          currency TEXT NOT NULL DEFAULT 'USD',
-          period_start TEXT NOT NULL DEFAULT '',
-          period_end TEXT NOT NULL DEFAULT '',
-          settlement_file_name TEXT,
-          inventory_file_name TEXT,
-          sku_count INTEGER NOT NULL DEFAULT 0,
-          total_revenue_cents INTEGER NOT NULL DEFAULT 0,
-          total_contribution_cents INTEGER NOT NULL DEFAULT 0,
-          avg_margin_rate NUMERIC(8, 6) NOT NULL DEFAULT 0,
-          stockout_risk_count INTEGER NOT NULL DEFAULT 0,
-          created_by TEXT NOT NULL DEFAULT '管理员',
-          summary JSONB NOT NULL DEFAULT '{}'::jsonb,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-        CREATE TABLE IF NOT EXISTS operations_sku_snapshots (
-          id TEXT PRIMARY KEY,
-          batch_id TEXT NOT NULL REFERENCES operations_settlement_batches(id) ON DELETE CASCADE,
-          case_id TEXT REFERENCES product_cases(id) ON DELETE SET NULL,
-          sku TEXT NOT NULL,
-          period_key TEXT NOT NULL DEFAULT '',
-          units_sold INTEGER NOT NULL DEFAULT 0,
-          revenue_cents INTEGER NOT NULL DEFAULT 0,
-          refund_cents INTEGER NOT NULL DEFAULT 0,
-          ad_spend_cents INTEGER NOT NULL DEFAULT 0,
-          fba_fee_cents INTEGER NOT NULL DEFAULT 0,
-          contribution_cents INTEGER NOT NULL DEFAULT 0,
-          margin_rate NUMERIC(8, 6) NOT NULL DEFAULT 0,
-          available_units INTEGER,
-          days_of_supply INTEGER,
-          stockout_risk TEXT NOT NULL DEFAULT 'unknown'
-            CHECK (stockout_risk IN ('critical', 'warning', 'healthy', 'unknown')),
-          plan_margin_rate NUMERIC(8, 6),
-          margin_delta NUMERIC(8, 6),
-          payload JSONB NOT NULL DEFAULT '{}'::jsonb,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-        CREATE TABLE IF NOT EXISTS channel_sku_mappings (
-          id TEXT PRIMARY KEY,
-          marketplace TEXT NOT NULL DEFAULT 'US',
-          channel_sku TEXT NOT NULL,
-          case_id TEXT REFERENCES product_cases(id) ON DELETE SET NULL,
-          unit_landed_cost_cents_override INTEGER,
-          notes TEXT NOT NULL DEFAULT '',
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          UNIQUE (marketplace, channel_sku)
-        );
-        ALTER TABLE operations_sku_snapshots ADD COLUMN IF NOT EXISTS gross_revenue_cents INTEGER NOT NULL DEFAULT 0;
-        ALTER TABLE operations_sku_snapshots ADD COLUMN IF NOT EXISTS discount_cents INTEGER NOT NULL DEFAULT 0;
-        ALTER TABLE operations_sku_snapshots ADD COLUMN IF NOT EXISTS gross_units INTEGER NOT NULL DEFAULT 0;
-        ALTER TABLE operations_sku_snapshots ADD COLUMN IF NOT EXISTS refund_units INTEGER NOT NULL DEFAULT 0;
-        ALTER TABLE operations_sku_snapshots ADD COLUMN IF NOT EXISTS platform_fee_cents INTEGER NOT NULL DEFAULT 0;
-        ALTER TABLE operations_sku_snapshots ADD COLUMN IF NOT EXISTS fulfillment_fee_cents INTEGER NOT NULL DEFAULT 0;
-        ALTER TABLE operations_sku_snapshots ADD COLUMN IF NOT EXISTS storage_fee_cents INTEGER NOT NULL DEFAULT 0;
-        ALTER TABLE operations_sku_snapshots ADD COLUMN IF NOT EXISTS other_fee_cents INTEGER NOT NULL DEFAULT 0;
-        ALTER TABLE operations_sku_snapshots ADD COLUMN IF NOT EXISTS external_ad_spend_cents INTEGER NOT NULL DEFAULT 0;
-        ALTER TABLE operations_sku_snapshots ADD COLUMN IF NOT EXISTS ad_attribution TEXT NOT NULL DEFAULT 'missing';
-        ALTER TABLE operations_sku_snapshots ADD COLUMN IF NOT EXISTS unit_landed_cost_cents INTEGER;
-        ALTER TABLE operations_sku_snapshots ADD COLUMN IF NOT EXISTS landed_cost_cents INTEGER;
-        ALTER TABLE operations_sku_snapshots ADD COLUMN IF NOT EXISTS net_profit_cents INTEGER;
-        ALTER TABLE operations_sku_snapshots ADD COLUMN IF NOT EXISTS net_margin_rate NUMERIC(8, 6);
-        ALTER TABLE operations_sku_snapshots ADD COLUMN IF NOT EXISTS plan_platform_margin_rate NUMERIC(8, 6);
-        ALTER TABLE operations_sku_snapshots ADD COLUMN IF NOT EXISTS plan_net_margin_rate NUMERIC(8, 6);
-        ALTER TABLE operations_sku_snapshots ADD COLUMN IF NOT EXISTS cost_basis TEXT NOT NULL DEFAULT 'platform_contribution_only';
-      `);
-    })().catch((err) => {
-      opsTablesReadyPromise = null;
-      throw err;
-    });
-  }
-  await opsTablesReadyPromise;
-}
-
 type CaseCostLookup = {
   id: string;
   asin: string;
@@ -285,7 +202,6 @@ export async function saveOperationsBatch(params: {
   settlementFileName?: string;
   inventoryFileName?: string;
 }): Promise<SavedOperationsBatch> {
-  await ensureOperationsTables();
   const db = await getDb();
   const batchId = `ops-${randomUUID().slice(0, 12)}`;
   const periods = params.result.periods ?? [];
@@ -528,7 +444,6 @@ export async function saveOperationsBatch(params: {
 }
 
 export async function listOperationsBatches(limit = 30): Promise<SavedOperationsBatch[]> {
-  await ensureOperationsTables();
   const db = await getDb();
   const batchRes = await db.query<{
     id: string;
@@ -643,13 +558,11 @@ export async function listOperationsBatches(limit = 30): Promise<SavedOperations
 }
 
 export async function deleteOperationsBatch(id: string): Promise<void> {
-  await ensureOperationsTables();
   const db = await getDb();
   await db.query(`DELETE FROM operations_settlement_batches WHERE id = $1`, [id]);
 }
 
 export async function listChannelSkuMappings(marketplace?: string): Promise<ChannelSkuMapping[]> {
-  await ensureOperationsTables();
   const db = await getDb();
   const params: unknown[] = [];
   const where = marketplace ? `WHERE UPPER(m.marketplace) = UPPER($1)` : "";
@@ -710,7 +623,6 @@ export async function upsertChannelSkuMapping(input: {
   unitLandedCostCentsOverride?: number | null;
   notes?: string;
 }): Promise<{ mapping: ChannelSkuMapping; updatedSnapshotCount: number }> {
-  await ensureOperationsTables();
   const db = await getDb();
   const marketplace = input.marketplace.trim().toUpperCase() || "US";
   const channelSku = input.channelSku.trim();
@@ -818,7 +730,6 @@ export async function upsertChannelSkuMapping(input: {
 }
 
 export async function deleteChannelSkuMapping(id: string): Promise<void> {
-  await ensureOperationsTables();
   const db = await getDb();
   await db.query(`DELETE FROM channel_sku_mappings WHERE id = $1`, [id]);
 }

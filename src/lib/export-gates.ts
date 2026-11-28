@@ -1,5 +1,4 @@
 import { isContentApprovedStatus } from "./case-stage.ts";
-import { opportunityScore, recommendationFor, type EconomicsResults } from "./economics.ts";
 
 export type ExportGateCheckResult =
   | { allowed: true }

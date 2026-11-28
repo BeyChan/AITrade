@@ -11,7 +11,7 @@
 
   function absoluteUrl(value) {
     if (!value) return "";
-    try { return new URL(value, location.href).toString(); } catch (_) { return ""; }
+    try { return new URL(value, location.href).toString(); } catch  { return ""; }
   }
 
   function findCard(anchor) {

@@ -43,10 +43,6 @@ type KeepaResponse = {
   error?: { message?: string };
 };
 
-export function isKeepaConfigured(env: NodeJS.ProcessEnv = process.env) {
-  return Boolean(env.KEEPA_API_KEY?.trim());
-}
-
 export type KeepaFetchOptions = {
   fetchImpl?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
   maxAttempts?: number;

@@ -715,7 +715,7 @@ export function buildTemplateBenchmarkBullets(
       `【便捷维护与省心体验】优化日常清洁与操作动线，直击「${t.theme}」短板，减少后续维护时间成本。`,
     (t: CompetitorThemeSummary) =>
       `【贴合真实使用场景】兼顾 ${targetCustomer} 的日常习惯与安全细节，规避「${t.theme}」带来的体验下降。`,
-    (t: CompetitorThemeSummary) =>
+    () =>
       `【完整到货清单】包装内含 ${pkg}，开箱即可按说明快速上手，无需额外添置基础配件。`,
   ];
 

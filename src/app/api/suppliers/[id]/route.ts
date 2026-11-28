@@ -10,12 +10,6 @@ export const dynamic = "force-dynamic";
 
 const VALID_STATUSES: SupplierStatus[] = ["new", "contacted", "sampled", "preferred", "blacklisted"];
 
-async function ensureSupplierProfileColumn() {
-  const db = await getDb();
-  await db.exec(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS profile JSONB NOT NULL DEFAULT '{}'::jsonb;`);
-  return db;
-}
-
 export async function GET(
   _request: Request,
   context: { params: Promise<{ id: string }> },
@@ -27,7 +21,7 @@ export async function GET(
       return NextResponse.json({ error: "缺少工厂 ID" }, { status: 400 });
     }
 
-    const db = await ensureSupplierProfileColumn();
+    const db = await getDb();
     const supRes = await db.query<Record<string, unknown>>(
       `SELECT * FROM suppliers WHERE id = $1 LIMIT 1`,
       [supplierId],
@@ -147,7 +141,7 @@ export async function PATCH(
       profile?: SupplierProfileMeta;
     };
 
-    const db = await ensureSupplierProfileColumn();
+    const db = await getDb();
     const existingRes = await db.query<Record<string, unknown>>(
       `SELECT * FROM suppliers WHERE id = $1 LIMIT 1`,
       [supplierId],

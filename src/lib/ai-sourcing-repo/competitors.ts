@@ -3,7 +3,6 @@ import { getDb } from "../db.ts";
 import { normalizeObservedAt, validateEvidenceUrl } from "../ai-sourcing.ts";
 import {
   buildCompetitorBenchmark,
-  isSyntheticCompetitorSource,
   type CompetitorBenchmark,
 } from "../competitor-insights.ts";
 import { getComparisonReportById } from "../competitor-compare/storage.ts";
@@ -19,13 +18,10 @@ import {
   mapHypothesis,
   mapQuote,
   mapReviewInsight,
-  metricNumber,
-  riskLevel,
 } from "./mappers.ts";
 import { selectHypothesisForValidation } from "./batches.ts";
 import { refreshAISelectionDecision } from "./decisions.ts";
 import {
-  SYNTHETIC_SOURCE_SQL,
   type CompetitorRow,
   type HypothesisRow,
   type QuoteRow,

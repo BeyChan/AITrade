@@ -2,12 +2,10 @@ import { randomUUID } from "node:crypto";
 import { getAppMode, type AppMode } from "../app-mode.ts";
 import { getDb } from "../db.ts";
 import { calculateEconomics, opportunityScore, recommendationFor, type EconomicsAssumptions } from "../economics.ts";
-import { createListingDraft } from "./content.ts";
 import type { CandidateImportRow } from "../csv.ts";
 import type {
   AuditRow,
   CaseDetail,
-  CaseStatus,
   CostModelRow,
   EnrichedCase,
   EvidenceRow,
@@ -15,7 +13,6 @@ import type {
   NoGoExceptionRecord,
   PlatformRow,
   ProductCaseRow,
-  ProductRow,
 } from "../types.ts";
 
 /**

@@ -3,7 +3,6 @@ import {
   getFieldDefinitions,
   normalizeFieldValue,
   sourceLocator,
-  validateNormalizedFieldValue,
   type EvidenceDocumentType,
   type EvidenceExtraction,
   type NormalizedFieldValue,
@@ -218,24 +217,6 @@ export function validateExtraction(input: ValidateExtractionInput): ValidatedExt
     needsReviewFields,
     autoAcceptedFields,
     canApplyWithoutReview: missingRequiredFields.length === 0 && needsReviewFields.length === 0,
-  };
-}
-
-export function validateStoredField(
-  definition: FieldDefinition,
-  rawValue: NormalizedFieldValue,
-  targetCurrency?: string,
-) {
-  const normalized = validateNormalizedFieldValue(definition, rawValue);
-  const messages: string[] = [];
-  if (normalized.error) messages.push(normalized.error);
-  if (definition.rule === "currency" && targetCurrency && normalized.value !== targetCurrency.toUpperCase()) {
-    messages.push(`币种必须与目标机会 ${targetCurrency.toUpperCase()} 一致`);
-  }
-  return {
-    ...normalized,
-    valid: !normalized.error && messages.length === 0,
-    message: messages.join("；"),
   };
 }
 

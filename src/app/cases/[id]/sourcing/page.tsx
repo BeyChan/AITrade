@@ -242,7 +242,6 @@ export default async function SourcingDetailPage({ params, searchParams }: PageP
 
       <SupplierMatrixPk
         caseId={productCase.id}
-        marketplace={productCase.marketplace}
         currency={productCase.marketplace === "AU" ? "AUD" : "USD"}
         quotes={quotes}
         scoredQuotes={scoredQuotes}

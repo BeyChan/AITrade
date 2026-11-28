@@ -1,5 +1,4 @@
 import type { getDb } from "../db.ts";
-import type { AIProviderStatus } from "../ai-provider.ts";
 import type { DecisionEvaluation } from "../ai-sourcing.ts";
 import {
   SYNTHETIC_COMPETITOR_SOURCES,

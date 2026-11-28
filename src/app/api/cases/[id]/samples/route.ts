@@ -52,46 +52,12 @@ function mapRow(r: Record<string, unknown>): SampleLogRecord {
   };
 }
 
-let sampleTableReadyPromise: Promise<void> | null = null;
-
-async function ensureSampleTable(): Promise<void> {
-  if (!sampleTableReadyPromise) {
-    sampleTableReadyPromise = (async () => {
-      const db = await getDb();
-      await db.exec(`
-        CREATE TABLE IF NOT EXISTS sourcing_sample_logs (
-          id TEXT PRIMARY KEY,
-          case_id TEXT NOT NULL REFERENCES product_cases(id) ON DELETE CASCADE,
-          supplier_name TEXT NOT NULL,
-          sample_cost_cny NUMERIC(10, 2) NOT NULL DEFAULT 0,
-          shipping_cost_cny NUMERIC(10, 2) NOT NULL DEFAULT 0,
-          tracking_no TEXT NOT NULL DEFAULT '',
-          status TEXT NOT NULL DEFAULT 'ordered'
-            CHECK (status IN ('ordered', 'received', 'passed', 'failed', 'returned')),
-          quality_rating INTEGER CHECK (quality_rating IS NULL OR quality_rating BETWEEN 1 AND 5),
-          pros TEXT NOT NULL DEFAULT '',
-          defects TEXT NOT NULL DEFAULT '',
-          notes TEXT NOT NULL DEFAULT '',
-          created_by TEXT NOT NULL DEFAULT '管理员',
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-      `);
-    })().catch((err) => {
-      sampleTableReadyPromise = null;
-      throw err;
-    });
-  }
-  await sampleTableReadyPromise;
-}
-
 export async function GET(
   _request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
   try {
     const { id } = await context.params;
-    await ensureSampleTable();
     const db = await getDb();
     const res = await db.query<Record<string, unknown>>(
       `SELECT * FROM sourcing_sample_logs WHERE case_id = $1 ORDER BY created_at DESC`,
@@ -130,7 +96,6 @@ export async function POST(
     const notes = String(body.notes ?? "").trim().slice(0, 500);
 
     const operator = String(body.actor ?? "").trim() || "本机用户";
-    await ensureSampleTable();
     const db = await getDb();
     const sampleId = `smp-${randomUUID().slice(0, 12)}`;
     const inserted = await db.query<Record<string, unknown>>(

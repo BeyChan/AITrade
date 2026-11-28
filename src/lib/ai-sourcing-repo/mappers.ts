@@ -1,6 +1,4 @@
-import { randomUUID } from "node:crypto";
 import { getDb } from "../db.ts";
-import { attachResearchPriority } from "../ai-provider.ts";
 import {
   DEFAULT_SOURCING_THRESHOLDS,
   type AISourcingContext,

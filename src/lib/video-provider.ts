@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import { httpFailure } from "./providers/http.ts";
 import {
   defaultVideoBaseUrl,
   defaultVideoModel,
@@ -921,15 +922,4 @@ function maskKey(key: string): string {
   if (!key) return "";
   if (key.length <= 8) return "••••";
   return `${key.slice(0, 3)}••••${key.slice(-4)}`;
-}
-
-async function httpFailure(prefix: string, response: Response): Promise<Error> {
-  let detail = "";
-  try {
-    const text = (await response.text()).trim();
-    if (text) detail = `：${text.slice(0, 220)}`;
-  } catch {
-    // ignore body read errors
-  }
-  return new Error(`${prefix}（HTTP ${response.status}）${detail}`);
 }

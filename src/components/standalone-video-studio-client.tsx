@@ -62,7 +62,7 @@ export function StandaloneVideoStudioClient({
   // 自定义 Video Skill 表单
   const [showCustomSkillForm, setShowCustomSkillForm] = useState(false);
   const [customSkillName, setCustomSkillName] = useState("");
-  const [customSkillChannel, setCustomSkillChannel] = useState("Amazon / TikTok 自定义镜头");
+  const customSkillChannel = "Amazon / TikTok 自定义镜头";
   const [customMotion, setCustomMotion] = useState("");
   const [customLighting, setCustomLighting] = useState("");
   const [customNegative, setCustomNegative] = useState("");

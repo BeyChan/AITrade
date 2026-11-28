@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-
-const AUTH_COOKIE = "aitrade_access_ok";
+import { AUTH_COOKIE, verifyAccessCookie } from "./lib/access-pin";
 
 function isPublicPath(pathname: string): boolean {
   if (
@@ -28,7 +27,7 @@ export function proxy(request: NextRequest) {
   }
 
   const cookieVal = request.cookies.get(AUTH_COOKIE)?.value;
-  if (cookieVal === configuredPin) {
+  if (verifyAccessCookie(cookieVal, configuredPin)) {
     return NextResponse.next();
   }
 

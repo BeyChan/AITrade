@@ -40,14 +40,6 @@ export type SourceLocator = {
   collapsedWhitespace?: boolean;
 };
 
-/** 提案出处，落在业务对象上时可随提案一起保存，便于事后复算。 */
-export type ProposalProvenance = {
-  sourceQuote: string;
-  sourceType: "artifact" | "manual";
-  locator: SourceLocator;
-  generation: ProposalGeneration;
-};
-
 /** 模型给出的单个字段提案。值仍是原始形态，尚未按规则归一化。 */
 export type ProposalField = {
   value: ProposalValue;
@@ -83,18 +75,7 @@ export type ProposalFieldDefinition = {
   help?: string;
 };
 
-export const PROPOSAL_STATUSES: readonly ProposalStatus[] = [
-  "extracted",
-  "auto_accepted",
-  "needs_review",
-  "accepted",
-  "rejected",
-  "missing",
-];
-
 export const ACCEPTED_PROPOSAL_STATUSES: readonly ProposalStatus[] = ["auto_accepted", "accepted"];
-export const PENDING_PROPOSAL_STATUSES: readonly ProposalStatus[] = ["extracted", "needs_review", "missing"];
-export const REJECTED_PROPOSAL_STATUSES: readonly ProposalStatus[] = ["rejected", "missing"];
 
 /** 自动采纳的置信度下限。低于此值必须人工确认，由调用方决定是否启用。 */
 export const MIN_AUTO_ACCEPT_CONFIDENCE = 0.9;

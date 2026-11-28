@@ -201,10 +201,6 @@ export function validateSupplierPolish(
   return { ok: true, value: { subject, introduction } };
 }
 
-export function supplierDraftQuestionText(content: Pick<SupplierDraftContent, "questions">) {
-  return content.questions.map((question) => question.question).join("\n");
-}
-
 function rfqMissingFields(facts: SupplierDraftFactSnapshot): SupplierDraftQuestion[] {
   return [
     {

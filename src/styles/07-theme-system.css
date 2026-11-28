@@ -1,0 +1,1230 @@
+/* ==========================================================================
+   AITrade 双模高级视觉系统
+   - 白天模式（方案 2）：Apple / Shopify Polaris 极简高级白（95% 黑白灰零杂色）
+   - 黑夜模式（方案 1）：Linear / Bloomberg 暗黑精密金融终端（碳黑哑光 + 细线）
+   ========================================================================== */
+
+:root,
+html[data-theme="light"] {
+  --ink: #111827;
+  --muted: #64748b;
+  --line: #e6e8ec;
+  --line-strong: #d0d5dd;
+  --paper: #ffffff;
+  --surface-subtle: #f8f9fb;
+  --canvas: #f6f7f9;
+  --sidebar-bg: #f6f7f9;
+  --deep: #111111;
+  --deep-fg: #ffffff;
+  --accent: #111111;
+  --accent-soft: #f1f3f5;
+  --green: #15803d;
+  --green-soft: #eefbf3;
+  --lime: #111111;
+  --amber: #b45309;
+  --amber-soft: #fef8ec;
+  --red: #b91c1c;
+  --red-soft: #fef2f2;
+  --seal: #b91c1c;
+  --blue: #1d4ed8;
+  --blue-soft: #eff6ff;
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.035);
+  --radius: 8px;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --ink: #f1f5f9;
+  --muted: #8b949e;
+  --line: #222836;
+  --line-strong: #2f384a;
+  --paper: #131720;
+  --surface-subtle: #0e1117;
+  --canvas: #0b0d11;
+  --sidebar-bg: #0e1117;
+  --deep: #f8fafc;
+  --deep-fg: #0b0d11;
+  --accent: #3b82f6;
+  --accent-soft: rgba(59, 130, 246, 0.14);
+  --green: #34d399;
+  --green-soft: rgba(16, 185, 129, 0.14);
+  --lime: #60a5fa;
+  --amber: #fbbf24;
+  --amber-soft: rgba(245, 158, 11, 0.14);
+  --red: #f87171;
+  --red-soft: rgba(239, 68, 68, 0.14);
+  --seal: #f87171;
+  --blue: #60a5fa;
+  --blue-soft: rgba(59, 130, 246, 0.14);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --radius: 8px;
+}
+
+html,
+body {
+  background: var(--canvas);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 1. 侧栏与日夜切换器 */
+.sidebar {
+  background: var(--sidebar-bg);
+  color: var(--ink);
+  border-right: 1px solid var(--line);
+  padding: 20px 14px;
+}
+
+.sidebar-brand {
+  color: var(--ink);
+  margin: 0 6px 24px;
+}
+
+.sidebar-brand .brand-mark {
+  background: var(--deep);
+  color: var(--paper);
+  border-radius: 7px;
+  width: 30px;
+  height: 30px;
+  font-size: 15px;
+  font-weight: 800;
+  box-shadow: none;
+}
+
+html[data-theme="dark"] .sidebar-brand .brand-mark {
+  background: #f8fafc;
+  color: #0b0d11;
+}
+
+.sidebar-brand strong {
+  color: var(--ink);
+  font-size: 15px;
+  letter-spacing: -0.02em;
+}
+
+.sidebar-brand small {
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-size: 12px;
+}
+
+.sidebar-utility {
+  border-top: 1px solid var(--line);
+  margin-top: 16px;
+  padding-top: 14px;
+}
+
+.sidebar-row {
+  display: flex;
+  align-items: center;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  transition: background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.sidebar-row:hover {
+  background: var(--accent-soft);
+}
+
+.sidebar-row.active {
+  background: var(--paper);
+  border-color: var(--line);
+  box-shadow: var(--shadow);
+}
+
+.sidebar-link {
+  color: var(--muted);
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.sidebar-link:hover,
+.sidebar-row:hover .sidebar-link {
+  background: transparent;
+  color: var(--ink);
+}
+
+.sidebar-link.active,
+.sidebar-row.active .sidebar-link {
+  background: transparent;
+  color: var(--ink);
+  font-weight: 600;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.sidebar-icon {
+  color: var(--muted);
+}
+
+.sidebar-row:hover .sidebar-icon,
+.sidebar-row.active .sidebar-icon,
+.sidebar-link:hover .sidebar-icon,
+.sidebar-link.active .sidebar-icon {
+  color: var(--ink);
+}
+
+.sidebar-chevron {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 6px 10px 6px 6px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+
+.sidebar-chevron:hover,
+.sidebar-row.active .sidebar-chevron {
+  color: var(--ink);
+}
+
+.sidebar-subnav {
+  border-left: 1px solid var(--line);
+  margin-left: 18px;
+  padding-left: 10px;
+}
+
+.sidebar-sublink {
+  position: relative;
+  color: var(--muted);
+  font-size: 13px;
+  border-radius: 6px;
+  padding: 5px 10px;
+  transition: background 0.16s ease, color 0.16s ease;
+}
+
+.sidebar-sublink:hover {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.sidebar-sublink.active {
+  background: var(--accent-soft);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.sidebar-sublink.active::before {
+  content: "";
+  position: absolute;
+  left: -11px;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+/* 日夜切换分段控件 */
+.theme-switcher {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 2px;
+  padding: 3px;
+  margin-bottom: 10px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+html[data-theme="light"] .theme-switcher {
+  background: #eceef2;
+}
+
+.theme-seg-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.theme-seg-btn:hover {
+  color: var(--ink);
+}
+
+.theme-seg-btn.is-active {
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
+
+/* 侧栏底部模式切换器 */
+
+.mode-segmented-control {
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+html[data-theme="light"] .mode-segmented-control {
+  background: #eceef2;
+}
+
+.mode-seg-btn {
+  color: var(--muted);
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.mode-seg-btn.active-live,
+.mode-seg-btn.active-sandbox {
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
+
+.mode-desc {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mode-reset-button {
+  background: var(--surface-subtle);
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.mode-reset-button:hover {
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+
+.mode-confirm-text {
+  color: var(--ink);
+}
+
+.mode-btn-cancel {
+  background: var(--surface-subtle);
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+
+/* 2. 顶栏与极简沙盒提示条（去屎黄警示条） */
+.topbar {
+  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+  backdrop-filter: none;
+}
+
+.work-context-bar {
+  background: var(--surface-subtle);
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.work-context-bar strong,
+.work-context-bar a {
+  color: var(--ink);
+}
+
+.sandbox-banner {
+  background: var(--surface-subtle);
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  padding: 7px 28px;
+}
+
+.sandbox-banner strong {
+  color: var(--ink);
+}
+
+.sandbox-banner button,
+.sandbox-banner .sandbox-switch-btn {
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  font-weight: 600;
+}
+
+/* 3. 主体卡片、Hero 与看板：纯粹极简层次，零杂色干扰 */
+.section,
+.panel,
+.dashboard-kpi-card,
+.dashboard-hero,
+.ai-batch-overview,
+.selection-result,
+.action-card,
+.sandbox-panel,
+.wizard-step-box,
+.wizard-entry-card {
+  background: var(--paper) !important;
+  background-image: none !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 10px;
+  box-shadow: var(--shadow) !important;
+  color: var(--ink);
+}
+
+/* 修复 .action-card 在浅色/深色极简主题下的文字、表单标签与按钮对比度 */
+.action-card .eyebrow {
+  color: var(--green) !important;
+}
+
+.action-card h2,
+.action-card h3,
+.action-card strong {
+  color: var(--ink);
+}
+
+.action-card p {
+  color: var(--muted);
+}
+
+.action-card .field label {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.action-card .field input::placeholder,
+.action-card .field textarea::placeholder {
+  color: var(--muted);
+  opacity: 0.72;
+}
+
+.action-card .button.primary {
+  width: 100%;
+  background: #111111;
+  color: #ffffff;
+  border: 1px solid #111111;
+}
+
+.action-card .button.primary:hover:not(:disabled) {
+  background: #27272a;
+  border-color: #27272a;
+  color: #ffffff;
+}
+
+html[data-theme="dark"] .action-card .button.primary {
+  background: #f8fafc;
+  color: #0b0d11;
+  border: 1px solid #f8fafc;
+}
+
+html[data-theme="dark"] .action-card .button.primary:hover:not(:disabled) {
+  background: #e2e8f0;
+  border-color: #e2e8f0;
+  color: #0b0d11;
+}
+
+.action-card .button:disabled,
+.action-card .button.primary:disabled {
+  background: var(--surface-subtle);
+  color: var(--muted);
+  border: 1px solid var(--line-strong);
+  opacity: 0.78;
+  cursor: not-allowed;
+}
+
+.action-card .action-warning {
+  background: var(--amber-soft);
+  color: var(--amber);
+  border: 1px solid rgba(180, 83, 9, 0.28);
+}
+
+.action-card .selection-side-meta span {
+  color: var(--muted);
+}
+
+.action-card .selection-side-meta strong {
+  color: var(--ink);
+}
+
+/* 页面底部预留安全间距，避免右下角悬浮 ⌘K 按钮遮挡末行操作按钮 */
+.page {
+  padding-bottom: 92px;
+}
+
+/* 首页 Hero 瘦身：去蓝顶边、去绿底药丸、紧凑留白 */
+.dashboard-hero {
+  padding: 24px 28px;
+  border-top: 1px solid var(--line) !important;
+}
+
+.dashboard-hero h1 {
+  font-size: 26px;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+}
+
+.settings-hero,
+.ai-sourcing-hero {
+  color: var(--ink);
+}
+
+.settings-hero h1,
+.ai-sourcing-hero h1,
+.settings-hero p strong,
+.ai-sourcing-hero p strong {
+  color: var(--ink);
+}
+
+.settings-hero p,
+.ai-sourcing-hero p {
+  color: var(--muted);
+}
+
+.settings-hero .eyebrow,
+.ai-sourcing-hero .eyebrow {
+  color: var(--muted);
+}
+
+.ai-batch-overview,
+.selection-result {
+  color: var(--ink);
+}
+
+.ai-batch-overview h2,
+.ai-batch-overview-side strong,
+.selection-result h2,
+.selection-result strong,
+.selection-result-meta strong {
+  color: var(--ink);
+}
+
+.ai-batch-overview p,
+.ai-batch-overview-side span,
+.ai-batch-overview-side small,
+.ai-batch-overview-side a,
+.selection-result p,
+.selection-result-meta span {
+  color: var(--muted);
+}
+
+.ai-batch-overview-side {
+  border-left-color: var(--line);
+}
+
+.ai-batch-overview-side a:hover {
+  color: var(--ink);
+}
+
+.ai-batch-list-actions .button.secondary {
+  color: var(--ink);
+  background: var(--surface-subtle);
+  border-color: var(--line-strong);
+}
+
+.ai-provider-card {
+  background: var(--surface-subtle);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+.ai-provider-card > strong {
+  color: var(--ink);
+}
+
+.ai-provider-card p {
+  color: var(--muted);
+}
+
+.dashboard-context span {
+  background: var(--surface-subtle) !important;
+  color: var(--muted) !important;
+  border: 1px solid var(--line) !important;
+}
+
+.dashboard-context strong {
+  color: var(--ink);
+}
+
+.dashboard-kpi-card:hover {
+  border-color: var(--line-strong) !important;
+  transform: none;
+}
+
+.dashboard-kpi-card .kpi-label,
+.dashboard-kpi-card .kpi-sub {
+  color: var(--muted);
+}
+
+.dashboard-kpi-card .kpi-value {
+  color: var(--ink);
+}
+
+.dashboard-kpi-card .kpi-value.warn {
+  color: var(--amber);
+}
+
+.dashboard-kpi-card .kpi-link {
+  color: var(--ink);
+}
+
+/* 看板去彩虹色与去荧光绿 */
+.pipeline-column,
+.kanban-column {
+  background: var(--surface-subtle) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 10px;
+}
+
+.pipeline-card,
+.kanban-card {
+  background: var(--paper) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 8px;
+  color: var(--ink);
+}
+
+/* 4. 按钮体系（白天纯黑、黑夜纯白，极度克制高级） */
+.button {
+  border-radius: 7px;
+  font-weight: 600;
+  box-shadow: none !important;
+  transition: background 0.14s ease, border-color 0.14s ease, opacity 0.14s ease;
+}
+
+.button.primary {
+  background: #111111;
+  color: #ffffff;
+  border: 1px solid #111111;
+}
+
+.button.primary:hover {
+  background: #27272a;
+  border-color: #27272a;
+}
+
+html[data-theme="dark"] .button.primary {
+  background: #f8fafc;
+  color: #0b0d11;
+  border: 1px solid #f8fafc;
+}
+
+html[data-theme="dark"] .button.primary:hover {
+  background: #e2e8f0;
+  border-color: #e2e8f0;
+}
+
+.button.secondary {
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+}
+
+.button.secondary:hover {
+  background: var(--surface-subtle);
+}
+
+.button.ghost {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid transparent;
+}
+
+.button.ghost:hover {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+/* 5. 表单控件与深色模式全量适配 */
+.field input,
+.field select,
+.field textarea,
+.action-card .field input,
+.action-card .field select,
+.action-card .field textarea,
+.topbar select {
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+}
+
+/* 统一原生下拉框箭头间距，避免箭头紧贴右边框 */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 10px center !important;
+  background-size: 13px 13px !important;
+  padding-right: 30px;
+}
+
+html[data-theme="dark"] select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") !important;
+}
+
+/* 黑夜模式：用留白、底色和分隔线替代层层边框，避免“框套框”。 */
+html[data-theme="dark"] .benchmark-panel,
+html[data-theme="dark"] .ai-competitor-snapshot {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+/* 覆盖指标是一条安静的数据带，不再给每项套卡片。 */
+html[data-theme="dark"] .benchmark-coverage-strip {
+  gap: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+html[data-theme="dark"] .benchmark-coverage-strip > div {
+  padding: 4px 14px;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+}
+
+html[data-theme="dark"] .benchmark-coverage-strip > div:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+html[data-theme="dark"] .benchmark-coverage-strip > div.warn {
+  background: transparent;
+}
+
+html[data-theme="dark"] .benchmark-coverage-strip > div.warn strong {
+  color: var(--amber);
+}
+
+/* 价格分位保留一个整体边界，数字之间只用细竖线分隔。 */
+html[data-theme="dark"] .benchmark-price-section {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+html[data-theme="dark"] .benchmark-percentile-grid {
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-subtle);
+}
+
+html[data-theme="dark"] .benchmark-percentile-grid > div {
+  padding: 10px 12px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+}
+
+html[data-theme="dark"] .benchmark-percentile-grid > div:last-child {
+  border-right: 0;
+}
+
+html[data-theme="dark"] .benchmark-percentile-grid > div.highlight {
+  background: var(--accent-soft);
+}
+
+/* 证伪矩阵合并为一个表组，行与行之间只留发丝线。 */
+html[data-theme="dark"] .benchmark-contradiction-rows {
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-subtle);
+}
+
+html[data-theme="dark"] .benchmark-contradiction-row,
+html[data-theme="dark"] .benchmark-contradiction-row.verdict-contradicted,
+html[data-theme="dark"] .benchmark-contradiction-row.verdict-supported {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+html[data-theme="dark"] .benchmark-contradiction-row + .benchmark-contradiction-row {
+  border-top: 1px solid var(--line);
+}
+
+html[data-theme="dark"] .benchmark-contradiction-row.verdict-contradicted {
+  box-shadow: inset 3px 0 0 var(--red);
+}
+
+html[data-theme="dark"] .benchmark-contradiction-row.verdict-supported {
+  box-shadow: inset 3px 0 0 var(--green);
+}
+
+html[data-theme="dark"] .benchmark-contradiction-row.verdict-unverified {
+  box-shadow: inset 3px 0 0 var(--amber);
+}
+
+/* 差评主题不再描边，用轻微底色标记成一组。 */
+html[data-theme="dark"] .benchmark-theme-grid {
+  gap: 8px;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+html[data-theme="dark"] .benchmark-theme-card {
+  border: 0;
+  border-radius: 9px;
+  background: var(--surface-subtle);
+}
+
+/* 竞品快照改成两列无框清单，仅保留横向分隔与中缝。 */
+html[data-theme="dark"] .ai-competitor-grid {
+  gap: 0;
+  overflow: hidden;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+}
+
+html[data-theme="dark"] .ai-competitor-card {
+  padding: 12px 16px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+}
+
+html[data-theme="dark"] .ai-competitor-card:nth-child(odd) {
+  padding-left: 0;
+}
+
+html[data-theme="dark"] .ai-competitor-card:nth-child(even) {
+  border-left: 1px solid var(--line);
+}
+
+html[data-theme="dark"] .ai-competitor-card:hover {
+  background: var(--surface-subtle);
+}
+
+@media (max-width: 980px) {
+  html[data-theme="dark"] .ai-competitor-card:nth-child(even) {
+    padding-left: 0;
+    border-left: 0;
+  }
+}
+
+@media (max-width: 780px) {
+  html[data-theme="dark"] .benchmark-coverage-strip {
+    row-gap: 12px;
+  }
+
+  html[data-theme="dark"] .benchmark-coverage-strip > div:nth-child(odd) {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  html[data-theme="dark"] .benchmark-percentile-grid > div:nth-child(3n) {
+    border-right: 0;
+  }
+
+  html[data-theme="dark"] .benchmark-percentile-grid > div:nth-child(-n + 3) {
+    border-bottom: 1px solid var(--line);
+  }
+}
+
+.topbar-scope-control select {
+  background-image: none !important;
+  padding-right: 0 !important;
+}
+
+.field input::placeholder,
+.field textarea::placeholder {
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+.eyebrow {
+  text-transform: none !important;
+  letter-spacing: 0.01em !important;
+  font-weight: 600;
+  color: var(--muted) !important;
+}
+
+.badge-neutral,
+.info-pill,
+.ledger-market-chip,
+.ledger-asin-chip {
+  background: var(--surface-subtle);
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+
+.notice {
+  background: var(--surface-subtle);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.notice.warn {
+  background: var(--amber-soft);
+  border-color: rgba(180, 83, 9, 0.25);
+}
+
+/* 6. 表格、财务沙盘、四象限图、货架测试与 Spotlight 深浅双模适配 */
+.audit-ledger-wrap,
+.audit-ledger {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.audit-ledger thead th,
+.ops-table th {
+  background: var(--surface-subtle);
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+
+.audit-ledger tbody td,
+.ops-table td {
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+}
+
+.audit-ledger tbody tr:hover {
+  background: var(--surface-subtle);
+}
+
+.audit-ledger tbody tr.ledger-row.is-selected {
+  background: var(--accent-soft);
+}
+
+.sandbox-kpi-strip,
+.quadrant-detail-card,
+.wizard-guide-bar,
+.wizard-final-summary,
+.copilot-context-bar,
+.compliance-cert-summary {
+  background: var(--surface-subtle);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+.sandbox-slider-card,
+.quadrant-svg-wrap,
+.quadrant-detail-metrics > div,
+.compliance-attr-chip,
+.compliance-cert-item,
+.shelf-search-bar,
+.shelf-card,
+.shelf-thumb {
+  background: var(--paper);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+.shelf-stage {
+  background: var(--surface-subtle);
+  border-color: var(--line);
+}
+
+.wizard-step-tab {
+  background: var(--surface-subtle);
+  border-color: var(--line);
+}
+
+.wizard-step-tab.is-current {
+  background: var(--deep);
+  border-color: var(--deep);
+}
+
+.wizard-step-tab.is-current strong,
+.wizard-step-tab.is-current span {
+  color: var(--paper);
+}
+
+html[data-theme="dark"] .wizard-step-tab.is-current {
+  background: #f8fafc;
+  border-color: #f8fafc;
+}
+
+html[data-theme="dark"] .wizard-step-tab.is-current strong,
+html[data-theme="dark"] .wizard-step-tab.is-current span {
+  color: #0b0d11;
+}
+
+.wizard-entry-num {
+  background: var(--deep);
+  color: var(--paper);
+}
+
+html[data-theme="dark"] .wizard-entry-num {
+  background: #f8fafc;
+  color: #0b0d11;
+}
+
+/* 悬浮 AI 副驾驶胶囊 & 弹窗 */
+.floating-assistant-launcher {
+  background: #111111;
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+}
+
+html[data-theme="dark"] .floating-assistant-launcher {
+  background: #1c222e;
+  border-color: #2f384a;
+}
+
+.floating-assistant-launcher .launcher-main-label {
+  color: #ffffff;
+}
+
+.floating-assistant-launcher .launcher-kbd {
+  background: rgba(255, 255, 255, 0.14);
+  color: #e2e8f0;
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.launcher-pulse-dot {
+  display: none;
+}
+
+html[data-theme="dark"] .global-search-modal {
+  background: #131720;
+  border: 1px solid #262e3f;
+  color: #f1f5f9;
+}
+
+html[data-theme="dark"] .global-search-input-wrap,
+html[data-theme="dark"] .modal-header-tabs,
+html[data-theme="dark"] .global-search-footer,
+html[data-theme="dark"] .chat-input-bar {
+  background: #0e1117;
+  border-color: #222836;
+}
+
+html[data-theme="dark"] .global-search-input,
+html[data-theme="dark"] .chat-text-input {
+  color: #f1f5f9;
+  background: transparent;
+}
+
+html[data-theme="dark"] .chat-bubble-card {
+  background: #1a202c;
+  border-color: #262e3f;
+  color: #f1f5f9;
+}
+
+html[data-theme="dark"] .quadrant-svg text {
+  fill: #cbd5e1;
+}
+
+html[data-theme="dark"] .quadrant-svg line {
+  stroke: #262e3f;
+}
+
+html[data-theme="dark"] .waterfall-bar.tone-revenue {
+  background: #e2e8f0;
+}
+
+html[data-theme="dark"] .waterfall-bar.tone-cost-primary {
+  background: #64748b;
+}
+
+html[data-theme="dark"] .waterfall-bar.tone-cost {
+  background: #334155;
+}
+
+/* 顶栏站点选择器、生图工坊分段按钮与筛选胶囊深浅统一 */
+.topbar-site-switcher,
+.topbar-scope-control {
+  background: var(--paper) !important;
+  color: var(--ink) !important;
+  border-color: var(--line-strong) !important;
+}
+
+.topbar-scope-value,
+.topbar-scope-chevron {
+  color: var(--ink) !important;
+}
+
+.dashboard-context small {
+  background: var(--surface-subtle) !important;
+  color: var(--ink) !important;
+  border: 1px solid var(--line) !important;
+}
+
+html[data-theme="dark"] .studio-seg-btn.is-active,
+html[data-theme="dark"] .studio-filter-pill.is-active,
+html[data-theme="dark"] .filter-tab.active,
+html[data-theme="dark"] .pill-tab.active {
+  background: #f8fafc !important;
+  color: #0b0d11 !important;
+  border-color: #f8fafc !important;
+}
+
+html[data-theme="dark"] .studio-upload-btn,
+html[data-theme="dark"] .studio-asset-card {
+  background: var(--paper) !important;
+  color: var(--ink) !important;
+  border-color: var(--line-strong) !important;
+}
+
+html[data-theme="dark"] .badge-dark,
+html[data-theme="dark"] .studio-slot-badge {
+  background: #1e293b !important;
+  color: #f8fafc !important;
+}
+
+/* 内联 code 标签、AI 浮窗气泡与快捷芯片深浅模式彻底统一 */
+code {
+  background: var(--surface-subtle);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+html[data-theme="dark"] .chat-bubble-card,
+html[data-theme="dark"] .chat-bubble-row.assistant .chat-bubble-card {
+  background: #181d28 !important;
+  border: 1px solid #262e3f !important;
+  color: #f1f5f9 !important;
+}
+
+html[data-theme="dark"] .chat-bubble-text,
+html[data-theme="dark"] .chat-bubble-text p,
+html[data-theme="dark"] .chat-bubble-text h4,
+html[data-theme="dark"] .chat-bubble-role {
+  color: #f1f5f9 !important;
+}
+
+html[data-theme="dark"] .chat-quick-chips {
+  background: #0e1117 !important;
+  border-top: 1px solid #222836 !important;
+}
+
+html[data-theme="dark"] .chat-quick-chips button {
+  background: #181d28 !important;
+  color: #e2e8f0 !important;
+  border: 1px solid #2a3345 !important;
+}
+
+html[data-theme="dark"] .chat-quick-chips button:hover {
+  background: #232a39 !important;
+  color: #ffffff !important;
+}
+
+html[data-theme="dark"] .chat-text-input {
+  background: #131720 !important;
+  color: #f1f5f9 !important;
+  border-color: #2f384a !important;
+}
+
+html[data-theme="dark"] .mode-toggle-group {
+  background: #181d28 !important;
+  border: 1px solid #262e3f !important;
+}
+
+html[data-theme="dark"] .mode-toggle-btn {
+  color: #94a3b8 !important;
+}
+
+html[data-theme="dark"] .mode-toggle-btn.active {
+  background: #262f40 !important;
+  color: #ffffff !important;
+}
+
+html[data-theme="dark"] .search-close-btn {
+  background: #181d28 !important;
+  color: #cbd5e1 !important;
+  border: 1px solid #2a3345 !important;
+}
+
+/* 主题分段切换按钮首帧即按 html[data-theme] 同步高亮，消除水合前闪烁 */
+html[data-theme="dark"] .theme-seg-btn[data-theme-opt="light"] {
+  background: transparent !important;
+  color: var(--muted) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme="dark"] .theme-seg-btn[data-theme-opt="dark"] {
+  background: var(--paper-strong) !important;
+  color: var(--ink) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35) !important;
+}
+
+html[data-theme="light"] .theme-seg-btn[data-theme-opt="dark"] {
+  background: transparent !important;
+  color: var(--muted) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme="light"] .theme-seg-btn[data-theme-opt="light"] {
+  background: var(--paper-strong) !important;
+  color: var(--ink) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* 黑夜模式全站深色横幅/护栏卡与反色高亮控件统一修复（防止 var(--deep) 反白导致白底白字） */
+html[data-theme="dark"] .action-card,
+html[data-theme="dark"] .selection-result,
+html[data-theme="dark"] .content-context,
+html[data-theme="dark"] .ai-batch-overview,
+html[data-theme="dark"] .ai-cost-results article.primary {
+  background: linear-gradient(135deg, #121824 0%, #172030 100%) !important;
+  border: 1px solid #273347 !important;
+  color: #f1f5f9 !important;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35) !important;
+}
+
+html[data-theme="dark"] .selection-result h2,
+html[data-theme="dark"] .content-context h2,
+html[data-theme="dark"] .ai-batch-overview h2,
+html[data-theme="dark"] .selection-result strong,
+html[data-theme="dark"] .content-context strong {
+  color: #f8fafc !important;
+}
+
+html[data-theme="dark"] .selection-result p,
+html[data-theme="dark"] .content-context p,
+html[data-theme="dark"] .ai-batch-overview p,
+html[data-theme="dark"] .selection-result-meta span {
+  color: #94a3b8 !important;
+}
+
+html[data-theme="dark"] .case-step-item.active .case-step-indicator,
+html[data-theme="dark"] .chat-bubble-row.user .chat-avatar,
+html[data-theme="dark"] .chat-bubble-row.user .chat-bubble-card,
+html[data-theme="dark"] .wizard-entry-num,
+html[data-theme="dark"] .wizard-step-tab.is-current,
+html[data-theme="dark"] .wizard-step-tab.is-current strong,
+html[data-theme="dark"] .wizard-step-tab.is-current span {
+  color: var(--deep-fg) !important;
+}
+
+html[data-theme="dark"] .ai-smart-intake-card,
+html[data-theme="dark"] .ai-discovery-start,
+html[data-theme="dark"] .ai-cost-verdict > span,
+html[data-theme="dark"] .ai-capture-format {
+  background: var(--surface-subtle) !important;
+  border-color: var(--line-strong) !important;
+  color: var(--ink) !important;
+}

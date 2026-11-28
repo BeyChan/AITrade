@@ -32,7 +32,6 @@ type Props = {
   activeMarketName: string;
 };
 
-type FilterTab = "all" | ImageAssetSlot;
 
 const SLOT_OPTIONS: Array<{ value: ImageAssetSlot; label: string }> = [
   { value: "main_image", label: "纯白底主图" },
@@ -96,7 +95,6 @@ export function StandaloneImageStudioClient({
   const [notice, setNotice] = useState<string>("");
   const [error, setError] = useState<string>("");
   const [copiedPrompt, setCopiedPrompt] = useState<boolean>(false);
-  const [activeFilter, setActiveFilter] = useState<FilterTab>("all");
 
   useEffect(() => {
     if (!generating) {
@@ -147,21 +145,6 @@ export function StandaloneImageStudioClient({
     [initialAssets, referenceAssetId],
   );
 
-  const slotCounts = useMemo(() => {
-    const counts: Record<ImageAssetSlot, number> = {
-      main_image: 0,
-      lifestyle_image: 0,
-      feature_image: 0,
-      packaging_image: 0,
-      reference_image: 0,
-    };
-    for (const item of initialAssets) {
-      if (item.slot in counts) {
-        counts[item.slot] += 1;
-      }
-    }
-    return counts;
-  }, [initialAssets]);
 
   const galleryItems: StudioGalleryMediaItem[] = useMemo(
     () =>

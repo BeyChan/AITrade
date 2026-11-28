@@ -128,17 +128,6 @@ export type AiInboxTaskDetail = {
   decision: AiInboxDecision | null;
 };
 
-export type AiInboxHypothesisOption = {
-  id: string;
-  runId: string;
-  concept: string;
-  category: string;
-  marketName: string;
-  platformName: string;
-  currency: string;
-  decision: "GO" | "HOLD" | "NO-GO" | null;
-};
-
 export type CreateAiInboxTaskInput = {
   content: string;
   sourceKind: AiInboxSourceKind;
@@ -461,43 +450,6 @@ export async function getAiInboxTask(taskId: string): Promise<AiInboxTaskDetail 
   };
 }
 
-export async function listAiInboxHypotheses(): Promise<AiInboxHypothesisOption[]> {
-  const db = await getDb();
-  const result = await db.query<{
-    id: string;
-    run_id: string;
-    concept: string;
-    category: string;
-    market_name: string;
-    platform_name: string;
-    currency: string;
-    decision: "GO" | "HOLD" | "NO-GO" | null;
-  }>(
-    `SELECT h.id, r.id AS run_id, h.concept, b.category, m.name AS market_name, p.name AS platform_name, b.currency,
-            d.decision
-     FROM opportunity_hypotheses h
-     JOIN ai_sourcing_runs r ON r.id = h.run_id
-     JOIN sourcing_briefs b ON b.id = r.brief_id
-     JOIN markets m ON m.code = b.market_code
-     JOIN platforms p ON p.code = b.platform_code
-     LEFT JOIN selection_decisions d ON d.hypothesis_id = h.id
-     WHERE h.selected_for_validation = TRUE
-       AND h.product_case_id IS NULL
-     ORDER BY h.selected_for_validation DESC, h.created_at DESC
-     LIMIT 200`,
-  );
-  return result.rows.map((row) => ({
-    id: row.id,
-    runId: row.run_id,
-    concept: row.concept,
-    category: row.category,
-    marketName: row.market_name,
-    platformName: row.platform_name,
-    currency: row.currency,
-    decision: row.decision,
-  }));
-}
-
 export type AiInboxHypothesisTaskCounts = {
   total: number;
   pending: number;
@@ -541,32 +493,6 @@ export async function listAiInboxTaskCountsByRun(runId: string) {
       },
     ]),
   );
-}
-
-export async function getAiInboxTaskTarget(taskId: string) {
-  const db = await getDb();
-  const result = await db.query<{
-    task_id: string;
-    hypothesis_id: string | null;
-    run_id: string | null;
-    concept: string | null;
-  }>(
-    `SELECT t.id AS task_id, t.target_hypothesis_id AS hypothesis_id,
-            r.id AS run_id, h.concept
-     FROM ai_tasks t
-     LEFT JOIN opportunity_hypotheses h ON h.id = t.target_hypothesis_id
-     LEFT JOIN ai_sourcing_runs r ON r.id = h.run_id
-     WHERE t.id = $1`,
-    [taskId],
-  );
-  const row = result.rows[0];
-  if (!row) return null;
-  return {
-    taskId: row.task_id,
-    hypothesisId: row.hypothesis_id,
-    runId: row.run_id,
-    concept: row.concept,
-  };
 }
 
 export async function getAiInboxTargetContext(hypothesisId: string) {

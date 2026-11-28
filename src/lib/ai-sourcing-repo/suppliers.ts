@@ -3,16 +3,10 @@ import { getDb } from "../db.ts";
 import { normalizeObservedAt, validateEvidenceUrl } from "../ai-sourcing.ts";
 import {
   parseSupplierCandidatePayload,
-  type ParsedSupplierCandidate,
-  type SupplierCandidateParseResult,
 } from "../supplier-candidates.ts";
 import {
-  assertSelected,
   clamp,
   loadHypothesisContext,
-  mapSupplierCandidate,
-  riskLevel,
-  validFxRate,
 } from "./mappers.ts";
 import { refreshAISelectionDecision } from "./decisions.ts";
 import type {

@@ -120,7 +120,3 @@ export function getConnectorReadiness(env: ReadinessEnv = process.env): DataSour
     return { ...definition, configured, status };
   });
 }
-
-export function getConnectorDefinition(code: string, env: ReadinessEnv = process.env) {
-  return getConnectorReadiness(env).find((source) => source.code === code) ?? null;
-}

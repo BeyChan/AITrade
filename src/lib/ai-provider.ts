@@ -20,6 +20,7 @@ import {
   type AIProviderConfig,
   type AIProviderId,
 } from "./app-settings.ts";
+import { httpFailure, maskApiKey, safeProviderError } from "./providers/http.ts";
 
 export type { AIProviderId } from "./app-settings.ts";
 export const ANTHROPIC_API_VERSION = "2023-06-01";
@@ -881,48 +882,4 @@ function openAIChatEndpoint(baseUrl: string) {
   if (base.endsWith("/chat/completions")) return base;
   if (base.endsWith("/v1")) return `${base}/chat/completions`;
   return `${base}/v1/chat/completions`;
-}
-
-function maskApiKey(value: string) {
-  if (!value) return "";
-  const tail = value.length >= 8 ? value.slice(-4) : value.slice(-2);
-  return `••••${tail}`;
-}
-
-/**
- * A bare "HTTP 400" hides the real reason (invalid model id, unsupported
- * parameter, quota/auth problem...). Surface the provider's own message so the
- * settings page can show something actionable, without leaking credentials.
- */
-async function httpFailure(label: string, response: Response): Promise<Error> {
-  let detail = "";
-  try {
-    const raw = (await response.text()).trim();
-    if (raw) {
-      try {
-        const payload = JSON.parse(raw) as { error?: { message?: string } | string; message?: string };
-        const fromError = typeof payload.error === "string" ? payload.error : payload.error?.message;
-        detail = fromError || payload.message || raw;
-      } catch {
-        detail = raw;
-      }
-    }
-  } catch {
-    // Body unavailable (e.g. reset connection): fall back to the status code.
-  }
-  const safe = redactProviderError(detail).replace(/\s+/g, " ").slice(0, 240);
-  return new Error(safe ? `${label}：HTTP ${response.status}（${safe}）` : `${label}：HTTP ${response.status}`);
-}
-
-function redactProviderError(value: string) {
-  return value
-    .replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]")
-    .replace(/\bsk-[A-Za-z0-9_-]{8,}/gi, "[REDACTED]")
-    .replace(/x-api-key\s*[=:]\s*\S+/gi, "x-api-key=[REDACTED]")
-    .replace(/api[_-]?key\s*[=:]\s*\S+/gi, "api_key=[REDACTED]");
-}
-
-function safeProviderError(error: unknown) {
-  const message = error instanceof Error ? error.message : "未知错误";
-  return redactProviderError(message).slice(0, 300);
 }

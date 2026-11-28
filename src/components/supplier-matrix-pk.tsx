@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { money, percent } from "@/lib/format";
-import { getFxRate, OFFICIAL_FX_CONFIG } from "@/lib/currency";
+import { getFxRate } from "@/lib/currency";
 import { FX_UPDATED_EVENT } from "./topbar-fx-widget";
 
 type ScoredQuote = {
@@ -39,7 +39,6 @@ type Quote = {
 
 type Props = {
   caseId: string;
-  marketplace: string;
   currency: string;
   quotes: Quote[];
   scoredQuotes: ScoredQuote[];
@@ -52,7 +51,6 @@ type Props = {
 
 export function SupplierMatrixPk({
   caseId,
-  marketplace,
   currency,
   quotes,
   scoredQuotes,
@@ -66,7 +64,6 @@ export function SupplierMatrixPk({
   const [priceRmb, setPriceRmb] = useState<number>(24);
   const [freightRmb, setFreightRmb] = useState<number>(5);
 
-  const fxDef = OFFICIAL_FX_CONFIG[currency] || OFFICIAL_FX_CONFIG.USD;
   const [fx, setFx] = useState<number>(() => getFxRate(currency));
 
   useEffect(() => {

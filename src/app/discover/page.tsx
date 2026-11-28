@@ -87,7 +87,6 @@ export default async function DiscoverPage({ searchParams }: PageProps) {
         marketName={market?.name ?? "美国"}
         platformCode={platformCode}
         platformName={platform?.name ?? "Amazon"}
-        currency={market?.currency ?? "USD"}
         requestKey={randomUUID()}
         siteReports={siteReports.slice(0, 12)}
         confirmedCostSheets={siteCostSheets}

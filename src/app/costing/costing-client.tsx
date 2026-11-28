@@ -171,25 +171,6 @@ function Field({
   );
 }
 
-function SummaryMetric({ label, value, note, tone }: { label: string; value: string; note?: string; tone?: "good" | "bad" }) {
-  return (
-    <div className="card" style={{ padding: 18 }}>
-      <span className="kpi-label">{label}</span>
-      <strong
-        style={{
-          display: "block",
-          marginTop: 8,
-          fontSize: 28,
-          color: tone === "good" ? "var(--success)" : tone === "bad" ? "var(--danger)" : "var(--text)",
-        }}
-      >
-        {value}
-      </strong>
-      {note ? <small className="muted">{note}</small> : null}
-    </div>
-  );
-}
-
 export function CostingClient({
   sheet,
   hypothesis,

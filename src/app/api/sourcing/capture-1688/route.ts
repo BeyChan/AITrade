@@ -121,7 +121,6 @@ export async function POST(request: Request) {
       });
       if (!supplierId) {
         supplierId = `sup-${randomUUID().slice(0, 12)}`;
-        await db.exec(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS profile JSONB NOT NULL DEFAULT '{}'::jsonb;`).catch(() => {});
         await db.query(
           `INSERT INTO suppliers (id, name, platform, url, country, rating, notes, profile)
            VALUES ($1, $2, '1688', $3, $4, 4.6, $5, $6::jsonb)`,
@@ -136,7 +135,6 @@ export async function POST(request: Request) {
         );
         importedSuppliers += 1;
       } else if (cny > 0) {
-        await db.exec(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS profile JSONB NOT NULL DEFAULT '{}'::jsonb;`).catch(() => {});
         await db.query(
           `UPDATE suppliers SET profile = COALESCE(profile, '{}'::jsonb) || $2::jsonb WHERE id = $1`,
           [supplierId, profileJson],

@@ -550,7 +550,7 @@ function pickString(record: RawCandidate, keys: string[]) {
 }
 
 function tryParseJson(value: string): unknown | null {
-  if (!/^[\[{]/.test(value)) return null;
+  if (!/^[[{]/.test(value)) return null;
   try {
     return JSON.parse(value) as unknown;
   } catch {

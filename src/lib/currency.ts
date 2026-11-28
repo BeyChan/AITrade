@@ -37,10 +37,6 @@ export function setRuntimeFxRates(rates: Record<string, number>) {
   }
 }
 
-export function clearRuntimeFxRates() {
-  runtimeRates.clear();
-}
-
 export function roundFxRate(currency: string, rate: number): number {
   const code = currency.toUpperCase();
   const decimals = code === "JPY" || rate < 0.5 ? 4 : 4;

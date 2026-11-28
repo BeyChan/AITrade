@@ -42,10 +42,6 @@ export type CreateCostSheetInput = {
   actor: string;
 };
 
-export type ConfirmCostSheetInput = {
-  actor: string;
-};
-
 type CostSheetRow = {
   id: string;
   group_id: string;
@@ -170,16 +166,6 @@ export async function getCostSheet(id: string): Promise<CostSheet | null> {
   const db = await getDb();
   const result = await db.query<CostSheetRow>("SELECT * FROM cost_sheets WHERE id = $1", [id]);
   return result.rows[0] ? mapCostSheet(result.rows[0]) : null;
-}
-
-export async function getCostSheetGroup(groupId: string): Promise<CostSheet[]> {
-  if (!groupId) return [];
-  const db = await getDb();
-  const result = await db.query<CostSheetRow>(
-    "SELECT * FROM cost_sheets WHERE group_id = $1 ORDER BY version DESC",
-    [groupId],
-  );
-  return result.rows.map(mapCostSheet);
 }
 
 export async function createCostSheet(input: CreateCostSheetInput): Promise<CostSheet> {

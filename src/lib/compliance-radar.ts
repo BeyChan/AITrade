@@ -88,7 +88,6 @@ export function scanListingCompliance(
 
   fieldsToCheck.forEach(({ name, text, index }) => {
     if (!text) return;
-    const lower = ` ${text.toLowerCase()} `;
 
     // 检查竞品商标词
     brandList.forEach((brand) => {

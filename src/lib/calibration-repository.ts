@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { platformEconomicDefaults, type DecisionEvidenceInput } from "./ai-sourcing.ts";
 import { recordAuditLog } from "./audit-logs.ts";
 import {
   computeCalibrationSuggestion,
@@ -12,11 +11,9 @@ import {
 import { getDb } from "./db.ts";
 import {
   calculateEconomics,
-  type CalibrationAppliedMeta,
   type EconomicsAssumptions,
 } from "./economics.ts";
 import type { AdAttributionSource } from "./operations-pipeline.ts";
-import { ensureOperationsTables } from "./operations-repository.ts";
 import { getCaseDetail } from "./repository.ts";
 
 /**
@@ -26,7 +23,6 @@ export async function loadCalibrationSnapshots(params: {
   marketplace?: string;
   windowDays?: number;
 } = {}): Promise<CalibrationSnapshotRow[]> {
-  await ensureOperationsTables();
   const db = await getDb();
   const windowDays = Math.max(7, Math.min(365, params.windowDays ?? 90));
   const queryParams: unknown[] = [windowDays];
@@ -102,104 +98,6 @@ export async function getCalibrationSuggestionForScope(
     windowDays: options.windowDays,
   });
   return computeCalibrationSuggestion(rows, options);
-}
-
-export type CalibratedDefaultsBundle = {
-  /** 已融合实盘校准因子的默认费率，可直接用于新建案卷或决策评估 */
-  defaults: ReturnType<typeof platformEconomicDefaults>;
-  /** 可直接传入 evaluateSourcingDecision({ calibratedDefaults }) */
-  calibratedDefaults: NonNullable<DecisionEvidenceInput["calibratedDefaults"]>;
-  /** 若至少应用了 1 项实盘校准因子，返回可写入 cost_models.assumptions.calibrationMeta 的溯源元数据 */
-  calibrationMeta?: CalibrationAppliedMeta;
-  /** 原始校准建议对象（无实盘快照时为 null） */
-  suggestion: CalibrationSuggestion | null;
-};
-
-/**
- * 统一读取「平台默认 + 历史实盘分层校准」后的经济模型默认参数。
- * 用于让实盘校准闭环自动进入下一次 AI 决策、选品向导立项与竞品研报立项。
- */
-export async function loadCalibratedDefaultsForScope(params: {
-  marketplace: string;
-  currency: string;
-  category?: string | null;
-  platformCode: string;
-  salePriceCents: number;
-  windowDays?: number;
-}): Promise<CalibratedDefaultsBundle> {
-  const baseDefaults = platformEconomicDefaults(params.platformCode, params.salePriceCents);
-  try {
-    const suggestion = await getCalibrationSuggestionForScope({
-      marketplace: params.marketplace,
-      currency: params.currency,
-      category: params.category ?? null,
-      platformCode: params.platformCode,
-      salePriceCents: params.salePriceCents,
-      windowDays: params.windowDays ?? 90,
-    });
-
-    const appliedFields: string[] = [];
-    const merged = { ...baseDefaults };
-    const { suggested } = suggestion;
-
-    if (typeof suggested.referralRate === "number") {
-      merged.referralRate = suggested.referralRate;
-      appliedFields.push("referralRate");
-    }
-    if (typeof suggested.returnRate === "number") {
-      merged.returnRate = suggested.returnRate;
-      appliedFields.push("returnRate");
-    }
-    if (typeof suggested.adRate === "number") {
-      merged.adRate = suggested.adRate;
-      appliedFields.push("adRate");
-    }
-    if (typeof suggested.fbaFeeCents === "number") {
-      merged.fbaFeeCents = suggested.fbaFeeCents;
-      appliedFields.push("fbaFeeCents");
-    }
-    if (typeof suggested.storageCents === "number") {
-      merged.storageCents = suggested.storageCents;
-      appliedFields.push("storageCents");
-    }
-
-    const calibratedDefaults: NonNullable<DecisionEvidenceInput["calibratedDefaults"]> = {
-      status: suggestion.status,
-      referralRate: suggested.referralRate,
-      returnRate: suggested.returnRate,
-      adRate: suggested.adRate,
-      fbaFeeCents: suggested.fbaFeeCents,
-      storageCents: suggested.storageCents,
-      scopeLabel: suggestion.scopeLabel,
-    };
-
-    const calibrationMeta: CalibrationAppliedMeta | undefined =
-      appliedFields.length > 0 && suggestion.status !== "uncalibrated"
-        ? {
-            status: suggestion.status,
-            scope: suggestion.scope,
-            sampleSkuCount: suggestion.sampleSkuCount,
-            totalUnits: suggestion.totalUnits,
-            appliedFields,
-            appliedAt: new Date().toISOString(),
-            latestPeriodEnd: suggestion.latestPeriodEnd,
-          }
-        : undefined;
-
-    return {
-      defaults: merged,
-      calibratedDefaults,
-      calibrationMeta,
-      suggestion,
-    };
-  } catch {
-    return {
-      defaults: baseDefaults,
-      calibratedDefaults: { status: "uncalibrated" },
-      calibrationMeta: undefined,
-      suggestion: null,
-    };
-  }
 }
 
 export type CaseCalibrationContext = {

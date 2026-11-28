@@ -189,10 +189,10 @@ export async function saveLocalImageSkill(
     negativeDirectives: input.negativeDirectives,
   });
 
-  const skillsRoot = path.resolve(resolveSkillsRoot(customDir));
+  const skillsRoot = path.resolve(/* turbopackIgnore: true */ resolveSkillsRoot(customDir));
   const slug = toSafeSkillSlug(displayName);
-  const targetDir = path.join(skillsRoot, slug);
-  const skillFile = path.join(targetDir, "SKILL.md");
+  const targetDir = path.join(/* turbopackIgnore: true */ skillsRoot, slug);
+  const skillFile = path.join(/* turbopackIgnore: true */ targetDir, "SKILL.md");
 
   try {
     const existingRaw = await readFile(skillFile, "utf8");
@@ -248,13 +248,13 @@ export async function deleteLocalImageSkill(skillId: string, customDir?: string)
     throw new Error("内置视觉规范不可删除");
   }
 
-  const skillsRoot = path.resolve(resolveSkillsRoot(customDir));
-  const targetDir = path.resolve(skillsRoot, normalized);
+  const skillsRoot = path.resolve(/* turbopackIgnore: true */ resolveSkillsRoot(customDir));
+  const targetDir = path.resolve(/* turbopackIgnore: true */ skillsRoot, normalized);
   if (path.dirname(targetDir) !== skillsRoot) {
     throw new Error("非法的视觉规范目录路径");
   }
 
-  const skillFile = path.join(targetDir, "SKILL.md");
+  const skillFile = path.join(/* turbopackIgnore: true */ targetDir, "SKILL.md");
   let raw = "";
   try {
     raw = await readFile(skillFile, "utf8");
@@ -274,7 +274,7 @@ async function loadLocalImageSkills(customDir?: string): Promise<ImageSkillDefin
   const skillsRoot = resolveSkillsRoot(customDir);
   let entries;
   try {
-    entries = await readdir(skillsRoot, { withFileTypes: true });
+    entries = await readdir(/* turbopackIgnore: true */ skillsRoot, { withFileTypes: true });
   } catch {
     return [];
   }
@@ -282,7 +282,7 @@ async function loadLocalImageSkills(customDir?: string): Promise<ImageSkillDefin
   const discovered: ImageSkillDefinition[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
-    const skillFile = path.join(skillsRoot, entry.name, "SKILL.md");
+    const skillFile = path.join(/* turbopackIgnore: true */ skillsRoot, entry.name, "SKILL.md");
     try {
       const raw = await readFile(skillFile, "utf8");
       const parsed = parseLocalImageSkill(entry.name, raw, skillFile);

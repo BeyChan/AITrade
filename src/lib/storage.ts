@@ -2,9 +2,11 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
+import { getRuntimeDataPath } from "./runtime-paths.ts";
+
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
-const assetDirectory = path.resolve(process.cwd(), ".data", "aitrade-assets");
+const assetDirectory = getRuntimeDataPath("aitrade-assets");
 
 export type StorageProviderKind = "local" | "s3_compatible";
 
@@ -13,13 +15,6 @@ export type StorageProviderInfo = {
   bucket: string | null;
   publicBaseUrl: string | null;
 };
-
-export interface StorageProvider {
-  readonly kind: StorageProviderKind;
-  put(key: string, bytes: Buffer, mimeType: string): Promise<{ storageKey: string; publicUrl?: string }>;
-  get(key: string): Promise<Buffer>;
-  remove(key: string): Promise<void>;
-}
 
 export function getStorageProviderInfo(): StorageProviderInfo {
   const configured = (process.env.STORAGE_PROVIDER || "local").toLowerCase();
@@ -76,7 +71,7 @@ async function persistImageBytes(
 ): Promise<SavedImage> {
   await mkdir(assetDirectory, { recursive: true });
   const storageKey = `${randomUUID()}.${detected.extension}`;
-  await writeFile(path.join(assetDirectory, storageKey), bytes, { flag: "wx" });
+  await writeFile(path.join(/* turbopackIgnore: true */ assetDirectory, storageKey), bytes, { flag: "wx" });
   const dimensions = parseImageDimensions(bytes);
   return {
     storageKey,
@@ -90,13 +85,13 @@ async function persistImageBytes(
 export async function readStoredImage(storageKey: string) {
   const safeName = path.basename(storageKey);
   if (safeName !== storageKey) throw new Error("非法资源路径");
-  return readFile(path.join(assetDirectory, safeName));
+  return readFile(path.join(/* turbopackIgnore: true */ assetDirectory, safeName));
 }
 
 export async function deleteStoredImage(storageKey: string) {
   const safeName = path.basename(storageKey);
   if (safeName !== storageKey) return;
-  await unlink(path.join(assetDirectory, safeName)).catch(() => undefined);
+  await unlink(path.join(/* turbopackIgnore: true */ assetDirectory, safeName)).catch(() => undefined);
 }
 
 export type SavedVideo = {
@@ -109,7 +104,7 @@ export type SavedVideo = {
 export function resolveStoredAssetPath(storageKey: string): string {
   const safeName = path.basename(storageKey);
   if (safeName !== storageKey) throw new Error("非法资源路径");
-  return path.join(assetDirectory, safeName);
+  return path.join(/* turbopackIgnore: true */ assetDirectory, safeName);
 }
 
 export function detectVideoType(bytes: Buffer): { extension: string; mimeType: string } | null {
@@ -131,7 +126,7 @@ export async function saveVideoBuffer(bytes: Buffer, originalName?: string): Pro
   const detected = detectVideoType(bytes) ?? { extension: "mp4", mimeType: "video/mp4" };
   await mkdir(assetDirectory, { recursive: true });
   const storageKey = `${randomUUID()}.${detected.extension}`;
-  await writeFile(path.join(assetDirectory, storageKey), bytes, { flag: "wx" });
+  await writeFile(path.join(/* turbopackIgnore: true */ assetDirectory, storageKey), bytes, { flag: "wx" });
   return {
     storageKey,
     originalName: originalName?.trim() || `product-video.${detected.extension}`,

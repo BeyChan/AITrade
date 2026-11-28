@@ -1,4 +1,3 @@
-export type CompetitorPlatform = "amazon" | "ebay" | "tiktok_shop" | "shopify" | "general";
 
 /** 本地研报保留上限，storage 与界面共用同一口径 */
 export const MAX_COMPARISON_REPORTS = 30;
@@ -179,11 +178,6 @@ export function isVerifiedCompetitorField(
 ): boolean {
   const source = profile.fieldProvenance?.[field] ?? "unknown";
   return source === "captured" || source === "manual";
-}
-
-/** 报告内所有数值字段是否均为待核实 */
-export function isReportEstimated(report: Pick<CompetitorComparisonReport, "priceStats">): boolean {
-  return report.priceStats.verifiedSampleCount === 0;
 }
 
 export type ComparisonPriceStats = {

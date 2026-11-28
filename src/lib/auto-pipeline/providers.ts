@@ -111,15 +111,11 @@ export async function seedsFromInboxDirectory(input: {
   marketCode: string;
   defaultCurrency: string;
 }): Promise<{ seeds: NormalizedCandidateSeed[]; filesRead: string[] }> {
-  const allowedRoot = path.resolve(process.cwd(), ".data", "inbox-csv");
-  const resolved = path.resolve(process.cwd(), input.inboxDir);
-  if (!resolved.startsWith(allowedRoot)) {
-    throw new Error("收件箱目录必须位于 .data/inbox-csv/ 下");
-  }
+  const resolved = resolveSafeInboxDir(input.inboxDir);
 
   let entries: string[];
   try {
-    entries = await readdir(resolved);
+    entries = await readdir(/* turbopackIgnore: true */ resolved);
   } catch {
     return { seeds: [], filesRead: [] };
   }
@@ -130,7 +126,7 @@ export async function seedsFromInboxDirectory(input: {
   const filesRead: string[] = [];
 
   for (const fileName of csvFiles) {
-    const content = await readFile(path.join(resolved, fileName), "utf8");
+    const content = await readFile(path.join(/* turbopackIgnore: true */ resolved, fileName), "utf8");
     const parsed = seedsFromCsv({
       csv: content,
       platformCode: input.platformCode,
@@ -149,8 +145,8 @@ export async function seedsFromInboxDirectory(input: {
 }
 
 function resolveSafeInboxDir(inboxDir: string): string {
-  const allowedRoot = path.resolve(process.cwd(), ".data", "inbox-csv");
-  const resolved = path.resolve(process.cwd(), inboxDir);
+  const allowedRoot = path.resolve(/* turbopackIgnore: true */ process.cwd(), ".data", "inbox-csv");
+  const resolved = path.resolve(/* turbopackIgnore: true */ process.cwd(), inboxDir);
   if (!resolved.startsWith(allowedRoot)) {
     throw new Error("收件箱目录必须位于 .data/inbox-csv/ 下");
   }
@@ -165,7 +161,7 @@ export async function listInboxPendingCsvFiles(inboxDir: string): Promise<{
   const resolved = resolveSafeInboxDir(inboxDir);
   let entries: string[];
   try {
-    entries = await readdir(resolved);
+    entries = await readdir(/* turbopackIgnore: true */ resolved);
   } catch {
     return { inboxDir, pendingFiles: [] };
   }
@@ -177,14 +173,14 @@ export async function listInboxPendingCsvFiles(inboxDir: string): Promise<{
 export async function archiveInboxCsvFiles(inboxDir: string, fileNames: string[]): Promise<string[]> {
   if (fileNames.length === 0) return [];
   const resolved = resolveSafeInboxDir(inboxDir);
-  const processedDir = path.join(resolved, "processed");
+  const processedDir = path.join(/* turbopackIgnore: true */ resolved, "processed");
   await mkdir(processedDir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
   const archived: string[] = [];
   for (const name of fileNames) {
     const safeName = path.basename(name);
-    const src = path.join(resolved, safeName);
-    const dest = path.join(processedDir, `${stamp}_${safeName}`);
+    const src = path.join(/* turbopackIgnore: true */ resolved, safeName);
+    const dest = path.join(/* turbopackIgnore: true */ processedDir, `${stamp}_${safeName}`);
     try {
       await rename(src, dest);
       archived.push(safeName);

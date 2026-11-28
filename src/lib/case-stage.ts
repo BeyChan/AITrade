@@ -581,8 +581,3 @@ export function deriveCaseWorkflowSnapshot(input: CaseStageInput): CaseWorkflowS
     blocker: null,
   };
 }
-
-/** 兼容入口：返回完整 CaseWorkflowSnapshot（满足 CaseStageDetail 结构） */
-export function deriveCaseStage(input: CaseStageInput): CaseWorkflowSnapshot {
-  return deriveCaseWorkflowSnapshot(input);
-}

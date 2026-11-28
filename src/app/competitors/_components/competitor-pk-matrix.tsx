@@ -6,7 +6,6 @@ import {
   type CompetitorProfile,
 } from "@/lib/competitor-compare/types";
 import { OFFICIAL_FX_CONFIG } from "@/lib/currency";
-import { shortDate } from "@/lib/format";
 import {
   calcItemProfitEstimate,
   calcItemRealMarginPct,
@@ -16,7 +15,6 @@ import {
 
 type Props = {
   currentReport: CompetitorComparisonReport;
-  currency: string;
   isSingleProduct: boolean;
   isReanalyzing: boolean;
   removingAsin: string | null;
@@ -33,7 +31,6 @@ type Props = {
   setEditingShippingVal: (v: string) => void;
   isSavingShipping: boolean;
   setQuoteCostRmb: (v: number) => void;
-  setCostSource: (v: "estimated" | "manual" | "captured_1688") => void;
   setTargetPriceVal: (v: number) => void;
   setBenchmarkAsin: (asin: string | null) => void;
   setStatusMsg: (msg: { type: "success" | "error"; text: string } | null) => void;
@@ -48,7 +45,6 @@ type Props = {
 
 export function CompetitorPkMatrix({
   currentReport,
-  currency,
   isSingleProduct,
   isReanalyzing,
   removingAsin,
@@ -65,7 +61,6 @@ export function CompetitorPkMatrix({
   setEditingShippingVal,
   isSavingShipping,
   setQuoteCostRmb,
-  setCostSource,
   setTargetPriceVal,
   setBenchmarkAsin,
   setStatusMsg,
@@ -578,7 +573,6 @@ export function CompetitorPkMatrix({
                                           type="button"
                                           onClick={() => {
                                             setQuoteCostRmb(cost.actualCny);
-                                            setCostSource(cost.bestSupplierName === "手工录入" ? "manual" : "captured_1688");
                                             setTargetPriceVal(Number((totalBuyerCents / 100).toFixed(2)));
                                             setBenchmarkAsin(item.asin);
                                             document.getElementById("section-launch")?.scrollIntoView({ behavior: "smooth" });

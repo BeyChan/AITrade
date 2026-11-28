@@ -66,7 +66,6 @@ export type SaveAIProviderSettingsInput = {
 };
 
 export type SaveImageProviderSettingsInput = SaveAIProviderSettingsInput;
-export type SaveVideoProviderSettingsInput = SaveAIProviderSettingsInput;
 
 const SETTING_KEYS = ["ai_provider", "ai_base_url", "ai_model", "ai_api_key"] as const;
 const IMAGE_SETTING_KEYS = ["image_provider", "image_base_url", "image_model", "image_api_key"] as const;
@@ -265,65 +264,6 @@ export async function loadVideoProviderConfig(): Promise<VideoProviderConfig> {
     apiKeySource: secret.apiKeySource,
     hasSavedSettings: VIDEO_SETTING_KEYS.some((key) => stored.has(key)),
   };
-}
-
-export async function saveVideoProviderSettings(input: SaveVideoProviderSettingsInput) {
-  const provider = normalizeVideoProvider(input.provider);
-  const baseUrl = (input.baseUrl.trim() || defaultVideoBaseUrl(provider)).slice(0, 500);
-  const model = (input.model.trim() || defaultVideoModel(provider)).slice(0, 160);
-  const apiKey = input.apiKey.trim();
-  const actor = input.actor.trim().slice(0, 80) || "本机管理员";
-
-  if (provider !== "template") {
-    validateBaseUrl(baseUrl);
-    if (!model) throw new Error("请填写视频模型名称");
-    if (!apiKey && !(await hasStoredOrEnvKey("video_api_key", envKeyForVideo(provider)))) {
-      throw new Error("当前视频服务商需要 API Key；请填写 Key 或配置对应的环境变量（如 VIDEO_API_KEY）");
-    }
-  }
-
-  const db = await getDb();
-  const encryptedKey = apiKey ? await encryptSecret(apiKey) : null;
-  const keyAction = encryptedKey ? "updated" : "preserved";
-
-  await db.transaction(async (tx) => {
-    const values: Array<[string, string]> = [
-      ["video_provider", provider],
-      ["video_base_url", baseUrl],
-      ["video_model", model],
-    ];
-    if (encryptedKey) values.push(["video_api_key", encryptedKey]);
-
-    for (const [key, value] of values) {
-      await tx.query(
-        `INSERT INTO app_settings (key, value, updated_by, updated_at)
-         VALUES ($1, $2, $3, NOW())
-         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
-        [key, value, actor],
-      );
-    }
-    await tx.query(
-      `INSERT INTO audit_logs (id, actor, action, entity_type, entity_id, details)
-       VALUES ($1, $2, 'video.settings_saved', 'app_settings', 'video', $3::jsonb)`,
-      [
-        randomUUID(),
-        actor,
-        JSON.stringify({
-          provider,
-          baseUrl,
-          model,
-          keyAction,
-          keyConfigured: Boolean(encryptedKey) || provider === "template",
-        }),
-      ],
-    );
-  });
-
-  return { provider, baseUrl, model, keyAction };
-}
-
-export async function clearStoredVideoProviderKey(actorInput: string) {
-  await clearSettingKey("video_api_key", "video.api_key_cleared", "video", actorInput);
 }
 
 async function readSettingMap(keys: readonly string[]) {

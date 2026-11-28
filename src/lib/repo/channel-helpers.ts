@@ -1,13 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { getChannelProfile, mapChannelPayload, preflightChannelContent, type ChannelContext } from "../channels.ts";
+import { mapChannelPayload, preflightChannelContent, type ChannelContext } from "../channels.ts";
 import { normalizeListingContent, type ListingDraftContent, type ListingPreflightResult } from "../listing.ts";
 import type {
-  AssetRow,
   ChannelAccountRow,
   ChannelListingRow,
   ChannelListingVersionRow,
-  ContentProfileRow,
-  ListingRow,
   MarketRow,
   PlatformRow,
   ProductCaseRow,
@@ -16,15 +13,7 @@ import type {
 } from "../types.ts";
 
 export type SqlExecutor = {
-  query<T>(query: string, params?: any[]): Promise<{ rows: T[] }>;
-};
-
-type ChannelTargetBaseRow = ChannelListingRow & {
-  product: ProductRow;
-  variant: ProductMarketVariantRow;
-  account: ChannelAccountRow;
-  market: MarketRow;
-  platform: PlatformRow;
+  query<T>(query: string, params?: unknown[]): Promise<{ rows: T[] }>;
 };
 
 export type ChannelFoundation = {

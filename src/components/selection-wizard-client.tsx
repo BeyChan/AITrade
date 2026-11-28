@@ -32,7 +32,6 @@ type Props = {
   marketName: string;
   platformCode: string;
   platformName: string;
-  currency: string;
   requestKey: string;
   siteReports?: CompetitorComparisonReport[];
   confirmedCostSheets?: CostSheet[];
@@ -48,7 +47,6 @@ export function SelectionWizardClient({
   marketName,
   platformCode,
   platformName,
-  currency,
   requestKey,
   siteReports = [],
   confirmedCostSheets = [],

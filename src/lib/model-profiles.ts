@@ -318,25 +318,6 @@ async function ensureProfilesTable() {
   if (ensured) return;
   const db = await getDb();
   await db.query(`
-    CREATE TABLE IF NOT EXISTS model_provider_profiles (
-      id TEXT PRIMARY KEY,
-      service_type TEXT NOT NULL,
-      vendor TEXT NOT NULL,
-      protocol TEXT NOT NULL,
-      name TEXT NOT NULL,
-      base_url TEXT NOT NULL DEFAULT '',
-      api_key_encrypted TEXT NOT NULL DEFAULT '',
-      models_json TEXT NOT NULL DEFAULT '[]',
-      default_model TEXT NOT NULL DEFAULT '',
-      submit_endpoint TEXT NOT NULL DEFAULT '',
-      query_endpoint TEXT NOT NULL DEFAULT '',
-      supports_multi_image BOOLEAN NOT NULL DEFAULT FALSE,
-      is_default BOOLEAN NOT NULL DEFAULT FALSE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-  await db.query(`
     UPDATE model_provider_profiles
     SET name = BTRIM(REGEXP_REPLACE(name, '\\s*（已迁移）$', ''))
     WHERE name LIKE '%（已迁移）'

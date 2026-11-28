@@ -1,6 +1,5 @@
 import type { EconomicsAssumptions, EconomicsResults } from "./economics";
 import type { ListingPreflightResult } from "./listing";
-import type { LaunchReadinessResult } from "./launch-readiness";
 import type { ScoredSupplierQuote } from "./sourcing";
 
 export type CaseStatus = "draft" | "researching" | "review_pending" | "approved" | "rejected" | "archived";
@@ -367,21 +366,6 @@ export type ChannelListingVersionRow = {
   created_at: string;
 };
 
-export type ChannelLaunchReviewRow = {
-  id: string;
-  channel_listing_id: string;
-  channel_version_id: string;
-  readiness_status: "approval_pending" | "approved_for_publish";
-  readiness_snapshot: Record<string, unknown>;
-  blocker_count: number;
-  reviewer: string;
-  decision: "approved" | "rejected";
-  notes: string;
-  external_actions: "none";
-  published: boolean;
-  created_at: string;
-};
-
 export type ChannelLaunchValidationRow = {
   id: string;
   channel_listing_id: string;
@@ -400,36 +384,6 @@ export type ChannelLaunchValidationRow = {
   expires_at: string | null;
   external_actions: "validation_only";
   published: false;
-};
-
-export type ChannelMatrixItem = {
-  product: ProductRow;
-  variant: ProductMarketVariantRow;
-  account: ChannelAccountRow;
-  market: MarketRow;
-  platform: PlatformRow;
-  channelListing: ChannelListingRow;
-  latestVersion: ChannelListingVersionRow | null;
-  versionCount: number;
-};
-
-export type ChannelMatrix = {
-  productCase: ProductCaseRow;
-  product: ProductRow | null;
-  targets: ChannelMatrixItem[];
-  markets: MarketRow[];
-  platforms: PlatformRow[];
-  auditLogs: AuditRow[];
-};
-
-export type ChannelTargetDetail = ChannelMatrixItem & {
-  versions: ChannelListingVersionRow[];
-  auditLogs: AuditRow[];
-  launchReviews: ChannelLaunchReviewRow[];
-  launchValidations: ChannelLaunchValidationRow[];
-  currentValidation: ChannelLaunchValidationRow | null;
-  platformCapabilities: import("./platform-capabilities").PlatformCapabilityResult;
-  launchReadiness: LaunchReadinessResult;
 };
 
 export type DataSourceRow = {
@@ -474,21 +428,6 @@ export type ConnectorHealthCheckRow = {
   details: Record<string, unknown>;
   checked_by: string;
   checked_at: string;
-};
-
-export type EvidenceSnapshotRow = {
-  id: string;
-  ingestion_run_id: string | null;
-  case_id: string | null;
-  source_code: string;
-  source_record_id: string;
-  evidence_type: string;
-  source_url: string | null;
-  raw_payload: Record<string, unknown>;
-  normalized_payload: Record<string, unknown>;
-  content_hash: string;
-  observed_at: string;
-  created_at: string;
 };
 
 export type DataSourceDashboardItem = DataSourceRow & {

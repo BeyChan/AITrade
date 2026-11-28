@@ -108,7 +108,7 @@ function inspectPayload(payload: Partial<BackupPayload>) {
 async function writePreRestoreSnapshot(): Promise<string | null> {
   try {
     const snapshot = await collectBackupPayload();
-    const backupsDir = path.resolve(process.cwd(), ".data", "backups");
+    const backupsDir = path.resolve(/* turbopackIgnore: true */ process.cwd(), ".data", "backups");
     await fs.mkdir(backupsDir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const filename = `pre-restore-${stamp}.json`;

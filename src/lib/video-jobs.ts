@@ -34,40 +34,6 @@ export type VideoGenerationJob = {
   updated_at: string;
 };
 
-let tableEnsured = false;
-
-async function ensureVideoJobsTable() {
-  if (tableEnsured) return;
-  const db = await getDb();
-  await db.query(`
-    CREATE TABLE IF NOT EXISTS video_generation_jobs (
-      id TEXT PRIMARY KEY,
-      case_id TEXT NOT NULL,
-      source_asset_id TEXT NOT NULL,
-      template_id TEXT NOT NULL,
-      aspect_ratio TEXT NOT NULL,
-      duration_sec INTEGER NOT NULL DEFAULT 5,
-      provider TEXT NOT NULL,
-      model TEXT NOT NULL,
-      prompt TEXT NOT NULL,
-      negative_prompt TEXT NOT NULL DEFAULT '',
-      status TEXT NOT NULL DEFAULT 'queued',
-      external_task_id TEXT NOT NULL DEFAULT '',
-      poll_url TEXT NOT NULL DEFAULT '',
-      result_asset_id TEXT,
-      estimated_cost_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
-      error_message TEXT,
-      created_by TEXT NOT NULL DEFAULT '本机管理员',
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-  await db.query(
-    `CREATE INDEX IF NOT EXISTS idx_video_jobs_case_created ON video_generation_jobs (case_id, created_at DESC)`,
-  );
-  tableEnsured = true;
-}
-
 export async function createVideoJob(input: {
   caseId: string;
   sourceAssetId: string;
@@ -84,7 +50,6 @@ export async function createVideoJob(input: {
   estimatedCostUsd: number;
   actor: string;
 }): Promise<VideoGenerationJob> {
-  await ensureVideoJobsTable();
   const db = await getDb();
   const id = randomUUID();
   const result = await db.query<VideoGenerationJob>(
@@ -116,7 +81,6 @@ export async function createVideoJob(input: {
 }
 
 export async function getVideoJob(jobId: string): Promise<VideoGenerationJob | null> {
-  await ensureVideoJobsTable();
   const db = await getDb();
   const result = await db.query<VideoGenerationJob>(`SELECT * FROM video_generation_jobs WHERE id = $1`, [jobId]);
   const row = result.rows[0];
@@ -124,7 +88,6 @@ export async function getVideoJob(jobId: string): Promise<VideoGenerationJob | n
 }
 
 export async function listVideoJobsForCase(caseId: string): Promise<VideoGenerationJob[]> {
-  await ensureVideoJobsTable();
   const db = await getDb();
   const result = await db.query<VideoGenerationJob>(
     `SELECT * FROM video_generation_jobs WHERE case_id = $1 ORDER BY created_at DESC LIMIT 30`,
@@ -141,7 +104,6 @@ export async function updateVideoJob(
     errorMessage?: string | null;
   },
 ): Promise<VideoGenerationJob | null> {
-  await ensureVideoJobsTable();
   const db = await getDb();
   const result = await db.query<VideoGenerationJob>(
     `UPDATE video_generation_jobs
@@ -158,7 +120,6 @@ export async function updateVideoJob(
 }
 
 export async function deleteVideoJob(jobId: string): Promise<void> {
-  await ensureVideoJobsTable();
   const db = await getDb();
   await db.query(`DELETE FROM video_generation_jobs WHERE id = $1`, [jobId]);
 }
