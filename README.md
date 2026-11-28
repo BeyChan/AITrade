@@ -10,9 +10,9 @@
 |---|---|
 | ![AITrade 浅色模式](docs/assets/aitrade-workspace-light.png) | ![AITrade 深色模式](docs/assets/aitrade-workspace-dark.png) |
 
-| 自动选品 · 浅色模式 | 自动选品 · 深色模式 |
+| 选品初筛 · 浅色模式 | 选品初筛 · 深色模式 |
 |---|---|
-| ![AITrade 自动选品浅色模式](docs/assets/aitrade-auto-pipeline-light.png) | ![AITrade 自动选品深色模式](docs/assets/aitrade-auto-pipeline-dark.png) |
+| ![AITrade 选品初筛浅色模式](docs/assets/aitrade-auto-pipeline-light.png) | ![AITrade 选品初筛深色模式](docs/assets/aitrade-auto-pipeline-dark.png) |
 
 ---
 
@@ -33,33 +33,35 @@ npm run dev
 
 ---
 
-## 端到端工作流程（全自动选品 → 半自动上架）
+## 端到端工作流程（选品初筛 → 选品看板 → 半自动上架）
 
 ```mermaid
 flowchart LR
-    subgraph S1["1. 全自动选品（多平台可配置 · 零 Keepa Key 可用）"]
-        A1["Chrome 扩展一键推池 /<br/>卖家精灵·H10 CSV / 本地收件箱"] --> A2["市场格局 HHI·CR3 +<br/>合规红线确定性快筛"]
-        A2 --> A3["18% 净利率反推采购上限 (¥)<br/>自动分级：S / A / B / HOLD / 淘汰"]
+    subgraph S1["1. 选品初筛（/auto-pipeline · 涡轮快筛分诊）"]
+        A1["Chrome 扩展一键推池 /<br/>卖家精灵·H10 CSV / 15s 自动监听收件箱"] --> A2["归一化去重 +<br/>HHI·CR3·合规红线确定性快筛"]
+        A2 --> A3["18% 净利率反推采购上限 (¥)<br/>S / A / B / HOLD / 淘汰 + 避坑预警"]
     end
 
-    subgraph S2["2. 1688 寻源与人工定标（卡点 1）"]
-        B1["S/A 级带采购天花板<br/>跳 1688 找厂 + 扩展抓报价"] --> B2["推进为商品案卷<br/>成本核算 + 拿样定标"]
-        B2 --> B3{"财务与真实证据门禁"}
-        B3 -->|"通过"| B4["人工确认 GO · 立项"]
-        B3 -->|"缺报价 / 承压"| B5["HOLD / NO-GO"]
+    subgraph S2["2. 选品看板与人工定标（/ai-sourcing · 卡点 1）"]
+        B0["+ 添加选品：AI 找方向 /<br/>已确认研报 / 已确认核算单"] --> B1["选品看板 4 步验证<br/>竞品研报 → 成本核算 → 1688 找厂拿样"]
+        B1 --> B3{"财务与真实证据门禁"}
+        B3 -->|"通过"| B4["人工确认 GO · 进商品案卷"]
+        B3 -->|"淘汰"| BL["统一避坑库<br/>全站导入/AI发散自动查重预警"]
     end
 
-    subgraph S3["3. 内容终审与半自动上架（卡点 2）"]
+    subgraph S3["3. 内容终审与半自动上架（/cases · 卡点 2）"]
         C1["AI 生成五点/标题/搜索词<br/>视觉工坊生图·视频 + 主图预检"] --> C2["人工内容终审通过"]
         C2 --> C3["Chrome 扩展多平台一键填表 +<br/>多平台模板导出 (Amazon TSV / Shopify Draft CSV) + ZIP"]
         C3 --> C4["卖家后台人工传图并点击发布"]
     end
 
-    subgraph S4["4. 实盘对账与校准"]
+    subgraph S4["4. 实盘对账与校准（/operations）"]
         D1["Settlement V2 + FBA 库存"] --> D2["实盘与预测利润对比"]
     end
 
-    A3 --> B1
+    A3 -->|"采纳进看板（主动作）"| B1
+    A3 -.->|"批量淘汰"| BL
+    A3 -.->|"S/A 级快轨（初始 HOLD）"| C1
     B4 --> C1
     C4 --> D1
     D2 -.->|"校准后续测算"| A2
@@ -68,9 +70,9 @@ flowchart LR
     classDef success fill:#ecfdf3,stroke:#15803d,color:#0f172a,stroke-width:1.5px;
     classDef warn fill:#fffbeb,stroke:#b45309,color:#0f172a,stroke-width:1.5px;
 
-    class A1,A2,C1,C3 primary;
+    class A1,A2,B0,C1,C3 primary;
     class B4,C2,C4,D1 success;
-    class A3,B1,B2,B3,B5,D2 warn;
+    class A3,B1,B3,BL,D2 warn;
 ```
 
 ---
