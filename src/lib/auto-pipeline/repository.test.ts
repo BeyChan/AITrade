@@ -16,6 +16,7 @@ const {
   listAutoPipelineRuns,
   promoteAutoCandidateToCase,
   renameAutoPipelineRun,
+  unpromoteAutoCandidate,
 } = await import("./repository.ts");
 
 after(async () => {
@@ -161,4 +162,20 @@ test("auto-pipeline retains per-batch snapshots, supports rename/delete, and pre
   const runsAfterCleanup = await listAutoPipelineRuns({ platformCode: "amazon", marketCode: "US" });
   assert.equal(runsAfterCleanup[0]?.totalSeeds, 1);
   assert.equal(runsAfterCleanup[0]?.eliminatedCount, 0);
+
+  // 6. 取消推进刚创建的空白案卷：解除关联并自动删除空案卷
+  const sharedRun1Snap = run1AfterCleanup[0];
+  assert.ok(sharedRun1Snap);
+  const unpromoted = await unpromoteAutoCandidate(sharedRun1Snap.id);
+  assert.equal(unpromoted.caseId, promoted.caseId);
+  assert.equal(unpromoted.caseDeleted, true);
+
+  const run1AfterUnpromote = await listAutoCandidates({ runId: run1.run.id });
+  assert.equal(run1AfterUnpromote[0]?.promotedCaseId, null);
+
+  const caseCheckAfterUnpromote = await db.query<{ id: string }>(
+    `SELECT id FROM product_cases WHERE id = $1`,
+    [promoted.caseId],
+  );
+  assert.equal(caseCheckAfterUnpromote.rows.length, 0);
 });

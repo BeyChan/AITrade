@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { deleteHypothesisAction } from "@/app/actions";
+import { SOURCING_GRADE_META, type SourcingGrade } from "@/lib/sourcing-grade";
 import type { DetailTab } from "./helpers";
 
 export type SwitcherCandidate = {
@@ -12,6 +13,7 @@ export type SwitcherCandidate = {
   eliminatedAt: string | null;
   productCaseId: string | null;
   decision: "GO" | "HOLD" | "NO-GO" | null;
+  grade: SourcingGrade;
 };
 
 export function CandidateSwitcher({
@@ -52,11 +54,18 @@ export function CandidateSwitcher({
                 <strong title={item.concept}>{item.concept}</strong>
                 {isElim ? (
                   <span className="badge badge-danger">已淘汰</span>
-                ) : item.productCaseId ? (
-                  <span className="badge badge-success">已立项</span>
-                ) : isGo ? (
-                  <span className="badge badge-success">GO</span>
-                ) : null}
+                ) : (
+                  <>
+                    <span className={`badge ${SOURCING_GRADE_META[item.grade].badgeClass}`}>
+                      {SOURCING_GRADE_META[item.grade].shortLabel}
+                    </span>
+                    {item.productCaseId ? (
+                      <span className="badge badge-success">已立项</span>
+                    ) : isGo ? (
+                      <span className="badge badge-success">GO</span>
+                    ) : null}
+                  </>
+                )}
               </Link>
               <button
                 type="button"

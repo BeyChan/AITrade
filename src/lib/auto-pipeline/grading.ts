@@ -5,6 +5,7 @@ import {
   type EconomicsAssumptions,
 } from "../economics.ts";
 import { evaluateFastScreen } from "../sourcing-funnel.ts";
+import { resolveSourcingGrade } from "../sourcing-grade.ts";
 import type {
   AutoCandidateReason,
   AutoCandidateResult,
@@ -201,10 +202,7 @@ export function evaluateAndGradeCandidate(input: {
     }
   }
 
-  // 4. 自动五级分级（严格禁止自动 GO）
-  let grade: AutoGrade;
-  let verdict: AutoCandidateVerdict;
-
+  // 4. 统一五级分级（严格禁止自动 GO）
   const hardFail =
     priceInvalid ||
     outOfPriceBand ||
@@ -213,41 +211,35 @@ export function evaluateAndGradeCandidate(input: {
     gate.rawRecommendation === "NO-GO" ||
     !gate.maxLandedAchievable;
 
-  if (hardFail) {
-    grade = "ELIMINATED";
-    verdict = "NO-GO";
-  } else if (evidenceSource !== "real") {
-    grade = "HOLD";
-    verdict = "PENDING";
+  if (!hardFail && evidenceSource !== "real") {
     reasons.push({
       code: "AI_GENERATED_ONLY",
       severity: "warn",
       message: "仅基于 AI 线索生成，需导入真实售价证据后再评级",
     });
-  } else if (
-    effectiveMarketStatus === "pass" &&
-    econ.marginRate >= th.sGradeMinMargin &&
-    score >= th.sGradeMinScore
-  ) {
-    grade = "S";
-    verdict = "HOLD"; // 等人工补真实报价后转 verified GO
-  } else if (
-    effectiveMarketStatus === "pass" &&
-    econ.marginRate >= th.aGradeMinMargin &&
-    score >= th.aGradeMinScore
-  ) {
-    grade = "A";
-    verdict = "HOLD";
-  } else if (
-    effectiveMarketStatus === "hold" &&
-    econ.marginRate >= econCfg.targetMarginRate
-  ) {
-    grade = "B";
-    verdict = "HOLD";
-  } else {
-    grade = "HOLD";
-    verdict = "PENDING";
   }
+
+  const grade: AutoGrade = resolveSourcingGrade({
+    hardFail,
+    hasRealEvidence: evidenceSource === "real",
+    marketStatus: effectiveMarketStatus,
+    marginRate: econ.marginRate,
+    score,
+    thresholds: {
+      sGradeMinMargin: th.sGradeMinMargin,
+      sGradeMinScore: th.sGradeMinScore,
+      aGradeMinMargin: th.aGradeMinMargin,
+      aGradeMinScore: th.aGradeMinScore,
+      minMarginRate: econCfg.targetMarginRate,
+    },
+  });
+
+  const verdict: AutoCandidateVerdict =
+    grade === "ELIMINATED"
+      ? "NO-GO"
+      : grade === "HOLD"
+        ? "PENDING"
+        : "HOLD"; // 等人工补真实报价后转 verified GO
 
   return {
     id: input.id,

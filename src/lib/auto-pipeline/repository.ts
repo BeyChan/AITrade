@@ -746,7 +746,7 @@ export async function promoteAutoCandidateToCase(candidateId: string, actor = "�
 
   const caseId = randomUUID();
   const costModelId = randomUUID();
-  const notes = `自动选品池 ${candidate.grade} 级推进（平台 ${candidate.platform_code}/${candidate.market_code}，估算达标采购上限 ≤ ¥${Number(candidate.max_landed_cost_cny || 0).toFixed(1)}，待补真实工厂报价与人工定标）。`;
+  const notes = `自动选品 ${candidate.grade} 级推进（平台 ${candidate.platform_code}/${candidate.market_code}，估算达标采购上限 ≤ ¥${Number(candidate.max_landed_cost_cny || 0).toFixed(1)}，待补真实工厂报价与人工定标）。`;
 
   await db.query(
     `INSERT INTO product_cases
@@ -792,4 +792,96 @@ export async function promoteAutoCandidateToCase(candidateId: string, actor = "�
   }).catch(() => {});
 
   return { caseId, alreadyExisted: false };
+}
+
+/**
+ * 取消候选推进：
+ * - 清空 auto_candidates 与 auto_run_candidates 的 promoted_case_id 关联
+ * - 若关联的商品案卷仍是刚推进的初始空案卷（无证据/报价/审批/文案/素材/拿样/实盘记录），自动删除该空案卷
+ * - 若已录入真实业务数据或已进入审批，则保留正式案卷不误删，仅解除选品池关联
+ */
+export async function unpromoteAutoCandidate(
+  candidateId: string,
+  actor = "运营人员",
+): Promise<{ caseId: string | null; caseDeleted: boolean }> {
+  const db = await getDb();
+  let res = await db.query<CandidateRow>(
+    `SELECT * FROM auto_candidates WHERE id = $1 LIMIT 1`,
+    [candidateId],
+  );
+  if (!res.rows[0]) {
+    res = await db.query<CandidateRow>(
+      `SELECT * FROM auto_run_candidates WHERE id = $1 LIMIT 1`,
+      [candidateId],
+    );
+  }
+  const candidate = res.rows[0];
+  if (!candidate) {
+    throw new Error("未找到对应的自动选品候选记录");
+  }
+
+  const caseId = candidate.promoted_case_id;
+  await db.query(
+    `UPDATE auto_candidates
+     SET promoted_case_id = NULL, updated_at = NOW()
+     WHERE platform_code = $1 AND market_code = $2 AND external_id = $3`,
+    [candidate.platform_code, candidate.market_code, candidate.external_id],
+  );
+  await db.query(
+    `UPDATE auto_run_candidates
+     SET promoted_case_id = NULL, updated_at = NOW()
+     WHERE platform_code = $1 AND market_code = $2 AND external_id = $3`,
+    [candidate.platform_code, candidate.market_code, candidate.external_id],
+  );
+
+  let caseDeleted = false;
+  if (caseId) {
+    const caseRes = await db.query<{ status: string }>(
+      `SELECT status FROM product_cases WHERE id = $1 LIMIT 1`,
+      [caseId],
+    );
+    const caseRow = caseRes.rows[0];
+    if (caseRow && caseRow.status === "researching") {
+      const workRes = await db.query<{
+        extra_records: number;
+        cost_model_count: number;
+      }>(
+        `SELECT
+           (
+             (SELECT COUNT(*) FROM case_evidence WHERE case_id = $1) +
+             (SELECT COUNT(*) FROM approvals WHERE case_id = $1) +
+             (SELECT COUNT(*) FROM rfqs WHERE case_id = $1) +
+             (SELECT COUNT(*) FROM assets WHERE case_id = $1) +
+             (SELECT COUNT(*) FROM listings WHERE case_id = $1) +
+             (SELECT COUNT(*) FROM supplier_selections WHERE case_id = $1) +
+             (SELECT COUNT(*) FROM sourcing_sample_logs WHERE case_id = $1) +
+             (SELECT COUNT(*) FROM studio_media_assets WHERE case_id = $1) +
+             (SELECT COUNT(*) FROM operations_sku_snapshots WHERE case_id = $1)
+           )::int AS extra_records,
+           (SELECT COUNT(*) FROM cost_models WHERE case_id = $1)::int AS cost_model_count`,
+        [caseId],
+      );
+      const work = workRes.rows[0];
+      if (work && work.extra_records === 0 && work.cost_model_count <= 1) {
+        await db.query(`DELETE FROM product_cases WHERE id = $1`, [caseId]);
+        caseDeleted = true;
+      }
+    }
+  }
+
+  await recordAuditLog({
+    actor,
+    action: "auto_pipeline.candidate_unpromoted",
+    entityType: "product_case",
+    entityId: caseId || candidateId,
+    details: {
+      candidateId,
+      platformCode: candidate.platform_code,
+      marketCode: candidate.market_code,
+      externalId: candidate.external_id,
+      caseDeleted,
+    },
+  }).catch(() => {});
+
+  return { caseId, caseDeleted };
 }

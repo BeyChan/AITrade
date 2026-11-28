@@ -534,7 +534,7 @@ if (pushAutoPoolBtn) {
     }
 
     pushAutoPoolBtn.disabled = true;
-    setStatus(`正在将 ${items.length} 款真实样本推送至自动选品池并自动算账分级…`);
+    setStatus(`正在将 ${items.length} 款真实样本推送至自动选品并自动算账分级…`);
     try {
       const resp = await fetch(`${server}/api/auto-pipeline`, {
         method: "POST",
@@ -557,7 +557,7 @@ if (pushAutoPoolBtn) {
       );
       chrome.tabs.create({ url: `${server}${json.redirectUrl || "/auto-pipeline"}` });
     } catch (err) {
-      setStatus(`推送自动选品池失败：${err instanceof Error ? err.message : String(err)}`, "err");
+      setStatus(`推送自动选品失败：${err instanceof Error ? err.message : String(err)}`, "err");
     } finally {
       pushAutoPoolBtn.disabled = false;
     }

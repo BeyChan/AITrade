@@ -14,6 +14,7 @@ import {
   type EliminatedHistoryRecord,
   type SourcingFunnelThresholds,
 } from "@/lib/sourcing-funnel";
+import { gradeManualHypothesis } from "@/lib/sourcing-grade";
 import type { ProductComplianceAttribute } from "@/lib/prelaunch-compliance";
 import { buildSupplierLeads } from "@/lib/supplier-discovery";
 import { compactNumber, moneyIn, percent, shortDate } from "@/lib/format";
@@ -80,6 +81,12 @@ export function HypothesisCard({
     report: attachedReport,
     thresholds: funnelThresholds,
   });
+  const gradeMeta = gradeManualHypothesis({
+    hypothesis,
+    fastScreen: fastEval,
+    costSheet,
+    funnelThresholds,
+  });
   const eliminationAlerts = hypothesis.eliminatedAt
     ? []
     : findEliminationMatches(
@@ -126,7 +133,14 @@ export function HypothesisCard({
               {hypothesis.eliminatedAt ? (
                 <span className="badge badge-danger">已淘汰 · {hypothesis.eliminationReason ?? "已记录"}</span>
               ) : (
-                <DecisionBadge decision={decision} />
+                <>
+                  <span className={`badge ${gradeMeta.badgeClass}`} title="立项前统一分级（与自动选品一致）">
+                    {gradeMeta.fullLabel}
+                  </span>
+                  {decision?.decision === "GO" || decision?.decision === "NO-GO" ? (
+                    <DecisionBadge decision={decision} />
+                  ) : null}
+                </>
               )}
               <span className="badge badge-neutral">
                 证据 {decision?.evidenceCompleteness ?? 0}%

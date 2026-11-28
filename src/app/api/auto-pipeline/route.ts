@@ -49,7 +49,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ configs, runs, candidates }, { headers });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "读取自动选品池失败" },
+      { error: error instanceof Error ? error.message : "读取自动选品失败" },
       { status: 500, headers },
     );
   }

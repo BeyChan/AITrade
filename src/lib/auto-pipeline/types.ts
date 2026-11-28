@@ -1,7 +1,8 @@
 import type { SourcingFunnelThresholds } from "../sourcing-funnel.ts";
 import type { ProductComplianceAttribute } from "../prelaunch-compliance.ts";
+import type { SourcingGrade } from "../sourcing-grade.ts";
 
-export type AutoGrade = "S" | "A" | "B" | "HOLD" | "ELIMINATED";
+export type AutoGrade = SourcingGrade;
 
 /**
  * 类型层面严格禁止自动签发正式 GO：

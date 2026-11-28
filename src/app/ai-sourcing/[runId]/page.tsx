@@ -20,6 +20,9 @@ import {
   type SupplierDraft,
 } from "@/lib/ai-supplier-assistant/repository";
 import { listAiInboxTaskCountsByRun } from "@/lib/ai-inbox/repository";
+import { evaluateFastScreen } from "@/lib/sourcing-funnel";
+import { gradeManualHypothesis, type SourcingGradeMeta } from "@/lib/sourcing-grade";
+import type { ProductComplianceAttribute } from "@/lib/prelaunch-compliance";
 import { shortDate } from "@/lib/format";
 import { dateTimeInputValue, type DetailTab } from "./_components/helpers";
 import { CandidateSwitcher } from "./_components/candidate-switcher";
@@ -109,6 +112,31 @@ export default async function AISourcingDetailPage({ params, searchParams }: Pag
     costSheetLatestById.set(id, isLatest);
   }
 
+  const gradeByHypothesis = new Map<string, SourcingGradeMeta>();
+  for (const item of batch.hypotheses) {
+    const report = item.comparisonReportId
+      ? recentReports.find((r) => r.id === item.comparisonReportId) ?? null
+      : null;
+    const fastEval = evaluateFastScreen({
+      marketCode: batch.marketCode,
+      verifiedCompetitorCount: item.counts.verifiedCompetitors ?? item.counts.competitors,
+      p50PriceCents: item.benchmark.price?.p50 ?? null,
+      complianceAttrs: item.complianceAttrs as ProductComplianceAttribute[],
+      conceptText: `${batch.category} ${item.concept}`,
+      report,
+      thresholds: funnelThresholds,
+    });
+    const sheet = item.costSheetId ? costSheetsById.get(item.costSheetId) ?? null : null;
+    gradeByHypothesis.set(
+      item.id,
+      gradeManualHypothesis({ hypothesis: item, fastScreen: fastEval, costSheet: sheet, funnelThresholds }),
+    );
+  }
+
+  const sCount = [...gradeByHypothesis.values()].filter((g) => g.grade === "S").length;
+  const aCount = [...gradeByHypothesis.values()].filter((g) => g.grade === "A").length;
+  const bCount = [...gradeByHypothesis.values()].filter((g) => g.grade === "B").length;
+
   const savedTab = cookieStore.get("aitrade_detail_tab")?.value;
   const activeTab = parseDetailTab(query.tab ?? savedTab);
   const tabHref = (key: DetailTab, hypothesisId = activeHypothesis?.id) => {
@@ -132,7 +160,10 @@ export default async function AISourcingDetailPage({ params, searchParams }: Pag
           <>
             <span className="badge badge-neutral">{siteLabel}</span>
             <span className="badge badge-neutral">{batch.currency}</span>
-            <span className="badge badge-success">{goCount} GO</span>
+            {sCount > 0 ? <span className="badge badge-success">S 级 {sCount}</span> : null}
+            {aCount > 0 ? <span className="badge status-review_pending">A 级 {aCount}</span> : null}
+            {bCount > 0 ? <span className="badge badge-warn">B 级 {bCount}</span> : null}
+            <span className="badge badge-success">已定标 {goCount} GO</span>
             {eliminatedCount > 0 ? <span className="badge badge-danger">{eliminatedCount} 已淘汰</span> : null}
           </>
         }
@@ -169,6 +200,7 @@ export default async function AISourcingDetailPage({ params, searchParams }: Pag
           eliminatedAt: item.eliminatedAt,
           productCaseId: item.productCaseId,
           decision: item.decision?.decision ?? null,
+          grade: gradeByHypothesis.get(item.id)?.grade ?? "HOLD",
         }))}
       />
 

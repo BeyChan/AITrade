@@ -4,15 +4,15 @@
 
 利润、压力测试和 18% 净利率门禁全部由确定性代码计算；AI 仅用于辅助发散选题、提取报价单和生成图文/视频草稿，不参与最终财务判定。**系统严禁自动签发 `GO` 与无人值守直接发布**，在“自动选品分级 → 人工核实报价定标 → 内容人工终审 → 半自动填表/导出上架”之间保留清晰的人工决策卡点。
 
-选品与上架主线统一为：`自动选品池（多平台可配置） → 候选证据补齐（竞品研报 / 成本核算） → 1688 寻源与人工定标 GO → 视觉/文案终审 → 半自动上架（扩展填表 / 多平台模板导出） → 实盘对账反哺`。
+选品与上架主线统一为：`自动选品（多平台可配置） → 候选证据补齐（竞品研报 / 成本核算） → 1688 寻源与人工定标 GO → 视觉/文案终审 → 半自动上架（扩展填表 / 多平台模板导出） → 实盘对账反哺`。
 
 | 工作台 · 浅色模式 | 工作台 · 深色模式 |
 |---|---|
 | ![AITrade 浅色模式](docs/assets/aitrade-workspace-light.png) | ![AITrade 深色模式](docs/assets/aitrade-workspace-dark.png) |
 
-| 自动选品池 · 浅色模式 | 自动选品池 · 深色模式 |
+| 自动选品 · 浅色模式 | 自动选品 · 深色模式 |
 |---|---|
-| ![AITrade 自动选品池浅色模式](docs/assets/aitrade-auto-pipeline-light.png) | ![AITrade 自动选品池深色模式](docs/assets/aitrade-auto-pipeline-dark.png) |
+| ![AITrade 自动选品浅色模式](docs/assets/aitrade-auto-pipeline-light.png) | ![AITrade 自动选品深色模式](docs/assets/aitrade-auto-pipeline-dark.png) |
 
 ---
 
@@ -37,7 +37,7 @@ npm run dev
 
 ```mermaid
 flowchart LR
-    subgraph S1["1. 全自动选品池（多平台可配置 · 零 Keepa Key 可用）"]
+    subgraph S1["1. 全自动选品（多平台可配置 · 零 Keepa Key 可用）"]
         A1["Chrome 扩展一键推池 /<br/>卖家精灵·H10 CSV / 本地收件箱"] --> A2["市场格局 HHI·CR3 +<br/>合规红线确定性快筛"]
         A2 --> A3["18% 净利率反推采购上限 (¥)<br/>自动分级：S / A / B / HOLD / 淘汰"]
     end
@@ -80,8 +80,8 @@ flowchart LR
 | 模块 | 路径 | 说明 |
 |---|---|---|
 | **工作台** | `/` | 站点时间与汇率换算、待办提醒、行业快讯和商品进度看板；全局 `⌘K` 支持命令面板检索（商品/研报/工厂/功能直达）与全站页面识别 AI 操盘手问答 |
-| **自动选品池** | `/auto-pipeline` `/auto-pipeline/history` | 多平台可配置全自动选品流水线（内置 Amazon US/UK/DE/JP、Shopify US、TikTok Shop US，支持随时新增自定义平台/站点与阈值）。无需 Keepa Key：支持 CSV 上传、本地收件箱 `.data/inbox-csv/` 扫描与 Chrome 扩展一键推送；按批次独立留存历史快照（默认展示最新一批，独立历史批次页支持搜索、分页、重命名与整批删除），自动执行 HHI/CR3 与合规快筛、反推 18% 采购上限（¥）并输出 `S / A / B / HOLD / 淘汰` 分级，支持单条/多选删除、一键清理已淘汰、一键跳 1688 找厂或推进为正式商品案卷 |
-| **选品看板 / 新建选品** | `/ai-sourcing` `/discover` | 从候选池、供应链入口和商品机会进入统一选品流程；支持 AI 找方向、从已确认竞品研报或成本核算单建立候选 |
+| **自动选品** | `/auto-pipeline` `/auto-pipeline/history` | 多平台可配置全自动选品流水线（内置 Amazon US/UK/DE/JP、Shopify US、TikTok Shop US，支持随时新增自定义平台/站点与阈值）。无需 Keepa Key：支持 CSV 上传、本地收件箱 `.data/inbox-csv/` 扫描与 Chrome 扩展一键推送；按批次独立留存历史快照（默认展示最新一批，独立历史批次页支持搜索、分页、重命名与整批删除），自动执行 HHI/CR3 与合规快筛、反推 18% 采购上限（¥）并输出与手动选品统一的 `S / A / B / HOLD / 淘汰` 分级，支持单条/多选删除、一键清理已淘汰、一键跳 1688 找厂、推进/取消推进为正式商品案卷 |
+| **选品看板 / 新建选品** | `/ai-sourcing` `/discover` | 从候选、供应链入口和商品机会进入统一选品流程；支持 AI 找方向、从已确认竞品研报或成本核算单建立候选，立项前统一展示 `S / A / B / HOLD / 淘汰` 分级，人工定标后签发 `GO / NO-GO` |
 | **竞品研报** | `/competitors` | 支持浏览器扩展采集、**卖家精灵 / Helium 10** CSV 导入和 AI 整理；从候选进入时会锁定站点、平台与币种，确认并绑定后返回原候选 |
 | **成本核算** | `/costing` | 建立可追溯的售价、采购、头程、履约费与平台费率版本；草稿可迭代，确认后的最新版本才可作为候选 GO 与正式立项依据 |
 | **商品案卷与半自动上架** | `/cases` `/cases/[id]` | 单品阶段直达、利润沙盘、18% 净利率与盈亏平衡 ACoS 核算；文案工作台支持 AI 一键生成与本地预检，人工终审通过后可通过 `GET /api/cases/[id]/listing-payload?platform=...` 供扩展一键后台填表，或导出增强版多平台模板（Amazon Flat File TSV / Shopify Draft CSV / 通用 TSV）、上架素材包 ZIP 与 A4 立项评审 PDF |
@@ -94,7 +94,7 @@ flowchart LR
 
 ## 数据规则与边界
 
-- **缺数据不放行 `GO`**：自动选品池在类型与数据库约束层面严格禁止自动签发 `GO`（仅输出 `HOLD / NO-GO / PENDING` 与估算净利率）；缺少真实竞品售价或尚未定标工厂报价时，系统只输出 18% 门禁下的最高允许到岸成本。
+- **缺数据不放行 `GO`**：自动选品在类型与数据库约束层面严格禁止自动签发 `GO`（仅输出 `HOLD / NO-GO / PENDING` 与估算净利率）；缺少真实竞品售价或尚未定标工厂报价时，系统只输出 18% 门禁下的最高允许到岸成本。
 - **多平台配置化，不写死单一平台**：平台佣金率、履约费模型、广告费率、快筛红线、S/A 分级阈值与半自动上架交付方式全部存储在 `auto_pipeline_configs` 中，可按 `platform_code + market_code` 自由增改。
 - **不做外部违规自动操作**：不包含后台未授权爬虫、验证码绕过、自动联系供应商、自动下单付款或无人值守直接 Live 上架；半自动上架必须经人工内容终审后，由运营在已登录后台核对并点击发布。
 - **演示模式与正式模式隔离**：演示模式可跳过部分人工确认步骤并写入 `demoBypass` 审计标记；正式模式严格执行人工确认与版本范围校验。
@@ -108,7 +108,7 @@ flowchart LR
 
 ### Chrome 实战助手（选品 + 1688 寻源 + 半自动上架三合一）
 在 `chrome://extensions` 开启开发者模式，加载 `extensions/aitrade-assistant/`：
-- **自动选品池推送**：在 Amazon 搜索页 (`/s?k=...`) 点击「推送到自动选品池」，将整页真实竞品直接送入 `/auto-pipeline` 自动快筛、反推采购上限并分级。
+- **自动选品推送**：在 Amazon 搜索页 (`/s?k=...`) 点击「推送到自动选品」，将整页真实竞品直接送入 `/auto-pipeline` 自动快筛、反推采购上限并分级。
 - **竞品研报采集**：在 Amazon 详情页 (`/dp/`) 或搜索页提取真实售价、评分、评论数和 1–3 星差评，支持对比篮子多品打包推送。
 - **1688 工厂采集**：在 1688 搜索页一键抓取可见工厂与人民币报价，按当前汇率换算写入对应商品比价表。
 - **多平台半自动上架填表**：登录 Amazon Seller Central / Shopify Admin / TikTok Shop Seller 添加商品页后，选择目标平台与已通过人工内容终审的商品案卷，一键填入标题、品牌、SKU、售价、五点卖点、描述与搜索词，并在右下角弹出悬浮复制助手（新增平台只需在 `extensions/aitrade-assistant/autofill-profiles.js` 增加一份选择器映射）。
@@ -128,7 +128,7 @@ npm run typecheck                  # TypeScript 类型检查
 npm run theme:check                # 浅色/深色主题变量检查
 npm test                           # 全量单元测试
 npm run test:e2e                   # Playwright 核心流程冒烟测试
-npm run screenshots                # 重拍工作台与自动选品池深浅双模截图
+npm run screenshots                # 重拍工作台与自动选品深浅双模截图
 npm run build                      # 本地生产构建
 npm run db:reset                   # 清空本地 PGlite 数据库与缓存
 ```

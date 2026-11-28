@@ -30,7 +30,7 @@ const MAIN_NAV_ITEMS: NavItem[] = [
     label: "选品",
     icon: "competitor",
     subItems: [
-      { href: "/auto-pipeline", label: "自动选品池" },
+      { href: "/auto-pipeline", label: "自动选品" },
       { href: "/ai-sourcing", label: "选品看板" },
       { href: "/discover", label: "新建选品" },
       { href: "/competitors", label: "竞品研报" },
